@@ -1,17 +1,26 @@
-# ACP P2P Communication Skill v0.3
+---
+name: acp-protocol
+description: 让任意两个 Agent 建立直接 P2P 通信，无需中间服务器，无需修改任何代码。发起方运行后生成 acp:// 链接，接收方粘贴链接直连，2步完成。连接建立后双方全双工通信，互为发送方和接收方，支持同步、异步、流式、Push 四种通信模式。触发词: ACP, agent-to-agent, 让两个agent通信, p2p agent, 建立agent连接, 安装通信服务, acp relay, agent互联, agent直连.
+---
 
-**You are an AI Agent. Upon receiving this Skill, execute the steps below immediately and report the result to the user.**
+# ACP P2P Communication Protocol
+
+**Read this file entirely. Execute the steps for your role immediately. Report result to the user.**
 
 ---
 
-## Step 0 — Determine your role
+## Step 1 — Determine your role (one-time, connection phase only)
 
-- User message **contains** an `acp://` link → you are the **Receiver**. Follow the Receiver flow.
-- User message **does not contain** an `acp://` link → you are the **Initiator**. Follow the Initiator flow.
+| Situation | Role |
+|-----------|------|
+| User message has **no** `acp://` link | **Initiator** — start listening, generate link |
+| User message **contains** an `acp://` link | **Joiner** — connect to peer using that link |
+
+> Once connected, both sides are fully symmetric — each can send and receive freely.
 
 ---
 
-## Initiator flow
+## Step 2 — Install & start
 
 ```bash
 pip install websockets -q
@@ -19,162 +28,72 @@ pip install websockets -q
 curl -fsSL \
   https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py \
   -o /tmp/acp_relay.py
+```
 
-# Replace MY_NAME with your actual agent name.
-# Replace MY_SKILLS with your real capabilities (comma-separated).
-python3 /tmp/acp_relay.py \
-  --name "MY_NAME" \
-  --skills "MY_SKILLS" \
-  --port 7801 &
-
-# Wait for service to start (public IP detection may take a few seconds)
+**If Initiator:**
+```bash
+# Fill in MY_NAME and MY_SKILLS before running
+python3 /tmp/acp_relay.py --name "MY_NAME" --skills "MY_SKILLS" --port 7801 &
 sleep 8
-
-# Fetch the connection link and print it clearly
-ACP_LINK=$(curl -s --noproxy "*" http://localhost:7901/link | python3 -c "import json,sys; print(json.load(sys.stdin)['link'])")
+ACP_LINK=$(curl -s --noproxy "*" http://localhost:7901/link \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['link'])")
 echo "ACP_LINK=$ACP_LINK"
 ```
 
-**After running the commands above, you MUST reply to the user with this exact format** (fill in the real `ACP_LINK` value from the output):
-
-> ✅ ACP P2P service started (v0.3).
-> 🔗 Your link: `<ACP_LINK>`
-> 📋 Next step: forward this link to Agent B — that's all they need.
+**Reply to user (required):**
+> ✅ ACP service started. 🔗 Link: `<ACP_LINK value from output>`
+> Forward this link to the other agent — that's all they need.
 
 ---
 
-## Receiver flow
-
-Substitute `<LINK>` with the `acp://` link provided by the user:
-
+**If Joiner** (replace `<LINK>` with the actual acp:// link):
 ```bash
-pip install websockets -q
-
-curl -fsSL \
-  https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py \
-  -o /tmp/acp_relay.py
-
-python3 /tmp/acp_relay.py \
-  --name "MY_NAME" \
-  --skills "MY_SKILLS" \
-  --join <LINK> \
-  --port 7820 &
-
-# Wait for connection to establish
+# Fill in MY_NAME and MY_SKILLS before running
+python3 /tmp/acp_relay.py --name "MY_NAME" --skills "MY_SKILLS" --join <LINK> --port 7820 &
 sleep 5
-
-# Fetch peer info and print it clearly
-curl -s --noproxy "*" http://localhost:7920/card | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-peer = d.get('peer') or {}
-print('PEER_NAME=' + str(peer.get('name', 'unknown')))
-print('PEER_SKILLS=' + str(peer.get('skills', [])))
-print('CONNECTED=' + str(bool(peer)))
+curl -s --noproxy "*" http://localhost:7920/card \
+  | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+p=d.get('peer') or {}
+print('PEER_NAME=' + str(p.get('name','unknown')))
+print('PEER_SKILLS=' + str(p.get('skills',[])))
 "
 ```
 
-**After running the commands above, you MUST reply to the user with this exact format** (fill in values from the `PEER_NAME` and `PEER_SKILLS` output):
-
-> ✅ P2P connection established (no intermediary server).
-> 🤝 Connected to: **[PEER_NAME]** | Skills: [PEER_SKILLS]
-> 📡 Supported modes: Sync · Async · Stream · Push
+**Reply to user (required):**
+> ✅ Connected. 🤝 Peer: `<PEER_NAME>` | Skills: `<PEER_SKILLS>`
+> Full-duplex channel ready. Both sides can send and receive.
 
 ---
 
-## Communication modes
+## Step 3 — Send & receive (both sides, identical)
 
-### Mode 1 — Synchronous (request / response)
-
-Send a message and **block until the peer replies** (or timeout):
+Default ports: Initiator HTTP=`7901`, Joiner HTTP=`7920` (rule: HTTP = WS port + 100).
 
 ```bash
-# Caller blocks until reply arrives (timeout: 30s default)
-curl -s --noproxy "*" -X POST http://localhost:<PORT>/send \
+# Send a message
+curl -s --noproxy "*" -X POST http://localhost:<HTTP_PORT>/send \
   -H "Content-Type: application/json" \
-  -d '{"type":"query","content":"...","sync":true,"timeout":30}'
+  -d '{"type":"message","content":"Hello!"}'
 
-# Peer replies with:
-curl -s --noproxy "*" -X POST http://localhost:<PEER_PORT>/reply \
-  -H "Content-Type: application/json" \
-  -d '{"correlation_id":"<original msg id>","content":"<reply>"}'
+# Receive queued messages
+curl -s --noproxy "*" http://localhost:<HTTP_PORT>/recv
 ```
 
-### Mode 2 — Asynchronous (task lifecycle)
-
-Create a task, delegate to peer, poll for completion:
-
-```bash
-# Create + delegate task to peer
-curl -s --noproxy "*" -X POST http://localhost:<PORT>/tasks/create \
-  -H "Content-Type: application/json" \
-  -d '{"payload":{"task":"..."},"delegate":true}'
-# Returns: {"task": {"id": "task_xxx", "status": "submitted", ...}}
-
-# Poll status
-curl -s --noproxy "*" http://localhost:<PORT>/tasks/<task_id>
-
-# Peer updates task status (working → completed)
-curl -s --noproxy "*" -X POST http://localhost:<PORT>/tasks/<task_id>/update \
-  -H "Content-Type: application/json" \
-  -d '{"status":"completed","artifact":{"type":"text","content":"result"}}'
-
-# Cancel a running task
-curl -s --noproxy "*" -X DELETE http://localhost:<PORT>/tasks/<task_id>
-```
-
-Task states: `submitted` → `working` → `completed` | `failed` | `cancelled`
-
-### Mode 3 — Streaming (SSE real-time events)
-
-Subscribe to a live event stream (all messages, task updates, connection events):
-
-```bash
-curl -N --noproxy "*" http://localhost:<PORT>/stream
-# Streams server-sent events:
-# data: {"event":"message.received","message":{...}}
-# data: {"event":"task.updated","task_id":"...","status":"working"}
-# data: {"event":"peer.connected"}
-```
-
-### Mode 4 — Push (webhook callback)
-
-Register a webhook URL; the daemon POSTs all events to it automatically:
-
-```bash
-# Register
-curl -s --noproxy "*" -X POST http://localhost:<PORT>/webhooks/register \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://your-agent-host/acp-hook"}'
-
-# Deregister
-curl -s --noproxy "*" -X POST http://localhost:<PORT>/webhooks/deregister \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://your-agent-host/acp-hook"}'
-```
+For advanced communication modes (sync request/reply, async tasks, SSE streaming, push webhooks), see [`references/modes.md`](references/modes.md).
 
 ---
 
-## Full API reference (v0.3)
+## CLI options
 
-| Method | Path | Mode | Description |
-|--------|------|------|-------------|
-| `POST` | `/send` | Sync / Async | Send message. Add `"sync":true` to block for reply |
-| `POST` | `/reply` | Sync | Reply to a received message by `correlation_id` |
-| `GET`  | `/recv` | Async | Consume queued messages (`?limit=N`) |
-| `GET`  | `/wait/<id>` | Sync | Block-wait for a correlated reply (`?timeout=30`) |
-| `POST` | `/tasks/create` | Async | Create a task (`"delegate":true` sends to peer) |
-| `GET`  | `/tasks` | Async | List tasks (`?status=working`) |
-| `GET`  | `/tasks/<id>` | Async | Get task state + artifacts |
-| `POST` | `/tasks/<id>/update` | Async | Update task status / add artifact |
-| `DELETE` | `/tasks/<id>` | Async | Cancel a task |
-| `GET`  | `/stream` | Stream | SSE real-time event feed |
-| `POST` | `/webhooks/register` | Push | Register a push webhook URL |
-| `POST` | `/webhooks/deregister` | Push | Remove a push webhook URL |
-| `GET`  | `/status` | — | Connection state, statistics, version |
-| `GET`  | `/link` | — | This agent's `acp://` connection link |
-| `GET`  | `/card` | — | AgentCards (self + peer) |
-| `GET`  | `/history` | — | Persisted message history (`?limit=N`) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--name` | `ACP-Agent` | Agent display name |
+| `--join` | — | `acp://` link to connect to (omit = Initiator) |
+| `--port` | `7801` | WebSocket port; HTTP = this + 100 |
+| `--skills` | — | Comma-separated capability list |
+| `--inbox` | `/tmp/acp_inbox_<name>.jsonl` | Message persistence file |
 
 ---
 
