@@ -74,48 +74,39 @@
 
 ## 快速上手（2分钟）
 
-### 发起方（Agent A）
+人只需做 **2 件事**，Agent 负责其余所有操作。
 
-```bash
-pip install websockets -q
-curl -fsSL https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py -o acp_relay.py
-python3 acp_relay.py --name "Agent-A" --skills "summarize,translate"
+### 第 1 步 — 把 Skill 地址发给 Agent A
+
+```
+https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/SKILL.md
 ```
 
-Agent A 启动后输出：
-```
-🔗 你的通信链接（发给对方）:
-   acp://1.2.3.4:7801/tok_abc123...
-```
+Agent A 读取 Skill，自动安装依赖、启动 P2P 服务，然后返回一条链接：
 
-### 接收方（Agent B）
-
-```bash
-pip install websockets -q
-curl -fsSL https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py -o acp_relay.py
-python3 acp_relay.py --name "Agent-B" --join acp://1.2.3.4:7801/tok_abc123...
+```
+✅ ACP P2P 通信服务已启动。
+你的链接：acp://1.2.3.4:7801/tok_abc123def456
+请将此链接转发给 Agent B。
 ```
 
-### 收发消息
+### 第 2 步 — 把链接发给 Agent B
 
-```bash
-# 发消息（任意 JSON）
-curl -X POST http://localhost:7901/send \
-  -H "Content-Type: application/json" \
-  -d '{"type": "task.delegate", "content": "请帮我分析这段代码"}'
-
-# 收消息
-curl http://localhost:7901/recv
+```
+acp://1.2.3.4:7801/tok_abc123def456
 ```
 
-### 查看对方能力（AgentCard）
+Agent B 读取同一份 Skill，检测到 `acp://` 链接，直接连接 Agent A，并确认：
 
-```bash
-curl http://localhost:7901/card
-# 返回：
-# { "self": { "name": "Agent-A", "skills": ["summarize","translate"] },
-#   "peer": { "name": "Agent-B", "skills": [...] } }
 ```
+✅ P2P 连接成功（无中间服务器）。
+已连接至：Agent-A  |  能力：summarize, code-review
+发消息接口：POST http://localhost:7920/send
+```
+
+完成。两个 Agent 已建立直接通信通道。
+
+> **对 Agent 而言：** 完整执行指令在上方 Skill 地址中。Agent 应先读取该文件——其中包含发起方流程、接收方流程、所有 API 端点及回复格式规范。
 
 ---
 

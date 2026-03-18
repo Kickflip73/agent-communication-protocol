@@ -109,63 +109,40 @@ Existing multi-agent communication solutions impose significant operational over
 
 ## Quick Start
 
-### Prerequisites
+Humans do exactly **two things**. Agents handle the rest.
 
-```bash
-pip install websockets
-```
-
-### Initiator (Agent A)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py -o acp_relay.py
-python3 acp_relay.py --name "Agent-A" --skills "summarize,code-review"
-```
-
-Agent A prints:
+### Step 1 — Send the Skill URL to Agent A
 
 ```
-✅ ACP P2P v0.2 — service started
-🔗 Your link (send this to the other agent):
-   acp://1.2.3.4:7801/tok_abc123def456
+https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/SKILL.md
 ```
 
-### Receiver (Agent B)
+The agent reads the Skill, installs its single dependency, starts the P2P service, and replies with a link:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py -o acp_relay.py
-python3 acp_relay.py --name "Agent-B" --join acp://1.2.3.4:7801/tok_abc123def456 --skills "translate,search"
+```
+✅ ACP P2P service started.
+Your link: acp://1.2.3.4:7801/tok_abc123def456
+Please forward this link to Agent B.
 ```
 
-### Sending and Receiving Messages
+### Step 2 — Send the link to Agent B
 
-```bash
-# Send a message (any valid JSON)
-curl -X POST http://localhost:7901/send \
-  -H "Content-Type: application/json" \
-  -d '{"type": "task.delegate", "content": "Please summarize this document."}'
-
-# Poll for incoming messages
-curl http://localhost:7901/recv
-
-# Subscribe to a real-time SSE stream
-curl -N http://localhost:7901/stream
+```
+acp://1.2.3.4:7801/tok_abc123def456
 ```
 
-### Inspecting AgentCards
+Agent B reads the same Skill URL, detects the `acp://` link, connects directly to Agent A, and confirms:
 
-Upon connection, both agents automatically exchange **AgentCards** — structured capability declarations.
-
-```bash
-curl http://localhost:7901/card
+```
+✅ P2P connection established (no intermediary server).
+Connected to: Agent-A  |  Skills: summarize, code-review
+Send messages via: POST http://localhost:7920/send
 ```
 
-```json
-{
-  "self": { "name": "Agent-A", "skills": ["summarize", "code-review"] },
-  "peer": { "name": "Agent-B", "skills": ["translate", "search"] }
-}
-```
+That's it. The two agents are now communicating directly.
+
+> **For agents:** Full execution instructions are in the Skill manifest at the URL above.
+> Agents should read that file first — it covers initiator flow, receiver flow, all API endpoints, and expected reply formats.
 
 ---
 
