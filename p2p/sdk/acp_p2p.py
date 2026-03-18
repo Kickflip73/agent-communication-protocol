@@ -1,421 +1,497 @@
 """
-ACP-P2P SDK v0.2 — 去中心化 Agent 通信 + 群聊
+ACP-P2P SDK v0.3 — 轻量级去中心化 Agent 通信
 
-核心能力：
-- 任意两个 Agent 直连通信（无第三方）
-- 多 Agent 去中心化群聊（无群服务器）
-- 单文件 SDK，唯一依赖：aiohttp
-
-快速开始见 SKILL.md
+设计原则：
+  · 零强制依赖（纯标准库可运行）
+  · 可不起服务器：send-only 模式直接发消息
+  · 显式连接生命周期：connect / disconnect / join_group / leave_group
+  · 服务器可选：需要接收消息时才启动，随时停止
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import os
 import socket
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
-from typing import Any, Awaitable, Callable, Optional
+import urllib.request
+import urllib.error
+from dataclasses import dataclass, field
+from typing import Awaitable, Callable, Optional
 from urllib.parse import urlparse, parse_qs, urlencode
 
 log = logging.getLogger("acp_p2p")
 
-# ─── ACP URI ─────────────────────────────────────────────────────────────────
+# ─── URI ─────────────────────────────────────────────────────────────────────
 
 @dataclass
 class ACPURI:
-    """
-    acp://<host>:<port>/<name>?caps=cap1,cap2&key=psk
-    """
     host: str
     port: int
     name: str
     caps: list[str] = field(default_factory=list)
-    psk: str = None
+    psk:  str       = None
 
     @classmethod
     def parse(cls, uri: str) -> "ACPURI":
         if not uri.startswith("acp://"):
             raise ValueError(f"Not an ACP URI: {uri}")
-        parsed = urlparse(uri.replace("acp://", "http://", 1))
-        qs = parse_qs(parsed.query)
+        p  = urlparse(uri.replace("acp://", "http://", 1))
+        qs = parse_qs(p.query)
         caps_raw = qs.get("caps", [""])[0]
-        caps = [c for c in caps_raw.split(",") if c] if caps_raw else []
         return cls(
-            host=parsed.hostname or "localhost",
-            port=parsed.port or 7700,
-            name=parsed.path.lstrip("/"),
-            caps=caps,
-            psk=qs.get("key", [None])[0],
+            host = p.hostname or "localhost",
+            port = p.port    or 7700,
+            name = p.path.lstrip("/"),
+            caps = [c for c in caps_raw.split(",") if c],
+            psk  = qs.get("key", [None])[0],
         )
 
     def __str__(self) -> str:
-        qs = {}
-        if self.caps:
-            qs["caps"] = ",".join(self.caps)
-        if self.psk:
-            qs["key"] = self.psk
+        q = {}
+        if self.caps: q["caps"] = ",".join(self.caps)
+        if self.psk:  q["key"]  = self.psk
         base = f"acp://{self.host}:{self.port}/{self.name}"
-        return base + (f"?{urlencode(qs)}" if qs else "")
+        return base + (f"?{urlencode(q)}" if q else "")
 
     @property
     def receive_url(self) -> str:
         return f"http://{self.host}:{self.port}/acp/v1/receive"
 
-    @property
-    def identity_url(self) -> str:
-        return f"http://{self.host}:{self.port}/acp/v1/identity"
-
 
 def _local_ip() -> str:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]; s.close(); return ip
-    except Exception:
-        return "127.0.0.1"
+        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close(); return ip
+    except Exception: return "127.0.0.1"
 
 
-# ─── Message factory ─────────────────────────────────────────────────────────
+# ─── Message ─────────────────────────────────────────────────────────────────
 
-def _msg(type_: str, from_: str, to_: str, body: dict,
-         correlation_id: str = None, reply_to: str = None) -> dict:
-    m = {
-        "acp": "0.1",
-        "id": "msg_" + uuid.uuid4().hex[:16],
-        "type": type_,
-        "from": from_,
-        "to": to_,
-        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "body": body,
-    }
-    if correlation_id: m["correlation_id"] = correlation_id
-    if reply_to:       m["reply_to"] = reply_to
+def _msg(type_: str, from_: str, to_: str, body: dict, **kw) -> dict:
+    m = {"acp":"0.1","id":"msg_"+uuid.uuid4().hex[:12],"type":type_,
+         "from":from_,"to":to_,"ts":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),
+         "body":body}
+    m.update({k:v for k,v in kw.items() if v is not None})
     return m
 
 
-# ─── Group ───────────────────────────────────────────────────────────────────
+# ─── Lightweight HTTP send (stdlib only, no aiohttp required) ────────────────
+
+def _http_post_sync(url: str, payload: dict, psk: str = None, timeout: float = 10) -> Optional[dict]:
+    """同步 HTTP POST，纯标准库，send-only 场景不需要 aiohttp"""
+    data = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json"}
+    if psk: headers["X-ACP-PSK"] = psk
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read().decode()
+            if r.status == 200:  return json.loads(body)
+            if r.status == 202:  return None
+    except urllib.error.HTTPError as e:
+        if e.code == 202: return None
+        log.warning(f"POST {url} → {e.code}")
+    except Exception as e:
+        log.warning(f"POST {url} failed: {e}")
+    return None
+
+
+async def _http_post_async(url: str, payload: dict, psk: str = None, timeout: float = 10) -> Optional[dict]:
+    """异步 HTTP POST，优先 aiohttp，回退 stdlib"""
+    try:
+        import aiohttp
+        headers = {"Content-Type": "application/json"}
+        if psk: headers["X-ACP-PSK"] = psk
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, json=payload, headers=headers,
+                              timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+                if r.status == 200:  return await r.json()
+                if r.status == 202:  return None
+                log.warning(f"POST {url} → {r.status}")
+                return None
+    except ImportError:
+        # 回退到 stdlib（在线程池里跑同步版本）
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _http_post_sync, url, payload, psk, timeout)
+    except Exception as e:
+        log.warning(f"POST {url} failed: {e}"); return None
+
+
+# ─── Session ──────────────────────────────────────────────────────────────────
 
 @dataclass
-class ACPGroup:
+class Session:
     """
-    去中心化群聊。无服务器，每个成员本地保存成员列表。
-
-    群 ID 格式: group:<name>:<creator_uri>
-    分享格式:   把 group_uri 发给要拉进来的 Agent 即可
+    两个 Agent 之间的有状态连接。
+    通过 agent.connect(peer_uri) 建立，agent.disconnect(session) 关闭。
     """
-    group_id: str
-    members: list[str] = field(default_factory=list)   # ACP URI strings
-
-    def add_member(self, uri: str):
-        if uri not in self.members:
-            self.members.append(uri)
-
-    def remove_member(self, uri: str):
-        self.members = [m for m in self.members if m != uri]
-
-    def to_join_uri(self) -> str:
-        """生成邀请 URI，分享给新成员即可加入"""
-        members_encoded = ",".join(self.members)
-        return f"acpgroup://{self.group_id}?members={members_encoded}"
-
-    @classmethod
-    def from_join_uri(cls, join_uri: str) -> "ACPGroup":
-        """从邀请 URI 恢复群信息"""
-        parsed = urlparse(join_uri.replace("acpgroup://", "http://", 1))
-        group_id = parsed.netloc + parsed.path
-        qs = parse_qs(parsed.query)
-        members_raw = qs.get("members", [""])[0]
-        members = [m for m in members_raw.split(",") if m]
-        return cls(group_id=group_id, members=members)
+    session_id: str
+    local_uri:  str
+    peer_uri:   str
+    connected:  bool = True
+    established_at: float = field(default_factory=time.time)
 
     def __repr__(self):
-        return f"ACPGroup(id={self.group_id}, members={len(self.members)})"
+        state = "CONNECTED" if self.connected else "CLOSED"
+        return f"Session({self.local_uri.split('/')[-1]} ↔ {self.peer_uri.split('/')[-1]}, {state})"
 
 
-# ─── P2PAgent ────────────────────────────────────────────────────────────────
+# ─── Group ────────────────────────────────────────────────────────────────────
 
-TaskHandler    = Callable[[str, dict], Awaitable[Optional[dict]]]
-MessageHandler = Callable[[dict], Awaitable[Optional[dict]]]
-ChatHandler    = Callable[[str, str, dict], Awaitable[None]]   # (group_id, from_uri, body)
+@dataclass
+class Group:
+    """
+    去中心化群聊。无服务器，成员列表各自本地维护。
+    """
+    group_id: str
+    members:  list[str] = field(default_factory=list)
+    active:   bool      = True
+
+    def add(self, uri: str):
+        if uri not in self.members: self.members.append(uri)
+
+    def remove(self, uri: str):
+        self.members = [m for m in self.members if m != uri]
+
+    def to_invite_uri(self) -> str:
+        return f"acpgroup://{self.group_id}?members={','.join(self.members)}"
+
+    @classmethod
+    def from_invite_uri(cls, uri: str) -> "Group":
+        p  = urlparse(uri.replace("acpgroup://", "http://", 1))
+        qs = parse_qs(p.query)
+        members_raw = qs.get("members", [""])[0]
+        return cls(
+            group_id = (p.netloc + p.path).lstrip("/"),
+            members  = [m for m in members_raw.split(",") if m],
+        )
+
+    def __repr__(self):
+        state = "ACTIVE" if self.active else "LEFT"
+        return f"Group({self.group_id.split(':')[0]!r}, {len(self.members)} members, {state})"
+
+
+# ─── P2PAgent ─────────────────────────────────────────────────────────────────
+
+TaskHandler  = Callable[[str, dict], Awaitable[Optional[dict]]]
+ChatHandler  = Callable[[str, str, dict], Awaitable[None]]
 
 
 class P2PAgent:
     """
-    去中心化 ACP Agent，支持点对点通信和群聊。
+    轻量级去中心化 ACP Agent。
 
-    # 点对点
-    agent = P2PAgent("alice", port=7700)
+    两种使用模式：
 
-    @agent.on_task
-    async def handle(task, input_data):
-        return {"result": "done"}
+    【模式1：仅发送（最轻量，无需启动服务器）】
+        agent = P2PAgent("alice")
+        session = await agent.connect("acp://host:7700/bob")
+        result  = await agent.send(session, "任务", {"data": 1})
+        await agent.disconnect(session)
 
-    agent.start()   # 打印 ACP URI，分享给对方
+    【模式2：收发双向（需要启动服务器）】
+        agent = P2PAgent("alice", port=7700)
+        @agent.on_task
+        async def handle(task, input): return {"ok": True}
 
-    result = await agent.send("acp://192.168.1.5:7701/bob", "Do X", {"data": 1})
-
-    # 群聊
-    group = agent.create_group("study-group")
-    await agent.invite(group, "acp://192.168.1.5:7701/bob")
-    await agent.group_send(group, {"text": "Hello everyone!"})
-
-    @agent.on_group_message
-    async def on_msg(group_id, from_uri, body):
-        print(f"[{group_id}] {from_uri}: {body['text']}")
+        async with agent:           # 启动服务器
+            session = await agent.connect("acp://host:7701/bob")
+            await agent.send(session, "任务", {})
+            await agent.disconnect(session)
+            # 服务器在 with 块结束时自动停止
     """
 
     def __init__(
         self,
-        name: str,
-        port: int = 7700,
-        host: str = None,
-        psk: str = None,
-        capabilities: list[str] = None,
+        name:         str,
+        port:         int        = 7700,
+        host:         str        = None,
+        psk:          str        = None,
+        capabilities: list[str]  = None,
     ):
-        self.name = name
-        self.port = port
-        self._psk = psk
+        self.name         = name
+        self.port         = port
+        self._psk         = psk
         self.capabilities = capabilities or []
-        self._host = host or _local_ip()
-        self.uri = ACPURI(self._host, port, name, self.capabilities, psk)
+        self._host        = host or _local_ip()
+        self.uri          = ACPURI(self._host, port, name, self.capabilities, psk)
 
-        # Handlers
-        self._task_handler:         Optional[TaskHandler]    = None
-        self._chat_handler:         Optional[ChatHandler]    = None
-        self._message_handlers:     dict[str, MessageHandler] = {}
+        self._sessions:  dict[str, Session] = {}
+        self._groups:    dict[str, Group]   = {}
+        self._task_handler: Optional[TaskHandler] = None
+        self._chat_handler: Optional[ChatHandler] = None
+        self._msg_handlers: dict[str, Callable]   = {}
+        self._server_task = None
+        self._running     = False
 
-        # Groups: group_id → ACPGroup
-        self._groups: dict[str, ACPGroup] = {}
+    # ── Decorators ───────────────────────────────────────────────────────────
 
-    # ── Decorators ────────────────────────────────────────────────────────────
-
-    def on_task(self, func: TaskHandler) -> TaskHandler:
+    def on_task(self, fn: TaskHandler) -> TaskHandler:
         """处理 task.delegate 消息"""
-        self._task_handler = func
-        return func
+        self._task_handler = fn; return fn
 
-    def on_group_message(self, func: ChatHandler) -> ChatHandler:
-        """处理群聊消息：async def handler(group_id, from_uri, body)"""
-        self._chat_handler = func
-        return func
+    def on_group_message(self, fn: ChatHandler) -> ChatHandler:
+        """处理群消息：async def fn(group_id, from_uri, body)"""
+        self._chat_handler = fn; return fn
 
-    def on_message(self, msg_type: str):
-        """处理指定类型的消息"""
-        def dec(func: MessageHandler):
-            self._message_handlers[msg_type] = func
-            return func
+    def on_message(self, type_: str):
+        """处理自定义消息类型"""
+        def dec(fn): self._msg_handlers[type_] = fn; return fn
         return dec
 
-    # ── Point-to-Point ────────────────────────────────────────────────────────
+    # ── Connection lifecycle ──────────────────────────────────────────────────
+
+    async def connect(self, peer_uri: str) -> Session:
+        """
+        与另一个 Agent 建立连接会话。
+        发送 agent.hello 握手，确认对方在线。
+        返回 Session 对象，后续 send/disconnect 都用它。
+
+        示例：
+            session = await alice.connect("acp://192.168.1.5:7701/bob")
+            print(session)  # Session(alice ↔ bob, CONNECTED)
+        """
+        target = ACPURI.parse(peer_uri)
+        hello = _msg("agent.hello", str(self.uri), peer_uri,
+                     {"name": self.name, "capabilities": self.capabilities})
+        reply = await _http_post_async(target.receive_url, hello, target.psk, timeout=5)
+
+        session = Session(
+            session_id      = "sess_" + uuid.uuid4().hex[:8],
+            local_uri       = str(self.uri),
+            peer_uri        = peer_uri,
+            connected       = reply is not None,
+        )
+        self._sessions[session.session_id] = session
+        log.info(f"connect → {peer_uri}: {'OK' if session.connected else 'UNREACHABLE (send-only)'}")
+        return session
+
+    async def disconnect(self, session: Session):
+        """
+        关闭与对方的连接，通知对方。
+
+        示例：
+            await alice.disconnect(session)
+        """
+        if not session.connected:
+            session.connected = False
+            return
+        target = ACPURI.parse(session.peer_uri)
+        bye = _msg("agent.bye", str(self.uri), session.peer_uri,
+                   {"session_id": session.session_id, "reason": "normal_close"})
+        await _http_post_async(target.receive_url, bye, target.psk, timeout=3)
+        session.connected = False
+        self._sessions.pop(session.session_id, None)
+        log.info(f"disconnected from {session.peer_uri}")
+
+    # ── Point-to-point messaging ──────────────────────────────────────────────
 
     async def send(
         self,
-        to: str,
-        task: str,
-        input: dict = None,
-        constraints: dict = None,
-        timeout: float = 30.0,
-        correlation_id: str = None,
+        target:       "Session | str",
+        task:         str,
+        input:        dict         = None,
+        timeout:      float        = 30.0,
+        correlation_id: str        = None,
     ) -> Optional[dict]:
         """
-        向另一个 Agent 发送任务请求，返回对方的响应 dict。
+        发送任务消息，返回对方响应。
 
-        to: 对方的 ACP URI，例如 "acp://192.168.1.5:7701/bob"
+        target 可以是：
+          · Session 对象（connect() 返回的）
+          · str（直接写 ACP URI，不需要先 connect）
+
+        示例：
+            # 方式1：通过 session
+            result = await alice.send(session, "Summarize", {"text": "..."})
+
+            # 方式2：直接写 URI（轻量，无握手）
+            result = await alice.send("acp://host:7700/bob", "Summarize", {"text": "..."})
         """
-        target = ACPURI.parse(to) if isinstance(to, str) else to
-        msg = _msg(
-            "task.delegate", str(self.uri), str(target),
-            {"task": task, "input": input or {}, "constraints": constraints or {}},
-            correlation_id=correlation_id or "c_" + uuid.uuid4().hex[:8],
-        )
-        return await self._post(target.receive_url, msg, target.psk, timeout)
+        if isinstance(target, Session):
+            if not target.connected:
+                raise RuntimeError(f"Session {target.session_id} is closed")
+            peer_uri = target.peer_uri
+        else:
+            peer_uri = target
+
+        t   = ACPURI.parse(peer_uri)
+        msg = _msg("task.delegate", str(self.uri), peer_uri,
+                   {"task": task, "input": input or {}},
+                   correlation_id=correlation_id or "c_" + uuid.uuid4().hex[:8])
+        return await _http_post_async(t.receive_url, msg, t.psk, timeout)
+
+    async def ping(self, uri: str, timeout: float = 5.0) -> bool:
+        """检查对方是否在线"""
+        t     = ACPURI.parse(uri)
+        hello = _msg("agent.hello", str(self.uri), uri, {})
+        r     = await _http_post_async(t.receive_url, hello, t.psk, timeout)
+        return r is not None
 
     async def discover(self, uri: str) -> Optional[dict]:
-        """查询对方 Agent 的身份信息（名称、能力列表等）"""
-        target = ACPURI.parse(uri)
+        """查询对方 Agent 的身份和能力"""
+        t = ACPURI.parse(uri)
         try:
             import aiohttp
             async with aiohttp.ClientSession() as s:
-                async with s.get(target.identity_url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                async with s.get(f"http://{t.host}:{t.port}/acp/v1/identity",
+                                 timeout=aiohttp.ClientTimeout(total=5)) as r:
                     return await r.json() if r.status == 200 else None
-        except Exception as e:
-            log.warning(f"discover({uri}) failed: {e}"); return None
+        except Exception:
+            return None
 
-    # ── Group Chat ────────────────────────────────────────────────────────────
+    # ── Group chat ────────────────────────────────────────────────────────────
 
-    def create_group(self, name: str) -> ACPGroup:
+    def create_group(self, name: str) -> Group:
         """
-        创建一个群聊，自己作为第一个成员。
-        返回 group 对象，调用 group.to_join_uri() 获取邀请链接。
+        创建群聊，自己是第一个成员。
+        调用 group.to_invite_uri() 获取邀请链接，发给其他 Agent。
 
-        示例:
-            group = agent.create_group("team-alpha")
-            print(group.to_join_uri())   # 把这个 URI 分享给其他 Agent
+        示例：
+            group = alice.create_group("team")
+            invite_link = group.to_invite_uri()
+            # 把 invite_link 发给 Bob
         """
-        group_id = f"{name}:{str(self.uri)}"
-        group = ACPGroup(group_id=group_id, members=[str(self.uri)])
-        self._groups[group_id] = group
-        log.info(f"Created group: {group_id}")
+        gid   = f"{name}:{str(self.uri)}"
+        group = Group(group_id=gid, members=[str(self.uri)])
+        self._groups[gid] = group
         return group
 
-    async def join_group(self, join_uri: str) -> ACPGroup:
+    async def invite(self, group: Group, peer_uri: str) -> bool:
         """
-        通过邀请 URI 加入群聊（其他人 create_group 后通过 to_join_uri() 生成的链接）。
-        自动通知所有现有成员你加入了。
+        邀请对方加入群聊（推送模式）。
+        对方 SDK 自动处理加入，不需要对方主动操作。
 
-        示例:
-            group = await agent.join_group("acpgroup://study-group:acp://...?members=...")
+        示例：
+            ok = await alice.invite(group, "acp://host:7701/bob")
         """
-        group = ACPGroup.from_join_uri(join_uri)
-        group.add_member(str(self.uri))
-        self._groups[group.group_id] = group
-
-        # 通知所有现有成员
-        notify_msg_body = {
-            "group_id": group.group_id,
-            "action": "member_joined",
-            "new_member": str(self.uri),
-            "all_members": group.members,
-        }
-        await self._broadcast_to_group(group, "group.member_joined", notify_msg_body,
-                                       exclude=str(self.uri))
-        log.info(f"Joined group {group.group_id}, notified {len(group.members)-1} members")
-        return group
-
-    async def invite(self, group: ACPGroup, peer_uri: str) -> bool:
-        """
-        邀请另一个 Agent 加入群聊（推送方式，不需要对方主动扫 URI）。
-        对方会收到 group.invite 消息，SDK 自动处理加入逻辑。
-
-        示例:
-            await agent.invite(group, "acp://192.168.1.5:7701/bob")
-        """
-        target = ACPURI.parse(peer_uri)
-        invite_msg = _msg(
-            "group.invite", str(self.uri), peer_uri,
-            {
-                "group_id": group.group_id,
-                "join_uri": group.to_join_uri(),
-                "invited_by": str(self.uri),
-                "members": group.members,
-            }
-        )
-        result = await self._post(target.receive_url, invite_msg, target.psk, 10.0)
-        if result:
-            group.add_member(peer_uri)
-            # 通知其他成员有新人加入
-            await self._broadcast_to_group(group, "group.member_joined", {
-                "group_id": group.group_id,
-                "action": "member_joined",
+        t   = ACPURI.parse(peer_uri)
+        msg = _msg("group.invite", str(self.uri), peer_uri, {
+            "group_id":   group.group_id,
+            "invite_uri": group.to_invite_uri(),
+            "invited_by": str(self.uri),
+        })
+        r = await _http_post_async(t.receive_url, msg, t.psk, timeout=5)
+        if r:
+            group.add(peer_uri)
+            await self._notify_group(group, "group.member_joined", {
+                "group_id":   group.group_id,
                 "new_member": peer_uri,
                 "all_members": group.members,
             }, exclude=peer_uri)
             return True
         return False
 
-    async def group_send(
-        self,
-        group: "ACPGroup | str",
-        body: dict,
-        exclude_self: bool = True,
-    ) -> list[dict]:
+    async def join_group(self, invite_uri: str) -> Group:
         """
-        向群里所有成员广播消息。
+        主动通过邀请链接加入群聊。
 
-        group:  ACPGroup 对象，或 group_id 字符串
-        body:   消息内容，例如 {"text": "Hello!"}，可以是任意 dict
-        返回:   所有成员的响应列表
+        示例：
+            group = await bob.join_group("acpgroup://team:acp://...?members=...")
+        """
+        group = Group.from_invite_uri(invite_uri)
+        group.add(str(self.uri))
+        self._groups[group.group_id] = group
+        await self._notify_group(group, "group.member_joined", {
+            "group_id":    group.group_id,
+            "new_member":  str(self.uri),
+            "all_members": group.members,
+        }, exclude=str(self.uri))
+        return group
 
-        示例:
-            await agent.group_send(group, {"text": "大家好！"})
-            await agent.group_send(group, {"text": "有人知道这个问题吗？", "type": "question"})
+    async def leave_group(self, group: "Group | str"):
+        """
+        退出群聊，通知其他成员。
+
+        示例：
+            await bob.leave_group(group)
         """
         if isinstance(group, str):
             group = self._groups.get(group)
-            if not group:
-                raise ValueError(f"Group not found: {group}")
+            if not group: return
+        group.active = False
+        await self._notify_group(group, "group.member_left", {
+            "group_id":      group.group_id,
+            "leaving_member": str(self.uri),
+        })
+        group.remove(str(self.uri))
+        self._groups.pop(group.group_id, None)
+        log.info(f"left group {group.group_id}")
 
+    async def group_send(self, group: "Group | str", body: dict) -> list[dict]:
+        """
+        向群里所有其他成员广播消息。
+
+        示例：
+            await alice.group_send(group, {"text": "大家好！"})
+            await alice.group_send(group, {"text": "有问题", "type": "question"})
+        """
+        if isinstance(group, str):
+            group = self._groups.get(group)
+            if not group: raise ValueError("Group not found")
+        if not group.active:
+            raise RuntimeError("You have left this group")
         results = []
-        for member_uri in group.members:
-            if exclude_self and member_uri == str(self.uri):
-                continue
-            msg = _msg(
-                "group.message", str(self.uri), member_uri,
-                {"group_id": group.group_id, **body},
-                correlation_id="grp_" + uuid.uuid4().hex[:8],
-            )
+        for peer in group.members:
+            if peer == str(self.uri): continue
+            t   = ACPURI.parse(peer)
+            msg = _msg("group.message", str(self.uri), peer,
+                       {"group_id": group.group_id, **body})
             try:
-                target = ACPURI.parse(member_uri)
-                r = await self._post(target.receive_url, msg, target.psk, 10.0)
-                results.append({"to": member_uri, "result": r})
+                r = await _http_post_async(t.receive_url, msg, t.psk, timeout=5)
+                results.append({"to": peer, "ok": True})
             except Exception as e:
-                log.warning(f"group_send to {member_uri} failed: {e}")
-                results.append({"to": member_uri, "error": str(e)})
+                log.warning(f"group_send → {peer}: {e}")
+                results.append({"to": peer, "ok": False, "error": str(e)})
         return results
 
-    def get_group(self, group_id: str) -> Optional[ACPGroup]:
+    def get_group(self, group_id: str) -> Optional[Group]:
         return self._groups.get(group_id)
 
-    async def _broadcast_to_group(
-        self, group: ACPGroup, msg_type: str, body: dict,
-        exclude: str = None
-    ):
-        for member_uri in group.members:
-            if member_uri == str(self.uri): continue
-            if exclude and member_uri == exclude: continue
-            target = ACPURI.parse(member_uri)
-            msg = _msg(msg_type, str(self.uri), member_uri, body)
+    async def _notify_group(self, group: Group, type_: str, body: dict, exclude: str = None):
+        for peer in group.members:
+            if peer == str(self.uri) or peer == exclude: continue
+            t   = ACPURI.parse(peer)
+            msg = _msg(type_, str(self.uri), peer, body)
             try:
-                await self._post(target.receive_url, msg, target.psk, 5.0)
+                await _http_post_async(t.receive_url, msg, t.psk, timeout=3)
             except Exception as e:
-                log.warning(f"broadcast to {member_uri} failed: {e}")
-
-    # ── HTTP transport ────────────────────────────────────────────────────────
-
-    async def _post(self, url: str, msg: dict, psk: str, timeout: float) -> Optional[dict]:
-        try:
-            import aiohttp
-        except ImportError:
-            raise ImportError("pip install aiohttp")
-        headers = {"Content-Type": "application/json"}
-        if psk: headers["X-ACP-PSK"] = psk
-        try:
-            async with aiohttp.ClientSession() as s:
-                async with s.post(url, json=msg, headers=headers,
-                                  timeout=aiohttp.ClientTimeout(total=timeout)) as r:
-                    if r.status == 200:   return await r.json()
-                    elif r.status == 202: return None
-                    else:
-                        log.error(f"POST {url} → {r.status}: {(await r.text())[:200]}")
-                        return None
-        except aiohttp.ClientConnectorError as e:
-            raise ConnectionError(f"Cannot reach {url}: {e}")
+                log.warning(f"notify {peer}: {e}")
 
     # ── Server ────────────────────────────────────────────────────────────────
 
     def start(self, block: bool = True, print_uri: bool = True):
-        """启动 Agent，开始监听消息"""
+        """
+        启动 Agent 服务器（开始监听入站消息）。
+        block=True：阻塞运行直到 Ctrl+C（适合独立脚本）
+        block=False：后台运行（适合嵌入其他 async 程序，推荐用 async with 替代）
+        """
         if print_uri:
             print(f"\n🔗 ACP URI: {self.uri}")
-            print(f"   把这个 URI 分享给要与你通信的 Agent\n")
+            print(f"   分享给要与你通信的 Agent\n")
         if block:
-            asyncio.run(self._run_server())
+            asyncio.run(self._run())
         else:
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._run_server())
-            except RuntimeError:
-                asyncio.get_event_loop().create_task(self._run_server())
+            loop = asyncio.get_event_loop()
+            self._server_task = loop.create_task(self._run())
 
-    async def _run_server(self):
+    async def stop(self):
+        """停止服务器，关闭所有连接"""
+        self._running = False
+        if self._server_task:
+            self._server_task.cancel()
+            try: await self._server_task
+            except asyncio.CancelledError: pass
+        log.info(f"[{self.name}] server stopped")
+
+    async def _run(self):
         try:
             from aiohttp import web
         except ImportError:
-            raise ImportError("pip install aiohttp")
+            raise ImportError("pip install aiohttp  # required to receive messages")
+        self._running = True
         app = web.Application()
         app.router.add_post("/acp/v1/receive",  self._handle_receive)
         app.router.add_get( "/acp/v1/identity", self._handle_identity)
@@ -423,129 +499,114 @@ class P2PAgent:
         runner = web.AppRunner(app)
         await runner.setup()
         await web.TCPSite(runner, "0.0.0.0", self.port).start()
-        log.info(f"ACP-P2P: {self.name} on 0.0.0.0:{self.port}")
+        log.info(f"[{self.name}] listening on :{self.port}")
         try:
-            while True: await asyncio.sleep(3600)
+            while self._running: await asyncio.sleep(1)
         finally:
             await runner.cleanup()
 
+    # ── Request handlers ─────────────────────────────────────────────────────
+
     async def _handle_receive(self, request):
         from aiohttp import web
-        if self._psk and request.headers.get("X-ACP-PSK", "") != self._psk:
-            return web.json_response({"error": "Unauthorized"}, status=401)
-        try:
-            msg = await request.json()
-        except Exception:
-            return web.json_response({"error": "Invalid JSON"}, status=400)
+        if self._psk and request.headers.get("X-ACP-PSK","") != self._psk:
+            return web.json_response({"error":"Unauthorized"}, status=401)
+        try:    msg = await request.json()
+        except: return web.json_response({"error":"Bad JSON"}, status=400)
 
-        msg_type = msg.get("type", "")
-        log.debug(f"[{self.name}] ← {msg_type} from {msg.get('from','?')[:40]}")
+        log.debug(f"[{self.name}] ← {msg.get('type','?')} from {msg.get('from','?')[:35]}")
+        reply = await self._dispatch(msg)
+        if reply: return web.json_response(reply, status=200)
+        return web.json_response({"ok":True}, status=202)
 
-        reply = await self._route(msg)
-        if reply:
-            return web.json_response(reply, status=200)
-        return web.json_response({"success": True}, status=202)
+    async def _dispatch(self, msg: dict) -> Optional[dict]:
+        t = msg.get("type","")
 
-    async def _route(self, msg: dict) -> Optional[dict]:
-        t = msg.get("type", "")
+        if t == "task.delegate":
+            if not self._task_handler:
+                return _msg("error", str(self.uri), msg["from"],
+                            {"code":"no_handler"}, reply_to=msg["id"])
+            try:
+                out = await self._task_handler(msg["body"].get("task",""), msg["body"].get("input",{}))
+                return _msg("task.result", str(self.uri), msg["from"],
+                            {"status":"success","output": out or {}},
+                            reply_to=msg["id"],
+                            correlation_id=msg.get("correlation_id"))
+            except Exception as e:
+                log.exception("task handler error")
+                return _msg("error", str(self.uri), msg["from"],
+                            {"code":"handler_error","message":str(e)}, reply_to=msg["id"])
 
-        # Group messages
-        if t == "group.message":
-            await self._on_group_message(msg)
+        if t == "agent.hello":
+            return _msg("agent.hello", str(self.uri), msg["from"],
+                        {"name":self.name,"capabilities":self.capabilities},
+                        reply_to=msg["id"])
+
+        if t == "agent.bye":
+            sid = msg["body"].get("session_id","")
+            self._sessions.pop(sid, None)
             return None
 
         if t == "group.invite":
-            return await self._on_group_invite(msg)
+            group = Group.from_invite_uri(msg["body"]["invite_uri"])
+            group.add(str(self.uri))
+            self._groups[group.group_id] = group
+            if self._chat_handler:
+                asyncio.get_event_loop().create_task(
+                    self._chat_handler(group.group_id, "system",
+                                       {"event":"joined","invited_by":msg["from"]}))
+            return _msg("group.invite_ack", str(self.uri), msg["from"],
+                        {"status":"joined","group_id":group.group_id}, reply_to=msg["id"])
 
-        if t == "group.member_joined":
-            self._on_member_joined(msg)
+        if t == "group.message":
+            gid   = msg["body"].get("group_id","")
+            if gid not in self._groups:
+                self._groups[gid] = Group(group_id=gid, members=[str(self.uri), msg["from"]])
+            if self._chat_handler:
+                body = {k:v for k,v in msg["body"].items() if k != "group_id"}
+                asyncio.get_event_loop().create_task(
+                    self._chat_handler(gid, msg["from"], body))
             return None
 
-        # Task
-        if t == "task.delegate":
-            return await self._handle_task(msg)
+        if t == "group.member_joined":
+            gid     = msg["body"].get("group_id","")
+            members = msg["body"].get("all_members",[])
+            if gid in self._groups:
+                self._groups[gid].members = members
+            return None
 
-        # Hello
-        if t == "agent.hello":
-            return _msg("agent.hello", str(self.uri), msg["from"],
-                        {"name": self.name, "capabilities": self.capabilities},
-                        reply_to=msg["id"])
+        if t == "group.member_left":
+            gid    = msg["body"].get("group_id","")
+            leaver = msg["body"].get("leaving_member","")
+            if gid in self._groups:
+                self._groups[gid].remove(leaver)
+            return None
 
-        # Custom handler
-        if t in self._message_handlers:
-            return await self._message_handlers[t](msg)
+        if t in self._msg_handlers:
+            return await self._msg_handlers[t](msg)
 
-        return None  # Unknown type, 202
-
-    async def _handle_task(self, msg: dict) -> Optional[dict]:
-        if not self._task_handler:
-            return _msg("error", str(self.uri), msg["from"],
-                        {"code": "acp.capability_missing", "message": "No task handler"},
-                        reply_to=msg["id"])
-        try:
-            output = await self._task_handler(msg["body"].get("task",""), msg["body"].get("input",{}))
-            return _msg("task.result", str(self.uri), msg["from"],
-                        {"status": "success", "output": output or {}},
-                        reply_to=msg["id"], correlation_id=msg.get("correlation_id"))
-        except Exception as e:
-            log.exception(f"task handler error")
-            return _msg("error", str(self.uri), msg["from"],
-                        {"code": "acp.handler_error", "message": str(e)},
-                        reply_to=msg["id"])
-
-    async def _on_group_message(self, msg: dict):
-        group_id = msg["body"].get("group_id", "")
-        # 确保我们知道这个群
-        if group_id not in self._groups:
-            # 自动创建（来自邀请后的消息）
-            self._groups[group_id] = ACPGroup(group_id=group_id, members=[str(self.uri), msg["from"]])
-        if self._chat_handler:
-            body = {k: v for k, v in msg["body"].items() if k != "group_id"}
-            await self._chat_handler(group_id, msg["from"], body)
-
-    async def _on_group_invite(self, msg: dict) -> dict:
-        group = ACPGroup.from_join_uri(msg["body"]["join_uri"])
-        group.add_member(str(self.uri))
-        self._groups[group.group_id] = group
-        log.info(f"Joined group {group.group_id} via invite from {msg['from']}")
-        # 触发 chat handler（通知自己加入了）
-        if self._chat_handler:
-            asyncio.get_event_loop().create_task(
-                self._chat_handler(group.group_id, "system",
-                                   {"text": f"You joined group {group.group_id}"})
-            )
-        return _msg("group.invite_ack", str(self.uri), msg["from"],
-                    {"status": "joined", "group_id": group.group_id},
-                    reply_to=msg["id"])
-
-    def _on_member_joined(self, msg: dict):
-        group_id = msg["body"].get("group_id", "")
-        new_member = msg["body"].get("new_member", "")
-        all_members = msg["body"].get("all_members", [])
-        if group_id in self._groups:
-            self._groups[group_id].members = all_members
-            log.info(f"Group {group_id}: new member {new_member}")
+        return None
 
     def _handle_identity(self, request):
         from aiohttp import web
         return web.json_response({
-            "uri": str(self.uri), "name": self.name,
-            "capabilities": self.capabilities, "acp_version": "0.1",
-            "protocol": "acp-p2p", "groups": list(self._groups.keys()),
+            "uri":str(self.uri),"name":self.name,"capabilities":self.capabilities,
+            "acp_version":"0.1","protocol":"acp-p2p",
+            "active_sessions": len(self._sessions),
+            "groups": list(self._groups.keys()),
         })
 
     def _handle_health(self, request):
         from aiohttp import web
-        return web.json_response({"status": "ok", "name": self.name, "uri": str(self.uri)})
+        return web.json_response({"ok":True,"name":self.name,"uri":str(self.uri),
+                                  "running":self._running})
 
-    # ── Context manager ────────────────────────────────────────────────────────
+    # ── Context manager ───────────────────────────────────────────────────────
 
     async def __aenter__(self):
-        loop = asyncio.get_event_loop()
-        self._server_task = loop.create_task(self._run_server())
-        await asyncio.sleep(0.15)  # 等服务器启动
+        self._server_task = asyncio.get_event_loop().create_task(self._run())
+        await asyncio.sleep(0.12)   # 等服务器就绪
         return self
 
-    async def __aexit__(self, *args):
-        if hasattr(self, "_server_task"):
-            self._server_task.cancel()
+    async def __aexit__(self, *_):
+        await self.stop()
