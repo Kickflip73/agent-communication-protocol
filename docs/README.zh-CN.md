@@ -110,45 +110,107 @@ Agent B 读取同一份 Skill，检测到 `acp://` 链接，直接连接 Agent A
 
 ---
 
+## 通信模式
+
+ACP v0.3 支持四种通信模式，参考 [Google A2A v1.0](https://a2a-protocol.org) 设计：
+
+### 模式一：同步（请求/响应）
+
+发送消息并**阻塞等待对方回复**（或超时）：
+
+```
+POST /send  {"type":"query","content":"...","sync":true,"timeout":30}
+            ── 阻塞 ──► 对方调用 POST /reply {"correlation_id":"<id>","content":"..."}
+            ◄── 立即返回回复内容
+```
+
+### 模式二：异步（Task 生命周期）
+
+创建任务、委托给对方、轮询或推送获取结果：
+
+```
+POST /tasks/create  {"payload":{...},"delegate":true}
+  → 状态: submitted
+    → 对方更新: working
+    → 对方更新: completed + artifact
+GET  /tasks/<id>    ← 随时轮询状态
+DELETE /tasks/<id>  ← 取消任务
+```
+
+状态流转：`submitted` → `working` → `completed` | `failed` | `cancelled`
+
+### 模式三：流式（SSE 实时推送）
+
+订阅一次，持续接收所有事件：
+
+```
+GET /stream
+  ← data: {"event":"peer.connected"}
+  ← data: {"event":"message.received","message":{...}}
+  ← data: {"event":"task.updated","task_id":"...","status":"working"}
+```
+
+### 模式四：Push（Webhook 回调）
+
+注册回调 URL，守护进程自动 POST 所有事件：
+
+```
+POST /webhooks/register  {"url":"https://your-host/hook"}
+  ← 守护进程在后台将每个事件 POST 到你的 URL
+```
+
+---
+
 ## 接口文档
 
-发起方默认使用 `--port 7801`，HTTP 接口为 `7901`（= WS 端口 + 100）。
-接收方通常使用 `--port 7820`，HTTP 接口为 `7920`。
+> 发起方 HTTP `7901`（WS `7801`）；接收方 HTTP `7920`（WS `7820`）。
+> 规则：**HTTP 端口 = WS 端口 + 100**
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| `POST` | `/send` | 发送消息（任意 JSON body） |
-| `GET`  | `/recv` | 获取新消息（消费队列，支持 `?limit=N`） |
-| `GET`  | `/status` | 连接状态、统计信息、版本 |
-| `GET`  | `/link` | 获取本端 `acp://` 链接 |
-| `GET`  | `/card` | 查看本端和对端的 AgentCard（含能力列表）|
-| `GET`  | `/history` | 完整消息历史（本地 JSONL，支持 `?limit=N`）|
-| `GET`  | `/stream` | SSE 流式消息订阅（实时推送）|
+| 方法 | 路径 | 模式 | 描述 |
+|------|------|------|------|
+| `POST` | `/send` | 同步/异步 | 发消息。加 `"sync":true` 阻塞等待回复 |
+| `POST` | `/reply` | 同步 | 通过 `correlation_id` 回复消息 |
+| `GET`  | `/recv` | 异步 | 消费队列消息（`?limit=N`） |
+| `GET`  | `/wait/<id>` | 同步 | 阻塞等待关联回复（`?timeout=30`） |
+| `POST` | `/tasks/create` | 异步 | 创建任务（`"delegate":true` 发给对方） |
+| `GET`  | `/tasks` | 异步 | 列出任务（`?status=working`） |
+| `GET`  | `/tasks/<id>` | 异步 | 获取任务状态 + artifacts |
+| `POST` | `/tasks/<id>/update` | 异步 | 更新状态 / 添加 artifact |
+| `DELETE` | `/tasks/<id>` | 异步 | 取消任务 |
+| `GET`  | `/stream` | 流式 | SSE 实时事件流 |
+| `POST` | `/webhooks/register` | Push | 注册 Webhook URL |
+| `POST` | `/webhooks/deregister` | Push | 取消 Webhook |
+| `GET`  | `/status` | — | 连接状态、统计信息、版本 |
+| `GET`  | `/link` | — | 本端 `acp://` 链接 |
+| `GET`  | `/card` | — | 双端 AgentCard |
+| `GET`  | `/history` | — | 消息持久化历史（`?limit=N`） |
 
 ### 消息格式
 
+`id`、`ts`、`from` 未指定时自动填充。
+
 ```json
 {
-  "id":   "msg_abc123",
-  "ts":   "2026-03-18T12:00:00Z",
-  "from": "Agent-A",
-  "type": "task.delegate",
+  "id":      "msg_abc123def456",
+  "ts":      "2026-03-18T12:00:00Z",
+  "from":    "Agent-A",
+  "type":    "task.delegate",
   "content": "消息内容"
 }
 ```
 
-`id`、`ts`、`from` 字段若未指定，ACP 自动填充。
-
 ---
 
-## v0.2 新特性
+## v0.3 新特性
 
-基于对 **Google A2A**、**IBM ACP**、**ANP** 的竞品研究，v0.2 引入：
+参考 **Google A2A v1.0** 的四种交互模式实现：
 
-- **AgentCard 能力声明** — 连接建立时双方自动交换能力声明，通过 `/card` 接口查询
-- **断线自动重连** — 接收方模式下支持指数退避自动重连（最多 10 次，最长间隔 60s）
-- **消息持久化** — 所有收到的消息写入本地 JSONL 文件，通过 `/history` 查询完整历史
-- **SSE 流式订阅** — `/stream` 端点实时推送新消息，兼容 A2A 风格客户端
+- **同步模式** — `"sync":true` 发送后阻塞等待 `/reply`；`/wait/<id>` 显式等待
+- **Task 生命周期** — submitted → working → completed/failed/cancelled；支持 artifact 附件；状态变更自动广播至 SSE 和 Push Webhook
+- **Push Webhook** — 注册任意 HTTP 端点，守护进程后台推送所有事件
+- **连接事件** — `peer.connected`、`peer.disconnected` 等系统事件也进入 SSE 流
+
+**v0.2 已有特性：** AgentCard 能力声明、断线自动重连（指数退避）、消息持久化（JSONL）、SSE 流式端点
 
 ---
 
@@ -156,7 +218,6 @@ Agent B 读取同一份 Skill，检测到 `acp://` 链接，直接连接 Agent A
 
 | 版本 | 计划功能 |
 |------|---------|
-| **v0.3** | Task 生命周期（submitted/working/completed）、多会话并发、能力查询 API |
 | **v0.4** | 多模态消息（文本/文件引用/结构化数据）、NAT 穿透探索 |
 | **v1.0** | DID 去中心化身份认证、Agent 发现网络 |
 

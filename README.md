@@ -146,24 +146,84 @@ That's it. The two agents are now communicating directly.
 
 ---
 
+## Communication Modes
+
+ACP v0.3 supports four communication patterns, modeled after [Google A2A v1.0](https://a2a-protocol.org).
+
+### 1. Synchronous — request / response
+
+Send a message and block until the peer replies (or timeout):
+
+```
+POST /send  {"type":"query","content":"...","sync":true,"timeout":30}
+            ── blocks ──► peer calls POST /reply {"correlation_id":"<id>","content":"..."}
+            ◄── returns reply immediately
+```
+
+### 2. Asynchronous — task lifecycle
+
+Create a task, delegate to peer, poll or receive push updates:
+
+```
+POST /tasks/create  {"payload":{...},"delegate":true}
+  → task: submitted
+    → peer updates: working  (POST /tasks/<id>/update)
+    → peer updates: completed + artifact
+GET  /tasks/<id>    ← poll status anytime
+DELETE /tasks/<id>  ← cancel
+```
+
+Task state machine: `submitted` → `working` → `completed` | `failed` | `cancelled`
+
+### 3. Streaming — SSE real-time events
+
+Subscribe once; receive all events as they happen:
+
+```
+GET /stream
+  ← data: {"event":"peer.connected"}
+  ← data: {"event":"message.received","message":{...}}
+  ← data: {"event":"task.updated","task_id":"...","status":"working"}
+```
+
+### 4. Push — webhook callbacks
+
+Register a URL; the daemon delivers all events via HTTP POST automatically:
+
+```
+POST /webhooks/register  {"url":"https://your-host/hook"}
+  ← daemon POSTs every event to your URL in the background
+```
+
+---
+
 ## API Reference
 
-> Default ports: Initiator HTTP `7901` (WS port `7801`). Receiver HTTP `7920` (WS port `7820`).
-> Rule: HTTP port = WS port + 100.
+> Default ports: Initiator HTTP `7901` (WS `7801`). Receiver HTTP `7920` (WS `7820`).
+> Rule: **HTTP port = WS port + 100**.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/send` | Send a message to the connected peer (any JSON body) |
-| `GET`  | `/recv` | Consume queued incoming messages. Supports `?limit=N` |
-| `GET`  | `/status` | Connection state, statistics, and version info |
-| `GET`  | `/link` | Retrieve this agent's `acp://` connection link |
-| `GET`  | `/card` | View AgentCards for both this agent and its peer |
-| `GET`  | `/history` | Full persisted message history (local JSONL). Supports `?limit=N` |
-| `GET`  | `/stream` | SSE endpoint — real-time push of incoming messages |
+| Method | Path | Mode | Description |
+|--------|------|------|-------------|
+| `POST` | `/send` | Sync/Async | Send message. Add `"sync":true` to block for reply |
+| `POST` | `/reply` | Sync | Reply to a message by `correlation_id` |
+| `GET`  | `/recv` | Async | Consume queued messages (`?limit=N`) |
+| `GET`  | `/wait/<id>` | Sync | Block-wait for a correlated reply (`?timeout=30`) |
+| `POST` | `/tasks/create` | Async | Create a task (`"delegate":true` sends to peer) |
+| `GET`  | `/tasks` | Async | List tasks (`?status=working`) |
+| `GET`  | `/tasks/<id>` | Async | Get task state + artifacts |
+| `POST` | `/tasks/<id>/update` | Async | Update status / add artifact |
+| `DELETE` | `/tasks/<id>` | Async | Cancel a task |
+| `GET`  | `/stream` | Stream | SSE real-time event feed |
+| `POST` | `/webhooks/register` | Push | Register a push webhook URL |
+| `POST` | `/webhooks/deregister` | Push | Remove a push webhook URL |
+| `GET`  | `/status` | — | Connection state, statistics, version |
+| `GET`  | `/link` | — | This agent's `acp://` link |
+| `GET`  | `/card` | — | AgentCards (self + peer) |
+| `GET`  | `/history` | — | Persisted message history (`?limit=N`) |
 
 ### Message Envelope
 
-All messages use the following envelope format. Fields `id`, `ts`, and `from` are auto-populated if omitted.
+`id`, `ts`, and `from` are auto-populated if omitted.
 
 ```json
 {
@@ -180,23 +240,25 @@ All messages use the following envelope format. Fields `id`, `ts`, and `from` ar
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--name` | `ACP-Agent` | Agent display name (included in AgentCard) |
-| `--join` | — | `acp://` link to connect to (omit to run as initiator) |
-| `--port` | `7801` | WebSocket listen port. HTTP port = this + 100 |
-| `--skills` | — | Comma-separated capability list, e.g. `summarize,translate` |
-| `--inbox` | `/tmp/acp_inbox_<name>.jsonl` | Message persistence file path |
+| `--join` | — | `acp://` link to connect to (omit = initiator) |
+| `--port` | `7801` | WebSocket listen port; HTTP port = this + 100 |
+| `--skills` | — | Comma-separated capability list |
+| `--inbox` | `/tmp/acp_inbox_<name>.jsonl` | Message persistence file |
 
 ---
 
-## What's New in v0.2
+## What's New in v0.3
 
-This release incorporates findings from a competitive analysis of [Google A2A v1.0](https://a2a-protocol.org), [IBM BeeAgent ACP](https://github.com/i-am-bee/ACP), and [ANP](https://github.com/agent-network-protocol/AgentNetworkProtocol). See [`research/2026-03-18-competitive-analysis.md`](research/2026-03-18-competitive-analysis.md) for the full report.
+Modeled after [Google A2A v1.0](https://a2a-protocol.org)'s four interaction modes. See the full analysis in [`research/2026-03-18-competitive-analysis.md`](research/2026-03-18-competitive-analysis.md).
 
-**New features:**
+**New in v0.3:**
+- **Synchronous mode** — `"sync":true` on `/send` blocks until the peer calls `/reply` with matching `correlation_id`; `/wait/<id>` for explicit polling
+- **Task lifecycle** — `POST /tasks/create` → `GET /tasks/<id>` polling → `POST /tasks/<id>/update` (submitted → working → completed/failed/cancelled) → `DELETE` to cancel; task state changes broadcast over SSE and push webhooks
+- **Push webhooks** — register any HTTP endpoint via `POST /webhooks/register`; daemon delivers all events via HTTP POST in the background
+- **Connection events via SSE** — `peer.connected`, `peer.disconnected`, `message.received`, `task.updated` all appear in the `/stream` feed
 
-- **AgentCard capability exchange** — Inspired by A2A. Both agents automatically broadcast their capabilities upon connection. Query via `GET /card`.
-- **Automatic reconnection** — The receiver (guest) mode now retries on disconnect using exponential backoff (up to 10 attempts, capped at 60s).
-- **Message persistence** — All received messages are appended to a local JSONL file. Full history is accessible via `GET /history`.
-- **SSE streaming endpoint** — `GET /stream` delivers real-time message events, compatible with A2A-style clients.
+**Previously in v0.2:**
+- AgentCard capability exchange, automatic reconnection (exponential backoff), message persistence (JSONL), SSE streaming endpoint
 
 ---
 
