@@ -1,476 +1,274 @@
 # ACP — Agent Communication Protocol
 
-<div align="center">
+**让任意两个 Agent 在 2 步内建立通信，无需修改任何代码。**
 
-**[English](#acp--agent-communication-protocol-1) · [中文](#acp--agent-通信协议)**
+> ACP is to Agent-to-Agent communication what MCP is to Agent-to-Tool communication.
+> But ACP goes further: **zero-code setup, link-based pairing, works with any existing agent.**
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Spec: v0.1 Draft](https://img.shields.io/badge/Spec-v0.1%20Draft-yellow.svg)](spec/core-v0.1.md)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-
-</div>
+[English](#english) | [中文](#中文)
 
 ---
 
-<!-- ================================================================ -->
-<!--  ENGLISH                                                          -->
-<!-- ================================================================ -->
+## 中文
 
-# ACP — Agent Communication Protocol
+### 核心理念
 
-> **ACP is to Agent-to-Agent communication what MCP is to Agent-to-Tool communication.**
+绝大多数 Agent 互联方案都要求你**修改 Agent 代码**，实现特定接口，配置复杂的传输层。
 
-MCP solved how an agent calls a tool. ACP solves how an agent talks to another agent.
+**ACP 的理念完全不同：**
+
+```
+Agent 不需要懂 ACP。
+Agent 只需要能发 HTTP 请求。
+```
+
+ACP 在 Agent 旁边启动一个**本地 Relay 守护进程**，负责所有的协议细节。
+Agent 只和本地 Relay 说话，Relay 负责与对方通信。
+
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│  Agent A（任意框架）              │       │  Agent B（任意框架）              │
+│  POST /send → "你好"            │       │  GET  /recv → "你好"            │
+│  GET  /recv ← "收到！"           │       │  POST /send → "收到！"           │
+│         ↕ localhost:7801        │       │         ↕ localhost:7801        │
+│  ┌──────────────────────────┐   │       │   ┌──────────────────────────┐  │
+│  │     ACP Local Relay      │   │       │   │     ACP Local Relay      │  │
+│  └────────────┬─────────────┘   │       │   └─────────────┬────────────┘  │
+└───────────────│─────────────────┘       └─────────────────│───────────────┘
+                │         WebSocket (acp:// 链接)            │
+                └──────────────────┬────────────────────────┘
+                          ┌────────▼────────┐
+                          │  ACP Relay 服务  │
+                          │  relay.acp.dev  │
+                          └─────────────────┘
+```
 
 ---
 
-## The Problem
+### 快速上手：2 步建立 Agent 通信
 
-Every multi-agent framework invented its own wire format:
-
-| Framework | How agents communicate | Interoperable? |
-|-----------|----------------------|----------------|
-| LangGraph | In-process Python calls | ❌ Same process only |
-| AutoGen | HTTP + ad-hoc JSON | ❌ AutoGen-only |
-| CrewAI | Direct method calls | ❌ Same process only |
-| Google A2A | REST + Task schema | ⚠️ Google-controlled |
-| OpenAI Swarm | In-process only | ❌ Same process only |
-
-**Result:** A LangChain agent cannot talk to an AutoGen agent. A Python agent cannot talk to a TypeScript agent. Multi-agent systems are locked inside their framework.
-
----
-
-## The Solution
-
-ACP defines a **standard wire protocol** for agent-to-agent communication:
-
-```
-┌─────────────────┐     ACP message      ┌─────────────────┐
-│  LangChain      │ ──────────────────►  │  AutoGen        │
-│  Agent          │                      │  Agent          │
-└─────────────────┘  (JSON over stdio,   └─────────────────┘
-                       HTTP, or TCP)
-```
-
-Any agent that speaks ACP can communicate with any other ACP-compliant agent, regardless of:
-- Programming language (Python, TypeScript, Go, Rust, Java, ...)
-- Framework (LangChain, AutoGen, CrewAI, raw LLM API, ...)
-- Infrastructure (local process, container, remote server, cloud function, ...)
-
----
-
-## Transport Modes
-
-ACP defines three standard transport bindings:
-
-### 1. stdio (recommended for local/subprocess agents)
-
-```
-┌─────────────────────────────────────────────────────┐
-│  Parent process                                     │
-│                                                     │
-│  agent_a ──(stdout)──► agent_b process              │
-│           ◄─(stdin)──                               │
-└─────────────────────────────────────────────────────┘
-```
-
-Each message is a newline-delimited JSON object on stdout/stdin. Zero setup. No ports. Works across languages.
+#### Agent A（发起方）— 执行这个 Skill
 
 ```bash
-# Agent B listens on stdin, responds on stdout
-echo '{"acp":"0.1","type":"task.delegate","from":"did:acp:local:a",...}' | python agent_b.py
+# 1. 安装依赖（仅需一次）
+pip install websockets
+
+# 2. 下载并启动通信服务
+curl -O https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py
+python3 acp_relay.py --name "Agent-A"
 ```
 
-### 2. HTTP + SSE (recommended for networked agents)
-
+输出：
 ```
-POST /acp/v1/messages          ← send a message
-GET  /acp/v1/stream            ← receive messages (Server-Sent Events)
-GET  /acp/v1/capabilities      ← discover what this agent can do
+✅ ACP 通信服务已启动！
+
+🔗 你的通信链接:
+   acp://relay.acp.dev/abc123def456
+
+📋 把这个链接发给对方 Agent，让对方执行:
+   python3 acp_relay.py --name "对方名称" --join acp://relay.acp.dev/abc123def456
 ```
 
-### 3. Raw TCP (recommended for high-throughput pipelines)
+#### Agent B（接收方）— 收到链接后执行
 
-Newline-delimited JSON over a persistent TCP connection. Lowest latency, no HTTP overhead.
+```bash
+pip install websockets
+curl -O https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py
+python3 acp_relay.py --name "Agent-B" --join acp://relay.acp.dev/abc123def456
+```
+
+#### 开始通信（双方均可）
+
+```bash
+# 发消息
+curl -X POST http://localhost:7801/send \
+  -H "Content-Type: application/json" \
+  -d '{"type": "chat", "text": "你好！"}'
+
+# 收消息
+curl http://localhost:7801/recv
+
+# 查看状态
+curl http://localhost:7801/status
+```
+
+**就这样。两个 Agent 现在可以双向通信了，一行代码都没改。**
 
 ---
 
-## The ACP Message
+### 工作原理
 
-Every ACP message is a JSON object with a standard envelope:
+```
+步骤 1：Agent A 启动本地 Relay
+         Relay 连接到公共中继服务器，注册一个 Session
+         服务器返回 Session ID，Relay 生成 acp:// 链接
+
+步骤 2：Agent A 把链接发给 Agent B
+         Agent B 启动 Relay，Relay 用链接里的 Session ID 加入同一个 Session
+
+步骤 3：双方 Relay 都在线
+         任一方调用 POST /send → Relay A → WebSocket → 中继服务器 → WebSocket → Relay B → 放入消息队列
+         对方调用 GET /recv → 从消息队列取出
+```
+
+本地 HTTP 接口（`localhost:7801`）完全是标准 REST，任何语言、任何框架都能调用。
+
+---
+
+### 本地接口文档
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/send` | 发送消息（JSON body，任意结构） |
+| `GET` | `/recv` | 获取新消息（轮询，取后从队列移除） |
+| `GET` | `/status` | 查看连接状态（session ID、在线人数、链接等） |
+| `GET` | `/link` | 仅获取 acp:// 链接 |
+
+`/send` 会自动补全 `id`、`ts`、`from` 字段（如果没有提供）。
+
+---
+
+### 自建中继服务器
+
+不想依赖公共服务器？自建只需一个命令：
+
+```bash
+pip install websockets
+curl -O https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/relay_server.py
+python3 relay_server.py --host 0.0.0.0 --port 7800
+```
+
+然后用 `--relay` 参数指向你自己的服务器：
+
+```bash
+python3 acp_relay.py --name "Agent-A" --relay ws://your-server:7800
+```
+
+---
+
+### 消息格式
+
+消息是任意 JSON 对象。ACP Relay 会自动添加元数据，Agent 无需关心：
 
 ```json
 {
-  "acp":            "0.1",
-  "id":             "msg_7f3a9b2c",
-  "type":           "task.delegate",
-  "from":           "did:acp:local:orchestrator",
-  "to":             "did:acp:local:summarizer",
-  "ts":             "2026-03-18T10:00:00Z",
-  "correlation_id": "workflow_abc123",
-  "body": {
-    "task":  "Summarize the attached document",
-    "input": { "text": "..." },
-    "constraints": { "max_tokens": 500, "deadline": "2026-03-18T10:05:00Z" }
-  }
+  "type": "chat",
+  "text": "你好！",
+  "id": "msg_abc123",
+  "ts": "2026-03-18T10:00:00Z",
+  "from": "Agent-A",
+  "_from_peer": "peer_xxx",
+  "_session_id": "abc123def456"
 }
 ```
 
-The **message type** determines the body schema. Core types:
-
-| Category | Types |
-|----------|-------|
-| Task lifecycle | `task.delegate` `task.accept` `task.reject` `task.result` `task.progress` `task.cancel` |
-| Lifecycle | `agent.hello` `agent.bye` `agent.heartbeat` |
-| Events | `event.broadcast` `event.subscribe` |
-| Coordination | `coord.propose` `coord.vote` |
-| Human-in-loop | `hitl.escalate` `hitl.response` |
-| System | `error` |
+你的 Agent 只需要关心 `type`、`text` 或其他你自己定义的字段。
 
 ---
 
-## Quick Start
+### 与其他方案对比
 
-**Install the SDK:**
+| | ACP | 传统 SDK 方案 | 自建 API |
+|--|-----|--------------|----------|
+| 需要改 Agent 代码 | ❌ 不需要 | ✅ 需要 | ✅ 需要 |
+| 需要公网 IP | ❌ 不需要 | 通常需要 | ✅ 需要 |
+| 配置复杂度 | 2 条命令 | 高 | 极高 |
+| 跨语言支持 | ✅ 任意语言 | 限定语言 | 手动实现 |
+| 建立连接时间 | < 30 秒 | 数小时 | 数天 |
+
+---
+
+## English
+
+### Core Philosophy
+
+Most agent communication frameworks require you to **modify agent code**, implement specific interfaces, and configure complex transport layers.
+
+**ACP takes a completely different approach:**
+
+```
+Agents don't need to understand ACP.
+Agents just need to be able to make HTTP requests.
+```
+
+ACP runs a **local Relay daemon** beside each agent, handling all protocol details.
+Agents only talk to their local Relay; the Relay handles everything else.
+
+---
+
+### Quick Start: 2 Steps to Connect Any Two Agents
+
+**Agent A (initiator):**
+```bash
+pip install websockets
+curl -O https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py
+python3 acp_relay.py --name "Agent-A"
+# → prints: 🔗 Your link: acp://relay.acp.dev/abc123def456
+```
+
+**Agent B (receiver) — after getting the link:**
+```bash
+pip install websockets
+curl -O https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py
+python3 acp_relay.py --name "Agent-B" --join acp://relay.acp.dev/abc123def456
+```
+
+**Both agents now communicate via:**
+```bash
+# Send
+curl -X POST http://localhost:7801/send -H "Content-Type: application/json" \
+     -d '{"type": "chat", "text": "Hello!"}'
+
+# Receive
+curl http://localhost:7801/recv
+```
+
+**That's it. Zero code changes required.**
+
+---
+
+### Architecture
+
+```
+Agent A ──HTTP──► Local Relay A ──WebSocket──► Relay Server ◄──WebSocket── Local Relay B ◄──HTTP── Agent B
+(any framework)  localhost:7801               relay.acp.dev                localhost:7801   (any framework)
+```
+
+1. Agent A starts Relay → Relay registers session on server → gets `acp://` link
+2. Agent A shares link with Agent B → Agent B's Relay joins the same session
+3. Both Relays connected → messages route through the server automatically
+
+---
+
+### Self-Hosting the Relay Server
 
 ```bash
-pip install acp-sdk           # Python
-npm install @acp-protocol/sdk # TypeScript
-```
+pip install websockets
+python3 relay_server.py --host 0.0.0.0 --port 7800
 
-**Build an agent that receives tasks (any framework, 10 lines):**
-
-```python
-from acp_sdk import ACPAgent, ACPMessage
-
-class SummarizerAgent(ACPAgent):
-    async def handle_task_delegate(self, msg: ACPMessage) -> ACPMessage:
-        text = msg.body["input"]["text"]
-        summary = your_llm(f"Summarize: {text}")  # your existing logic
-        return msg.reply(status="success", output={"summary": summary})
-
-# Start listening on stdio (for subprocess mode) or HTTP
-SummarizerAgent(aid="did:acp:local:summarizer").serve()
-```
-
-**Send a task to another agent:**
-
-```python
-from acp_sdk import ACPClient
-
-async with ACPClient("http://localhost:7700") as client:
-    result = await client.delegate(
-        to="did:acp:local:summarizer",
-        task="Summarize this",
-        input={"text": "The quick brown fox..."},
-    )
-    print(result.body["output"]["summary"])
+# Then use your server:
+python3 acp_relay.py --name "Agent-A" --relay ws://your-server:7800
 ```
 
 ---
 
-## How It Relates to MCP
-
-| | MCP | ACP |
-|-|-----|-----|
-| **Solves** | Agent ↔ Tool | Agent ↔ Agent |
-| **Typical use** | Call a web search / database / API | Delegate a task to a specialized agent |
-| **Transport** | stdio, HTTP/SSE | stdio, HTTP/SSE, TCP |
-| **Message format** | JSON-RPC 2.0 | ACP envelope (purpose-built) |
-| **Capability model** | Tools list | Agent capabilities + schemas |
-| **Initiated by** | Always the agent (client) | Either side (async) |
-
-They are **complementary**: an agent uses MCP to call tools, and ACP to talk to other agents.
+## Repository Structure
 
 ```
-Human ──► Orchestrator Agent
-               │  ACP: delegate task
-               ▼
-          Worker Agent ──► MCP: call web-search tool
-               │  ACP: task.result
-               ▼
-          Orchestrator Agent ──► Human: final answer
+relay/
+├── relay_server.py        ← Public relay server (self-hostable, ~150 lines)
+├── acp_relay.py           ← Local relay daemon (run beside each agent, ~250 lines)
+└── install-acp-skill.md   ← The Skill to send to any Agent for instant setup
+
+spec/                      ← Protocol specification (for advanced use cases)
+sdk/                       ← SDK for agents that want deeper integration
+examples/                  ← Code examples
 ```
 
 ---
-
-## Specification
-
-| Document | Description |
-|----------|-------------|
-| [Core Spec v0.1](spec/core-v0.1.md) | Message envelope, types, error codes, versioning |
-| [Transport Bindings](spec/transports.md) | stdio, HTTP/SSE, TCP — wire format for each |
-| [Identity & Trust](spec/identity.md) | AID format, authentication, signed messages |
-| [Capability Discovery](spec/discovery.md) | How agents advertise and discover capabilities |
-| [Message Types Reference](spec/message-types.md) | Full schema for each message type |
-| [Error Codes](spec/errors.md) | Standard error code registry |
-
-## SDK & Integrations
-
-| | Python | TypeScript |
-|-|--------|------------|
-| **Core SDK** | [`sdk/python/`](sdk/python/) | [`sdk/typescript/`](sdk/typescript/) |
-| **LangChain** | `acp_sdk.integrations.langchain` | — |
-| **AutoGen** | `acp_sdk.integrations.autogen` | — |
-| **FastAPI middleware** | `acp_sdk.integrations.fastapi` | — |
-
-## Examples
-
-| Example | Transport | What it shows |
-|---------|-----------|--------------|
-| [quickstart/](examples/quickstart/) | stdio | Hello world: two agents, one task |
-| [orchestrator-workers/](examples/orchestrator-workers/) | HTTP | Orchestrator dispatches to parallel workers |
-| [cross-framework/](examples/cross-framework/) | HTTP | LangChain agent ↔ AutoGen agent |
-| [hitl/](examples/hitl/) | HTTP | Human approves agent decision |
-
----
-
-## Roadmap
-
-- [x] **v0.1** — Core envelope, task lifecycle, error codes, in-process bus
-- [x] **v0.2** — P2P mode, group messaging
-- [x] **v0.3** — Connection lifecycle (connect/disconnect/join/leave)
-- [ ] **v0.4** — stdio transport, TCP transport; Ed25519 message signing
-- [ ] **v0.5** — Capability discovery registry; streaming task results
-- [ ] **v1.0** — Stable spec; community RFC process; IANA registration
-
-## Contributing
-
-ACP is community-owned and vendor-neutral. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[Apache 2.0](LICENSE)
+Apache 2.0 — free for commercial and open-source use.
 
----
-
-<!-- ================================================================ -->
-<!--  中文                                                             -->
-<!-- ================================================================ -->
-
-# ACP — Agent 通信协议
-
-> **ACP 之于 Agent 间通信，如同 MCP 之于 Agent 调用工具。**
-
-MCP 解决了 Agent 如何调用工具的问题。ACP 解决的是 Agent 之间如何互相通信的问题。
-
----
-
-## 问题所在
-
-每个多智能体框架都发明了自己的通信格式：
-
-| 框架 | 通信方式 | 可互通？|
-|------|---------|---------|
-| LangGraph | 进程内 Python 调用 | ❌ 仅限同进程 |
-| AutoGen | HTTP + 临时 JSON | ❌ 仅限 AutoGen |
-| CrewAI | 直接方法调用 | ❌ 仅限同进程 |
-| Google A2A | REST + Task Schema | ⚠️ Google 控制 |
-| OpenAI Swarm | 仅进程内 | ❌ 仅限同进程 |
-
-**结果**：LangChain 的 Agent 无法与 AutoGen 的 Agent 通信。Python Agent 无法与 TypeScript Agent 对话。多智能体系统被锁死在各自的框架内。
-
----
-
-## 解决方案
-
-ACP 定义了一套 **标准的 Agent 间通信协议**：
-
-```
-┌─────────────────┐     ACP 消息         ┌─────────────────┐
-│  LangChain      │ ──────────────────►  │  AutoGen        │
-│  Agent          │                      │  Agent          │
-└─────────────────┘  (JSON over stdio,   └─────────────────┘
-                       HTTP 或 TCP)
-```
-
-任何支持 ACP 的 Agent 都能与任何其他 ACP Agent 通信，不受以下因素限制：
-- 编程语言（Python、TypeScript、Go、Rust、Java……）
-- 框架（LangChain、AutoGen、CrewAI、原生 LLM API……）
-- 基础设施（本地进程、容器、远程服务器、云函数……）
-
----
-
-## 传输模式
-
-ACP 定义三种标准传输绑定：
-
-### 1. stdio（推荐用于本地/子进程 Agent）
-
-```
-┌─────────────────────────────────────────────────────┐
-│  父进程                                              │
-│                                                     │
-│  agent_a ──(stdout)──► agent_b 进程                  │
-│           ◄─(stdin)──                               │
-└─────────────────────────────────────────────────────┘
-```
-
-消息是换行符分隔的 JSON 对象，通过 stdout/stdin 传递。零配置，无需端口，跨语言。
-
-```bash
-# Agent B 从 stdin 读取消息，向 stdout 输出响应
-echo '{"acp":"0.1","type":"task.delegate","from":"did:acp:local:a",...}' | python agent_b.py
-```
-
-### 2. HTTP + SSE（推荐用于网络 Agent）
-
-```
-POST /acp/v1/messages       ← 发送消息
-GET  /acp/v1/stream         ← 接收消息（Server-Sent Events）
-GET  /acp/v1/capabilities   ← 查询 Agent 能力
-```
-
-### 3. 原始 TCP（推荐用于高吞吐量管道）
-
-持久 TCP 连接上的换行符分隔 JSON。延迟最低，无 HTTP 开销。
-
----
-
-## ACP 消息格式
-
-每条 ACP 消息都是一个标准信封结构的 JSON 对象：
-
-```json
-{
-  "acp":            "0.1",
-  "id":             "msg_7f3a9b2c",
-  "type":           "task.delegate",
-  "from":           "did:acp:local:orchestrator",
-  "to":             "did:acp:local:summarizer",
-  "ts":             "2026-03-18T10:00:00Z",
-  "correlation_id": "workflow_abc123",
-  "body": {
-    "task":  "对附件文档进行摘要",
-    "input": { "text": "..." },
-    "constraints": { "max_tokens": 500, "deadline": "2026-03-18T10:05:00Z" }
-  }
-}
-```
-
-**消息类型**决定 body 的 schema。核心消息类型：
-
-| 类别 | 类型 |
-|------|------|
-| 任务生命周期 | `task.delegate` `task.accept` `task.reject` `task.result` `task.progress` `task.cancel` |
-| 生命周期 | `agent.hello` `agent.bye` `agent.heartbeat` |
-| 事件 | `event.broadcast` `event.subscribe` |
-| 协调 | `coord.propose` `coord.vote` |
-| 人机协作 | `hitl.escalate` `hitl.response` |
-| 系统 | `error` |
-
----
-
-## 快速开始
-
-**安装 SDK：**
-
-```bash
-pip install acp-sdk           # Python
-npm install @acp-protocol/sdk # TypeScript
-```
-
-**构建一个接收任务的 Agent（任意框架，10 行）：**
-
-```python
-from acp_sdk import ACPAgent, ACPMessage
-
-class SummarizerAgent(ACPAgent):
-    async def handle_task_delegate(self, msg: ACPMessage) -> ACPMessage:
-        text = msg.body["input"]["text"]
-        summary = your_llm(f"总结以下内容：{text}")  # 你现有的逻辑
-        return msg.reply(status="success", output={"summary": summary})
-
-# 以 stdio 模式启动（子进程模式）或 HTTP 模式
-SummarizerAgent(aid="did:acp:local:summarizer").serve()
-```
-
-**向另一个 Agent 发送任务：**
-
-```python
-from acp_sdk import ACPClient
-
-async with ACPClient("http://localhost:7700") as client:
-    result = await client.delegate(
-        to="did:acp:local:summarizer",
-        task="帮我总结这段文字",
-        input={"text": "..."},
-    )
-    print(result.body["output"]["summary"])
-```
-
----
-
-## 与 MCP 的关系
-
-| | MCP | ACP |
-|-|-----|-----|
-| **解决** | Agent ↔ 工具 | Agent ↔ Agent |
-| **典型用途** | 调用搜索/数据库/API | 把任务委托给专业 Agent |
-| **传输** | stdio、HTTP/SSE | stdio、HTTP/SSE、TCP |
-| **消息格式** | JSON-RPC 2.0 | ACP 信封（专用设计）|
-| **能力模型** | 工具列表 | Agent 能力 + Schema |
-| **发起方** | 始终由 Agent（客户端）发起 | 任意一方（异步）|
-
-两者**互补**：Agent 用 MCP 调用工具，用 ACP 与其他 Agent 通信。
-
-```
-人类 ──► 编排 Agent
-            │  ACP: 委托任务
-            ▼
-        工作 Agent ──► MCP: 调用网络搜索工具
-            │  ACP: task.result
-            ▼
-        编排 Agent ──► 人类: 最终答案
-```
-
----
-
-## 规范文档
-
-| 文档 | 说明 |
-|------|------|
-| [核心规范 v0.1（中文）](spec/core-v0.1.zh.md) | 消息信封、类型、错误码、版本控制 |
-| [核心规范 v0.1（英文）](spec/core-v0.1.md) | Core spec in English |
-| [传输绑定（中文）](spec/transports.zh.md) | stdio、HTTP/SSE、TCP 的具体格式 |
-| [身份与信任](spec/identity.md) | AID 格式、认证、消息签名 |
-| [能力发现](spec/discovery.md) | Agent 能力广播与查询 |
-| [消息类型参考](spec/message-types.md) | 每种消息类型的完整 Schema |
-| [错误码](spec/errors.md) | 标准错误码注册表 |
-
-## SDK 与集成
-
-| | Python | TypeScript |
-|-|--------|------------|
-| **核心 SDK** | [`sdk/python/`](sdk/python/) | [`sdk/typescript/`](sdk/typescript/) |
-| **LangChain** | `acp_sdk.integrations.langchain` | — |
-| **AutoGen** | `acp_sdk.integrations.autogen` | — |
-| **FastAPI 中间件** | `acp_sdk.integrations.fastapi` | — |
-
-## 示例
-
-| 示例 | 传输 | 演示内容 |
-|------|------|---------|
-| [quickstart/](examples/quickstart/) | stdio | Hello world：两个 Agent，一个任务 |
-| [orchestrator-workers/](examples/orchestrator-workers/) | HTTP | 编排器并行分发给多个工作 Agent |
-| [cross-framework/](examples/cross-framework/) | HTTP | LangChain Agent ↔ AutoGen Agent |
-| [hitl/](examples/hitl/) | HTTP | 人工审批 Agent 决策 |
-
----
-
-## 路线图
-
-- [x] **v0.1** — 核心信封、任务生命周期、错误码、进程内总线
-- [x] **v0.2** — P2P 模式、群组消息
-- [x] **v0.3** — 连接生命周期（connect/disconnect/join/leave）
-- [ ] **v0.4** — stdio 传输、TCP 传输；Ed25519 消息签名
-- [ ] **v0.5** — 能力发现注册中心；流式任务结果
-- [ ] **v1.0** — 稳定规范；社区 RFC 流程；IANA 注册
-
-## 参与贡献
-
-ACP 由社区拥有，厂商中立。查看 [CONTRIBUTING.zh.md](CONTRIBUTING.zh.md)。
-
-## 开源协议
-
-[Apache 2.0](LICENSE)
+**GitHub:** https://github.com/Kickflip73/agent-communication-protocol
