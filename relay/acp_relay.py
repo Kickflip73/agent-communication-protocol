@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v0.3
+ACP P2P Relay v0.4
 ==================
 Zero-server, zero-code-change P2P Agent communication.
 
@@ -48,7 +48,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("acp-p2p")
 
-VERSION = "0.3"
+VERSION = "0.4"
+
+# ── Config ─────────────────────────────────────────────────────────────────────
+MAX_MSG_BYTES = 1 * 1024 * 1024   # 1 MB default; override via --max-msg-size
 
 # ── Task lifecycle states (A2A-aligned) ───────────────────────────────────────
 TASK_SUBMITTED  = "submitted"
@@ -81,6 +84,7 @@ _status: dict = {
     "connected":         False,
     "role":              None,
     "link":              None,
+    "session_id":        None,       # set when connection established
     "agent_name":        None,
     "agent_card":        None,
     "peer_card":         None,
@@ -91,6 +95,7 @@ _status: dict = {
     "reconnect_count":   0,
     "tasks_created":     0,
     "started_at":        None,
+    "max_msg_bytes":     MAX_MSG_BYTES,
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -104,15 +109,25 @@ def _make_token() -> str:
     return "tok_" + uuid.uuid4().hex[:16]
 
 def _make_agent_card(name: str, skills: list[str]) -> dict:
+    """A2A-aligned AgentCard with capabilities and MIME support declaration."""
     return {
         "name":        name,
         "version":     "1.0.0",
         "acp_version": VERSION,
-        "skills":      skills,
+        # A2A-style skills (list of {id, name, description})
+        "skills":      [{"id": s, "name": s} for s in skills],
+        "skills_raw":  skills,          # simple list for quick lookup
         "description": f"ACP P2P Agent: {name}",
         "http_port":   _status["http_port"],
         "timestamp":   _now(),
-        "communication_modes": ["sync", "async", "stream", "push"],
+        # Declared capabilities (A2A-compatible)
+        "capabilities": {
+            "communication_modes": ["sync", "async", "stream", "push"],
+            "multimodal":          True,   # supports MIME-typed messages
+            "max_msg_bytes":       MAX_MSG_BYTES,
+        },
+        # Auth info (placeholder for DID in v0.5)
+        "auth": {"schemes": ["none"]},
     }
 
 # ── Task helpers ──────────────────────────────────────────────────────────────
@@ -190,6 +205,11 @@ def _persist(entry: dict):
 # ── Incoming message handler ──────────────────────────────────────────────────
 
 def _on_message(raw: str):
+    # ── Guard: message size limit ─────────────────────────────────────────────
+    if len(raw.encode()) > MAX_MSG_BYTES:
+        log.warning(f"Message too large ({len(raw.encode())} bytes > {MAX_MSG_BYTES}), dropped")
+        return
+
     try:
         msg = json.loads(raw)
     except json.JSONDecodeError:
@@ -277,10 +297,11 @@ async def host_mode(token: str, ws_port: int, http_port: int):
             return
 
         _peer_ws = websocket
-        _status["connected"] = True
+        _status["connected"]  = True
+        _status["session_id"] = "sess_" + uuid.uuid4().hex[:12]
         _status["started_at"] = _status["started_at"] or time.time()
         await _send_agent_card(websocket)
-        _broadcast_event({"event": "peer.connected"})
+        _broadcast_event({"event": "peer.connected", "session_id": _status["session_id"]})
 
         print(f"\n{'='*55}")
         print(f"✅ Peer connected — P2P channel established (no server)")
@@ -336,12 +357,13 @@ async def guest_mode(host: str, ws_port: int, token: str, http_port: int):
             log.info(f"{'Reconnecting #' + str(retry) if retry else 'Connecting to'}: {uri}")
             async with websockets.connect(uri, ping_interval=20, ping_timeout=10) as ws:
                 _peer_ws = ws
-                _status["connected"] = True
+                _status["connected"]  = True
+                _status["session_id"] = "sess_" + uuid.uuid4().hex[:12]
                 _status["started_at"] = _status["started_at"] or time.time()
                 if retry > 0:
                     _status["reconnect_count"] += 1
                 await _send_agent_card(ws)
-                _broadcast_event({"event": "peer.connected"})
+                _broadcast_event({"event": "peer.connected", "session_id": _status["session_id"]})
 
                 print(f"\n{'='*55}")
                 print(f"✅ {'Reconnected' if retry else 'Connected'} — P2P direct (no server)")
@@ -412,14 +434,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
         p  = parsed.path
         qs = parse_qs(parsed.query)
 
-        # ── status / link / card ──────────────────────────────────────────────
+        # ── status / link / card / well-known ────────────────────────────────
         if p == "/status":
             self._json(_status)
 
         elif p == "/link":
-            self._json({"link": _status.get("link")})
+            self._json({"link": _status.get("link"), "session_id": _status.get("session_id")})
 
-        elif p == "/card":
+        elif p in ("/card", "/.well-known/acp.json"):
+            # A2A-compatible AgentCard discovery endpoint
             self._json({"self": _status.get("agent_card"), "peer": _status.get("peer_card")})
 
         # ── [1] SYNC: wait for correlated reply ───────────────────────────────
@@ -518,9 +541,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
         if p == "/send":
             try:
                 msg = self._read_body()
-                msg.setdefault("id",   _make_id())
-                msg.setdefault("ts",   _now())
-                msg.setdefault("from", _status.get("agent_name", "unknown"))
+                msg.setdefault("id",         _make_id())
+                msg.setdefault("ts",         _now())
+                msg.setdefault("from",       _status.get("agent_name", "unknown"))
+                msg.setdefault("session_id", _status.get("session_id"))
+
+                # Guard: outgoing message size
+                serialized = json.dumps(msg, ensure_ascii=False)
+                if len(serialized.encode()) > MAX_MSG_BYTES:
+                    self._json({"ok": False, "error": f"message too large (max {MAX_MSG_BYTES} bytes)"}, 413)
+                    return
 
                 want_sync = msg.pop("sync", False)
                 timeout   = float(msg.pop("timeout", 30))
@@ -694,7 +724,7 @@ def get_local_ip() -> str:
 def get_public_ip(timeout: float = 4.0) -> str | None:
     for url in ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "acp-p2p/0.3"})
+            req = urllib.request.Request(url, headers={"User-Agent": "acp-p2p/0.4"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 ip = resp.read().decode().strip()
                 if ip and "." in ip and len(ip) <= 45:
@@ -713,15 +743,21 @@ def parse_link(link: str) -> tuple[str, int, str]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    global _loop, _status, _inbox_path
+    global _loop, _status, _inbox_path, MAX_MSG_BYTES
 
-    parser = argparse.ArgumentParser(description="ACP P2P v0.3 — zero-server direct Agent communication")
-    parser.add_argument("--name",   default="ACP-Agent", help="Agent display name")
-    parser.add_argument("--join",   default=None,        help="acp:// link to connect to (omit = initiator)")
-    parser.add_argument("--port",   type=int, default=7801, help="WebSocket port (default 7801); HTTP = port+100")
-    parser.add_argument("--skills", default="",          help="Comma-separated capability list")
-    parser.add_argument("--inbox",  default=None,        help="Message persistence file (default /tmp/acp_inbox_<name>.jsonl)")
+    parser = argparse.ArgumentParser(description="ACP P2P v0.4 — zero-server direct Agent communication")
+    parser.add_argument("--name",         default="ACP-Agent", help="Agent display name")
+    parser.add_argument("--join",         default=None,        help="acp:// link to connect to (omit = initiator)")
+    parser.add_argument("--port",         type=int, default=7801, help="WebSocket port (default 7801); HTTP = port+100")
+    parser.add_argument("--skills",       default="",          help="Comma-separated capability list")
+    parser.add_argument("--inbox",        default=None,        help="Message persistence file (default /tmp/acp_inbox_<name>.jsonl)")
+    parser.add_argument("--max-msg-size", type=int, default=MAX_MSG_BYTES,
+                        help=f"Max message size in bytes (default {MAX_MSG_BYTES})")
     args = parser.parse_args()
+
+    # Apply config overrides
+    MAX_MSG_BYTES = args.max_msg_size
+    _status["max_msg_bytes"] = MAX_MSG_BYTES
 
     ws_port   = args.port
     http_port = args.port + 100
