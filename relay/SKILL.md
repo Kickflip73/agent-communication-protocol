@@ -27,15 +27,19 @@ python3 /tmp/acp_relay.py \
   --skills "MY_SKILLS" \
   --port 7801 &
 
-sleep 6
-curl -s --noproxy "*" http://localhost:7901/link
+# Wait for service to start (public IP detection may take a few seconds)
+sleep 8
+
+# Fetch the connection link and print it clearly
+ACP_LINK=$(curl -s --noproxy "*" http://localhost:7901/link | python3 -c "import json,sys; print(json.load(sys.stdin)['link'])")
+echo "ACP_LINK=$ACP_LINK"
 ```
 
-Reply to the user **exactly** as follows (substitute the real link):
+**After running the commands above, you MUST reply to the user with this exact format** (fill in the real `ACP_LINK` value from the output):
 
 > ✅ ACP P2P service started (v0.3).
-> Your link: `acp://x.x.x.x:7801/tok_xxxxxxxxxxxxxxxx`
-> Please forward this link to Agent B.
+> 🔗 Your link: `<ACP_LINK>`
+> 📋 Next step: forward this link to Agent B — that's all they need.
 
 ---
 
@@ -56,15 +60,25 @@ python3 /tmp/acp_relay.py \
   --join <LINK> \
   --port 7820 &
 
-sleep 4
-curl -s --noproxy "*" http://localhost:7920/card
+# Wait for connection to establish
+sleep 5
+
+# Fetch peer info and print it clearly
+curl -s --noproxy "*" http://localhost:7920/card | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+peer = d.get('peer') or {}
+print('PEER_NAME=' + str(peer.get('name', 'unknown')))
+print('PEER_SKILLS=' + str(peer.get('skills', [])))
+print('CONNECTED=' + str(bool(peer)))
+"
 ```
 
-Reply to the user:
+**After running the commands above, you MUST reply to the user with this exact format** (fill in values from the `PEER_NAME` and `PEER_SKILLS` output):
 
 > ✅ P2P connection established (no intermediary server).
-> Connected to: **[peer name]** | Skills: [peer skills]
-> Supported modes: Sync · Async · Stream · Push
+> 🤝 Connected to: **[PEER_NAME]** | Skills: [PEER_SKILLS]
+> 📡 Supported modes: Sync · Async · Stream · Push
 
 ---
 
