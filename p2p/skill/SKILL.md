@@ -1,294 +1,339 @@
-# ACP-P2P Skill — 去中心化 Agent 通信
+# ACP-P2P Skill
+## 去中心化 Agent 通信协议 · 点对点 + 群聊
+
+**版本**: 0.2 | **依赖**: Python 3.10+ + aiohttp
+
+---
 
 ## 这是什么
 
-ACP-P2P 让任意两个 Agent 直接通信，**无需任何第三方服务器**。
+ACP-P2P 让任意 Agent 之间直接通信，**无需任何第三方服务器**。
 
-一个 `acp://` URI 就是一个 Agent 的完整"地址"——知道对方的 URI，就能直接发消息。
+- 每个 Agent 有一个 `acp://` URI（即它的地址）
+- 知道对方 URI → 直接发消息
+- 多个 Agent → 建立无服务器群聊
 
 ---
 
-## 快速接入（3步）
-
-### Step 1：安装
+## 安装（1条命令）
 
 ```bash
 pip install aiohttp
-```
-
-下载 SDK 文件（单文件，无其他依赖）：
-
-```bash
-curl -o acp_p2p.py https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/p2p/sdk/acp_p2p.py
+curl -o acp_p2p.py \
+  https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/p2p/sdk/acp_p2p.py
 ```
 
 ---
 
-### Step 2：让你的 Agent 能接收消息
+## 场景一：两个 Agent 互相通信
+
+### Agent A（接收方）— 启动并分享 URI
 
 ```python
 from acp_p2p import P2PAgent
 
-# 1. 创建 Agent（只需名字和端口）
-agent = P2PAgent("my-agent", port=7700)
+agent = P2PAgent("alice", port=7700)
 
-# 2. 注册任务处理函数（这是你自己的逻辑）
 @agent.on_task
 async def handle(task: str, input_data: dict) -> dict:
-    # task = 对方发来的任务描述
-    # input_data = 对方发来的输入数据
-    # 返回任何 dict 作为结果
-    result = your_own_logic(task, input_data)
-    return {"output": result}
+    # 在这里写你自己的处理逻辑
+    return {"result": f"Alice 处理了: {task}"}
 
-# 3. 启动（会打印你的 ACP URI）
 agent.start()
-# 输出: 🔗 ACP URI: acp://192.168.1.42:7700/my-agent
+# 输出: 🔗 ACP URI: acp://192.168.1.42:7700/alice
+# 把这个 URI 发给 Bob（复制粘贴、IM 消息、配置文件均可）
 ```
 
-把打印出来的 **ACP URI** 分享给任何想联系你的 Agent。
-
----
-
-### Step 3：主动发消息给另一个 Agent
+### Agent B（发送方）— 用 URI 直接联系 A
 
 ```python
 from acp_p2p import P2PAgent
 
-agent = P2PAgent("caller", port=7701)
+agent = P2PAgent("bob", port=7701)
 
-# 只要知道对方的 URI，就能直接发
+# 把 Alice 的 URI 填进去，直接发消息
 result = await agent.send(
-    to="acp://192.168.1.50:7700/other-agent",   # 对方的 URI
-    task="Summarize this article",
-    input={"text": "Long article content..."},
+    to="acp://192.168.1.42:7700/alice",   # Alice 的 URI
+    task="请处理这个请求",
+    input={"data": "some input"},
 )
 
-print(result["body"]["output"])  # 对方返回的结果
+print(result["body"]["output"])
+# → {'result': 'Alice 处理了: 请处理这个请求'}
+```
+
+**就这两步。两个 Agent 通信完毕。**
+
+---
+
+## 场景二：多 Agent 群聊（≥3人）
+
+### 群主（Alice）创建群并邀请成员
+
+```python
+from acp_p2p import P2PAgent
+import asyncio
+
+async def main():
+    alice = P2PAgent("alice", port=7700)
+
+    # 注册群消息处理函数
+    @alice.on_group_message
+    async def on_msg(group_id: str, from_uri: str, body: dict):
+        print(f"[群消息] {from_uri.split('/')[-1]}: {body.get('text')}")
+
+    async with alice:
+        # 1. 创建群
+        group = alice.create_group("my-group")
+        print(f"邀请链接: {group.to_join_uri()}")
+
+        # 2. 邀请其他 Agent（推送邀请，对方自动加入）
+        await alice.invite(group, "acp://192.168.1.43:7701/bob")
+        await alice.invite(group, "acp://192.168.1.44:7702/charlie")
+
+        # 3. 发群消息（自动广播给所有成员）
+        await alice.group_send(group, {"text": "大家好！"})
+
+asyncio.run(main())
+```
+
+### Bob / Charlie（被邀请方）
+
+```python
+from acp_p2p import P2PAgent
+import asyncio
+
+async def main():
+    bob = P2PAgent("bob", port=7701)
+
+    @bob.on_group_message
+    async def on_msg(group_id: str, from_uri: str, body: dict):
+        print(f"[群消息] {from_uri.split('/')[-1]}: {body.get('text')}")
+        # 可以直接回复
+        group = bob.get_group(group_id)
+        await bob.group_send(group, {"text": f"Bob 收到了！"})
+
+    async with bob:
+        # Bob 只需要启动并监听，等待 Alice 的邀请消息
+        await asyncio.sleep(3600)
+
+asyncio.run(main())
+```
+
+### 主动加入（通过邀请链接）
+
+```python
+# 如果 Alice 把 to_join_uri() 的结果发给了你
+group = await agent.join_group("acpgroup://my-group:acp://...?members=...")
+await agent.group_send(group, {"text": "我加入了！"})
 ```
 
 ---
 
-## ACP URI 格式说明
+## ACP URI 格式
 
 ```
-acp://<host>:<port>/<agent-name>?caps=<能力1,能力2>&key=<认证密钥>
+acp://<host>:<port>/<agent-name>?caps=<能力列表>&key=<认证密钥>
 ```
 
-| 部分 | 说明 | 示例 |
-|------|------|------|
-| `host` | IP 或域名 | `192.168.1.42`、`agent.example.com` |
-| `port` | 监听端口（默认 7700）| `7700` |
-| `agent-name` | Agent 唯一标识 | `summarizer`、`worker-a` |
-| `caps` | 能力声明（可选）| `summarize,translate` |
-| `key` | 认证密钥（可选）| `mysecret123` |
+| 字段 | 必须 | 说明 | 示例 |
+|------|------|------|------|
+| host | ✅ | IP 或域名 | `192.168.1.42`、`myagent.com` |
+| port | ✅ | 监听端口 | `7700`（默认）|
+| name | ✅ | Agent 名称 | `alice`、`worker-1` |
+| caps | ❌ | 能力声明 | `summarize,translate` |
+| key  | ❌ | 预共享认证密钥 | `mysecret` |
 
 ---
 
-## 消息格式
+## 消息格式（标准 JSON）
 
-所有消息都是标准 JSON，通过 HTTP POST 发送到对方的 `/acp/v1/receive`：
+所有通信都是 HTTP POST，消息体格式如下：
 
-### 发送任务（task.delegate）
+### 发送任务
 
 ```json
 {
   "acp": "0.1",
   "id": "msg_abc123",
   "type": "task.delegate",
-  "from": "acp://192.168.1.10:7701/caller",
-  "to":   "acp://192.168.1.42:7700/worker",
+  "from": "acp://192.168.1.10:7701/bob",
+  "to":   "acp://192.168.1.42:7700/alice",
   "ts": "2026-03-18T10:00:00Z",
   "body": {
-    "task": "Summarize this text",
-    "input": { "text": "..." }
+    "task": "任务描述",
+    "input": { "key": "value" }
   }
 }
 ```
 
-### 返回结果（task.result）
+### 返回结果
 
 ```json
 {
   "acp": "0.1",
-  "id": "msg_xyz789",
   "type": "task.result",
-  "from": "acp://192.168.1.42:7700/worker",
-  "to":   "acp://192.168.1.10:7701/caller",
-  "ts": "2026-03-18T10:00:01Z",
+  "from": "acp://192.168.1.42:7700/alice",
+  "to":   "acp://192.168.1.10:7701/bob",
   "body": {
     "status": "success",
-    "output": { "summary": "This article discusses..." }
+    "output": { "result": "..." }
+  }
+}
+```
+
+### 群聊消息
+
+```json
+{
+  "acp": "0.1",
+  "type": "group.message",
+  "from": "acp://192.168.1.42:7700/alice",
+  "to":   "acp://192.168.1.43:7701/bob",
+  "body": {
+    "group_id": "dev-team:acp://...",
+    "text": "消息内容",
+    "任何其他字段": "均可"
   }
 }
 ```
 
 ---
 
-## 五种 Agent 发现方式
+## Agent 必须暴露的接口
 
-| 方式 | 适合场景 | 操作 |
-|------|---------|------|
-| **直接配置** | 固定拓扑 | 把 URI 写入 `.env` 或配置文件 |
-| **带外交换** | 临时协作 | 把 URI 粘贴给对方（IM/邮件） |
-| **共享文件** | 团队内部 | 把 URI 写入共享 Git 仓库的 `agents.json` |
-| **mDNS** | 局域网 | 自动广播（见高级用法） |
-| **二维码** | 移动/物理场景 | URI 编码为二维码 |
+你的 Agent 需要监听以下 HTTP 端点（SDK 自动处理）：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/acp/v1/receive` | POST | 接收所有 ACP 消息（必须）|
+| `/acp/v1/identity` | GET | 返回身份和能力（推荐）|
+| `/acp/v1/health` | GET | 存活检查 |
 
 ---
 
-## 跨网络穿透
+## 跨网络通信
 
-默认情况下 ACP URI 使用局域网 IP，跨网络需要穿透：
+| 场景 | 方案 | 操作 |
+|------|------|------|
+| 同一局域网 | 直接使用 | 用局域网 IP |
+| 开发/调试 | ngrok | `ngrok http 7700` |
+| 团队内网 | Tailscale | 安装后用 Tailscale IP |
+| 生产部署 | 公网服务器 | `P2PAgent("x", host="1.2.3.4")` |
 
-```bash
-# 方案1：ngrok（最简单，适合开发测试）
-ngrok http 7700
-# 得到: https://abc123.ngrok.io → 你的 URI 变成 acp://abc123.ngrok.io:443/my-agent
-
-# 方案2：Tailscale（团队推荐）
-# 安装 Tailscale 后，用 Tailscale IP 替换局域网 IP
-
-# 方案3：公网服务器
-P2PAgent("my-agent", port=7700, host="your.public.ip")
+```python
+# 指定公网/自定义 host
+agent = P2PAgent("alice", port=7700, host="your.domain.com")
+# → acp://your.domain.com:7700/alice
 ```
 
 ---
 
-## 带认证的安全连接
+## 认证（可选）
 
 ```python
-# 接收方设置密钥
-agent = P2PAgent("secure-agent", port=7700, psk="my-secret-key")
-# URI 自动包含密钥: acp://192.168.1.42:7700/secure-agent?key=my-secret-key
+# 创建带密钥的 Agent
+agent = P2PAgent("secure", port=7700, psk="my-secret-key")
+# URI 自动包含密钥: acp://host:7700/secure?key=my-secret-key
 
-# 发送方：URI 中已包含 key，SDK 自动处理认证
-result = await sender.send(
-    to="acp://192.168.1.42:7700/secure-agent?key=my-secret-key",
-    task="...",
-    input={},
-)
+# 发送方：URI 里带 key，SDK 自动处理
+result = await caller.send("acp://host:7700/secure?key=my-secret-key", ...)
 ```
 
 ---
 
-## 查询对方身份
+## API 速查
+
+### P2PAgent
 
 ```python
-# 发现对方的能力和信息
-identity = await agent.discover("acp://192.168.1.42:7700/other-agent")
-print(identity)
-# {
-#   "uri": "acp://...",
-#   "name": "other-agent",
-#   "capabilities": ["summarize", "translate"],
-#   "acp_version": "0.1"
-# }
+# 创建
+agent = P2PAgent(name, port=7700, host=None, psk=None, capabilities=[])
+
+# 启动
+agent.start(block=True)           # 阻塞运行（独立脚本）
+async with agent:                  # 非阻塞（嵌入 async 代码）
+
+# 点对点
+await agent.send(to_uri, task, input={}, timeout=30)  # 发送任务，返回响应
+await agent.discover(uri)          # 查询对方身份
+
+# 群聊
+group = agent.create_group(name)               # 创建群（自己是第一个成员）
+await agent.invite(group, peer_uri)            # 邀请成员
+group = await agent.join_group(join_uri)       # 主动加入（通过邀请链接）
+await agent.group_send(group, body_dict)       # 广播给群里所有人
+group = agent.get_group(group_id)              # 获取已加入的群
+
+# 注册处理函数
+@agent.on_task                                 # 处理 task.delegate
+async def handle(task: str, input: dict) -> dict: ...
+
+@agent.on_group_message                        # 处理群消息
+async def on_msg(group_id: str, from_uri: str, body: dict): ...
+
+@agent.on_message("custom.type")              # 处理自定义消息类型
+async def on_custom(msg: dict) -> dict: ...
+```
+
+### ACPGroup
+
+```python
+group.group_id          # 群唯一 ID
+group.members           # 成员 URI 列表
+group.to_join_uri()     # 生成邀请链接
+ACPGroup.from_join_uri(uri)  # 从链接恢复群对象
 ```
 
 ---
 
-## 完整示例：两个 Agent 协作
+## 完整运行示例
 
 ```python
+"""三个 Agent 群聊，复制即可运行"""
 import asyncio
 from acp_p2p import P2PAgent
 
 async def main():
-    # ── Agent A：数据处理器 ──────────────────────────────────────
-    processor = P2PAgent("processor", port=7700, capabilities=["process"])
+    alice   = P2PAgent("alice",   port=7810)
+    bob     = P2PAgent("bob",     port=7811)
+    charlie = P2PAgent("charlie", port=7812)
 
-    @processor.on_task
-    async def process_data(task: str, input_data: dict) -> dict:
-        numbers = input_data.get("numbers", [])
-        return {"sum": sum(numbers), "avg": sum(numbers)/len(numbers) if numbers else 0}
+    @alice.on_group_message
+    async def a(gid, src, body): print(f"Alice   ← {src.split('/')[-1]}: {body['text']}")
 
-    # ── Agent B：分析器（调用 A）────────────────────────────────
-    analyzer = P2PAgent("analyzer", port=7701, capabilities=["analyze"])
+    @bob.on_group_message
+    async def b(gid, src, body): print(f"Bob     ← {src.split('/')[-1]}: {body['text']}")
 
-    @analyzer.on_task
-    async def analyze(task: str, input_data: dict) -> dict:
-        # 委托给 processor
-        result = await analyzer.send(
-            to=str(processor.uri),
-            task="Calculate statistics",
-            input={"numbers": input_data.get("data", [])},
-        )
-        stats = result["body"]["output"]
-        return {"report": f"Sum={stats['sum']}, Avg={stats['avg']:.2f}"}
+    @charlie.on_group_message
+    async def c(gid, src, body): print(f"Charlie ← {src.split('/')[-1]}: {body['text']}")
 
-    # 启动两个 Agent
-    async with processor, analyzer:
-        print(f"Processor: {processor.uri}")
-        print(f"Analyzer:  {analyzer.uri}")
+    async with alice, bob, charlie:
+        group = alice.create_group("team")
+        await alice.invite(group, str(bob.uri))
+        await alice.invite(group, str(charlie.uri))
+        await asyncio.sleep(0.1)
 
-        # 外部触发 Analyzer
-        result = await analyzer.send(
-            to=str(analyzer.uri),
-            task="Analyze this dataset",
-            input={"data": [10, 20, 30, 40, 50]},
-        )
-        print(f"Report: {result['body']['output']['report']}")
+        await alice.group_send(group, {"text": "Hello everyone!"})
+        await asyncio.sleep(0.1)
+        await bob.group_send(bob.get_group(group.group_id), {"text": "Hi Alice & Charlie!"})
+        await asyncio.sleep(0.2)
 
 asyncio.run(main())
 ```
 
 ---
 
-## 接口参考
+## 故障排查
 
-### P2PAgent
-
-| 方法 | 说明 |
-|------|------|
-| `P2PAgent(name, port, host, psk, capabilities)` | 创建 Agent |
-| `agent.start(block=True)` | 启动服务器 |
-| `await agent.send(to, task, input, timeout)` | 发送任务，返回结果 |
-| `await agent.discover(uri)` | 查询对方身份 |
-| `@agent.on_task` | 注册任务处理函数 |
-| `@agent.on_message(type)` | 注册特定消息类型处理函数 |
-| `agent.uri` | 获取自己的 ACPURI 对象 |
-| `str(agent.uri)` | 获取 URI 字符串 |
-
-### ACPURI
-
-| 属性/方法 | 说明 |
-|-----------|------|
-| `ACPURI.parse("acp://...")` | 解析 URI 字符串 |
-| `uri.host`, `uri.port`, `uri.name` | 各字段 |
-| `uri.caps` | 能力列表 |
-| `str(uri)` | 转回 URI 字符串 |
-| `uri.receive_url` | HTTP 接收端点 URL |
-
-### 服务端点（自动暴露）
-
-| 端点 | 说明 |
-|------|------|
-| `POST /acp/v1/receive` | 接收消息（核心） |
-| `GET  /acp/v1/identity` | 返回自身信息 |
-| `GET  /acp/v1/health` | 存活检查 |
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| `ConnectionError: Cannot reach acp://...` | 对方未启动或端口被防火墙拦截 | 检查对方是否在运行；检查端口 |
+| `401 Unauthorized` | PSK 不匹配 | 确认 URI 中的 `key=` 参数正确 |
+| 群消息只有部分人收到 | 某成员离线 | 正常现象，v0.3 会加入重试 |
+| 跨网收不到消息 | 使用了局域网 IP | 用 ngrok 或公网 IP |
 
 ---
 
-## 常见问题
-
-**Q: 需要公网 IP 才能用吗？**
-A: 不需要。局域网内两个 Agent 直接用内网 IP 通信。跨网络才需要穿透。
-
-**Q: 支持哪些语言？**
-A: Python SDK 已就绪。其他语言只需实现：① 监听 `POST /acp/v1/receive`；② 发送 HTTP POST。任何语言都可以，无需 SDK。
-
-**Q: 消息丢了怎么办？**
-A: v0.1 不包含重试机制，调用方自行处理。v0.3 会加入可靠传输选项。
-
-**Q: 和 ACP Gateway 模式可以混用吗？**
-A: 完全兼容。消息格式相同，切换只需改连接方式。
-
----
-
-## 源码
-
-- SDK: `p2p/sdk/acp_p2p.py`（单文件，零依赖除 aiohttp）
-- 示例: `p2p/examples/demo_p2p.py`
-- 规范: `p2p/spec/acp-p2p-v0.1.md`
-- GitHub: https://github.com/Kickflip73/agent-communication-protocol
+**GitHub**: https://github.com/Kickflip73/agent-communication-protocol  
+**SDK 单文件**: `p2p/sdk/acp_p2p.py`（复制即用）
