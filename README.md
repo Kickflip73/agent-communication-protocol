@@ -2,345 +2,446 @@
 
 <div align="center">
 
-**[English](#acp--agent-communication-protocol-1) · [中文](#acp--agent-通信协议)**
-
-</div>
-
----
-
-<!-- ================================================================ -->
-<!-- ENGLISH                                                           -->
-<!-- ================================================================ -->
-
-# ACP — Agent Communication Protocol
-
-> **A lightweight, transport-agnostic, open standard for Multi-Agent Systems communication.**
+**[English](#quick-start) · [中文](#快速开始)**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Status: Draft v0.1](https://img.shields.io/badge/Status-Draft%20v0.1-yellow.svg)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)]()
 
+</div>
+
+---
+
+<!-- ============================================================ -->
+<!--  ENGLISH                                                      -->
+<!-- ============================================================ -->
+
+> **Let any two agents talk directly — no server, no broker, no registration.**
+>
+> ACP-P2P gives every agent an address (`acp://` URI). Share the address, send a message. That's it.
+
+## Quick Start
+
+**Step 1 — Install**
+
+```bash
+pip install aiohttp
+curl -o acp_p2p.py https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/p2p/sdk/acp_p2p.py
+```
+
+**Step 2 — Add 4 lines to your existing agent**
+
+```python
+from acp_p2p import P2PAgent
+
+agent = P2PAgent("my-agent", port=7700)
+
+@agent.on_task
+async def handle(task: str, input_data: dict) -> dict:
+    # ↓ your existing agent logic goes here — unchanged
+    result = your_existing_function(task, input_data)
+    return {"output": result}
+
+agent.start()
+# Prints: 🔗 ACP URI: acp://192.168.1.42:7700/my-agent
+# Share this URI with any other agent that needs to reach you
+```
+
+**Step 3 — Send a message to another agent**
+
+```python
+# If you know another agent's URI, send directly — no setup needed
+result = await agent.send(
+    to="acp://192.168.1.50:7701/other-agent",
+    task="Summarize this",
+    input={"text": "..."},
+)
+print(result["body"]["output"])
+```
+
+**Done.** Your agent is now reachable by any other ACP-compatible agent.
+
+---
+
+## I already have an agent — how do I integrate?
+
+Pick your scenario:
+
+### My agent is a Python function / class
+
+```python
+# Before: standalone function
+def my_agent_logic(query: str) -> str:
+    return llm.run(query)
+
+# After: wrap with P2PAgent (3 lines added)
+from acp_p2p import P2PAgent
+agent = P2PAgent("my-agent", port=7700)
+
+@agent.on_task
+async def handle(task, input_data):
+    return {"result": my_agent_logic(input_data.get("query", task))}
+
+agent.start()
+```
+
+### My agent already has an HTTP server
+
+```python
+# Just add the /acp/v1/receive endpoint to your existing server
+# Example with FastAPI:
+from fastapi import FastAPI, Request
+app = FastAPI()
+
+@app.post("/acp/v1/receive")
+async def receive(request: Request):
+    msg = await request.json()
+    task    = msg["body"]["task"]
+    input_  = msg["body"]["input"]
+    result  = your_existing_handler(task, input_)
+    return {
+        "acp": "0.1", "type": "task.result",
+        "from": "acp://yourhost:8000/my-agent",
+        "to": msg["from"],
+        "body": {"status": "success", "output": result}
+    }
+
+# Your agent's ACP URI is: acp://yourhost:8000/my-agent
+```
+
+### My agent is LangChain / LangGraph
+
+```python
+from langchain.agents import AgentExecutor
+from acp_p2p import P2PAgent
+
+executor: AgentExecutor = build_your_agent()   # your existing code
+
+acp = P2PAgent("langchain-agent", port=7700)
+
+@acp.on_task
+async def handle(task: str, input_data: dict) -> dict:
+    result = await executor.ainvoke({"input": task, **input_data})
+    return {"output": result["output"]}
+
+acp.start()
+```
+
+### My agent is AutoGen
+
+```python
+import autogen
+from acp_p2p import P2PAgent
+
+assistant = autogen.AssistantAgent("assistant", llm_config={...})
+user_proxy = autogen.UserProxyAgent("user_proxy", ...)
+
+acp = P2PAgent("autogen-agent", port=7700)
+
+@acp.on_task
+async def handle(task: str, input_data: dict) -> dict:
+    user_proxy.initiate_chat(assistant, message=task)
+    last_msg = user_proxy.last_message(assistant)
+    return {"output": last_msg["content"]}
+
+acp.start()
+```
+
+---
+
+## Group Chat (3+ agents, zero servers)
+
+```python
+# Agent A — create a group and invite others
+group = alice.create_group("my-team")
+await alice.invite(group, "acp://host-b:7701/bob")
+await alice.invite(group, "acp://host-c:7702/charlie")
+
+# Send to everyone
+await alice.group_send(group, {"text": "Hello team!"})
+
+# Agent B / C — register a handler and that's it
+@bob.on_group_message
+async def on_msg(group_id, from_uri, body):
+    print(f"{from_uri}: {body['text']}")
+    await bob.group_send(bob.get_group(group_id), {"text": "Got it!"})
+
+# Dynamic join / leave
+dave_group = await dave.join_group(group.to_invite_uri())
+await charlie.leave_group(group)   # notifies all members automatically
+```
+
 ---
 
 ## Why ACP?
 
-Today's multi-agent systems (MAS) are **fragmented**:
+Today's multi-agent systems are **fragmented**:
 
-| Framework | Agent↔Agent Communication | Standardized? |
-|-----------|--------------------------|---------------|
-| LangGraph | In-process Python calls | ❌ Proprietary |
-| AutoGen | HTTP + custom schema | ❌ Proprietary |
-| CrewAI | Direct method calls | ❌ Proprietary |
-| Google A2A | REST/gRPC (Google-led) | ⚠️ Vendor-driven |
-| MCP (Anthropic) | Tool calls only, no Agent↔Agent | ⚠️ Different scope |
+| Framework | How agents communicate | Standard? |
+|-----------|----------------------|-----------|
+| LangGraph | In-process Python calls | ❌ |
+| AutoGen | HTTP + custom schema | ❌ |
+| CrewAI | Direct method calls | ❌ |
+| Google A2A | REST/gRPC (Google-led) | ⚠️ Vendor |
+| MCP | Agent→Tool only, not Agent↔Agent | ⚠️ Different scope |
 
-**ACP fills the gap**: a vendor-neutral, community-owned protocol for Agent-to-Agent communication — like HTTP for the web, but for autonomous agents.
-
----
-
-## Core Design Principles
-
-1. **Transport-agnostic** — works over HTTP, WebSocket, MQTT, gRPC, message queues
-2. **Minimal & composable** — base spec is tiny; capabilities extend it
-3. **Async-first** — agents operate asynchronously; ACP models this natively
-4. **Identity & trust** — every agent has a verifiable identity (DID-compatible)
-5. **Observable** — built-in tracing, correlation IDs, audit trails
-6. **Human-in-the-loop ready** — escalation and approval flows are first-class
+ACP fills the gap: **any agent, any framework, any language** — one URI, direct communication.
 
 ---
 
-## Quick Example
+## Design Principles
 
-```json
-// Agent A → Agent B: delegate a task
-{
-  "acp": "0.1",
-  "id": "msg_7f3a9b2c",
-  "type": "task.delegate",
-  "from": "did:acp:agent-a",
-  "to":   "did:acp:agent-b",
-  "ts":   "2026-03-18T10:00:00Z",
-  "correlation_id": "session_abc123",
-  "body": {
-    "task": "Summarize the Q1 sales report",
-    "input": { "document_url": "https://..." },
-    "constraints": {
-      "max_tokens": 500,
-      "deadline": "2026-03-18T10:05:00Z"
-    }
-  }
-}
-
-// Agent B → Agent A: task result
-{
-  "acp": "0.1",
-  "id": "msg_9d1e4f7a",
-  "type": "task.result",
-  "from": "did:acp:agent-b",
-  "to":   "did:acp:agent-a",
-  "ts":   "2026-03-18T10:00:43Z",
-  "correlation_id": "session_abc123",
-  "reply_to": "msg_7f3a9b2c",
-  "body": {
-    "status": "success",
-    "output": { "summary": "Q1 revenue grew 23% YoY..." }
-  }
-}
-```
+1. **Zero third-party** — P2P mode needs no server, no broker, no registration
+2. **URI is the address** — `acp://host:port/name` contains everything needed to connect
+3. **Explicit lifecycle** — `connect()` / `disconnect()`, `join_group()` / `leave_group()`
+4. **Transport-agnostic** — HTTP today; WebSocket, gRPC, MQTT tomorrow
+5. **Framework-neutral** — wrap any existing agent in 4 lines
 
 ---
 
-## ACP-P2P: Decentralized Peer-to-Peer Mode
+## Documentation
 
-Beyond the gateway model, ACP includes a **fully decentralized P2P mode** — any two agents communicate directly with zero third-party servers.
-
-```python
-from acp_p2p import P2PAgent
-
-# Agent A — start and share URI
-alice = P2PAgent("alice", port=7700)
-@alice.on_task
-async def handle(task, input_data): return {"result": "done"}
-
-async with alice:
-    print(alice.uri)  # acp://192.168.1.42:7700/alice  ← share this
-
-# Agent B — connect and send
-async with bob:
-    session = await bob.connect("acp://192.168.1.42:7700/alice")
-    result  = await bob.send(session, "Summarize this", {"text": "..."})
-    await bob.disconnect(session)
-```
-
-**Group chat (≥3 agents, zero servers):**
-
-```python
-group = alice.create_group("team")
-await alice.invite(group, str(bob.uri))
-await alice.invite(group, str(charlie.uri))
-await alice.group_send(group, {"text": "Hello everyone!"})
-
-# Dynamic join / leave
-dave_group = await dave.join_group(group.to_invite_uri())
-await charlie.leave_group(group)   # notifies all members
-```
-
-→ See [P2P Skill Guide](p2p/skill/SKILL.md) | [P2P Spec](p2p/spec/acp-p2p-v0.1.md) | [P2P SDK](p2p/sdk/acp_p2p.py)
-
----
-
-## Specification
-
-- [Core Spec v0.1](spec/core-v0.1.md)
-- [Message Types Reference](spec/message-types.md)
-- [Identity & Trust](spec/identity.md)
-- [Capability Discovery](spec/discovery.md)
-- [Transport Bindings](spec/transports.md)
-- [Error Codes](spec/errors.md)
-
-## SDKs
-
-- [Python P2P SDK](p2p/sdk/acp_p2p.py) — single file, copy and use
-- [Python Gateway SDK](sdk/python/) — `pip install acp-sdk`
-- [TypeScript SDK](sdk/typescript/) — `npm install @acp-protocol/sdk`
+| Document | Description |
+|----------|-------------|
+| [Quick Start (this page)](#quick-start) | Add ACP to your existing agent |
+| [P2P Integration Guide](p2p/skill/SKILL.md) | Full API reference + examples |
+| [P2P Protocol Spec](p2p/spec/acp-p2p-v0.1.md) | Protocol specification |
+| [Core Spec](spec/core-v0.1.md) | Message format, types, error codes |
+| [Contributing](CONTRIBUTING.md) | How to contribute |
 
 ## Examples
 
-- [P2P Lifecycle Demo](p2p/examples/demo_lifecycle.py)
-- [Group Chat Demo](p2p/examples/demo_group.py)
-- [Orchestrator + Workers](examples/orchestrator-workers/)
-- [Human-in-the-Loop](examples/hitl/)
-
----
+| Example | What it shows |
+|---------|--------------|
+| [demo_lifecycle.py](p2p/examples/demo_lifecycle.py) | connect/disconnect, direct send, join/leave group |
+| [demo_group.py](p2p/examples/demo_group.py) | 3-agent group chat, zero servers |
 
 ## Roadmap
 
-- [x] v0.1 — Core message envelope, task delegation, result reporting
-- [x] v0.2 — P2P mode: decentralized agent-to-agent, group chat
-- [x] v0.3 — Connection lifecycle: connect/disconnect, join/leave group
-- [ ] v0.4 — Security: Ed25519 signatures, encrypted transport
+- [x] v0.1 — Core message format, task delegation
+- [x] v0.2 — P2P mode, group chat
+- [x] v0.3 — Connection lifecycle, join/leave group
+- [ ] v0.4 — Ed25519 signatures, encrypted transport
 - [ ] v0.5 — Capability discovery, agent registry
-- [ ] v1.0 — Stable spec, RFC submission
-
----
-
-## Contributing
-
-ACP is community-driven. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- [ ] v1.0 — Stable spec, RFC
 
 ## License
 
-Apache 2.0 — free for commercial and open source use.
+Apache 2.0
 
 ---
 
-<!-- ================================================================ -->
-<!-- CHINESE                                                           -->
-<!-- ================================================================ -->
+<!-- ============================================================ -->
+<!--  中文                                                         -->
+<!-- ============================================================ -->
 
-# ACP — Agent 通信协议
+## 快速开始
 
-> **轻量级、传输无关的开放标准，专为多智能体系统（MAS）通信设计。**
+> **让任意两个 Agent 直接通信——不需要服务器，不需要中间件，不需要注册。**
+>
+> ACP-P2P 给每个 Agent 一个地址（`acp://` URI）。把地址发给对方，就能直接发消息。
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Status: Draft v0.1](https://img.shields.io/badge/状态-草案%20v0.1-yellow.svg)]()
-[![PRs Welcome](https://img.shields.io/badge/PR-欢迎贡献-brightgreen.svg)]()
+**第一步——安装**
 
----
-
-## 为什么需要 ACP？
-
-当前的多智能体系统（MAS）**高度碎片化**：
-
-| 框架 | Agent 间通信方式 | 是否标准化 |
-|------|----------------|-----------|
-| LangGraph | 进程内 Python 调用 | ❌ 私有实现 |
-| AutoGen | HTTP + 自定义 Schema | ❌ 私有实现 |
-| CrewAI | 直接方法调用 | ❌ 私有实现 |
-| Google A2A | REST/gRPC（Google 主导）| ⚠️ 厂商驱动 |
-| MCP（Anthropic）| 仅工具调用，无 Agent 间通信 | ⚠️ 不同场景 |
-
-**ACP 填补了这一空白**：一个厂商中立、社区拥有的 Agent 间通信协议——就像 HTTP 之于 Web，ACP 之于自主 Agent。
-
----
-
-## 核心设计原则
-
-1. **传输无关** — 支持 HTTP、WebSocket、MQTT、gRPC、消息队列等任意传输层
-2. **轻量可组合** — 基础规范极简，能力通过扩展叠加
-3. **异步优先** — Agent 天然异步运行，ACP 原生建模这一特性
-4. **身份与信任** — 每个 Agent 拥有可验证身份（兼容 DID 标准）
-5. **可观测性** — 内置链路追踪、关联 ID、审计日志
-6. **人机协作就绪** — 升级审批和人工介入流程是一等公民
-
----
-
-## 快速示例
-
-```json
-// Agent A → Agent B：委托任务
-{
-  "acp": "0.1",
-  "id": "msg_7f3a9b2c",
-  "type": "task.delegate",
-  "from": "did:acp:agent-a",
-  "to":   "did:acp:agent-b",
-  "ts":   "2026-03-18T10:00:00Z",
-  "correlation_id": "session_abc123",
-  "body": {
-    "task": "总结 Q1 销售报告",
-    "input": { "document_url": "https://..." },
-    "constraints": {
-      "max_tokens": 500,
-      "deadline": "2026-03-18T10:05:00Z"
-    }
-  }
-}
-
-// Agent B → Agent A：返回结果
-{
-  "acp": "0.1",
-  "id": "msg_9d1e4f7a",
-  "type": "task.result",
-  "from": "did:acp:agent-b",
-  "to":   "did:acp:agent-a",
-  "ts":   "2026-03-18T10:00:43Z",
-  "correlation_id": "session_abc123",
-  "reply_to": "msg_7f3a9b2c",
-  "body": {
-    "status": "success",
-    "output": { "summary": "Q1 营收同比增长 23%..." }
-  }
-}
+```bash
+pip install aiohttp
+curl -o acp_p2p.py https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/p2p/sdk/acp_p2p.py
 ```
 
----
-
-## ACP-P2P：去中心化点对点模式
-
-ACP 包含一个**完全去中心化的 P2P 模式**——任意两个 Agent 无需任何第三方服务器即可直接通信。
+**第二步——在你现有的 Agent 里加 4 行代码**
 
 ```python
 from acp_p2p import P2PAgent
 
-# Agent A — 启动，打印 URI，等待消息
-alice = P2PAgent("alice", port=7700)
-@alice.on_task
-async def handle(task, input_data): return {"result": "完成"}
+agent = P2PAgent("my-agent", port=7700)
 
-async with alice:
-    print(alice.uri)  # acp://192.168.1.42:7700/alice ← 把这个发给对方
+@agent.on_task
+async def handle(task: str, input_data: dict) -> dict:
+    # ↓ 你现有的 Agent 逻辑放在这里，不需要改动
+    result = your_existing_function(task, input_data)
+    return {"output": result}
 
-# Agent B — 连接并发消息
-async with bob:
-    session = await bob.connect("acp://192.168.1.42:7700/alice")
-    result  = await bob.send(session, "总结这段文字", {"text": "..."})
-    await bob.disconnect(session)
+agent.start()
+# 输出: 🔗 ACP URI: acp://192.168.1.42:7700/my-agent
+# 把这个 URI 发给任何需要联系你的 Agent
 ```
 
-**群聊（≥3 个 Agent，零服务器）：**
+**第三步——向另一个 Agent 发消息**
 
 ```python
-group = alice.create_group("team")
-await alice.invite(group, str(bob.uri))
-await alice.invite(group, str(charlie.uri))
+# 知道对方的 URI，直接发——不需要任何额外配置
+result = await agent.send(
+    to="acp://192.168.1.50:7701/other-agent",
+    task="帮我总结这段文字",
+    input={"text": "..."},
+)
+print(result["body"]["output"])
+```
+
+**完成。** 你的 Agent 现在可以被任何支持 ACP 的 Agent 访问了。
+
+---
+
+## 我已有一个 Agent——怎么接入？
+
+选择你的场景：
+
+### 我的 Agent 是一个 Python 函数 / 类
+
+```python
+# 接入前：独立函数
+def my_agent_logic(query: str) -> str:
+    return llm.run(query)
+
+# 接入后：用 P2PAgent 包裹（只新增 3 行）
+from acp_p2p import P2PAgent
+agent = P2PAgent("my-agent", port=7700)
+
+@agent.on_task
+async def handle(task, input_data):
+    return {"result": my_agent_logic(input_data.get("query", task))}
+
+agent.start()
+```
+
+### 我的 Agent 已有 HTTP 服务
+
+```python
+# 在你现有的服务器上增加一个端点即可
+# 以 FastAPI 为例：
+from fastapi import FastAPI, Request
+app = FastAPI()
+
+@app.post("/acp/v1/receive")
+async def receive(request: Request):
+    msg     = await request.json()
+    task    = msg["body"]["task"]
+    result  = your_existing_handler(task, msg["body"]["input"])
+    return {
+        "acp": "0.1", "type": "task.result",
+        "from": "acp://yourhost:8000/my-agent",
+        "to": msg["from"],
+        "body": {"status": "success", "output": result}
+    }
+
+# 你的 ACP URI 就是: acp://yourhost:8000/my-agent
+```
+
+### 我的 Agent 是 LangChain / LangGraph
+
+```python
+from langchain.agents import AgentExecutor
+from acp_p2p import P2PAgent
+
+executor: AgentExecutor = build_your_agent()   # 你已有的代码
+
+acp = P2PAgent("langchain-agent", port=7700)
+
+@acp.on_task
+async def handle(task: str, input_data: dict) -> dict:
+    result = await executor.ainvoke({"input": task, **input_data})
+    return {"output": result["output"]}
+
+acp.start()
+```
+
+### 我的 Agent 是 AutoGen
+
+```python
+import autogen
+from acp_p2p import P2PAgent
+
+assistant  = autogen.AssistantAgent("assistant", llm_config={...})
+user_proxy = autogen.UserProxyAgent("user_proxy", ...)
+
+acp = P2PAgent("autogen-agent", port=7700)
+
+@acp.on_task
+async def handle(task: str, input_data: dict) -> dict:
+    user_proxy.initiate_chat(assistant, message=task)
+    last_msg = user_proxy.last_message(assistant)
+    return {"output": last_msg["content"]}
+
+acp.start()
+```
+
+---
+
+## 群聊（3个以上 Agent，零服务器）
+
+```python
+# Agent A——创建群，邀请其他成员
+group = alice.create_group("我的团队")
+await alice.invite(group, "acp://host-b:7701/bob")
+await alice.invite(group, "acp://host-c:7702/charlie")
+
+# 群发消息
 await alice.group_send(group, {"text": "大家好！"})
+
+# Agent B / C——注册处理函数，其余不需要改任何东西
+@bob.on_group_message
+async def on_msg(group_id, from_uri, body):
+    print(f"{from_uri}: {body['text']}")
+    await bob.group_send(bob.get_group(group_id), {"text": "收到！"})
 
 # 动态加入 / 退出
 dave_group = await dave.join_group(group.to_invite_uri())
 await charlie.leave_group(group)   # 自动通知所有成员
 ```
 
-**连接生命周期：**
+---
 
-```
-connect()  →  send() × N  →  disconnect()
-create_group() / join_group()  →  group_send() × N  →  leave_group()
-async with agent  →  ...  →  退出 with 块自动停止服务器
-```
+## 为什么需要 ACP？
 
-→ 查看 [P2P 使用指南（中文）](p2p/skill/SKILL.zh.md) | [P2P 协议规范](p2p/spec/acp-p2p-v0.1.zh.md) | [P2P SDK](p2p/sdk/acp_p2p.py)
+当前多智能体系统**高度碎片化**：
+
+| 框架 | Agent 间通信方式 | 是否标准化 |
+|------|----------------|-----------|
+| LangGraph | 进程内 Python 调用 | ❌ |
+| AutoGen | HTTP + 自定义 Schema | ❌ |
+| CrewAI | 直接方法调用 | ❌ |
+| Google A2A | REST/gRPC（Google 主导）| ⚠️ 厂商驱动 |
+| MCP | 仅 Agent→工具，无 Agent↔Agent | ⚠️ 不同场景 |
+
+ACP 填补了这一空白：**任意 Agent，任意框架，任意语言**——一个 URI，直接通信。
 
 ---
 
-## 规范文档
+## 设计原则
 
-- [核心规范 v0.1（中文）](spec/core-v0.1.zh.md)
-- [消息类型参考](spec/message-types.md)
-- [身份与信任](spec/identity.md)
-- [能力发现](spec/discovery.md)
-- [传输绑定](spec/transports.md)
-- [错误码](spec/errors.md)
+1. **零第三方** — P2P 模式无需服务器、中间件或注册中心
+2. **URI 即地址** — `acp://host:port/name` 包含连接所需的全部信息
+3. **显式生命周期** — `connect()` / `disconnect()`，`join_group()` / `leave_group()`
+4. **传输无关** — 当前 HTTP，未来支持 WebSocket、gRPC、MQTT
+5. **框架无关** — 任何现有 Agent 4 行代码接入
 
-## SDK
+---
 
-- [Python P2P SDK](p2p/sdk/acp_p2p.py) — 单文件，复制即用
-- [Python Gateway SDK](sdk/python/) — `pip install acp-sdk`
-- [TypeScript SDK](sdk/typescript/) — `npm install @acp-protocol/sdk`
+## 文档导航
+
+| 文档 | 说明 |
+|------|------|
+| [快速开始（本页）](#快速开始) | 将 ACP 接入你现有的 Agent |
+| [P2P 接入指南（中文）](p2p/skill/SKILL.zh.md) | 完整 API 参考 + 使用示例 |
+| [P2P 协议规范（中文）](p2p/spec/acp-p2p-v0.1.zh.md) | 协议技术规范 |
+| [核心规范（中文）](spec/core-v0.1.zh.md) | 消息格式、类型、错误码 |
+| [贡献指南（中文）](CONTRIBUTING.zh.md) | 如何参与贡献 |
 
 ## 示例
 
-- [P2P 生命周期 Demo](p2p/examples/demo_lifecycle.py)
-- [群聊 Demo](p2p/examples/demo_group.py)
-- [编排器 + 工作者](examples/orchestrator-workers/)
-- [人机协作流程](examples/hitl/)
-
----
+| 示例 | 演示内容 |
+|------|---------|
+| [demo_lifecycle.py](p2p/examples/demo_lifecycle.py) | connect/disconnect、直接发送、加入/退出群聊 |
+| [demo_group.py](p2p/examples/demo_group.py) | 3个 Agent 群聊，零服务器 |
 
 ## 路线图
 
-- [x] v0.1 — 核心消息信封、任务委托、结果上报
-- [x] v0.2 — P2P 模式：去中心化 Agent 通信、群聊
-- [x] v0.3 — 连接生命周期：connect/disconnect、join/leave group
-- [ ] v0.4 — 安全：Ed25519 签名、加密传输
+- [x] v0.1 — 核心消息格式、任务委托
+- [x] v0.2 — P2P 模式、群聊
+- [x] v0.3 — 连接生命周期、加入/退出群聊
+- [ ] v0.4 — Ed25519 签名、加密传输
 - [ ] v0.5 — 能力发现、Agent 注册中心
 - [ ] v1.0 — 稳定规范，提交 RFC
-
----
-
-## 参与贡献
-
-ACP 由社区驱动。查看 [CONTRIBUTING.zh.md](CONTRIBUTING.zh.md) 了解贡献指南。
 
 ## 开源协议
 
