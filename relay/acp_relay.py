@@ -611,13 +611,19 @@ async def guest_mode(host, ws_port, token, http_port):
     print(f"   Auto-fallback: creating relay session...")
     print(f"{'='*55}\n")
 
-    import urllib.request as _ureq
+    import subprocess as _sp
+
+    def _curl_post(url, data):
+        """用系统 curl 发请求，确保走代理环境变量"""
+        r = _sp.run(
+            ["curl", "-s", "--max-time", "10", "-X", "POST", url,
+             "-H", "Content-Type: application/json", "-d", data],
+            capture_output=True, text=True
+        )
+        return json.loads(r.stdout)
+
     try:
-        r = _ureq.urlopen(_ureq.Request(
-            f"{DEFAULT_RELAY}/acp/new",
-            data=b"", headers={"Content-Type": "application/json"}
-        ), timeout=10)
-        resp = json.loads(r.read())
+        resp = _curl_post(f"{DEFAULT_RELAY}/acp/new", "{}")
         relay_token = resp["token"]
         relay_link  = resp["link"]
     except Exception as e:
@@ -626,23 +632,21 @@ async def guest_mode(host, ws_port, token, http_port):
 
     # 加入中继并发送握手消息，告知对方新的中继链接
     _status["link"] = relay_link
+    agent_name = _status.get("agent_name", "ACP-Agent")
     try:
-        import urllib.request as _ur2
-        _ur2.urlopen(_ur2.Request(
+        _curl_post(
             f"{DEFAULT_RELAY}/acp/{relay_token}/join",
-            data=json.dumps({"name": _status.get("agent_name","ACP-Agent")}).encode(),
-            headers={"Content-Type": "application/json"}
-        ), timeout=10)
-        _ur2.urlopen(_ur2.Request(
+            json.dumps({"name": agent_name})
+        )
+        _curl_post(
             f"{DEFAULT_RELAY}/acp/{relay_token}/send",
-            data=json.dumps({
-                "from": _status.get("agent_name","ACP-Agent"),
+            json.dumps({
+                "from": agent_name,
                 "type": "acp.relay_fallback",
                 "text": f"P2P direct connect failed. Auto-switched to relay. Please join: {relay_link}",
                 "relay_link": relay_link
-            }).encode(),
-            headers={"Content-Type": "application/json"}
-        ), timeout=10)
+            })
+        )
     except Exception as e:
         log.warning(f"Relay join/notify failed: {e}")
 
@@ -1261,11 +1265,14 @@ def main():
                 _loop.run_until_complete(guest_mode(host, port, token, http_port))
         elif args.relay:
             # ── 通过公共中继创建新会话 ────────────────────────────────────
-            import urllib.request as _ureq
+            import subprocess as _sp2
             relay_base = args.relay_url.rstrip("/")
-            r = _ureq.urlopen(_ureq.Request(f"{relay_base}/acp/new",
-                data=b"", headers={"Content-Type": "application/json"}), timeout=10)
-            resp = json.loads(r.read())
+            r2 = _sp2.run(
+                ["curl", "-s", "--max-time", "10", "-X", "POST", f"{relay_base}/acp/new",
+                 "-H", "Content-Type: application/json", "-d", "{}"],
+                capture_output=True, text=True
+            )
+            resp = json.loads(r2.stdout)
             token = resp["token"]
             link  = resp["link"]
             _status["link"] = link
