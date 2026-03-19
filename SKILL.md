@@ -4,7 +4,9 @@
 
 ---
 
-## 一、安装依赖
+## 快速接入 SOP（Agent 必须严格按顺序执行）
+
+### Step 1 — 安装依赖
 
 ```bash
 pip install websockets
@@ -12,7 +14,7 @@ pip install websockets
 
 ---
 
-## 二、下载
+### Step 2 — 下载核心脚本
 
 ```bash
 curl -sO https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py
@@ -20,80 +22,94 @@ curl -sO https://raw.githubusercontent.com/Kickflip73/agent-communication-protoc
 
 ---
 
-## 三、建立连接
+### Step 3 — ⚡ 立即启动通信服务（最重要的一步）
 
-### 发起方
+**后台启动，并获取链接：**
 
 ```bash
-python3 acp_relay.py --name "AgentA"
+python3 acp_relay.py --name "你的Agent名" &
+sleep 3
+curl -s http://localhost:7901/link
 ```
 
-打印一条链接，例如：
-```
-Your link: acp://1.2.3.4:7801/tok_xxxxx
+执行后会输出你的通信链接，例如：
+```json
+{"link": "acp://1.2.3.4:7801/tok_xxxxx"}
 ```
 
-把这条链接发给对方 Agent。
+**⚠️ 必须：把这条链接回复给对方，等待对方连接。**
 
 ---
 
-### 接入方
+### Step 4 — 等待或加入连接
 
-收到链接后，无论链接是 `acp://` 还是 `acp+wss://`，命令完全一样：
+**如果你是被动接入方**（收到了对方的链接）：
 
 ```bash
-python3 acp_relay.py --name "AgentB" --join "<对方发来的链接>"
+python3 acp_relay.py --name "你的Agent名" --join "对方发来的链接" &
+sleep 3
+curl -s http://localhost:7901/status
 ```
 
-双方显示 `connected` 即成功。**不需要关心链接格式，通信层自动处理。**
+状态返回 `"connected": true` 即连接成功。
 
 ---
 
-## 四、收发消息
-
-连接成功后，本地 HTTP 接口自动在 `PORT+100`（默认 7901）启动：
+### Step 5 — 收发消息
 
 ```bash
-# 发消息
+# 发消息给对方
 curl -X POST http://localhost:7901/message:send \
   -H "Content-Type: application/json" \
-  -d '{"text": "你好"}'
+  -d '{"text": "你好，连接已建立"}'
 
-# 实时收消息（SSE 流，推荐）
+# 实时收消息（SSE 流）
 curl http://localhost:7901/stream
 
-# 一次性取收件箱
+# 一次性取收件箱（查看已收到的消息）
 curl http://localhost:7901/inbox
-
-# 查连接状态
-curl http://localhost:7901/status
-
-# 查当前链接（转发给对方用）
-curl http://localhost:7901/link
 ```
 
 ---
 
-## 五、常用参数
+## 完整接入流程示意
+
+```
+Agent A                          Agent B
+  │                                │
+  │ Step 3: 启动服务               │
+  │ → 得到 acp://xxx/tok           │
+  │                                │
+  │ ──── 把链接发给 Agent B ──────► │
+  │                                │ Step 4: --join "acp://xxx/tok"
+  │                                │ → connected ✅
+  │                                │
+  │ ◄──────── 双向通信建立 ──────── │
+  │                                │
+  │ Step 5: send/stream            │ Step 5: send/stream
+```
+
+---
+
+## 底层通信（Agent 无需关心）
+
+`acp_relay.py` 自动选择最优方式：
+- 正常网络 → **WebSocket P2P 直连**（零依赖，<100ms）
+- 沙箱/K8s/NAT 受限 → **自动降级 HTTP 中继**（1-3s）
+
+接口完全一致，Agent 无需感知底层。
+
+---
+
+## 常用参数
 
 ```
 --name NAME      本 Agent 的名字（默认 ACP-Agent）
---port PORT      本地端口（默认 7801，HTTP = PORT+100）
---join LINK      加入已有会话（填对方发来的链接）
---skills LIST    逗号分隔的能力列表，写入 AgentCard
---inbox PATH     消息持久化路径（默认 /tmp/acp_inbox_NAME.jsonl）
+--port PORT      本地端口（默认 7801，HTTP 接口 = PORT+100 即 7901）
+--join LINK      加入已有会话（填对方链接）
+--relay          强制使用公共中继（仅在 P2P 无法连通时使用）
+--skills LIST    逗号分隔的能力列表
 ```
-
----
-
-## 六、底层通信（Agent 无需关心）
-
-`acp_relay.py` 内部自动选择最优通信方式：
-
-- 正常网络 → **WebSocket P2P 直连**（零依赖，延迟 <100ms）
-- 沙箱/K8s/NAT 等受限网络 → **自动降级到 HTTP 公共中继**（延迟 1-3s）
-
-对 Agent 来说，接口完全一致，链接格式由发起方决定，接入方无需做任何判断。
 
 ---
 
