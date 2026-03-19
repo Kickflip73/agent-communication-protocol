@@ -48,10 +48,16 @@ async function handleRequest(request, env) {
     });
   }
 
-  // POST /acp/new
+  // POST /acp/new  (可选 ?token=xxx 指定 token，用于 P2P+Relay 同 token 模式)
   if (method === "POST" && path === "/acp/new") {
-    const token = "tok_" + makeId();
-    const session = { messages: [], agents: {}, created: Date.now() };
+    // 支持调用方指定 token（P2P token 与 relay token 保持一致）
+    const reqToken = url.searchParams.get("token");
+    const token = (reqToken && /^[a-zA-Z0-9_-]{6,}$/.test(reqToken))
+      ? reqToken
+      : "tok_" + makeId();
+    // 若 session 已存在则复用（幂等）
+    const existing = await kv.get(token);
+    const session = existing ? JSON.parse(existing) : { messages: [], agents: {}, created: Date.now() };
     await kv.put(token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
     const link = "acp+wss://" + url.host + "/acp/" + token;
     return jsonResp({ token: token, link: link });
