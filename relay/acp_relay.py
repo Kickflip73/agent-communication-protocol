@@ -533,15 +533,56 @@ async def host_mode(token, ws_port, http_port):
     log.info("Detecting public IP...")
     public_ip = await asyncio.get_event_loop().run_in_executor(None, lambda: get_public_ip(4.0))
     display_ip = public_ip or get_local_ip()
-    link = f"acp://{display_ip}:{ws_port}/{token}"
+    p2p_link = f"acp://{display_ip}:{ws_port}/{token}"
+
+    # ── 启动时预注册 relay session（无论 P2P 是否可达，确保对方一定能连上）
+    DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+    relay_link = None
+    try:
+        import subprocess as _sp_h
+        r = _sp_h.run(
+            ["curl", "-s", "--max-time", "8", "-X", "POST",
+             f"{DEFAULT_RELAY}/acp/new",
+             "-H", "Content-Type: application/json", "-d", "{}"],
+            capture_output=True, text=True
+        )
+        resp = json.loads(r.stdout)
+        relay_token = resp["token"]
+        relay_link  = resp["link"]
+        # 加入自己的 relay session（等对方来 join）
+        _sp_h.run(
+            ["curl", "-s", "--max-time", "8", "-X", "POST",
+             f"{DEFAULT_RELAY}/acp/{relay_token}/join",
+             "-H", "Content-Type: application/json",
+             "-d", json.dumps({"name": _status.get("agent_name","ACP-Agent")})],
+            capture_output=True
+        )
+        log.info(f"Relay session pre-registered: {relay_token}")
+    except Exception as e:
+        log.warning(f"Relay pre-register failed (P2P only): {e}")
+
+    # 复合链接：P2P 地址 + 内嵌 relay 地址
+    if relay_link:
+        from urllib.parse import quote
+        link = f"{p2p_link}?relay={quote(relay_link, safe='')}"
+    else:
+        link = p2p_link
     _status["link"] = link
+    _status["relay_link"] = relay_link
+
+    # 同时在后台持续监听 relay（这样对方走中继也能收到消息）
+    if relay_link:
+        relay_base = DEFAULT_RELAY
+        asyncio.ensure_future(_http_relay_guest(relay_base, relay_token, http_port))
 
     async with websockets.serve(on_guest, "0.0.0.0", ws_port):
         print(f"\n{'='*60}")
         print(f"ACP P2P v{VERSION} - service started")
         print(f"  IP: {'public' if public_ip else 'LAN'} {display_ip}")
-        print(f"\n  Your link:")
+        print(f"\n  Your link (send this to peer):")
         print(f"  {link}")
+        if relay_link:
+            print(f"\n  Relay session ready (auto-fallback embedded in link)")
         print(f"\n  Waiting for peer...")
         print(f"{'='*60}\n")
         await asyncio.Future()
@@ -551,12 +592,14 @@ async def host_mode(token, ws_port, http_port):
 # GUEST mode
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def guest_mode(host, ws_port, token, http_port):
+async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
     """
     P2P 直连模式。连接失败超过 P2P_MAX_RETRIES 次后，
-    自动降级到公共 HTTP 中继（acp+wss://），无需人工干预。
+    自动降级：优先使用链接内嵌的 relay session，无需人工干预。
+    embedded_relay: 发起方在链接里预埋的 relay 地址（可为 None）
     """
     global _peer_ws
+    _embedded_relay = embedded_relay  # 传入降级逻辑
     uri = f"ws://{host}:{ws_port}/{token}"
     P2P_MAX_RETRIES = 3   # P2P 最多尝试 3 次，失败后自动降级
     retry = 0
@@ -603,61 +646,60 @@ async def guest_mode(host, ws_port, token, http_port):
         if retry < P2P_MAX_RETRIES:
             await asyncio.sleep(min(2 ** retry, 8))
 
-    # ── 自动降级：P2P 失败，切换到公共 HTTP 中继 ──────────────────────────
+    # ── 自动降级：P2P 失败 → 优先用内嵌 relay，否则新建 session ────────
     DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
-    log.warning(f"P2P unreachable after {P2P_MAX_RETRIES} retries. Auto-fallback to relay: {DEFAULT_RELAY}")
+    log.warning(f"P2P unreachable after {P2P_MAX_RETRIES} retries. Auto-fallback to relay.")
     print(f"\n{'='*55}")
     print(f"⚠️  P2P direct connect failed (network restricted)")
-    print(f"   Auto-fallback: creating relay session...")
+    print(f"   Auto-fallback to relay...")
     print(f"{'='*55}\n")
 
     import subprocess as _sp
 
-    def _curl_post(url, data):
-        """用系统 curl 发请求，确保走代理环境变量"""
-        r = _sp.run(
-            ["curl", "-s", "--max-time", "10", "-X", "POST", url,
-             "-H", "Content-Type: application/json", "-d", data],
-            capture_output=True, text=True
-        )
-        return json.loads(r.stdout)
+    if _embedded_relay:
+        # 发起方已预注册 relay session，直接 join，不新建
+        result = parse_link(_embedded_relay)
+        relay_base, _, relay_token, _, _ = result
+        relay_link = _embedded_relay
+        log.info(f"Using embedded relay from link: {relay_token}")
+    else:
+        # 旧行为兜底：新建 relay session
+        try:
+            r = _sp.run(
+                ["curl", "-s", "--max-time", "10", "-X", "POST",
+                 f"{DEFAULT_RELAY}/acp/new",
+                 "-H", "Content-Type: application/json", "-d", "{}"],
+                capture_output=True, text=True
+            )
+            resp = json.loads(r.stdout)
+            relay_token = resp["token"]
+            relay_link  = resp["link"]
+            relay_base  = DEFAULT_RELAY
+        except Exception as e:
+            log.error(f"Relay session creation failed: {e}")
+            sys.exit(1)
 
-    try:
-        resp = _curl_post(f"{DEFAULT_RELAY}/acp/new", "{}")
-        relay_token = resp["token"]
-        relay_link  = resp["link"]
-    except Exception as e:
-        log.error(f"Relay session creation failed: {e}")
-        sys.exit(1)
-
-    # 加入中继并发送握手消息，告知对方新的中继链接
-    _status["link"] = relay_link
+    # Join relay session
     agent_name = _status.get("agent_name", "ACP-Agent")
     try:
-        _curl_post(
-            f"{DEFAULT_RELAY}/acp/{relay_token}/join",
-            json.dumps({"name": agent_name})
-        )
-        _curl_post(
-            f"{DEFAULT_RELAY}/acp/{relay_token}/send",
-            json.dumps({
-                "from": agent_name,
-                "type": "acp.relay_fallback",
-                "text": f"P2P direct connect failed. Auto-switched to relay. Please join: {relay_link}",
-                "relay_link": relay_link
-            })
+        _sp.run(
+            ["curl", "-s", "--max-time", "10", "-X", "POST",
+             f"{relay_base}/acp/{relay_token}/join",
+             "-H", "Content-Type: application/json",
+             "-d", json.dumps({"name": agent_name})],
+            capture_output=True
         )
     except Exception as e:
-        log.warning(f"Relay join/notify failed: {e}")
+        log.warning(f"Relay join failed: {e}")
+
+    _status["link"] = relay_link
 
     print(f"\n{'='*55}")
     print(f"✅ Relay session ready [AUTO-FALLBACK]")
-    print(f"   Relay link: {relay_link}")
-    print(f"   Share this link with the peer Agent")
+    print(f"   Relay: {relay_link}")
     print(f"{'='*55}\n")
 
-    # 进入 HTTP 中继模式持续运行
-    await _http_relay_guest(DEFAULT_RELAY, relay_token, http_port)
+    await _http_relay_guest(relay_base, relay_token, http_port)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -718,17 +760,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 return
             def _do_connect():
                 result = parse_link(peer_link)
-                if len(result) == 4:
-                    host, port, token, scheme = result
-                else:
-                    host, port, token = result; scheme = "ws"
+                host, port, token, scheme, embedded_relay = result
                 http_port = _status.get("http_port", 7901)
                 if scheme == "http_relay":
                     asyncio.run_coroutine_threadsafe(
                         _http_relay_guest(host, token, http_port), _loop)
                 else:
                     asyncio.run_coroutine_threadsafe(
-                        guest_mode(host, port, token, http_port), _loop)
+                        guest_mode(host, port, token, http_port,
+                                   embedded_relay=embedded_relay), _loop)
             threading.Thread(target=_do_connect, daemon=True).start()
             self._json({"ok": True, "connecting_to": peer_link})
 
@@ -1190,17 +1230,35 @@ def get_public_ip(timeout=4.0):
     return None
 
 def parse_link(link):
-    """Returns (host, port, token, scheme)"""
+    """
+    Returns (host, port, token, scheme, relay_url)
+    relay_url: 内嵌的中继地址（可能为 None）
+
+    支持三种格式：
+      acp://IP:PORT/TOKEN                          → P2P only
+      acp+wss://relay.host/acp/TOKEN               → relay only
+      acp://IP:PORT/TOKEN?relay=acp+wss://...      → P2P + relay fallback（推荐）
+    """
+    # 纯中继链接
     if link.startswith("acp+wss://") or link.startswith("acp+ws://"):
-        # HTTP polling relay: acp+wss://relay.host/acp/TOKEN
         scheme = "http_relay"
         parsed = urlparse(link.replace("acp+wss://", "https://", 1).replace("acp+ws://", "http://", 1))
         base_url = f"{'https' if link.startswith('acp+wss://') else 'http'}://{parsed.netloc}"
-        token = parsed.path.strip("/").split("/")[-1]  # last segment
-        return base_url, 0, token, scheme
-    scheme = "ws"
+        token = parsed.path.strip("/").split("/")[-1]
+        return base_url, 0, token, scheme, None
+
+    # P2P 链接（可能附带 relay 参数）
     parsed = urlparse(link.replace("acp://", "http://", 1))
-    return parsed.hostname or "localhost", parsed.port or 7801, parsed.path.strip("/"), scheme
+    relay_url = None
+    # 提取 ?relay= 参数
+    if parsed.query:
+        from urllib.parse import parse_qs
+        qs = parse_qs(parsed.query)
+        relay_vals = qs.get("relay", [])
+        if relay_vals:
+            relay_url = relay_vals[0]
+    token = parsed.path.strip("/")
+    return parsed.hostname or "localhost", parsed.port or 7801, token, "ws", relay_url
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1254,15 +1312,15 @@ def main():
             # ── 加入已有会话 ─────────────────────────────────────────────
             # 解析链接，自动选择传输方式，Agent 无需关心
             result = parse_link(args.join)
-            if len(result) == 4:
-                host, port, token, scheme = result
-            else:
-                host, port, token = result; scheme = "ws"
+            host, port, token, scheme, embedded_relay = result
             if scheme == "http_relay":
                 log.info(f"Transport: HTTP relay -> {host}")
                 _loop.run_until_complete(_http_relay_guest(host, token, http_port))
             else:
-                _loop.run_until_complete(guest_mode(host, port, token, http_port))
+                if embedded_relay:
+                    log.info(f"P2P link with embedded relay fallback: {embedded_relay[:50]}...")
+                _loop.run_until_complete(guest_mode(host, port, token, http_port,
+                                                     embedded_relay=embedded_relay))
         elif args.relay:
             # ── 通过公共中继创建新会话 ────────────────────────────────────
             import subprocess as _sp2
