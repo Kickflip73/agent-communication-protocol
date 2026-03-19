@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-19 20:29（clean layering 架构定稿 + 端到端测试通过）
+> 最后更新：2026-03-19 21:39（v0.5 里程碑达成，提前完成）
 
 ---
 
@@ -51,35 +51,38 @@
 
 ---
 
-### 🎯 v0.5（目标：2026-03-26）
+### ✅ v0.5（已完成，2026-03-19，提前于截止日 2026-03-26）
 **主题：消息结构化 + 任务追踪（轻量版）**
 
-设计原则：借鉴 A2A 概念，但砍掉所有非必要复杂度。
+> 🎉 全部核心功能已实现并验证通过（commit `bb6aba3`）
 
-#### Task 状态机（5 种，而非 A2A 的 8 种）
+#### ✅ Task 状态机（5 种，而非 A2A 的 8 种）
 
 ```
 submitted → working → completed
                    → failed
-                   → input_required  ← 可继续
+                   → input_required  ← 可继续（/tasks/{id}/continue）
 ```
 
-| 状态 | 含义 | 备注 |
-|------|------|------|
-| `submitted` | 已提交 | 中间态 |
-| `working` | 处理中 | 中间态 |
-| `completed` | 完成 | 终态 |
-| `failed` | 失败 | 终态 |
-| `input_required` | 等待追加输入 | 中断态，可继续 |
+| 状态 | 含义 | 备注 | 实现状态 |
+|------|------|------|---------|
+| `submitted` | 已提交 | 中间态 | ✅ |
+| `working` | 处理中 | 中间态 | ✅ 发送方创建后自动进入 |
+| `completed` | 完成 | 终态 | ✅ 通过 /tasks/{id}/update |
+| `failed` | 失败 | 终态 | ✅ 通过 :cancel 或 /update |
+| `input_required` | 等待追加输入 | 中断态，可继续 | ✅ /continue 端点 |
 
-> 砍掉 `canceled`、`rejected`、`auth_required`——对个人/团队场景过度设计。
-> 需要取消？直接断连接。需要认证？连接建立时一次性搞定。
+**双向同步机制（v0.5 核心创新）：**
+- 发送方创建 task（`create_task: true`），task_id 随消息发出
+- 接收方收到消息后**自动在本地注册同 id 的 task**（`from_peer: true`）
+- 执行方通过 `/tasks/{id}/update` 更新状态，`task.updated` 消息自动同步回发送方
+- 发送方用 `/tasks/{id}/wait` 同步等待完成
 
-#### 结构化消息（Part 模型，精简版）
+#### ✅ 结构化消息 Part 模型
 
 ```json
 {
-  "message_id": "client-generated-uuid",
+  "message_id": "msg_abc123",   // 客户端生成，全局唯一
   "role": "user | agent",
   "parts": [
     {"type": "text", "content": "你好"},
@@ -89,45 +92,61 @@ submitted → working → completed
 }
 ```
 
-> 3 种 Part 类型（text / file / data），去掉 A2A 的 `bytes`（raw）——URL 引用更轻量，不传原始字节。
+#### ✅ 消息幂等性
+- `message_id` 客户端生成，服务端同 session 内去重
+- `server_seq` 全局有序，接收方可检测丢包/乱序
 
-#### 消息幂等性
-- `message_id` 客户端生成（UUID）
-- 服务端在同一 session 内去重
+#### ✅ QuerySkill() API
+- `POST /skills/query` — 运行时查询 Agent 能力
+- `GET /.well-known/acp.json` — AgentCard 标准发现端点
 
-#### Artifact（任务输出产物）
-```json
-{
-  "artifact_id": "uuid",
-  "name": "分析报告",
-  "parts": [...]
-}
-```
-
-- 任务完成后通过 `artifactUpdate` 事件推送
-- 区分「对话消息」和「任务产物」
-
-#### 结构化 SSE 事件（2 种）
-```
-data: {"type": "status", "task_id": "x", "state": "working"}
-data: {"type": "artifact", "task_id": "x", "artifact": {...}}
-data: {"type": "message", "role": "agent", "parts": [...]}
-```
+#### ✅ 新增端点（v0.5 完整列表）
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/tasks` | GET | 列出所有 task，支持 `?state=` 过滤 |
+| `/tasks/{id}` | GET | 查询单个 task |
+| `/tasks/{id}/wait` | GET | 同步等待 task 完成（`?timeout=N`） |
+| `/tasks/{id}/update` | POST | 更新 task 状态 + artifact |
+| `/tasks/{id}/continue` | POST | 从 input_required 继续 |
+| `/tasks/{id}:cancel` | POST | 取消（→ failed） |
+| `/tasks/{id}:subscribe` | GET | 单 task SSE 流 |
+| `/skills/query` | POST | 运行时能力查询 |
 
 ---
 
-### 🔮 v0.6（目标：2026-04-09）
-**主题：零配置接入 + 跨平台互通**
+### 🎯 v0.6（目标：2026-04-09）
+**主题：外部 Agent 接入 + SDK 化**
 
-设计原则：让任意 Agent（不限框架）都能 2 步接入。
+设计原则：让 acp_relay.py **之外的** Agent 也能接入 ACP，不再要求「必须运行 relay 进程」。
 
-- [ ] **标准接入协议**：任意 HTTP 服务只需实现 3 个端点即可接入 ACP
-  - `GET /.well-known/acp.json` — AgentCard（我是谁，我能做什么）
-  - `POST /connect` — 发起连接（返回 session_id）
-  - `GET /stream/{session_id}` — SSE 消息流
-- [ ] **Relay 升级**：支持多并发 session，独立超时管理
-- [ ] **错误码规范**：建立 ACP 错误体系（精简版，约 6 种）
-- [ ] **Python / Node SDK**：让接入从「3 个端点」变成「import + 3 行代码」
+#### 核心目标：标准轻量接入协议
+
+任意 HTTP Agent 只需实现 3 个端点即可接入 ACP 网络：
+
+```
+GET  /.well-known/acp.json  → AgentCard（我是谁，我能做什么）
+POST /message:send           → 接收消息（入站）
+GET  /stream                 → SSE 消息流（出站，可选）
+```
+
+> 这意味着：现有的 OpenAI、Anthropic、任意 FastAPI/Express 服务，加 3 个端点即可接入 ACP。
+
+#### 具体特性
+
+- [ ] **轻量接入规范**：正式书写最小接入协议文档（spec/v0.6-minimal-agent.md）
+- [ ] **多 session Relay**：acp_relay.py 支持同时维护多个 peer 连接（不只是 1:1）
+  - 场景：JARVIS 同时与 Alpha、Beta、Gamma 通信
+  - 端点：`/peers` 列出所有连接，`/peer/{id}/send` 定向发送
+- [ ] **错误码规范**：标准化 6 种错误响应（连接失败/消息过大/任务不存在/协议不兼容/超时/未知）
+- [ ] **Cloudflare Worker 升级**：支持多房间并发，KV 过期清理
+- [ ] **Python mini-SDK**：`pip install acp-relay`，3 行接入
+
+```python
+from acp import Agent
+agent = Agent(name="MyBot", skills=["summarize"])
+agent.on_message(lambda msg: agent.reply(f"收到: {msg.text}"))
+agent.connect("acp://33.229.113.196:7801/tok_xxx")
+```
 
 ---
 
