@@ -194,10 +194,9 @@ MCP:  https://github.com/modelcontextprotocol/specification
     │     优势：实时全双工，真 P2P
     │     限制：K8s/沙箱/NAT 严格环境不通（TCP SYN 通但数据层被拦）
     │
-    ├── 传输 B：GitHub Issues 轮询（acp+gh://）
-    │     链接格式：acp+gh://OWNER/REPO/ISSUE_NUM
-    │     延迟：~3s | 优势：任何能访问 GitHub 的环境均可用
-    │     限制：❌ 需要双方有 GitHub token，违背「零注册」原则，已废弃
+    ├── 传输 B：[已移除] GitHub Issues 轮询
+    │     原因：需要双方持有 GitHub token，违背「零注册、零依赖」核心原则
+    │     教训：任何需要第三方账号/token 的传输层都不符合 ACP 定位
     │
     └── 传输 C：公共 WebSocket 中继（acp+wss://）【v0.7 规划】
           链接格式：acp+wss://relay.acp.dev/TOKEN
