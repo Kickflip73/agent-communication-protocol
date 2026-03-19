@@ -177,7 +177,18 @@ MCP:  https://github.com/modelcontextprotocol/specification
 
 ---
 
-## 传输层架构（2026-03-19 更新）
+## 传输层架构（2026-03-19 定稿）
+
+### ⚠️ 重要架构声明
+
+> **ACP 是标准协议，不依赖任何特定基础设施。**
+>
+> 传输 A（WebSocket P2P）是**首选**，也是协议的标准形态——零依赖、零服务器、真 P2P。
+> 传输 C（HTTP 公共中继）是**服务降级备选**，仅用于沙箱/K8s 等严格网络限制场景。
+>
+> 公共中继实例（`black-silence-11c4.yuranliu888.workers.dev`）由协议维护方运营，
+> 是一项**工程便利性服务**，而非协议标准的一部分。
+> 任何人可以用 `relay/acp_worker.js` 自部署中继，链接格式天然携带地址，协议不绑定任何特定实例。
 
 **核心设计原则：会话层不感知传输层。** 所有传输对外 API 完全相同。
 
@@ -187,24 +198,45 @@ MCP:  https://github.com/modelcontextprotocol/specification
     ├── GET  /recv
     ├── GET  /status
     └── GET  /link
-         ↓ 透明路由
-    ├── 传输 A：WebSocket P2P（acp://）
+         ↓ 透明路由（自动降级）
+    ├── 传输 A：WebSocket P2P（acp://）★ 首选，协议标准形态
     │     链接格式：acp://IP:PORT/TOKEN
-    │     延迟：<100ms | 适用：双方 IP 互通、无严格 NetworkPolicy
-    │     优势：实时全双工，真 P2P
-    │     限制：K8s/沙箱/NAT 严格环境不通（TCP SYN 通但数据层被拦）
+    │     延迟：<100ms | 依赖：零依赖，真 P2P
+    │     适用：普通网络（家庭/公司内网，无严格 NetworkPolicy）
+    │     ⚠️ 不适用：K8s 沙箱（TCP SYN 通但数据层被 NetworkPolicy 拦截）
     │
-    ├── 传输 B：[已移除] GitHub Issues 轮询
-    │     原因：需要双方持有 GitHub token，违背「零注册、零依赖」核心原则
-    │     教训：任何需要第三方账号/token 的传输层都不符合 ACP 定位
+    ├── 传输 B：[已永久移除] GitHub Issues 轮询
+    │     原因：需要双方 GitHub token，违背「零注册、零依赖」原则
     │
-    └── 传输 C：公共 WebSocket 中继（acp+wss://）【v0.7 规划】
-          链接格式：acp+wss://relay.acp.dev/TOKEN
-          延迟：<500ms | 适用：任意网络环境（含严格沙箱）
-          优势：真正零注册、零 token，任意 Agent curl 即可接入
-          实现：Cloudflare Worker（免费层：10万请求/天）
-          状态：待部署，需要 Cloudflare API Token
+    └── 传输 C：HTTP 公共中继（acp+wss://）★ 降级备选，非标准形态
+          链接格式：acp+wss://RELAY_HOST/acp/TOKEN
+          延迟：1-3s（HTTP 轮询）| 适用：任意网络（含严格沙箱）
+          依赖：需要一个运行 acp_worker.js 的 HTTP 服务（可自部署）
+          公共实例：black-silence-11c4.yuranliu888.workers.dev（维护方运营）
+          触发条件：传输 A 连接超时（10s）自动降级
 ```
+
+### 自动降级策略（v0.7）
+
+```
+connect(link):
+    if link == "acp://...":           # 标准 P2P
+        try WebSocket, timeout=10s
+        on timeout → log "P2P unavailable, falling back to relay"
+                   → auto switch to acp+wss://PUBLIC_RELAY/TOKEN
+    elif link == "acp+wss://...":     # 直接指定中继（明确降级）
+        connect to HTTP relay directly
+```
+
+### 取舍说明（2026-03-19 Stark 先生确认）
+
+| 维度 | 传输 A（标准） | 传输 C（降级） |
+|------|-------------|-------------|
+| 协议依赖性 | ✅ 零依赖 | ⚠️ 依赖 HTTP 服务 |
+| 网络要求 | 双方 IP 互通 | 仅需 HTTPS 出站 |
+| 延迟 | <100ms | 1-3s |
+| 是否标准 | ✅ 是 | ❌ 否，是工程取舍 |
+| 自部署 | N/A | ✅ acp_worker.js 开源 |
 
 ### 实战经验：K8s 沙箱网络特征（2026-03-19 测试记录）
 
