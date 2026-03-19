@@ -231,6 +231,50 @@ The `/.well-known/acp.json` response returns both `self` (this agent) and `peer`
 
 ---
 
+## 5b. Bilateral Task Synchronization
+
+A key design principle in ACP v0.5: **both sides share the same task_id**.
+
+### Flow
+
+```
+Peer (initiator)                    JARVIS (executor)
+─────────────────                   ─────────────────
+POST /message:send                  receives message
+  create_task: true          ──►    auto-registers task_id
+  → task_id: "task_abc"             (from_peer: true, status: working)
+     status: working
+
+                                    processes...
+
+                             ◄──    POST /tasks/task_abc/update
+                                      status: completed
+                                      artifact: {type: text, content: ...}
+
+task synced to: completed ✅
+```
+
+### Rules
+
+1. Initiator sends `create_task: true` → task_id embedded in outgoing message
+2. Executor receives message with `task_id` not locally known → **auto-registers** it (`from_peer: true`)
+3. Executor calls `/tasks/{id}/update` → state change propagated back via `task.updated` message
+4. Initiator's task entry updates automatically; artifacts stored in `task.artifacts[]`
+
+### Why shared task_id?
+
+- **Zero coordination**: both sides use the same ID without a handshake
+- **Debuggable**: logs reference the same ID on both ends  
+- **Cancellable from either side**: initiator can call `:cancel` at any time
+
+### `from_peer` flag
+
+| Value | Meaning |
+|-------|---------|
+| absent / `false` | Task created by this agent |
+| `true` | Task auto-registered from incoming peer message |
+
+
 ## 6. HTTP Endpoints
 
 ### Primary Send — `POST /message:send`
@@ -266,6 +310,7 @@ Content-Type: application/json
 | POST | `/tasks/{id}/update` | Update task state + artifact |
 | POST | `/tasks/{id}/continue` | Resume `input_required` task |
 | POST | `/tasks/{id}:cancel` | Cancel active task (sets state=failed) |
+| GET | `/tasks/{id}/wait` | Sync-wait for terminal state (`?timeout=N`, default 30s) |
 | GET | `/tasks/{id}:subscribe` | SSE stream for single task (closes on terminal) |
 
 ---
@@ -311,3 +356,4 @@ Server-generated IDs require a round-trip before the client knows the ID. Client
 ---
 
 *ACP v0.5 · https://github.com/Kickflip73/agent-communication-protocol*
+
