@@ -552,14 +552,18 @@ async def host_mode(token, ws_port, http_port):
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def guest_mode(host, ws_port, token, http_port):
+    """
+    P2P 直连模式。连接失败超过 P2P_MAX_RETRIES 次后，
+    自动降级到公共 HTTP 中继（acp+wss://），无需人工干预。
+    """
     global _peer_ws
     uri = f"ws://{host}:{ws_port}/{token}"
-    MAX_RETRIES = 10
+    P2P_MAX_RETRIES = 3   # P2P 最多尝试 3 次，失败后自动降级
     retry = 0
 
-    while retry < MAX_RETRIES:
+    while retry < P2P_MAX_RETRIES:
         try:
-            log.info(f"{'Reconnecting #' + str(retry) if retry else 'Connecting to'}: {uri}")
+            log.info(f"{'Reconnecting #' + str(retry) if retry else 'Connecting to (P2P)'}: {uri}")
             async with await _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10) as ws:
                 _peer_ws = ws
                 _status["connected"]  = True
@@ -571,7 +575,7 @@ async def guest_mode(host, ws_port, token, http_port):
                 _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
 
                 print(f"\n{'='*55}")
-                print(f"ACP P2P v{VERSION} - {'reconnected' if retry else 'connected'}")
+                print(f"ACP P2P v{VERSION} - {'reconnected' if retry else 'connected'} [P2P]")
                 print(f"  Peer: {host}:{ws_port}")
                 print(f"  Send:   POST http://localhost:{http_port}/message:send")
                 print(f"  Stream: GET  http://localhost:{http_port}/stream")
@@ -581,12 +585,14 @@ async def guest_mode(host, ws_port, token, http_port):
                 async for raw in ws:
                     _on_message(raw)
 
-        except ConnectionRefusedError:
-            log.warning(f"Refused - retry in {2**retry}s ({retry+1}/{MAX_RETRIES})")
+        except (ConnectionRefusedError, OSError,
+                websockets.exceptions.InvalidProxyMessage,
+                websockets.exceptions.InvalidHandshake) as e:
+            log.warning(f"P2P failed ({type(e).__name__}) - retry {retry+1}/{P2P_MAX_RETRIES}")
         except websockets.exceptions.ConnectionClosed:
-            log.info(f"Closed - retry in {2**retry}s")
-        except OSError as e:
-            log.warning(f"Network error: {e}")
+            log.info(f"P2P closed - retry {retry+1}/{P2P_MAX_RETRIES}")
+        except Exception as e:
+            log.warning(f"P2P unexpected error: {e} - retry {retry+1}/{P2P_MAX_RETRIES}")
         finally:
             _peer_ws = None
             _status["connected"] = False
@@ -594,11 +600,60 @@ async def guest_mode(host, ws_port, token, http_port):
             _broadcast_sse_event("peer", {"event": "disconnected"})
 
         retry += 1
-        if retry < MAX_RETRIES:
-            await asyncio.sleep(min(2 ** retry, 60))
+        if retry < P2P_MAX_RETRIES:
+            await asyncio.sleep(min(2 ** retry, 8))
 
-    print(f"\nGave up after {MAX_RETRIES} retries")
-    sys.exit(1)
+    # ── 自动降级：P2P 失败，切换到公共 HTTP 中继 ──────────────────────────
+    DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+    log.warning(f"P2P unreachable after {P2P_MAX_RETRIES} retries. Auto-fallback to relay: {DEFAULT_RELAY}")
+    print(f"\n{'='*55}")
+    print(f"⚠️  P2P direct connect failed (network restricted)")
+    print(f"   Auto-fallback: creating relay session...")
+    print(f"{'='*55}\n")
+
+    import urllib.request as _ureq
+    try:
+        r = _ureq.urlopen(_ureq.Request(
+            f"{DEFAULT_RELAY}/acp/new",
+            data=b"", headers={"Content-Type": "application/json"}
+        ), timeout=10)
+        resp = json.loads(r.read())
+        relay_token = resp["token"]
+        relay_link  = resp["link"]
+    except Exception as e:
+        log.error(f"Relay session creation failed: {e}")
+        sys.exit(1)
+
+    # 加入中继并发送握手消息，告知对方新的中继链接
+    _status["link"] = relay_link
+    try:
+        import urllib.request as _ur2
+        _ur2.urlopen(_ur2.Request(
+            f"{DEFAULT_RELAY}/acp/{relay_token}/join",
+            data=json.dumps({"name": _status.get("agent_name","ACP-Agent")}).encode(),
+            headers={"Content-Type": "application/json"}
+        ), timeout=10)
+        _ur2.urlopen(_ur2.Request(
+            f"{DEFAULT_RELAY}/acp/{relay_token}/send",
+            data=json.dumps({
+                "from": _status.get("agent_name","ACP-Agent"),
+                "type": "acp.relay_fallback",
+                "text": f"P2P direct connect failed. Auto-switched to relay. Please join: {relay_link}",
+                "relay_link": relay_link
+            }).encode(),
+            headers={"Content-Type": "application/json"}
+        ), timeout=10)
+    except Exception as e:
+        log.warning(f"Relay join/notify failed: {e}")
+
+    print(f"\n{'='*55}")
+    print(f"✅ Relay session ready [AUTO-FALLBACK]")
+    print(f"   Relay link: {relay_link}")
+    print(f"   Share this link with the peer Agent")
+    print(f"{'='*55}\n")
+
+    # 进入 HTTP 中继模式持续运行
+    await _http_relay_guest(DEFAULT_RELAY, relay_token, http_port)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
