@@ -54,7 +54,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "0.5"
+VERSION = "0.6-dev"
 MAX_MSG_BYTES = 1 * 1024 * 1024
 
 # ── Task states ────────────────────────────────────────────────────────────────
@@ -107,6 +107,7 @@ _status: dict = {
     "tasks_created":     0,
     "started_at":        None,
     "max_msg_bytes":     MAX_MSG_BYTES,
+    "server_seq":        0,
 }
 
 def _now():
@@ -182,15 +183,28 @@ def _make_agent_card(name, skills):
             "input_required":     True,
             "part_types":         ["text", "file", "data"],
             "max_msg_bytes":      MAX_MSG_BYTES,
+            "query_skill":        True,
+            "server_seq":         True,
         },
         "auth":      {"schemes": ["none"]},
         "endpoints": {
-            "send":       "/message:send",
-            "stream":     "/stream",
-            "tasks":      "/tasks",
-            "agent_card": "/.well-known/acp.json",
+            "send":         "/message:send",
+            "stream":       "/stream",
+            "tasks":        "/tasks",
+            "agent_card":   "/.well-known/acp.json",
+            "skills_query": "/skills/query",
         },
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Message Sequencing (v0.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _next_seq():
+    """Return next monotonically-increasing server_seq for outbound messages."""
+    _status["server_seq"] += 1
+    return _status["server_seq"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -703,6 +717,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 msg = {
                     "type":       "acp.message",
                     "message_id": message_id,
+                    "server_seq": _next_seq(),
                     "ts":         _now(),
                     "from":       _status.get("agent_name", "unknown"),
                     "role":       body.get("role", "user"),
@@ -904,6 +919,65 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if url in _push_webhooks:
                     _push_webhooks.remove(url)
                 self._json({"ok": True, "remaining": len(_push_webhooks)})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # /skills/query — QuerySkill: runtime capability introspection (v0.6, inspired by A2A PR#1655)
+        # Request:  {"skill_id": "summarize", "constraints": {"file_size_bytes": 52428800}}
+        # Response: {"skill_id": "...", "support_level": "supported|partial|unsupported",
+        #            "reason": "...", "constraints_applied": {...}, "agent": {...}}
+        elif p == "/skills/query":
+            try:
+                body = self._read_body()
+                skill_id    = (body.get("skill_id") or "").strip()
+                constraints = body.get("constraints") or {}
+
+                agent_card  = _status.get("agent_card") or {}
+                known_skills = {s["id"] for s in agent_card.get("skills", [])}
+                capabilities = agent_card.get("capabilities", {})
+
+                # Determine support level
+                if not skill_id:
+                    # No skill_id: return full skill list
+                    self._json({
+                        "skills": list(known_skills),
+                        "capabilities": capabilities,
+                        "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                    })
+                    return
+
+                if skill_id in known_skills:
+                    # Check constraints against known capabilities
+                    violations = []
+                    if "file_size_bytes" in constraints:
+                        max_bytes = capabilities.get("max_msg_bytes", MAX_MSG_BYTES)
+                        if constraints["file_size_bytes"] > max_bytes:
+                            violations.append(f"file_size_bytes {constraints['file_size_bytes']} exceeds max {max_bytes}")
+
+                    if violations:
+                        support_level = "partial"
+                        reason = "; ".join(violations)
+                        constraints_applied = {"max_msg_bytes": capabilities.get("max_msg_bytes", MAX_MSG_BYTES)}
+                    else:
+                        support_level = "supported"
+                        reason = f"Skill '{skill_id}' is available"
+                        constraints_applied = {}
+                else:
+                    support_level = "unsupported"
+                    reason = f"Skill '{skill_id}' not registered on this agent"
+                    constraints_applied = {}
+
+                self._json({
+                    "skill_id":            skill_id,
+                    "support_level":       support_level,
+                    "reason":              reason,
+                    "constraints_applied": constraints_applied,
+                    "known_skills":        sorted(known_skills),
+                    "agent": {
+                        "name":        agent_card.get("name"),
+                        "acp_version": VERSION,
+                    },
+                })
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
