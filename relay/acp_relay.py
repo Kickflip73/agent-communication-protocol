@@ -646,6 +646,33 @@ class LocalHTTP(BaseHTTPRequestHandler):
         elif p == "/link":
             self._json({"link": _status.get("link"), "session_id": _status.get("session_id")})
 
+        elif p == "/connect" and self.command == "POST":
+            # 对等连接：主动连接对方链接，无主从之分
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except Exception:
+                body = {}
+            peer_link = body.get("link", "")
+            if not peer_link:
+                self._json({"error": "missing link"}, 400)
+                return
+            def _do_connect():
+                result = parse_link(peer_link)
+                if len(result) == 4:
+                    host, port, token, scheme = result
+                else:
+                    host, port, token = result; scheme = "ws"
+                http_port = _status.get("http_port", 7901)
+                if scheme == "http_relay":
+                    asyncio.run_coroutine_threadsafe(
+                        _http_relay_guest(host, token, http_port), _loop)
+                else:
+                    asyncio.run_coroutine_threadsafe(
+                        guest_mode(host, port, token, http_port), _loop)
+            threading.Thread(target=_do_connect, daemon=True).start()
+            self._json({"ok": True, "connecting_to": peer_link})
+
         elif p.startswith("/wait/"):
             corr = p[len("/wait/"):]
             timeout = float(qs.get("timeout", ["30"])[0])
@@ -1164,8 +1191,21 @@ def main():
     signal.signal(signal.SIGTERM, _shutdown)
 
     try:
-        if args.relay and not args.join:
-            # 发起方：通过公共中继创建会话
+        if args.join:
+            # ── 加入已有会话 ─────────────────────────────────────────────
+            # 解析链接，自动选择传输方式，Agent 无需关心
+            result = parse_link(args.join)
+            if len(result) == 4:
+                host, port, token, scheme = result
+            else:
+                host, port, token = result; scheme = "ws"
+            if scheme == "http_relay":
+                log.info(f"Transport: HTTP relay -> {host}")
+                _loop.run_until_complete(_http_relay_guest(host, token, http_port))
+            else:
+                _loop.run_until_complete(guest_mode(host, port, token, http_port))
+        elif args.relay:
+            # ── 通过公共中继创建新会话 ────────────────────────────────────
             import urllib.request as _ureq
             relay_base = args.relay_url.rstrip("/")
             r = _ureq.urlopen(_ureq.Request(f"{relay_base}/acp/new",
@@ -1173,35 +1213,20 @@ def main():
             resp = json.loads(r.read())
             token = resp["token"]
             link  = resp["link"]
-            print(f"\n{'='*55}")
-            print(f"ACP v{VERSION} - relay session created")
-            print(f"  Your link:")
-            print(f"  {link}")
-            print(f"  Share this link with the other Agent")
-            print(f"{'='*55}\n")
             _status["link"] = link
             _status["session_id"] = token
+            print(f"\n{'='*55}")
+            print(f"ACP v{VERSION} — relay session ready")
+            print(f"  Your link: {link}")
+            print(f"  Share this with the other Agent to connect")
+            print(f"{'='*55}\n")
             _loop.run_until_complete(_http_relay_guest(relay_base, token, http_port))
-        elif args.join:
-            result = parse_link(args.join)
-            if len(result) == 4:
-                host, port, token, scheme = result
-            else:
-                host, port, token = result; scheme = "ws"
-            if scheme == "http_relay":
-                log.info(f"Transport: HTTP polling relay -> {host}")
-                _loop.run_until_complete(_http_relay_guest(host, token, http_port))
-            else:
-                _loop.run_until_complete(guest_mode(host, port, token, http_port))
         else:
+            # ── 默认：P2P 模式，监听并等待对方连接 ────────────────────────
             token = _make_token()
             _loop.run_until_complete(host_mode(token, ws_port, http_port))
     except KeyboardInterrupt:
         pass
-
-if __name__ == "__main__":
-    main()
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Transport C: HTTP Polling Relay (acp+wss:// scheme)
@@ -1283,3 +1308,7 @@ async def _http_relay_guest(relay_base_url: str, token: str, http_port: int):
         await asyncio.sleep(POLL_INTERVAL)
 
 _http_relay_send = None  # 由 _http_relay_guest 设置
+if __name__ == "__main__":
+    main()
+
+
