@@ -161,6 +161,51 @@ _push_webhooks       = []
 _seen_message_ids: dict = {}
 _SEEN_MAX = 2000
 
+# ── Multi-session peer registry (v0.6) ─────────────────────────────────────
+# Stores all active peer connections keyed by peer_id (auto-assigned or named)
+# Each entry: {id, name, link, ws, connected, connected_at, messages_sent,
+#              messages_received, agent_card}
+_peers: dict = {}       # peer_id -> peer info dict
+_peer_id_counter = 0    # auto-increment for unnamed peers
+
+def _make_peer_id():
+    global _peer_id_counter
+    _peer_id_counter += 1
+    return f"peer_{_peer_id_counter:03d}"
+
+def _register_peer(peer_id=None, link=None, ws=None):
+    """Register or update a peer connection. Returns peer_id."""
+    pid = peer_id or _make_peer_id()
+    existing = _peers.get(pid, {})
+    _peers[pid] = {
+        "id":               pid,
+        "name":             existing.get("name", pid),
+        "link":             link or existing.get("link"),
+        "ws":               ws or existing.get("ws"),
+        "connected":        True,
+        "connected_at":     existing.get("connected_at") or _now(),
+        "messages_sent":    existing.get("messages_sent", 0),
+        "messages_received": existing.get("messages_received", 0),
+        "agent_card":       existing.get("agent_card"),
+    }
+    return pid
+
+def _unregister_peer(peer_id):
+    """Mark a peer as disconnected (retain for history)."""
+    if peer_id in _peers:
+        _peers[peer_id]["connected"] = False
+        _peers[peer_id]["disconnected_at"] = _now()
+        _peers[peer_id]["ws"] = None
+
+def _get_peer_ws(peer_id=None):
+    """Get WebSocket for a specific peer, or fallback to legacy _peer_ws."""
+    if peer_id and peer_id in _peers:
+        return _peers[peer_id].get("ws")
+    # Legacy fallback: single-peer mode
+    return _peer_ws
+
+# ── /
+
 _status: dict = {
     "acp_version":       VERSION,
     "connected":         False,
@@ -180,6 +225,7 @@ _status: dict = {
     "started_at":        None,
     "max_msg_bytes":     MAX_MSG_BYTES,
     "server_seq":        0,
+    "peer_count":        0,    # v0.6: active peer count
 }
 
 def _now():
@@ -257,6 +303,7 @@ def _make_agent_card(name, skills):
             "max_msg_bytes":      MAX_MSG_BYTES,
             "query_skill":        True,
             "server_seq":         True,
+            "multi_session":      True,   # v0.6: multiple simultaneous peer connections
         },
         "auth":      {"schemes": ["none"]},
         "endpoints": {
@@ -265,6 +312,9 @@ def _make_agent_card(name, skills):
             "tasks":        "/tasks",
             "agent_card":   "/.well-known/acp.json",
             "skills_query": "/skills/query",
+            "peers":        "/peers",                  # v0.6
+            "peer_send":    "/peer/{id}/send",         # v0.6
+            "peers_connect": "/peers/connect",         # v0.6
         },
     }
 
@@ -529,25 +579,33 @@ async def host_mode(token, ws_port, http_port):
         await _send_agent_card(websocket)
         _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
 
+        # v0.6: register in multi-session peer registry
+        peer_id = _register_peer(ws=websocket)
+        _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+
         print(f"\n{'='*55}")
-        print(f"ACP P2P v{VERSION} - peer connected")
-        print(f"  Send:   POST http://localhost:{http_port}/message:send")
-        print(f"  Recv:   GET  http://localhost:{http_port}/recv")
-        print(f"  Stream: GET  http://localhost:{http_port}/stream")
-        print(f"  Card:   GET  http://localhost:{http_port}/.well-known/acp.json")
-        print(f"  Tasks:  GET  http://localhost:{http_port}/tasks")
+        print(f"ACP P2P v{VERSION} - peer connected [id={peer_id}]")
+        print(f"  Send:     POST http://localhost:{http_port}/message:send")
+        print(f"  Send→{peer_id}: POST http://localhost:{http_port}/peer/{peer_id}/send")
+        print(f"  Peers:    GET  http://localhost:{http_port}/peers")
+        print(f"  Recv:     GET  http://localhost:{http_port}/recv")
+        print(f"  Stream:   GET  http://localhost:{http_port}/stream")
+        print(f"  Card:     GET  http://localhost:{http_port}/.well-known/acp.json")
+        print(f"  Tasks:    GET  http://localhost:{http_port}/tasks")
         print(f"{'='*55}\n")
 
         try:
             async for raw in websocket:
                 _on_message(raw)
         except websockets.exceptions.ConnectionClosed:
-            log.info("Peer disconnected")
+            log.info(f"Peer {peer_id} disconnected")
         finally:
+            _unregister_peer(peer_id)
             _peer_ws = None
             _status["connected"] = False
             _status["peer_card"] = None
-            _broadcast_sse_event("peer", {"event": "disconnected"})
+            _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+            _broadcast_sse_event("peer", {"event": "disconnected", "peer_id": peer_id})
 
     log.info("Detecting public IP...")
     public_ip = await asyncio.get_event_loop().run_in_executor(None, lambda: get_public_ip(4.0))
@@ -635,11 +693,18 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
                 await _send_agent_card(ws)
                 _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
 
+                # v0.6: register in multi-session peer registry
+                peer_link = f"acp://{host}:{ws_port}/{token}"
+                peer_id = _register_peer(link=peer_link, ws=ws)
+                _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+
                 print(f"\n{'='*55}")
-                print(f"ACP P2P v{VERSION} - {'reconnected' if retry else 'connected'} [P2P]")
+                print(f"ACP P2P v{VERSION} - {'reconnected' if retry else 'connected'} [P2P] [id={peer_id}]")
                 print(f"  Peer: {host}:{ws_port}")
-                print(f"  Send:   POST http://localhost:{http_port}/message:send")
-                print(f"  Stream: GET  http://localhost:{http_port}/stream")
+                print(f"  Send:     POST http://localhost:{http_port}/message:send")
+                print(f"  Send→{peer_id}: POST http://localhost:{http_port}/peer/{peer_id}/send")
+                print(f"  Peers:    GET  http://localhost:{http_port}/peers")
+                print(f"  Stream:   GET  http://localhost:{http_port}/stream")
                 print(f"{'='*55}\n")
 
                 retry = 0
@@ -655,9 +720,16 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
         except Exception as e:
             log.warning(f"P2P unexpected error: {e} - retry {retry+1}/{P2P_MAX_RETRIES}")
         finally:
+            # v0.6: unregister peer from registry
+            _peer_link_key = f"acp://{host}:{ws_port}/{token}"
+            for _pid, _pinfo in _peers.items():
+                if _pinfo.get("link") == _peer_link_key:
+                    _unregister_peer(_pid)
+                    break
             _peer_ws = None
             _status["connected"] = False
             _status["peer_card"] = None
+            _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
             _broadcast_sse_event("peer", {"event": "disconnected"})
 
         retry += 1
@@ -748,6 +820,33 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         elif p == "/link":
             self._json({"link": _status.get("link"), "session_id": _status.get("session_id")})
+
+        # ── GET /peers — list all known peers (v0.6) ──────────────────────────
+        elif p == "/peers":
+            peer_list = []
+            for pid, info in _peers.items():
+                peer_list.append({
+                    "id":               info["id"],
+                    "name":             info["name"],
+                    "link":             info.get("link"),
+                    "connected":        info["connected"],
+                    "connected_at":     info.get("connected_at"),
+                    "disconnected_at":  info.get("disconnected_at"),
+                    "messages_sent":    info.get("messages_sent", 0),
+                    "messages_received": info.get("messages_received", 0),
+                    "agent_card":       info.get("agent_card"),
+                })
+            active = sum(1 for p2 in _peers.values() if p2["connected"])
+            self._json({"peers": peer_list, "count": len(peer_list), "active": active})
+
+        # ── GET /peers/{id} — single peer info (v0.6) ─────────────────────────
+        elif p.startswith("/peers/") and not p.endswith("/send"):
+            peer_id = p[len("/peers/"):]
+            info = _peers.get(peer_id)
+            if not info:
+                self._json({"error": f"peer '{peer_id}' not found"}, 404)
+            else:
+                self._json({k: v for k, v in info.items() if k != "ws"})
 
         elif p == "/connect" and self.command == "POST":
             # 对等连接：主动连接对方链接，无主从之分
@@ -1040,6 +1139,118 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             except ConnectionError as e:
                 self._json({"ok": False, "error": str(e)}, 503)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peer/{id}/send — directed send to a specific peer (v0.6) ───
+        # Allows one Agent to maintain multiple peer connections and send
+        # messages to a specific peer by peer_id.
+        elif p.startswith("/peer/") and p.endswith("/send"):
+            peer_id = p[len("/peer/"):-len("/send")]
+            try:
+                body = self._read_body()
+                peer_info = _peers.get(peer_id)
+                if not peer_info:
+                    self._json({"error": f"peer '{peer_id}' not found"}, 404)
+                    return
+                if not peer_info.get("connected"):
+                    self._json({"error": f"peer '{peer_id}' is not connected"}, 503)
+                    return
+
+                parts = body.get("parts")
+                if not parts:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        self._json({"ok": False, "error": "provide 'parts' or 'text'"}, 400)
+                        return
+
+                message_id = body.get("message_id") or _make_id("msg")
+                msg = {
+                    "type":       "acp.message",
+                    "message_id": message_id,
+                    "server_seq": _next_seq(),
+                    "ts":         _now(),
+                    "from":       _status.get("agent_name", "unknown"),
+                    "to_peer":    peer_id,
+                    "role":       body.get("role", "user"),
+                    "parts":      parts,
+                }
+                if body.get("task_id"):
+                    msg["task_id"] = body["task_id"]
+
+                serialized = json.dumps(msg, ensure_ascii=False)
+                if len(serialized.encode()) > MAX_MSG_BYTES:
+                    self._json({"ok": False, "error": f"message too large"}, 413)
+                    return
+
+                # Send via peer's WebSocket (or fallback to broadcast)
+                ws = peer_info.get("ws")
+                if ws:
+                    asyncio.run_coroutine_threadsafe(
+                        ws.send(serialized), _loop
+                    )
+                else:
+                    # Fallback: use legacy _ws_send_sync
+                    _ws_send_sync(msg)
+
+                peer_info["messages_sent"] = peer_info.get("messages_sent", 0) + 1
+                _status["messages_sent"] += 1
+                self._json({"ok": True, "message_id": message_id, "peer_id": peer_id})
+
+            except ConnectionError as e:
+                self._json({"ok": False, "error": str(e)}, 503)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peer/{id}/rename — rename a peer for readability (v0.6) ────
+        elif p.startswith("/peer/") and p.endswith("/rename"):
+            peer_id = p[len("/peer/"):-len("/rename")]
+            try:
+                body = self._read_body()
+                new_name = body.get("name", "").strip()
+                if not new_name:
+                    self._json({"error": "name required"}, 400)
+                    return
+                peer_info = _peers.get(peer_id)
+                if not peer_info:
+                    self._json({"error": f"peer '{peer_id}' not found"}, 404)
+                    return
+                old_name = peer_info["name"]
+                peer_info["name"] = new_name
+                self._json({"ok": True, "peer_id": peer_id,
+                            "old_name": old_name, "new_name": new_name})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peers/connect — connect to a new peer, add to registry (v0.6) ─
+        elif p == "/peers/connect":
+            try:
+                body = self._read_body()
+                peer_link = body.get("link", "").strip()
+                peer_name = body.get("name", "").strip()
+                if not peer_link:
+                    self._json({"error": "link required"}, 400)
+                    return
+                # Generate peer_id before connecting
+                peer_id = _make_peer_id()
+                _register_peer(peer_id=peer_id, link=peer_link)
+                if peer_name:
+                    _peers[peer_id]["name"] = peer_name
+                # Connect in background
+                def _do_connect():
+                    result = parse_link(peer_link)
+                    host, port, token, scheme = result
+                    http_port = _status.get("http_port", 7901)
+                    if scheme == "http_relay":
+                        asyncio.run_coroutine_threadsafe(
+                            _http_relay_guest(host, token, http_port), _loop)
+                    else:
+                        asyncio.run_coroutine_threadsafe(
+                            guest_mode(host, port, token, http_port), _loop)
+                threading.Thread(target=_do_connect, daemon=True).start()
+                self._json({"ok": True, "peer_id": peer_id,
+                            "connecting_to": peer_link, "name": peer_name or peer_id})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
