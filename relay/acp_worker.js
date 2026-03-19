@@ -2,101 +2,107 @@
  * ACP Public Relay — Cloudflare Worker
  * 零注册、零 token，任意 Agent 接入
  *
- * 接口：
- *   POST /acp/new              -> { token, link }   创建新会话
- *   POST /acp/:token/send      -> { ok }             发消息
- *   GET  /acp/:token/poll?since=<ts> -> { messages } 长轮询收消息（20s）
- *   GET  /acp/:token/status    -> { agents, count }  会话状态
- *
- * 存储：Cloudflare KV（TTL 1小时，消息自动过期）
- * 限制：每个 token 最多存 100 条消息
+ * POST /acp/new                     -> { token, link }
+ * POST /acp/:token/join             -> { ok }
+ * POST /acp/:token/send             -> { ok }
+ * GET  /acp/:token/poll?since=<ts>  -> { messages }
+ * GET  /acp/:token/status           -> { agents, message_count }
  */
 
 const MSG_LIMIT = 100;
-const SESSION_TTL = 3600; // 1小时
+const SESSION_TTL = 3600;
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    const method = request.method;
-
-    // CORS
-    const headers = {
+function jsonResp(data, status) {
+  return new Response(JSON.stringify(data), {
+    status: status || 200,
+    headers: {
+      "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
-      "Content-Type": "application/json",
-    };
+    },
+  });
+}
 
-    if (method === "OPTIONS") {
-      return new Response(null, { headers });
-    }
-
-    // POST /acp/new — 创建会话
-    if (method === "POST" && path === "/acp/new") {
-      const token = "tok_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-      const session = { messages: [], agents: {}, created: Date.now() };
-      await env.ACP_KV.put(token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
-      const link = `acp+wss://${url.host}/acp/${token}`;
-      return new Response(JSON.stringify({ token, link }), { headers });
-    }
-
-    // 解析 /acp/:token/...
-    const m = path.match(/^\/acp\/([^\/]+)\/?(.*)?$/);
-    if (!m) {
-      return new Response(JSON.stringify({ error: "not_found" }), { status: 404, headers });
-    }
-    const [, token, action] = m;
-
-    // 读取会话
-    const raw = await env.ACP_KV.get(token);
-    if (!raw) {
-      return new Response(JSON.stringify({ error: "invalid_token" }), { status: 403, headers });
-    }
-    const session = JSON.parse(raw);
-
-    // POST /acp/:token/send
-    if (method === "POST" && action === "send") {
-      const data = await request.json().catch(() => ({}));
-      const msg = { ...data, ts: Date.now(), id: crypto.randomUUID().slice(0, 8) };
-      session.messages.push(msg);
-      if (session.messages.length > MSG_LIMIT) {
-        session.messages = session.messages.slice(-MSG_LIMIT);
-      }
-      await env.ACP_KV.put(token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
-      return new Response(JSON.stringify({ ok: true }), { headers });
-    }
-
-    // POST /acp/:token/join
-    if (method === "POST" && action === "join") {
-      const data = await request.json().catch(() => ({}));
-      const name = data.name || "unknown";
-      session.agents[name] = { joined: Date.now(), ...data };
-      const msg = { type: "acp.agent_card", from: name, ts: Date.now(), data, id: crypto.randomUUID().slice(0, 8) };
-      session.messages.push(msg);
-      await env.ACP_KV.put(token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
-      return new Response(JSON.stringify({ ok: true, session_id: token }), { headers });
-    }
-
-    // GET /acp/:token/poll?since=<ts>
-    if (method === "GET" && action === "poll") {
-      const since = parseInt(url.searchParams.get("since") || "0");
-      // Cloudflare Workers 不支持真正的长轮询（有 CPU 限制）
-      // 返回 since 之后的所有消息
-      const newMsgs = session.messages.filter(m => m.ts > since);
-      return new Response(JSON.stringify({ messages: newMsgs }), { headers });
-    }
-
-    // GET /acp/:token/status
-    if (method === "GET" && (action === "status" || action === "")) {
-      return new Response(JSON.stringify({
-        agents: Object.keys(session.agents),
-        message_count: session.messages.length,
-        created: session.created,
-      }), { headers });
-    }
-
-    return new Response(JSON.stringify({ error: "unknown_action" }), { status: 400, headers });
+export default {
+  async fetch(request, env, ctx) {
+    return handleRequest(request, env);
   }
 };
+
+async function handleRequest(request, env) {
+  const kv = env.ACP_KV;
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const method = request.method;
+
+  if (method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }
+
+  // POST /acp/new
+  if (method === "POST" && path === "/acp/new") {
+    const token = "tok_" + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+    const session = { messages: [], agents: {}, created: Date.now() };
+    await kv.put(token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
+    const link = "acp+wss://" + url.host + "/acp/" + token;
+    return jsonResp({ token: token, link: link });
+  }
+
+  // /acp/:token/...
+  const m = path.match(/^\/acp\/([^\/]+)\/?(.*)$/);
+  if (!m) return jsonResp({ error: "not_found" }, 404);
+  const token = m[1];
+  const action = m[2] || "status";
+
+  const raw = await kv.get(token);
+  if (!raw) return jsonResp({ error: "invalid_token" }, 403);
+  const session = JSON.parse(raw);
+
+  // POST /acp/:token/join
+  if (method === "POST" && action === "join") {
+    let data = {};
+    try { data = await request.json(); } catch(e) {}
+    const name = data.name || "unknown";
+    session.agents[name] = { joined: Date.now() };
+    session.messages.push({ type: "acp.agent_card", from: name, ts: Date.now(), data: data, id: Math.random().toString(36).slice(2,10) });
+    if (session.messages.length > MSG_LIMIT) session.messages = session.messages.slice(-MSG_LIMIT);
+    await kv.put(token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
+    return jsonResp({ ok: true, session_id: token });
+  }
+
+  // POST /acp/:token/send
+  if (method === "POST" && action === "send") {
+    let data = {};
+    try { data = await request.json(); } catch(e) {}
+    const msg = Object.assign({}, data, { ts: Date.now(), id: Math.random().toString(36).slice(2,10) });
+    session.messages.push(msg);
+    if (session.messages.length > MSG_LIMIT) session.messages = session.messages.slice(-MSG_LIMIT);
+    await kv.put(token, JSON.stringify(session), { expirationTtl: SESSION_TTL });
+    return jsonResp({ ok: true });
+  }
+
+  // GET /acp/:token/poll
+  if (method === "GET" && action === "poll") {
+    const since = parseInt(url.searchParams.get("since") || "0");
+    const newMsgs = session.messages.filter(function(msg) { return msg.ts > since; });
+    return jsonResp({ messages: newMsgs });
+  }
+
+  // GET /acp/:token/status
+  if (method === "GET" && (action === "status" || action === "")) {
+    return jsonResp({
+      agents: Object.keys(session.agents),
+      message_count: session.messages.length,
+      created: session.created,
+    });
+  }
+
+  return jsonResp({ error: "unknown_action" }, 400);
+}
