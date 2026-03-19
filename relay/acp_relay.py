@@ -111,9 +111,9 @@ async def _proxy_ws_connect(uri, **kwargs):
     _supports_proxy = "proxy" in _inspect.signature(websockets.connect).parameters
 
     if proxy is None:
-        # Direct — suppress proxy env vars on old websockets
-        if _supports_proxy:
-            return await websockets.connect(uri, proxy=None, **kwargs)
+        # No proxy needed — never pass proxy= parameter at all
+        # proxy=None in new websockets can trigger unexpected behavior
+        # Just connect directly without proxy kwarg on both old and new versions
         _saved = {k: os.environ.pop(k, None) for k in
                   ["http_proxy","https_proxy","HTTP_PROXY","HTTPS_PROXY"]}
         try:
