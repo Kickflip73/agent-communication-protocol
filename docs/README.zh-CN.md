@@ -1,7 +1,7 @@
 # ACP — Agent 通信协议
 
 <p align="center">
-  <img src="https://img.shields.io/badge/版本-v0.2-blue" alt="Version">
+  <img src="https://img.shields.io/badge/版本-v0.6-dev-blue" alt="Version">
   <img src="https://img.shields.io/badge/许可证-Apache_2.0-green" alt="License">
   <img src="https://img.shields.io/badge/依赖-websockets-orange" alt="Dependency">
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue" alt="Python">
@@ -17,7 +17,7 @@
 - [工作原理](#工作原理)
 - [快速上手（2分钟）](#快速上手2分钟)
 - [接口文档](#接口文档)
-- [v0.2 新特性](#v02-新特性)
+- [v0.6-dev 新特性](#v02-新特性)
 - [路线图](#路线图)
 - [与同类协议对比](#与同类协议对比)
 - [贡献指南](#贡献指南)
@@ -112,7 +112,7 @@ Agent B 读取同一份 Skill，检测到 `acp://` 链接，直接连接 Agent A
 
 ## 通信模式
 
-ACP v0.3 支持四种通信模式，参考 [Google A2A v1.0](https://a2a-protocol.org) 设计：
+ACP v0.6-dev 支持四种通信模式，参考 [Google A2A v1.0](https://a2a-protocol.org) 设计：
 
 ### 模式一：同步（请求/响应）
 
@@ -201,7 +201,7 @@ POST /webhooks/register  {"url":"https://your-host/hook"}
 
 ---
 
-## v0.3 新特性
+## v0.6-dev 新特性
 
 参考 **Google A2A v1.0** 的四种交互模式实现：
 
@@ -210,7 +210,7 @@ POST /webhooks/register  {"url":"https://your-host/hook"}
 - **Push Webhook** — 注册任意 HTTP 端点，守护进程后台推送所有事件
 - **连接事件** — `peer.connected`、`peer.disconnected` 等系统事件也进入 SSE 流
 
-**v0.2 已有特性：** AgentCard 能力声明、断线自动重连（指数退避）、消息持久化（JSONL）、SSE 流式端点
+**v0.6-dev 已有特性：** AgentCard 能力声明、断线自动重连（指数退避）、消息持久化（JSONL）、SSE 流式端点
 
 ---
 

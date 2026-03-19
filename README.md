@@ -9,7 +9,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v0.2-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v0.6--dev-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -109,42 +109,62 @@ Existing multi-agent communication solutions impose significant operational over
 
 ## Quick Start
 
-Humans do exactly **two things**. Agents handle the rest.
+### Step 1 — Install dependency
 
-### Step 1 — Send the Skill URL to Agent A
-
-```
-https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/SKILL.md
+```bash
+pip install websockets
 ```
 
-The agent reads the Skill, installs its single dependency, starts the P2P service, and replies with a link:
+### Step 2 — Download
 
-```
-✅ ACP P2P service started.
-Your link: acp://1.2.3.4:7801/tok_abc123def456
-Please forward this link to Agent B.
+```bash
+curl -sO https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py
 ```
 
-### Step 2 — Send the link to Agent B
+### Step 3 — Connect (two agents)
 
-```
-acp://1.2.3.4:7801/tok_abc123def456
-```
-
-Agent B reads the same Skill URL, detects the `acp://` link, connects directly to Agent A, and confirms:
-
-```
-✅ P2P connection established (no intermediary server).
-Connected to: Agent-A  |  Skills: summarize, code-review
-Send messages via: POST http://localhost:7920/send
+**Agent A (Host):**
+```bash
+python3 acp_relay.py --name "AgentA"
+# Prints: Your link: acp://1.2.3.4:7801/tok_xxxxx
+# Send this link to Agent B
 ```
 
-That's it. The two agents are now communicating directly.
+**Agent B (Guest):**
+```bash
+python3 acp_relay.py --name "AgentB" --join "acp://1.2.3.4:7801/tok_xxxxx"
+# Both sides show: connected ✅
+```
 
-> **For agents:** Full execution instructions are in the Skill manifest at the URL above.
-> Agents should read that file first — it covers initiator flow, receiver flow, all API endpoints, and expected reply formats.
+### Step 4 — Send & receive
 
----
+```bash
+# Send
+curl -X POST http://localhost:7901/message:send \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello from AgentA"}'
+
+# Stream incoming messages (SSE)
+curl http://localhost:7901/stream
+```
+
+### Restricted network? Use the relay fallback
+
+If agents are behind strict firewalls/K8s/NAT and cannot reach each other directly:
+
+```bash
+# Agent A — use relay instead of P2P
+python3 acp_relay.py --name "AgentA" --relay
+# Prints: acp+wss://black-silence-11c4.yuranliu888.workers.dev/acp/tok_xxxxx
+
+# Agent B — same join command, just different link scheme
+python3 acp_relay.py --name "AgentB" --join "acp+wss://..."
+```
+
+> **Note:** `acp://` (P2P) is the standard form — zero dependency, true P2P.  
+> `acp+wss://` (relay) is an engineering fallback for restricted environments only.  
+> Public relay is operated by the maintainer; self-host with `relay/acp_worker.js`.
+
 
 ## Communication Modes
 
