@@ -1310,12 +1310,20 @@ async def _http_relay_guest(relay_base_url: str, token: str, http_port: int):
 
     agent_card = _make_agent_card(_status["agent_name"], [])
 
-    # 注册到会话
+    # 注册到会话（用 curl 确保走代理）
+    import subprocess as _subp
+    def _curl_relay(url, data_str):
+        r = _subp.run(
+            ["curl", "-s", "--max-time", "10", "-X", "POST", url,
+             "-H", "Content-Type: application/json", "-d", data_str],
+            capture_output=True, text=True
+        )
+        if r.returncode != 0 or not r.stdout.strip():
+            raise RuntimeError(f"curl failed: {r.stderr}")
+        return json.loads(r.stdout)
+
     try:
-        body = json.dumps(agent_card).encode()
-        r = _req.urlopen(_req.Request(join_url, data=body,
-                         headers={"Content-Type": "application/json"}), timeout=10)
-        resp = json.loads(r.read())
+        resp = _curl_relay(join_url, json.dumps(agent_card))
         log.info(f"Joined HTTP relay session: {token}")
     except Exception as e:
         log.error(f"Failed to join relay: {e}")
@@ -1333,37 +1341,45 @@ async def _http_relay_guest(relay_base_url: str, token: str, http_port: int):
     print(f"  Poll:  GET  http://localhost:{http_port}/stream")
     print(f"{'='*55}\n")
 
-    # 注入发消息函数（覆盖 WS 发送，改为 HTTP POST）
+
+    # _http_send 用 asyncio curl
     async def _http_send(msg: dict):
         try:
-            body = json.dumps(msg).encode()
-            _req.urlopen(_req.Request(send_url, data=body,
-                         headers={"Content-Type": "application/json"}), timeout=10)
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-s", "--max-time", "10", "-X", "POST", send_url,
+                "-H", "Content-Type: application/json",
+                "-d", json.dumps(msg),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            await proc.communicate()
         except Exception as e:
             log.warning(f"HTTP send failed: {e}")
 
-    # 把 _http_send 挂到全局，供 LocalHTTP handler 调用
     global _http_relay_send
     _http_relay_send = _http_send
 
-    # 轮询消息循环
+    # 轮询消息循环（用 asyncio subprocess 避免阻塞 event loop）
     since = 0.0
     POLL_INTERVAL = 1.5  # 秒
 
     while True:
         try:
-            url = f"{poll_url}?since={since}"
-            r = _req.urlopen(url, timeout=15)
-            data = json.loads(r.read())
-            msgs = data.get("messages", [])
-            for msg in msgs:
-                # 跳过自己发的
-                if msg.get("from") != _status["agent_name"]:
-                    _on_message(json.dumps(msg))
-                if msg.get("ts", 0) > since:
-                    since = msg["ts"]
-        except _uerr.URLError as e:
-            log.warning(f"Poll error: {e}, retry in {POLL_INTERVAL}s")
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-s", "--max-time", "10",
+                f"{poll_url}?since={since}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout, _ = await proc.communicate()
+            if stdout.strip():
+                data = json.loads(stdout)
+                msgs = data.get("messages", [])
+                for msg in msgs:
+                    if msg.get("from") != _status["agent_name"]:
+                        _on_message(json.dumps(msg))
+                    if msg.get("ts", 0) > since:
+                        since = float(msg["ts"])
         except Exception as e:
             log.warning(f"Poll exception: {e}")
 
