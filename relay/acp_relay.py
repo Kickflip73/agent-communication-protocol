@@ -1104,8 +1104,17 @@ def get_public_ip(timeout=4.0):
     return None
 
 def parse_link(link):
+    """Returns (host, port, token, scheme)"""
+    if link.startswith("acp+wss://") or link.startswith("acp+ws://"):
+        # HTTP polling relay: acp+wss://relay.host/acp/TOKEN
+        scheme = "http_relay"
+        parsed = urlparse(link.replace("acp+wss://", "https://", 1).replace("acp+ws://", "http://", 1))
+        base_url = f"{'https' if link.startswith('acp+wss://') else 'http'}://{parsed.netloc}"
+        token = parsed.path.strip("/").split("/")[-1]  # last segment
+        return base_url, 0, token, scheme
+    scheme = "ws"
     parsed = urlparse(link.replace("acp://", "http://", 1))
-    return parsed.hostname or "localhost", parsed.port or 7801, parsed.path.strip("/")
+    return parsed.hostname or "localhost", parsed.port or 7801, parsed.path.strip("/"), scheme
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1154,8 +1163,16 @@ def main():
 
     try:
         if args.join:
-            host, port, token = parse_link(args.join)
-            _loop.run_until_complete(guest_mode(host, port, token, http_port))
+            result = parse_link(args.join)
+            if len(result) == 4:
+                host, port, token, scheme = result
+            else:
+                host, port, token = result; scheme = "ws"
+            if scheme == "http_relay":
+                log.info(f"Transport: HTTP polling relay -> {host}")
+                _loop.run_until_complete(_http_relay_guest(host, token, http_port))
+            else:
+                _loop.run_until_complete(guest_mode(host, port, token, http_port))
         else:
             token = _make_token()
             _loop.run_until_complete(host_mode(token, ws_port, http_port))
@@ -1164,3 +1181,85 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Transport C: HTTP Polling Relay (acp+wss:// scheme)
+# 适用于严格沙箱/K8s 环境，双方只需 HTTP 出站能力，无需入站端口
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _http_relay_guest(relay_base_url: str, token: str, http_port: int):
+    """
+    用 HTTP Polling 替代 WebSocket，接入公共中继服务器。
+    relay_base_url: 例如 https://acp-relay.workers.dev
+    token:          会话 token
+    """
+    import urllib.request as _req
+    import urllib.error as _uerr
+
+    join_url  = f"{relay_base_url}/acp/{token}/join"
+    send_url  = f"{relay_base_url}/acp/{token}/send"
+    poll_url  = f"{relay_base_url}/acp/{token}/poll"
+
+    agent_card = _make_agent_card(_status["agent_name"], [])
+
+    # 注册到会话
+    try:
+        body = json.dumps(agent_card).encode()
+        r = _req.urlopen(_req.Request(join_url, data=body,
+                         headers={"Content-Type": "application/json"}), timeout=10)
+        resp = json.loads(r.read())
+        log.info(f"Joined HTTP relay session: {token}")
+    except Exception as e:
+        log.error(f"Failed to join relay: {e}")
+        return
+
+    _status["connected"]  = True
+    _status["session_id"] = token
+    _status["started_at"] = _status["started_at"] or time.time()
+
+    print(f"\n{'='*55}")
+    print(f"ACP v{VERSION} - connected via HTTP relay")
+    print(f"  Relay: {relay_base_url}")
+    print(f"  Token: {token}")
+    print(f"  Send:  POST http://localhost:{http_port}/message:send")
+    print(f"  Poll:  GET  http://localhost:{http_port}/stream")
+    print(f"{'='*55}\n")
+
+    # 注入发消息函数（覆盖 WS 发送，改为 HTTP POST）
+    async def _http_send(msg: dict):
+        try:
+            body = json.dumps(msg).encode()
+            _req.urlopen(_req.Request(send_url, data=body,
+                         headers={"Content-Type": "application/json"}), timeout=10)
+        except Exception as e:
+            log.warning(f"HTTP send failed: {e}")
+
+    # 把 _http_send 挂到全局，供 LocalHTTP handler 调用
+    global _http_relay_send
+    _http_relay_send = _http_send
+
+    # 轮询消息循环
+    since = 0.0
+    POLL_INTERVAL = 1.5  # 秒
+
+    while True:
+        try:
+            url = f"{poll_url}?since={since}"
+            r = _req.urlopen(url, timeout=15)
+            data = json.loads(r.read())
+            msgs = data.get("messages", [])
+            for msg in msgs:
+                # 跳过自己发的
+                if msg.get("from") != _status["agent_name"]:
+                    _on_message(json.dumps(msg))
+                if msg.get("ts", 0) > since:
+                    since = msg["ts"]
+        except _uerr.URLError as e:
+            log.warning(f"Poll error: {e}, retry in {POLL_INTERVAL}s")
+        except Exception as e:
+            log.warning(f"Poll exception: {e}")
+
+        await asyncio.sleep(POLL_INTERVAL)
+
+_http_relay_send = None  # 由 _http_relay_guest 设置
