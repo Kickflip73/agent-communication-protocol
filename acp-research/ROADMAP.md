@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-19 14:44（新增 GitHub Issues Relay 传输层）
+> 最后更新：2026-03-19 20:29（clean layering 架构定稿 + 端到端测试通过）
 
 ---
 
@@ -177,9 +177,20 @@ MCP:  https://github.com/modelcontextprotocol/specification
 
 ---
 
-## 传输层架构（2026-03-19 新增）
+## 传输层架构（2026-03-19 定稿）
 
-**核心设计原则：会话层不感知传输层。** 两种传输对外 API 完全相同。
+### ⚠️ 重要架构声明
+
+> **ACP 是标准协议，不依赖任何特定基础设施。**
+>
+> 传输 A（WebSocket P2P）是**首选**，也是协议的标准形态——零依赖、零服务器、真 P2P。
+> 传输 C（HTTP 公共中继）是**服务降级备选**，仅用于沙箱/K8s 等严格网络限制场景。
+>
+> 公共中继实例（`black-silence-11c4.yuranliu888.workers.dev`）由协议维护方运营，
+> 是一项**工程便利性服务**，而非协议标准的一部分。
+> 任何人可以用 `relay/acp_worker.js` 自部署中继，链接格式天然携带地址，协议不绑定任何特定实例。
+
+**核心设计原则：会话层不感知传输层。** 所有传输对外 API 完全相同。
 
 ```
 会话层（不感知传输）
@@ -187,29 +198,83 @@ MCP:  https://github.com/modelcontextprotocol/specification
     ├── GET  /recv
     ├── GET  /status
     └── GET  /link
-         ↓ 透明路由
-    ├── 传输 A：WebSocket P2P（acp_relay.py）
+         ↓ 透明路由（自动降级）
+    ├── 传输 A：WebSocket P2P（acp://）★ 首选，协议标准形态
     │     链接格式：acp://IP:PORT/TOKEN
-    │     延迟：<100ms | 适用：双方 IP 互通
-    │     优势：实时全双工
-    │     限制：沙箱/NAT 环境可能不通
+    │     延迟：<100ms | 依赖：零依赖，真 P2P
+    │     适用：普通网络（家庭/公司内网，无严格 NetworkPolicy）
+    │     ⚠️ 不适用：K8s 沙箱（TCP SYN 通但数据层被 NetworkPolicy 拦截）
     │
-    └── 传输 B：GitHub Issues 轮询（acp_github_relay.py）★ 2026-03-19
-          链接格式：acp+gh://OWNER/REPO/ISSUE_NUM
-          延迟：~3s（轮询间隔可调）| 适用：任何能访问 GitHub API 的环境
-          优势：无需部署、全球可达、GitHub SLA 99.9%+
-          限制：需要双方有 GitHub token (repo scope)；延迟较高
+    ├── 传输 B：[已永久移除] GitHub Issues 轮询
+    │     原因：需要双方 GitHub token，违背「零注册、零依赖」原则
+    │
+    └── 传输 C：HTTP 公共中继（acp+wss://）★ 降级备选，非标准形态
+          链接格式：acp+wss://RELAY_HOST/acp/TOKEN
+          延迟：1-3s（HTTP 轮询）| 适用：任意网络（含严格沙箱）
+          依赖：需要一个运行 acp_worker.js 的 HTTP 服务（可自部署）
+          公共实例：black-silence-11c4.yuranliu888.workers.dev（维护方运营）
+          触发条件：传输 A 连接超时（10s）自动降级
 ```
 
-**自动降级策略（v0.7 规划）**：
-1. 尝试 P2P 直连（WebSocket）
-2. 若连接超时（10s），自动降级到 GitHub Issues Relay
-3. 对话层无感知，仅链接格式从 `acp://` 变为 `acp+gh://`
+### ✅ 自动降级策略（v0.6-dev 已实现，commit 74de528）
 
-**未来可扩展传输**：
-- `acp+redis://` — Redis Pub/Sub（内网场景，延迟 <1ms）
-- `acp+mqtt://` — MQTT broker（IoT 场景）
-- `acp+wss://` — WebSocket over TLS（跨域沙箱，通过 HTTPS CONNECT 隧道）
+**核心设计原则（2026-03-19 20:16 Stark 先生明确）：**
+> 链接是应用层信息，不受底层通信方式影响。传输层选择在建立通信时自动决定，对链接格式完全透明。
+
+**Token 统一机制：**
+- host 启动时：`POST /acp/new?token=<p2p_token>` 在 Cloudflare relay 预注册同名 session
+- guest 收到 `acp://IP:PORT/TOKEN`，P2P 失败后直接用 `TOKEN` join relay
+- 两端用同一个 token 相遇，零额外信息交换
+
+```
+connect(link):                        # link 永远是 acp://IP:PORT/TOKEN
+    try WebSocket P2P, timeout=10s
+    on success → P2P 直连 ✅
+    on timeout → relay_token = p2p_token (同一个值)
+              → POST /relay/acp/{token}/join
+              → HTTP 轮询收发 ✅
+```
+
+**端到端验证（2026-03-19 20:26 测试通过）：**
+- Alpha（port 7811）启动 → relay 预注册 tok_6ffcabf9149f4078
+- Beta `--join acp://33.229.113.196:7811/tok_6ffcabf9149f4078` → P2P 直连成功
+- Alpha→Beta：`你好 Beta！我是 Alpha，ACP 通信测试 🤖` ✅
+- Beta→Alpha：`收到，Alpha！我是 Beta，信道畅通 ✅` ✅
+- message_id 幂等、server_seq 有序，全部验证通过
+
+### 取舍说明（2026-03-19 Stark 先生确认）
+
+| 维度 | 传输 A（标准） | 传输 C（降级） |
+|------|-------------|-------------|
+| 协议依赖性 | ✅ 零依赖 | ⚠️ 依赖 HTTP 服务 |
+| 网络要求 | 双方 IP 互通 | 仅需 HTTPS 出站 |
+| 延迟 | <100ms | 1-3s |
+| 是否标准 | ✅ 是 | ❌ 否，是工程取舍 |
+| 自部署 | N/A | ✅ acp_worker.js 开源 |
+
+### 实战经验：K8s 沙箱网络特征（2026-03-19 测试记录）
+
+今日通过实际跨机测试，完整摸清了 K8s Pod 的网络限制：
+
+| 现象 | 原因 | 对 ACP 的影响 |
+|------|------|-------------|
+| TCP 三次握手成功 | K8s NodePort SYN proxy 接受所有 SYN | 误判为「端口可达」 |
+| HTTP 数据层超时 | NetworkPolicy 丢弃数据包，只放 SYN | 传输 A（WS P2P）完全不可用 |
+| 只有 8080 数据通 | 该端口是另一个 Pod 的 K8s Service | 无法控制，不可用于 ACP |
+| 出站到 github.com 通 | 代理白名单放行 | 传输 B 单向可用（我写对方读） |
+| 出站到 api.cloudflare.com 通 | 代理白名单放行 | 可用于部署传输 C |
+
+**结论**：在 K8s 严格沙箱环境中，ACP 必须依赖传输 C（公共中继）。传输 A 仅适用于普通网络（家庭/公司内网无 NetworkPolicy 限制）。
+
+**自动降级策略（v0.7）**：
+```
+connect(link):
+    if link starts with "acp://":
+        try WS P2P, timeout=10s
+        on timeout → auto fallback to acp+wss:// relay
+    elif link starts with "acp+wss://":
+        connect to public relay directly
+```
 
 ---
 
@@ -221,21 +286,3 @@ MCP:  https://github.com/modelcontextprotocol/specification
 - ❌ Push Notification 配置 CRUD（4 个端点）— 用 SSE 足够
 - ❌ 8 种 Task 状态 — 5 种够用，不过度设计
 - ❌ 中心注册表 / 服务发现中心 — 真 P2P，不需要
-
-## 2026-03-19 晚间进展记录
-
-### Bug 修复 (commits af73415 ~ dfeb10f)
-1. `_http_relay_guest` 定义在 `if __name__` 之后 → NameError → 移至前面
-2. urllib 不走 https_proxy 环境变量 → 全部改用 curl subprocess
-3. subprocess.run 阻塞 asyncio event loop → 改用 asyncio.create_subprocess_exec
-4. 新增 `POST /connect` 端点 → 任意时刻主动连接对方链接（对等模式）
-
-### 对等架构确立
-- 彻底去掉发起方/接入方概念
-- 每个 Agent 相同步骤：启动 → 拿到自己的链接 → 互发 → 各自 /connect
-- Auto-fallback: P2P x3 失败 → 自动创建中继 → 打印链接 → 进入持续轮询
-
-### 端到端验证
-- JARVIS sandbox → `acp://103.37.140.90:7801/tok_xxx` P2P 失败（Squid 403）
-- 自动降级成功：tok_mmxcjejk88zd4t，connected: True ✅
-- 问候消息已发出，等待对方接入
