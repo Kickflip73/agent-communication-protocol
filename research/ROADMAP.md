@@ -116,18 +116,27 @@ data: {"type": "message", "role": "agent", "parts": [...]}
 
 ---
 
-### 🔮 v0.6（目标：2026-04-09）
+### 🚧 v0.6（目标：2026-04-09）
 **主题：零配置接入 + 跨平台互通**
 
 设计原则：让任意 Agent（不限框架）都能 2 步接入。
 
+- [x] **多 session peer registry**（2026-03-20，commit `ad7e1c4`）
+  - `_peers` dict，线程安全，追踪所有并发 peer 连接
+  - `GET /peers` — 列出所有已连接 peer（name/card/link/stats）
+  - `GET /peer/{id}` — 单个 peer 详情
+  - `POST /peer/{id}/send` — 定向向特定 peer 发消息
+  - AgentCard：`capabilities.multi_session=true`，endpoints 声明新端点
+  - SSE peer 事件新增 `peer_count` 字段
+  - spec：`spec/v0.6-minimal-agent.md` 已创建（2026-03-20）
 - [ ] **标准接入协议**：任意 HTTP 服务只需实现 3 个端点即可接入 ACP
   - `GET /.well-known/acp.json` — AgentCard（我是谁，我能做什么）
-  - `POST /connect` — 发起连接（返回 session_id）
-  - `GET /stream/{session_id}` — SSE 消息流
-- [ ] **Relay 升级**：支持多并发 session，独立超时管理
-- [ ] **错误码规范**：建立 ACP 错误体系（精简版，约 6 种）
-- [ ] **Python / Node SDK**：让接入从「3 个端点」变成「import + 3 行代码」
+  - `POST /message:send` — 接收入站消息
+  - `GET /stream` — SSE 消息流（出站，可选）
+- [ ] **错误码规范**：建立 ACP 错误体系（精简版，约 6 种）；加入 `failed_message_id`（参考 ANP）
+- [ ] **传输层规范重组**：`spec/transports.md` 区分 Protocol Binding vs Extension（参考 A2A #1619）
+- [ ] **Cloudflare Worker 升级**：多房间并发，KV 过期自动清理
+- [ ] **Python mini-SDK**：`pip install acp-relay`，3 行接入
 
 ---
 
