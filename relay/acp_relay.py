@@ -55,6 +55,69 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", 
 log = logging.getLogger("acp-p2p")
 
 VERSION = "0.6-dev"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Proxy-aware WebSocket connector (v0.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_proxy_for_host(host):
+    """
+    Detect if a host should go through the HTTP proxy.
+    Returns (proxy_host, proxy_port) or None for direct connection.
+    Respects no_proxy / NO_PROXY environment variables.
+    """
+    import ipaddress as _ipa
+
+    no_proxy_raw = os.environ.get("no_proxy", "") or os.environ.get("NO_PROXY", "")
+    no_proxy_entries = [e.strip() for e in no_proxy_raw.split(",") if e.strip()]
+
+    def _in_no_proxy(h):
+        for entry in no_proxy_entries:
+            if entry.startswith(".") and h.endswith(entry):
+                return True
+            if h == entry:
+                return True
+            try:
+                net = _ipa.ip_network(entry, strict=False)
+                if _ipa.ip_address(h) in net:
+                    return True
+            except ValueError:
+                pass
+        return False
+
+    if _in_no_proxy(host):
+        return None  # direct
+
+    proxy_url = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+    if not proxy_url:
+        return None
+
+    from urllib.parse import urlparse as _up
+    p = _up(proxy_url)
+    return (p.hostname, p.port)
+
+
+async def _proxy_ws_connect(uri, **kwargs):
+    """
+    Connect to a WebSocket URI, routing through HTTP CONNECT proxy when needed.
+    Falls back to direct connection if no proxy configured.
+    """
+    from urllib.parse import urlparse as _up
+    parsed = _up(uri)
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+
+    proxy = _get_proxy_for_host(host)
+
+    if proxy is None:
+        # Direct connection
+        return await websockets.connect(uri, proxy=None, **kwargs)
+    else:
+        # Use proxy — websockets 15.x accepts proxy= parameter
+        proxy_url = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY", "")
+        return await websockets.connect(uri, proxy=proxy_url, **kwargs)
+
 MAX_MSG_BYTES = 1 * 1024 * 1024
 
 # ── Task states ────────────────────────────────────────────────────────────────
@@ -488,7 +551,7 @@ async def guest_mode(host, ws_port, token, http_port):
     while retry < MAX_RETRIES:
         try:
             log.info(f"{'Reconnecting #' + str(retry) if retry else 'Connecting to'}: {uri}")
-            async with websockets.connect(uri, ping_interval=20, ping_timeout=10) as ws:
+            async with await _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10) as ws:
                 _peer_ws = ws
                 _status["connected"]  = True
                 _status["session_id"] = "sess_" + uuid.uuid4().hex[:12]
