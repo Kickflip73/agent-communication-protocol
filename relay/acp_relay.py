@@ -1127,6 +1127,8 @@ def main():
     parser = argparse.ArgumentParser(description=f"ACP P2P v{VERSION} — zero-server Agent communication")
     parser.add_argument("--name",         default="ACP-Agent")
     parser.add_argument("--join",         default=None, help="acp:// link to connect to")
+    parser.add_argument("--relay",        action="store_true", help="Use public HTTP relay instead of P2P")
+    parser.add_argument("--relay-url",    default="https://black-silence-11c4.yuranliu888.workers.dev", help="Relay URL")
     parser.add_argument("--port",         type=int, default=7801)
     parser.add_argument("--skills",       default="")
     parser.add_argument("--inbox",        default=None)
@@ -1162,7 +1164,25 @@ def main():
     signal.signal(signal.SIGTERM, _shutdown)
 
     try:
-        if args.join:
+        if args.relay and not args.join:
+            # 发起方：通过公共中继创建会话
+            import urllib.request as _ureq
+            relay_base = args.relay_url.rstrip("/")
+            r = _ureq.urlopen(_ureq.Request(f"{relay_base}/acp/new",
+                data=b"", headers={"Content-Type": "application/json"}), timeout=10)
+            resp = json.loads(r.read())
+            token = resp["token"]
+            link  = resp["link"]
+            print(f"\n{'='*55}")
+            print(f"ACP v{VERSION} - relay session created")
+            print(f"  Your link:")
+            print(f"  {link}")
+            print(f"  Share this link with the other Agent")
+            print(f"{'='*55}\n")
+            _status["link"] = link
+            _status["session_id"] = token
+            _loop.run_until_complete(_http_relay_guest(relay_base, token, http_port))
+        elif args.join:
             result = parse_link(args.join)
             if len(result) == 4:
                 host, port, token, scheme = result
