@@ -434,13 +434,32 @@ def _on_message(raw):
 
     # Structured Parts-based message (v0.5)
     if msg.get("parts"):
+        # 若消息携带 task_id，在本地注册同 id 的 task（对等任务追踪）
+        incoming_task_id = msg.get("task_id")
+        if incoming_task_id and incoming_task_id not in _tasks:
+            task = {
+                "id":         incoming_task_id,
+                "status":     TASK_WORKING,
+                "created_at": _now(),
+                "updated_at": _now(),
+                "payload":    {"parts": msg["parts"]},
+                "artifacts":  [],
+                "history":    [],
+                "origin_message_id": message_id,
+                "from_peer":  True,  # 标记为对端发起的 task
+            }
+            _tasks[incoming_task_id] = task
+            _status["tasks_created"] += 1
+            _broadcast_sse_event("status", {"task_id": incoming_task_id, "state": TASK_WORKING})
+            log.info(f"Task registered from peer: {incoming_task_id}")
+
         entry = {
             "id":          message_id or _make_id(),
             "message_id":  message_id,
             "received_at": time.time(),
             "role":        msg.get("role", "agent"),
             "parts":       msg["parts"],
-            "task_id":     msg.get("task_id"),
+            "task_id":     incoming_task_id,
             "context_id":  msg.get("context_id"),
             "raw":         msg,
         }
@@ -451,7 +470,7 @@ def _on_message(raw):
             "message_id": message_id,
             "role":       msg.get("role", "agent"),
             "parts":      msg["parts"],
-            "task_id":    msg.get("task_id"),
+            "task_id":    incoming_task_id,
         })
         log.info(f"Message ({len(msg['parts'])} parts) from={msg.get('from','?')}")
         return
@@ -783,6 +802,26 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 tasks = [t for t in tasks if t["status"] == state_filter]
             self._json({"tasks": tasks, "count": len(tasks)})
 
+        # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
+        elif p.startswith("/tasks/") and p.endswith("/wait"):
+            task_id = p[len("/tasks/"):-len("/wait")]
+            timeout = float(qs.get("timeout", ["30"])[0])
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+                return
+            if task["status"] in TERMINAL_STATES:
+                self._json({"task": task, "waited": False})
+                return
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                task = _tasks.get(task_id)
+                if task and task["status"] in TERMINAL_STATES:
+                    self._json({"task": task, "waited": True})
+                    return
+                time.sleep(0.5)
+            self._json({"task": _tasks.get(task_id), "waited": True, "timeout": True}, 202)
+
         elif p.startswith("/tasks/"):
             # /tasks/{id}  or  /tasks/{id}:subscribe (SSE for single task)
             rest = p[len("/tasks/"):]
@@ -1079,6 +1118,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 _update_task(task_id, TASK_FAILED, error="canceled by client")
                 self._json({"ok": True, "task_id": task_id, "status": TASK_FAILED})
 
+        # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
+        # 比 SSE subscribe 更简单，适合 Agent 调用
         elif p == "/webhooks/register":
             try:
                 body = self._read_body()
