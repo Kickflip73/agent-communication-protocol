@@ -221,3 +221,21 @@ MCP:  https://github.com/modelcontextprotocol/specification
 - ❌ Push Notification 配置 CRUD（4 个端点）— 用 SSE 足够
 - ❌ 8 种 Task 状态 — 5 种够用，不过度设计
 - ❌ 中心注册表 / 服务发现中心 — 真 P2P，不需要
+
+## 2026-03-19 晚间进展记录
+
+### Bug 修复 (commits af73415 ~ dfeb10f)
+1. `_http_relay_guest` 定义在 `if __name__` 之后 → NameError → 移至前面
+2. urllib 不走 https_proxy 环境变量 → 全部改用 curl subprocess
+3. subprocess.run 阻塞 asyncio event loop → 改用 asyncio.create_subprocess_exec
+4. 新增 `POST /connect` 端点 → 任意时刻主动连接对方链接（对等模式）
+
+### 对等架构确立
+- 彻底去掉发起方/接入方概念
+- 每个 Agent 相同步骤：启动 → 拿到自己的链接 → 互发 → 各自 /connect
+- Auto-fallback: P2P x3 失败 → 自动创建中继 → 打印链接 → 进入持续轮询
+
+### 端到端验证
+- JARVIS sandbox → `acp://103.37.140.90:7801/tok_xxx` P2P 失败（Squid 403）
+- 自动降级成功：tok_mmxcjejk88zd4t，connected: True ✅
+- 问候消息已发出，等待对方接入
