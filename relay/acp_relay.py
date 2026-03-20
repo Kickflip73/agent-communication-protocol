@@ -74,10 +74,25 @@ except ImportError:
     print("Missing dependency: pip install websockets")
     sys.exit(1)
 
+# ── Optional Ed25519 identity (v0.8) ───────────────────────────────────────
+# Uses `cryptography` library if available; falls back gracefully without it.
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey, Ed25519PublicKey,
+    )
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding, PublicFormat, PrivateFormat, NoEncryption,
+    )
+    from cryptography.exceptions import InvalidSignature as _Ed25519InvalidSignature
+    import base64 as _base64
+    _ED25519_AVAILABLE = True
+except ImportError:
+    _ED25519_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "0.7-dev"
+VERSION = "0.8-dev"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -228,6 +243,88 @@ def _hmac_verify(message_id: str, ts, sig: str) -> bool:
         return True  # no secret = accept all
     expected = _hmac_sign(message_id, ts)
     return hmac.compare_digest(expected, sig)
+
+
+# ── Ed25519 optional identity (v0.8) ──────────────────────────────────────
+# When --identity flag is used:
+#   - Generates (or loads) an Ed25519 keypair from ~/.acp/identity.json
+#   - Every outbound message gets an `identity` block:
+#       { "scheme": "ed25519", "public_key": "<base64url>", "sig": "<base64url>" }
+#   - Signature covers canonical JSON of the message envelope (excluding identity.sig)
+#   - Inbound: if identity.scheme==ed25519 present, verify sig; mismatch → warn only
+# Without --identity: no identity block; fully backward compatible with v0.7.
+_ed25519_private: "Ed25519PrivateKey | None" = None   # type: ignore
+_ed25519_public_b64: str = None   # base64url-encoded 32-byte public key
+
+
+def _ed25519_load_or_create(identity_path: str = None) -> bool:
+    """Load existing Ed25519 keypair or generate a new one. Returns success."""
+    global _ed25519_private, _ed25519_public_b64
+    if not _ED25519_AVAILABLE:
+        log.warning("Ed25519 identity requires: pip install cryptography")
+        return False
+
+    import json as _json
+    import pathlib as _pathlib
+
+    path = _pathlib.Path(identity_path or os.path.expanduser("~/.acp/identity.json"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        try:
+            data = _json.loads(path.read_text())
+            raw = _base64.urlsafe_b64decode(data["private_key"] + "==")
+            _ed25519_private = Ed25519PrivateKey.from_private_bytes(raw)
+            pub_raw = _ed25519_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+            log.info(f"Ed25519 identity loaded from {path} | pubkey={_ed25519_public_b64[:16]}...")
+            return True
+        except Exception as e:
+            log.warning(f"Failed to load identity from {path}: {e} — generating new keypair")
+
+    _ed25519_private = Ed25519PrivateKey.generate()
+    pub_raw = _ed25519_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    priv_raw = _ed25519_private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+    _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+    priv_b64 = _base64.urlsafe_b64encode(priv_raw).rstrip(b"=").decode()
+    try:
+        path.write_text(_json.dumps({
+            "scheme":      "ed25519",
+            "public_key":  _ed25519_public_b64,
+            "private_key": priv_b64,
+            "created_at":  _now(),
+        }, indent=2))
+        path.chmod(0o600)
+        log.info(f"Ed25519 keypair generated and saved to {path} | pubkey={_ed25519_public_b64[:16]}...")
+    except Exception as e:
+        log.warning(f"Could not save identity to {path}: {e} — keypair active for this session only")
+    return True
+
+
+def _ed25519_sign_msg(msg: dict) -> str:
+    """Sign canonical message envelope (all fields except identity.sig). Returns base64url sig."""
+    # Build canonical form: sorted keys, excluding identity.sig itself
+    canonical = {k: v for k, v in msg.items() if k != "identity"}
+    payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload)
+    return _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+
+def _ed25519_verify_msg(msg: dict, public_key_b64: str, sig_b64: str) -> bool:
+    """Verify Ed25519 sig on inbound message. Returns True if valid."""
+    if not _ED25519_AVAILABLE:
+        return True  # can't verify — accept
+    try:
+        pub_raw = _base64.urlsafe_b64decode(public_key_b64 + "==")
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        sig_bytes = _base64.urlsafe_b64decode(sig_b64 + "==")
+        # Reconstruct canonical form (same as signing)
+        canonical = {k: v for k, v in msg.items() if k != "identity"}
+        payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+        pub_key.verify(sig_bytes, payload)
+        return True
+    except (_Ed25519InvalidSignature, Exception):
+        return False
 
 
 # ── Multi-session peer registry (v0.6) ─────────────────────────────────────
@@ -521,10 +618,16 @@ def _make_agent_card(name, skills):
             "query_skill":        True,
             "server_seq":         True,
             "multi_session":      True,   # v0.6: multiple simultaneous peer connections
-            "hmac_signing":       bool(_hmac_secret),  # v0.7: optional HMAC-SHA256 message signing
-            "lan_discovery":      _mdns_running,       # v0.7: mDNS LAN peer discovery
-            "context_id":         True,                # v0.7: optional multi-turn context grouping
+            "hmac_signing":       bool(_hmac_secret),          # v0.7: optional HMAC-SHA256 message signing
+            "lan_discovery":      _mdns_running,               # v0.7: mDNS LAN peer discovery
+            "context_id":         True,                        # v0.7: optional multi-turn context grouping
+            "error_codes":        True,                        # v0.6: standard ACP error codes
+            "identity":           "ed25519" if _ed25519_private else "none",  # v0.8: optional identity
         },
+        "identity": ({
+            "scheme":     "ed25519",
+            "public_key": _ed25519_public_b64,
+        } if _ed25519_private else None),
         "trust": {
             "scheme":  "hmac-sha256" if _hmac_secret else "none",
             "enabled": bool(_hmac_secret),
@@ -690,6 +793,21 @@ def _on_message(raw):
             log.warning(f"⚠️  HMAC sig mismatch on {message_id} — message accepted but flagged")
             msg["_sig_invalid"] = True
 
+    # Ed25519 identity verification (v0.8) — warn-only; backward compatible
+    # Any agent may include identity.scheme=ed25519; we verify if present regardless
+    # of whether we ourselves have an identity configured.
+    identity = msg.get("identity")
+    if identity and identity.get("scheme") == "ed25519":
+        pub_key_b64 = identity.get("public_key", "")
+        sig_b64     = identity.get("sig", "")
+        if pub_key_b64 and sig_b64 and _ED25519_AVAILABLE:
+            if not _ed25519_verify_msg(msg, pub_key_b64, sig_b64):
+                log.warning(f"⚠️  Ed25519 sig invalid on {message_id} from pubkey={pub_key_b64[:16]}...")
+                msg["_ed25519_invalid"] = True
+            else:
+                msg["_ed25519_verified"] = True
+                log.debug(f"✅ Ed25519 verified: {message_id} from {pub_key_b64[:16]}...")
+
     if msg_type == "acp.agent_card":
         _status["peer_card"] = msg.get("card")
         peer = msg.get("card", {})
@@ -772,9 +890,16 @@ def _on_message(raw):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _attach_sig(msg: dict) -> dict:
-    """Attach HMAC sig to outbound message if secret is configured (v0.7)."""
+    """Attach HMAC sig (v0.7) and/or Ed25519 identity block (v0.8) to outbound message."""
     if _hmac_secret and "message_id" in msg and "ts" in msg:
         msg["sig"] = _hmac_sign(str(msg["message_id"]), str(msg["ts"]))
+    if _ed25519_private is not None and "message_id" in msg:
+        msg["identity"] = {
+            "scheme":     "ed25519",
+            "public_key": _ed25519_public_b64,
+        }
+        # Sig is computed last (excludes identity.sig from canonical form)
+        msg["identity"]["sig"] = _ed25519_sign_msg(msg)
     return msg
 
 
@@ -1768,6 +1893,12 @@ def main():
                         help="(v0.7) Advertise this agent on the LAN via UDP multicast "
                              "and discover nearby ACP peers. Enables GET /discover endpoint. "
                              "Uses 224.0.0.251:5354 — no zeroconf library required.")
+    parser.add_argument("--identity",     default=None,
+                        help="(v0.8) Enable Ed25519 message signing and identity attribution. "
+                             "Optional path to identity.json keypair file. "
+                             "If omitted but flag is set, uses ~/.acp/identity.json (auto-generated). "
+                             "Requires: pip install cryptography. "
+                             "Example: --identity (use default path) or --identity /path/to/id.json")
     args = parser.parse_args()
 
     MAX_MSG_BYTES = args.max_msg_size
@@ -1780,6 +1911,10 @@ def main():
         log.info("🔐 HMAC signing enabled (--secret configured)")
     else:
         _hmac_secret = None
+
+    # Ed25519 optional identity (v0.8)
+    if args.identity is not None:
+        _ed25519_load_or_create(args.identity if args.identity else None)
 
     ws_port   = args.port
     http_port = args.port + 100
