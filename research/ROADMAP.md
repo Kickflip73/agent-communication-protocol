@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-20 11:51（文档轮：v0.6 进度全面更新，5/6 项完成；v0.7 新增轻量身份信号行动项）
+> 最后更新：2026-03-20 13:51（文档轮：v0.6 全部完成 ✅，Python SDK RelayClient 上线；v0.7 补充 transport header 说明行动项）
 
 ---
 
@@ -115,7 +115,7 @@ submitted → working → completed
 
 ---
 
-### 🎯 v0.6（目标：2026-04-09）
+### ✅ v0.6（**全部完成** 🎉，2026-03-20，提前于截止日 2026-04-09）
 **主题：外部 Agent 接入 + SDK 化**
 
 设计原则：让 acp_relay.py **之外的** Agent 也能接入 ACP，不再要求「必须运行 relay 进程」。
@@ -141,18 +141,36 @@ GET  /stream                 → SSE 消息流（出站，可选）
 - [x] **错误码规范**：6 种标准错误码 + `failed_message_id`（commit c816cb5，spec/error-codes.md，2026-03-20）
 - [x] **传输层规范重组**：`spec/transports.md` v0.2 — Protocol Binding vs Extension 明确区分（commit cb88475，2026-03-20）
 - [x] **Cloudflare Worker 升级 v2.0**：多房间并发 + 滑动 TTL + cursor-based poll + DELETE cleanup（commit 8e8b771，2026-03-20）
-- [ ] **Python mini-SDK**：`pip install acp-relay`，3 行接入（v0.6 最后一项，待开发）
+- [x] **Python mini-SDK**：`RelayClient` 零外部依赖，`AsyncRelayClient` 异步版（commit 430a97f，2026-03-20）
+  - `sdk/python/acp_sdk/relay_client.py`（400+ 行，19 单元测试全通过）
+  - 覆盖：send/recv/stream/peers/tasks/query_skills + wait_for_peer/send_and_recv 便捷方法
 
 ```python
-from acp import Agent
-agent = Agent(name="MyBot", skills=["summarize"])
-agent.on_message(lambda msg: agent.reply(f"收到: {msg.text}"))
-agent.connect("acp://33.229.113.196:7801/tok_xxx")
+from acp_sdk.relay_client import RelayClient
+client = RelayClient("http://localhost:7988")
+client.send("你好，世界")              # 发消息
+msgs = client.recv()                   # 收消息
+peers = client.peers()                 # 查已连接 peer
+reply = client.send_and_recv("问题")   # 发并等回复（便捷方法）
 ```
+
+#### v0.6 里程碑总结
+
+| 特性 | 状态 | Commit | 日期 |
+|------|------|--------|------|
+| 轻量接入规范 `spec/v0.6-minimal-agent.md` | ✅ | 125422e | 2026-03-20 |
+| 多 session peer registry `/peers` + `/peer/{id}/send` | ✅ | ad7e1c4 | 2026-03-20 |
+| 标准错误码 6 种 + `failed_message_id` | ✅ | c816cb5 | 2026-03-20 |
+| `spec/transports.md` 重组（Binding vs Extension） | ✅ | cb88475 | 2026-03-20 |
+| Cloudflare Worker v2.0（多房间 + 滑动 TTL） | ✅ | 8e8b771 | 2026-03-20 |
+| Python SDK `RelayClient` + 19 单元测试 | ✅ | 430a97f | 2026-03-20 |
+
+> v0.6 于 **2026-03-20 提前 20 天完成**（原截止 2026-04-09）。
+> v0.4 → v0.5 → v0.6 全部在 2026-03-18~20 三天内完成。
 
 ---
 
-### 🔮 v0.7（目标：2026-04-23）
+### 🎯 v0.7（目标：2026-04-23）
 **主题：能力发现 + 多轮对话 + 轻量身份**
 
 - [ ] **能力发现**：本地局域网内 Agent 互相发现（mDNS / 广播）
@@ -163,6 +181,8 @@ agent.connect("acp://33.229.113.196:7801/tok_xxx")
   - 灵感来源：A2A Issue #1575（真实用户痛点：多 agent 场景下无法验证消息来源）
   - AgentCard 预留 `trust` 字段（可选，不强制）
   - 设计原则：不做完整 PKI，用最小代价解决核心安全痛点
+- [ ] **`spec/transports.md` §Binding A 补充**：明确 transport-level HTTP headers（auth、tracing）是 Binding 层关切，不属于 Extension
+  - 背景：A2A #1653 同类问题在 A2A 规范中至今模糊，ACP 率先给出清晰答案
 
 ---
 
