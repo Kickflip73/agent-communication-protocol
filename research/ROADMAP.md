@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-19（战略定位重申后重写）
+> 最后更新：2026-03-20（文档轮：错误码规范 spec/error-codes.md，v0.6 已完成 3/5 项）
 
 ---
 
@@ -129,11 +129,15 @@ data: {"type": "message", "role": "agent", "parts": [...]}
   - AgentCard：`capabilities.multi_session=true`，endpoints 声明新端点
   - SSE peer 事件新增 `peer_count` 字段
   - spec：`spec/v0.6-minimal-agent.md` 已创建（2026-03-20）
-- [ ] **标准接入协议**：任意 HTTP 服务只需实现 3 个端点即可接入 ACP
+- [x] **标准接入协议**（2026-03-20，spec `spec/v0.6-minimal-agent.md`）
   - `GET /.well-known/acp.json` — AgentCard（我是谁，我能做什么）
   - `POST /message:send` — 接收入站消息
   - `GET /stream` — SSE 消息流（出站，可选）
-- [ ] **错误码规范**：建立 ACP 错误体系（精简版，约 6 种）；加入 `failed_message_id`（参考 ANP）
+  - 任意 HTTP Agent 加 3 个端点即可接入 ACP，框架无关
+- [x] **错误码规范**（2026-03-20，commit `c816cb5`，spec `spec/error-codes.md`）
+  - 6 种标准错误码：NOT_CONNECTED / MSG_TOO_LARGE / NOT_FOUND / INVALID_REQUEST / TIMEOUT / INTERNAL
+  - `failed_message_id` 字段支持精确重试（参考 ANP `99806f45`）
+  - 统一 `{"ok": false, "error_code": "...", "failed_message_id": "..."}` 响应格式
 - [ ] **传输层规范重组**：`spec/transports.md` 区分 Protocol Binding vs Extension（参考 A2A #1619）
 - [ ] **Cloudflare Worker 升级**：多房间并发，KV 过期自动清理
 - [ ] **Python mini-SDK**：`pip install acp-relay`，3 行接入
