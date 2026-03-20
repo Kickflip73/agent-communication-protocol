@@ -138,7 +138,7 @@ data: {"type": "message", "role": "agent", "parts": [...]}
   - 6 种标准错误码：NOT_CONNECTED / MSG_TOO_LARGE / NOT_FOUND / INVALID_REQUEST / TIMEOUT / INTERNAL
   - `failed_message_id` 字段支持精确重试（参考 ANP `99806f45`）
   - 统一 `{"ok": false, "error_code": "...", "failed_message_id": "..."}` 响应格式
-- [ ] **传输层规范重组**：`spec/transports.md` 区分 Protocol Binding vs Extension（参考 A2A #1619）
+- [x] **传输层规范重组**：`spec/transports.md` 区分 Protocol Binding vs Extension（参考 A2A #1619，commit d9ec10f）
 - [ ] **Cloudflare Worker 升级**：多房间并发，KV 过期自动清理
 - [ ] **Python mini-SDK**：`pip install acp-relay`，3 行接入
 
