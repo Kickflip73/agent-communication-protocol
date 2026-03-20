@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-20 15:43（文档轮：v0.5/v0.6 标记完成，v0.7 进度更新）
+> 最后更新：2026-03-20 17:13（文档轮：v0.7 mDNS + context_id 标记完成）
 
 ---
 
@@ -123,9 +123,9 @@ msgs = c.recv()
 |------|------|------|
 | 可选 HMAC-SHA256 签名（`sig` 字段） | ✅ 已实现 | `87dad51`，`--secret` 启用 |
 | AgentCard `trust` + `hmac_signing` 能力声明 | ✅ 已实现 | `87dad51` |
-| contextId 多轮对话（跨 Task 上下文延续） | ⏳ 待开发 | |
-| 本地局域网 Agent 发现（mDNS / 广播） | ⏳ 待开发 | |
-| spec/transports.md header 说明（transport-level vs Extension） | ⏳ 待开发 | 来自 A2A #1653 |
+| contextId 多轮对话（跨 Task 上下文延续） | ✅ 已实现 | `aabfae5`，可选字段 + capability 声明 |
+| 本地局域网 Agent 发现（mDNS / 广播） | ✅ 已实现 | `aabfae5`，`--advertise-mdns`，GET /discover |
+| spec/transports.md header 说明（transport-level vs Extension） | ⏳ 待完善 | 低优先级 polish，来自 A2A #1653 |
 
 **设计决策（2026-03-20 研究轮确认）：**
 - 默认：信任 = 连接本身（零成本）
@@ -137,6 +137,30 @@ msgs = c.recv()
 ```
 sig = HMAC-SHA256(secret, message_id + ":" + ts).hexdigest()
 ```
+
+**mDNS LAN 发现（`--advertise-mdns`）：**
+```bash
+# 广播自身到局域网
+python3 acp_relay.py --name "Agent-A" --advertise-mdns
+
+# 另一台机器监听 + 自动发现
+python3 acp_relay.py --name "Agent-B" --advertise-mdns
+curl http://localhost:7901/discover
+# → [{"peer_id": "...", "name": "Agent-A", "link": "acp://192.168.1.x:7801/tok_..."}]
+```
+- 纯 stdlib UDP multicast（224.0.0.251:5354），零外部依赖
+- Peer TTL 120s，自动过期静默节点
+- SSE `type=mdns` 事件：实时新 peer 通知
+
+**v0.7 进度（4/5 完成）：**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| HMAC-SHA256 签名 | ✅ | `87dad51` |
+| AgentCard trust 声明 | ✅ | `87dad51` |
+| mDNS LAN 发现 | ✅ | `aabfae5` |
+| context_id 能力声明 | ✅ | `aabfae5` |
+| transports.md header 说明 | ⏳ | polish |
 
 ---
 
