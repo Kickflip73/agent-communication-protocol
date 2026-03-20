@@ -9,13 +9,14 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v0.6--dev-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v0.8--dev-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
   </a>
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
-  <img src="https://img.shields.io/badge/dependency-websockets_only-orange?style=flat-square" alt="Dependency">
+  <img src="https://img.shields.io/badge/node-18%2B-brightgreen?style=flat-square" alt="Node">
+  <img src="https://img.shields.io/badge/required_dep-websockets_only-orange?style=flat-square" alt="Required Dependency">
   <a href="https://github.com/Kickflip73/agent-communication-protocol/issues">
     <img src="https://img.shields.io/github/issues/Kickflip73/agent-communication-protocol?style=flat-square" alt="Issues">
   </a>
@@ -48,10 +49,12 @@ No central relay. No code changes. No configuration.
 ## Table of Contents
 
 - [Why ACP](#why-acp)
-- [How It Works](#how-it-works)
 - [Quick Start](#quick-start)
+- [Dependencies](#dependencies)
+- [Features](#features)
 - [API Reference](#api-reference)
-- [What's New in v0.2](#whats-new-in-v02)
+- [SDKs](#sdks)
+- [Compatibility Test Suite](#compatibility-test-suite)
 - [Roadmap](#roadmap)
 - [Protocol Comparison](#protocol-comparison)
 - [Repository Structure](#repository-structure)
@@ -70,46 +73,15 @@ Existing multi-agent communication solutions impose significant operational over
 | Integration | Modify agent code, import SDK | **Zero code changes** — Skill-driven |
 | Setup | Register, configure, deploy | **One link** — instant connection |
 | Portability | Framework-locked | **Framework-agnostic** — any agent, any language |
+| Dependencies | Heavy SDK with transitive deps | **One required dep** (`websockets`) |
 
 **Design philosophy:** The `acp://` link *is* the connection. No registry, no discovery service, no broker — just a URI that contains the full address of the other agent.
 
 ---
 
-## How It Works
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│  Human actions (2 steps only)                                      │
-│                                                                    │
-│  1. Send Skill URL ──► Agent A                                     │
-│  2. Send acp:// link ──► Agent B                                   │
-└────────────────────────────────────────────────────────────────────┘
-                              │
-          ┌───────────────────┴───────────────────┐
-          ▼                                       ▼
-┌──────────────────┐      WebSocket          ┌──────────────────┐
-│    Agent A       │◄═══════════════════════►│    Agent B       │
-│                  │   direct, no middleman  │                  │
-│ acp_relay.py     │                         │ acp_relay.py     │
-│ WS  :7801        │                         │ WS  :7820        │
-│ HTTP:7901        │                         │ HTTP:7920        │
-└────────┬─────────┘                         └────────┬─────────┘
-         │                                            │
-    POST /send                                   POST /send
-    GET  /recv                                   GET  /recv
-    GET  /card  ◄── AgentCard exchange ──►       GET  /card
-```
-
-**Link format:** `acp://<host>:<port>/<token>`
-- `host` — Initiator's public or LAN IP (auto-detected at startup)
-- `port` — WebSocket listen port (default: `7801`)
-- `token` — Single-use random token, prevents accidental cross-connections
-
----
-
 ## Quick Start
 
-### Step 1 — Install dependency
+### Step 1 — Install
 
 ```bash
 pip install websockets
@@ -121,195 +93,280 @@ pip install websockets
 curl -sO https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/acp_relay.py
 ```
 
-### Step 3 — Connect (two agents)
+### Step 3 — Connect two agents
 
-**Agent A (Host):**
+**Agent A (host):**
 ```bash
 python3 acp_relay.py --name "AgentA"
-# Prints: Your link: acp://1.2.3.4:7801/tok_xxxxx
+# Output: Your link: acp://1.2.3.4:7801/tok_xxxxx
 # Send this link to Agent B
 ```
 
-**Agent B (Guest):**
+**Agent B (guest):**
 ```bash
 python3 acp_relay.py --name "AgentB" --join "acp://1.2.3.4:7801/tok_xxxxx"
-# Both sides show: connected ✅
+# Both sides: connected ✅
 ```
 
 ### Step 4 — Send & receive
 
 ```bash
-# Send
+# Send a message
 curl -X POST http://localhost:7901/message:send \
   -H "Content-Type: application/json" \
   -d '{"text": "Hello from AgentA"}'
 
 # Stream incoming messages (SSE)
 curl http://localhost:7901/stream
+
+# Check AgentCard
+curl http://localhost:7901/.well-known/acp.json
 ```
 
-### Restricted network? Use the relay fallback
-
-If agents are behind strict firewalls/K8s/NAT and cannot reach each other directly:
+### Restricted network? Use relay fallback
 
 ```bash
-# Agent A — use relay instead of P2P
 python3 acp_relay.py --name "AgentA" --relay
-# Prints: acp+wss://black-silence-11c4.yuranliu888.workers.dev/acp/tok_xxxxx
-
-# Agent B — same join command, just different link scheme
-python3 acp_relay.py --name "AgentB" --join "acp+wss://..."
+# Output: acp+wss://black-silence-11c4.yuranliu888.workers.dev/acp/tok_xxxxx
 ```
 
-> **Note:** `acp://` (P2P) is the standard form — zero dependency, true P2P.  
-> `acp+wss://` (relay) is an engineering fallback for restricted environments only.  
-> Public relay is operated by the maintainer; self-host with `relay/acp_worker.js`.
+> `acp://` = P2P (default). `acp+wss://` = relay fallback for firewalled/K8s environments.
 
+---
 
-## Communication Modes
+## Dependencies
 
-ACP v0.3 supports four communication patterns, modeled after [Google A2A v1.0](https://a2a-protocol.org).
+ACP is designed to have **minimal mandatory dependencies** and **truly optional extras**.
+Unlike frameworks where importing any module silently pulls in unrelated dependencies,
+ACP's optional features are isolated and gracefully degraded without installation.
 
-### 1. Synchronous — request / response
+| Package | Required? | Purpose | Install |
+|---------|-----------|---------|---------|
+| `websockets` | ✅ **Required** | P2P WebSocket transport | `pip install websockets` |
+| `cryptography` | ⚙️ Optional | Ed25519 identity signing (v0.8) | `pip install cryptography` |
 
-Send a message and block until the peer replies (or timeout):
+> **Zero implicit deps.** If `cryptography` is not installed, `--identity` logs a warning
+> and disables identity — the rest of ACP runs normally. There are no other hidden dependencies.
 
-```
-POST /send  {"type":"query","content":"...","sync":true,"timeout":30}
-            ── blocks ──► peer calls POST /reply {"correlation_id":"<id>","content":"..."}
-            ◄── returns reply immediately
-```
-
-### 2. Asynchronous — task lifecycle
-
-Create a task, delegate to peer, poll or receive push updates:
-
-```
-POST /tasks/create  {"payload":{...},"delegate":true}
-  → task: submitted
-    → peer updates: working  (POST /tasks/<id>/update)
-    → peer updates: completed + artifact
-GET  /tasks/<id>    ← poll status anytime
-DELETE /tasks/<id>  ← cancel
+**Node.js SDK** (zero dependencies — uses built-in `fetch` + `EventSource`):
+```bash
+# No npm install needed — relay_client.js has no external deps
 ```
 
-Task state machine: `submitted` → `working` → `completed` | `failed` | `cancelled`
+---
 
-### 3. Streaming — SSE real-time events
+## Features
 
-Subscribe once; receive all events as they happen:
+### Core (v0.1–v0.5)
+- P2P WebSocket transport with NAT traversal
+- AgentCard capability exchange (`.well-known/acp.json`)
+- Task lifecycle: `submitted` → `working` → `completed` / `failed` / `input_required`
+- SSE streaming endpoint (`/stream`)
+- Synchronous request/reply (`sync=true`)
+- Relay fallback for restricted networks (Cloudflare Worker)
+- Message parts: `text` / `file` / `data`
+- Server sequence numbers (`server_seq`) for ordering
 
-```
-GET /stream
-  ← data: {"event":"peer.connected"}
-  ← data: {"event":"message.received","message":{...}}
-  ← data: {"event":"task.updated","task_id":"...","status":"working"}
-```
+### v0.6 — Peer Registry & Error Codes
+- Multi-session peer registry (`/peers`, `/peer/{id}/send`)
+- Standardized error codes (`ERR_NOT_CONNECTED`, `ERR_MSG_TOO_LARGE`, `ERR_NOT_FOUND`, `ERR_INVALID_REQUEST`, `ERR_TIMEOUT`, `ERR_INTERNAL`)
+- QuerySkill API (`/skills/query`)
 
-### 4. Push — webhook callbacks
+### v0.7 — Trust & Discovery
+- **HMAC-SHA256 message signing** (`--secret <key>`) — closed-deployment integrity
+- **mDNS LAN peer discovery** (`--advertise-mdns`) — LAN autodiscovery, no zeroconf library
+- **Context ID** — multi-turn conversation grouping across messages
 
-Register a URL; the daemon delivers all events via HTTP POST automatically:
-
-```
-POST /webhooks/register  {"url":"https://your-host/hook"}
-  ← daemon POSTs every event to your URL in the background
-```
+### v0.8 — Ecosystem & Identity
+- **Ed25519 optional identity** (`--identity`) — self-sovereign keypair, zero PKI
+  - Auto-generates keypair to `~/.acp/identity.json` (chmod 600) on first run
+  - Every outbound message signed with Ed25519; inbound sigs verified (warn-only)
+  - HMAC and Ed25519 can be active simultaneously
+- **Node.js SDK** (`sdk/node/`) — zero external dependencies, TypeScript types, 19 tests
+- **Compatibility test suite** (`tests/compat/`) — black-box spec compliance runner, parameterized by `ACP_BASE_URL`
 
 ---
 
 ## API Reference
 
-> Default ports: Initiator HTTP `7901` (WS `7801`). Receiver HTTP `7920` (WS `7820`).
-> Rule: **HTTP port = WS port + 100**.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/.well-known/acp.json` | GET | AgentCard (capabilities, identity, endpoints) |
+| `/message:send` | POST | Send message to peer (supports `sync`, `parts`, `task_id`, `context_id`) |
+| `/stream` | GET | SSE stream of incoming messages and events |
+| `/tasks` | GET | List all tasks |
+| `/tasks/create` | POST | Create a new task |
+| `/tasks/{id}` | GET | Get task details |
+| `/tasks/{id}/update` | POST | Update task status |
+| `/tasks/{id}/continue` | POST | Send follow-up for `input_required` tasks |
+| `/tasks/{id}:cancel` | POST | Cancel a task |
+| `/peers` | GET | List connected peers |
+| `/peer/{id}` | GET | Get peer info |
+| `/peer/{id}/send` | POST | Send message to specific peer |
+| `/peers/connect` | POST | Connect to a new peer via `acp://` link |
+| `/skills/query` | POST | Query this agent's available skills |
+| `/discover` | GET | Discover LAN peers via mDNS (requires `--advertise-mdns`) |
+| `/status` | GET | Agent status (connections, message counts, uptime) |
 
-| Method | Path | Mode | Description |
-|--------|------|------|-------------|
-| `POST` | `/send` | Sync/Async | Send message. Add `"sync":true` to block for reply |
-| `POST` | `/reply` | Sync | Reply to a message by `correlation_id` |
-| `GET`  | `/recv` | Async | Consume queued messages (`?limit=N`) |
-| `GET`  | `/wait/<id>` | Sync | Block-wait for a correlated reply (`?timeout=30`) |
-| `POST` | `/tasks/create` | Async | Create a task (`"delegate":true` sends to peer) |
-| `GET`  | `/tasks` | Async | List tasks (`?status=working`) |
-| `GET`  | `/tasks/<id>` | Async | Get task state + artifacts |
-| `POST` | `/tasks/<id>/update` | Async | Update status / add artifact |
-| `DELETE` | `/tasks/<id>` | Async | Cancel a task |
-| `GET`  | `/stream` | Stream | SSE real-time event feed |
-| `POST` | `/webhooks/register` | Push | Register a push webhook URL |
-| `POST` | `/webhooks/deregister` | Push | Remove a push webhook URL |
-| `GET`  | `/status` | — | Connection state, statistics, version |
-| `GET`  | `/link` | — | This agent's `acp://` link |
-| `GET`  | `/card` | — | AgentCards (self + peer) |
-| `GET`  | `/history` | — | Persisted message history (`?limit=N`) |
-
-### Message Envelope
-
-`id`, `ts`, and `from` are auto-populated if omitted.
+### POST /message:send
 
 ```json
 {
-  "id":      "msg_abc123def456",
-  "ts":      "2026-03-18T12:00:00Z",
-  "from":    "Agent-A",
-  "type":    "task.delegate",
-  "content": "..."
+  "text": "Hello",           // shorthand for parts=[{type:text, content:...}]
+  "parts": [...],            // or use explicit Part objects
+  "sync": true,              // block until peer replies (default: false)
+  "timeout": 30,             // seconds (default: 30, only with sync:true)
+  "task_id": "task_abc",     // associate message with a task
+  "context_id": "ctx_xyz",   // group messages into a multi-turn context
+  "create_task": true,       // auto-create a task for this message
+  "message_id": "msg_custom" // optional — auto-generated if omitted
 }
 ```
 
-### CLI Options
+### Error Response Format
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--name` | `ACP-Agent` | Agent display name (included in AgentCard) |
-| `--join` | — | `acp://` link to connect to (omit = initiator) |
-| `--port` | `7801` | WebSocket listen port; HTTP port = this + 100 |
-| `--skills` | — | Comma-separated capability list |
-| `--inbox` | `/tmp/acp_inbox_<name>.jsonl` | Message persistence file |
+All errors return a consistent envelope:
+
+```json
+{
+  "ok": false,
+  "error_code": "ERR_NOT_CONNECTED",
+  "error": "No P2P connection",
+  "failed_message_id": "msg_abc123"  // optional, for ERR_TIMEOUT / ERR_MSG_TOO_LARGE
+}
+```
+
+See [`spec/error-codes.md`](spec/error-codes.md) for full reference.
 
 ---
 
-## What's New in v0.3
+## SDKs
 
-Modeled after [Google A2A v1.0](https://a2a-protocol.org)'s four interaction modes. See the full analysis in [`research/2026-03-18-competitive-analysis.md`](research/2026-03-18-competitive-analysis.md).
+### Python SDK (`sdk/python/`)
 
-**New in v0.3:**
-- **Synchronous mode** — `"sync":true` on `/send` blocks until the peer calls `/reply` with matching `correlation_id`; `/wait/<id>` for explicit polling
-- **Task lifecycle** — `POST /tasks/create` → `GET /tasks/<id>` polling → `POST /tasks/<id>/update` (submitted → working → completed/failed/cancelled) → `DELETE` to cancel; task state changes broadcast over SSE and push webhooks
-- **Push webhooks** — register any HTTP endpoint via `POST /webhooks/register`; daemon delivers all events via HTTP POST in the background
-- **Connection events via SSE** — `peer.connected`, `peer.disconnected`, `message.received`, `task.updated` all appear in the `/stream` feed
+```python
+from sdk.python.acp_sdk.relay_client import RelayClient, ACPError
 
-**Previously in v0.2:**
-- AgentCard capability exchange, automatic reconnection (exponential backoff), message persistence (JSONL), SSE streaming endpoint
+client = RelayClient("http://localhost:7901")
+client.send("Hello from Python!")
+msg = client.recv(timeout=10)
+print(msg["parts"][0]["content"])
+```
+
+### Node.js SDK (`sdk/node/`)
+
+Zero external dependencies (built-in `fetch` + `EventSource`):
+
+```javascript
+import { RelayClient } from './sdk/node/src/relay_client.js';
+
+const client = new RelayClient('http://localhost:7901');
+await client.send('Hello from Node!');
+const msg = await client.recv({ timeout: 10000 });
+console.log(msg.parts[0].content);
+```
+
+TypeScript types included (`src/index.d.ts`).
+
+---
+
+## Compatibility Test Suite
+
+Any ACP implementation can be validated against the spec:
+
+```bash
+# Run against the reference implementation
+ACP_BASE_URL=http://localhost:7901 python3 tests/compat/run.py
+
+# Run against any other implementation
+ACP_BASE_URL=http://other-agent:8080 python3 tests/compat/run.py
+```
+
+Tests cover: AgentCard schema, `/message:send`, SSE streaming, task lifecycle, peer registry, error codes, HMAC signing. See [`tests/compat/README.md`](tests/compat/README.md).
+
+---
+
+## Optional Features
+
+### HMAC Message Signing (v0.7)
+
+For closed deployments where both peers share a secret:
+
+```bash
+# Both agents must use the same --secret
+python3 acp_relay.py --name "AgentA" --secret "my-shared-key"
+python3 acp_relay.py --name "AgentB" --join "acp://..." --secret "my-shared-key"
+```
+
+Requires: no additional packages (uses stdlib `hmac`).
+
+### Ed25519 Identity (v0.8)
+
+For open federation where peers need cryptographic attribution:
+
+```bash
+# First run: auto-generates ~/.acp/identity.json
+python3 acp_relay.py --name "AgentA" --identity
+
+# Subsequent runs: loads existing keypair
+python3 acp_relay.py --name "AgentA" --identity
+
+# Custom keypair path
+python3 acp_relay.py --name "AgentA" --identity /path/to/id.json
+```
+
+Requires: `pip install cryptography`
+
+See [`spec/identity-v0.8.md`](spec/identity-v0.8.md) for full spec.
+
+### mDNS LAN Discovery (v0.7)
+
+```bash
+python3 acp_relay.py --name "AgentA" --advertise-mdns
+# Peers on the same LAN appear at GET /discover
+```
+
+Requires: no additional packages (raw UDP multicast).
 
 ---
 
 ## Roadmap
 
-| Version | Planned Features |
-|---------|-----------------|
-| **v0.3** | Task lifecycle (`submitted` / `working` / `completed`), concurrent multi-session support, capability query API |
-| **v0.4** | Multimodal message parts (text / file references / structured data), NAT traversal exploration |
-| **v1.0** | Decentralized identity via W3C DIDs, agent discovery network |
+| Version | Status | Highlights |
+|---------|--------|-----------|
+| **v0.1** | ✅ Done | P2P WebSocket, AgentCard, basic send/recv |
+| **v0.2** | ✅ Done | Auto-reconnect, JSONL persistence, SSE streaming |
+| **v0.3** | ✅ Done | Task lifecycle, multi-session, relay fallback |
+| **v0.4** | ✅ Done | Multimodal parts (text/file/data), Cloudflare Worker relay |
+| **v0.5** | ✅ Done | QuerySkill API, server_seq ordering, message idempotency |
+| **v0.6** | ✅ Done | Peer registry, standardized error codes, minimal agent spec |
+| **v0.7** | ✅ Done | HMAC signing, mDNS LAN discovery, context_id |
+| **v0.8** | ✅ Done | Ed25519 identity, Node.js SDK, compat test suite |
+| **v0.9** | 🚧 Planning | `spec/core-v0.8.md` consolidated spec, Python async SDK, CLI improvements |
+| **v1.0** | 📋 Planned | Production release, DID identity option, stability guarantees |
 
-See the full roadmap in [`research/RESEARCH-PROTOCOL.md`](research/RESEARCH-PROTOCOL.md).
+See [`acp-research/ROADMAP.md`](acp-research/ROADMAP.md) for detailed planning.
 
 ---
 
 ## Protocol Comparison
 
-ACP occupies a distinct niche in the agent protocol ecosystem:
-
-| Dimension | MCP (Anthropic) | A2A (Google) | ACP (IBM) | **ACP (this project)** |
-|-----------|----------------|-------------|-----------|------------------------|
+| Dimension | MCP (Anthropic) | A2A (Google) | IBM ACP | **ACP (this project)** |
+|-----------|----------------|-------------|---------|------------------------|
 | **Scope** | Agent ↔ Tool | Agent ↔ Agent (enterprise) | Agent ↔ Agent (REST) | Agent ↔ Agent (P2P) |
-| **Transport** | stdio / HTTP+SSE | HTTP+SSE / JSON-RPC / gRPC | REST HTTP | WebSocket (direct) |
-| **Requires server** | — | Yes | Yes | **No** |
-| **Requires code changes** | Yes | Yes | Yes | **No** |
-| **Capability declaration** | Yes | Yes (AgentCard) | — | Yes (AgentCard) |
-| **Auto-reconnect** | — | — | — | Yes |
-| **Message persistence** | — | — | — | Yes |
-| **Single dependency** | — | — | — | Yes (`websockets`) |
+| **Transport** | stdio / HTTP+SSE | HTTP+SSE / JSON-RPC | REST HTTP | WebSocket (direct P2P) |
+| **Server required** | — | ✅ Yes | ✅ Yes | ❌ **No** |
+| **Code changes required** | ✅ Yes | ✅ Yes | ✅ Yes | ❌ **No** |
+| **Required dependencies** | Many | Many (incl. SQLAlchemy) | Many | **`websockets` only** |
+| **Task lifecycle** | — | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Streaming** | ✅ SSE | ✅ SSE | — | ✅ SSE |
+| **Identity / signing** | — | OAuth 2.0 (mandatory) | — | HMAC or Ed25519 (optional) |
+| **LAN discovery** | — | — | — | ✅ mDNS (optional) |
+| **Node.js SDK** | ✅ | ✅ | — | ✅ (zero deps) |
+| **Compat test suite** | — | ✅ | — | ✅ |
+| **Target audience** | Enterprise / teams | Enterprise | Enterprise | **Personal / small teams** |
 
-> MCP, A2A, and IBM ACP each serve well-defined purposes. ACP targets the **quick, serverless P2P** scenario where minimal friction is the priority.
+> ACP's position: MCP standardizes Agent↔Tool. ACP standardizes Agent↔Agent. P2P, lightweight, open, zero infra.
 
 ---
 
@@ -318,23 +375,29 @@ ACP occupies a distinct niche in the agent protocol ecosystem:
 ```
 agent-communication-protocol/
 ├── relay/
-│   ├── acp_relay.py          # Core daemon — P2P relay process (~400 lines, single dependency)
-│   └── SKILL.md              # Agent instruction manifest (send this URL to any agent)
+│   ├── acp_relay.py          # Core daemon — single file, one required dep (websockets)
+│   └── SKILL.md              # Agent instruction manifest — send this URL to any agent
 ├── spec/
-│   ├── core-v0.1.md          # Core protocol specification (English)
-│   ├── core-v0.1.zh.md       # Core protocol specification (Chinese)
-│   ├── transports.md         # Transport bindings (stdio / HTTP+SSE / TCP)
+│   ├── core-v0.1.md          # Core protocol spec (v0.1, English)
+│   ├── core-v0.1.zh.md       # Core protocol spec (v0.1, Chinese)
+│   ├── core-v0.5.md          # Core protocol spec (v0.5)
+│   ├── error-codes.md        # Standard error codes (v0.6)
+│   ├── transports.md         # Transport bindings + HMAC (v0.7)
 │   ├── transports.zh.md      # Transport bindings (Chinese)
-│   └── identity.md           # Identity and authentication specification
+│   ├── identity-v0.8.md      # Ed25519 identity extension (v0.8)
+│   ├── v0.6-minimal-agent.md # Minimal agent implementation guide
+│   └── v0.8-planning.md      # v0.8 planning document
+├── sdk/
+│   ├── python/               # Python RelayClient SDK
+│   └── node/                 # Node.js RelayClient SDK (zero deps, TS types)
+├── tests/
+│   └── compat/               # Black-box ACP spec compliance test suite
+├── acp-research/
+│   ├── ROADMAP.md            # Detailed version roadmap
+│   └── reports/              # Competitive intelligence reports (A2A, ANP)
 ├── docs/
 │   └── README.zh-CN.md       # Chinese documentation
-├── examples/
-│   └── quickstart/           # Runnable quickstart examples
-├── research/
-│   ├── 2026-03-18-competitive-analysis.md   # Competitive analysis report
-│   └── RESEARCH-PROTOCOL.md  # Ongoing research cadence and roadmap
-├── CONTRIBUTING.md           # Contribution guide (English)
-├── CONTRIBUTING.zh.md        # Contribution guide (Chinese)
+├── CONTRIBUTING.md
 └── LICENSE                   # Apache 2.0
 ```
 
@@ -342,11 +405,11 @@ agent-communication-protocol/
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request.
+Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a PR.
 
 - **Bug reports & feature requests** → [GitHub Issues](https://github.com/Kickflip73/agent-communication-protocol/issues)
 - **Protocol design discussions** → [GitHub Discussions](https://github.com/Kickflip73/agent-communication-protocol/discussions)
-- **Security vulnerabilities** → Please do not file a public issue; contact the maintainers directly.
+- **Security vulnerabilities** → Please do not file a public issue; contact maintainers directly.
 
 ---
 
@@ -357,5 +420,5 @@ ACP is released under the [Apache License 2.0](LICENSE).
 ---
 
 <div align="center">
-  <sub>Built with the goal of making Agent-to-Agent communication as simple as sending a link.</sub>
+<sub>Built with ❤️ for the agent ecosystem — MCP standardizes Agent↔Tool, ACP standardizes Agent↔Agent.</sub>
 </div>
