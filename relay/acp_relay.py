@@ -8,9 +8,14 @@ v0.7 changes (2026-03-20):
   - Optional HMAC-SHA256 message signing: --secret <shared_key>
     sig = HMAC-SHA256(secret, message_id + ":" + ts).hexdigest()
   - AgentCard trust block: { "scheme": "hmac-sha256" | "none", "enabled": bool }
-  - AgentCard capabilities.hmac_signing field
+  - AgentCard capabilities.hmac_signing + lan_discovery + context_id fields
   - Verification: warn-only on mismatch (never drop) — graceful interop
   - Without --secret: unsigned mode, fully backward compatible
+  - mDNS LAN peer discovery: --advertise-mdns flag
+    Pure stdlib UDP multicast 224.0.0.251:5354 — no zeroconf dependency
+    GET /discover endpoint: list LAN peers with their acp:// links
+    SSE event type=mdns for real-time new peer notifications
+  - context_id: optional multi-turn conversation grouping (client-generated, server-echo)
 
 v0.6 changes (2026-03-20):
   - Standardized error codes: 6 codes (ERR_NOT_CONNECTED/MSG_TOO_LARGE/NOT_FOUND/
@@ -53,6 +58,8 @@ import socket
 import os
 import hmac
 import hashlib
+import struct
+import select
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -301,6 +308,154 @@ def _make_token():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# mDNS-style LAN peer discovery (v0.7)
+# Pure stdlib UDP multicast — no zeroconf dependency
+# Multicast group: 224.0.0.251 port 5354 (avoid conflict with real mDNS :5353)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_MDNS_GROUP   = "224.0.0.251"
+_MDNS_PORT    = 5354
+_MDNS_MAGIC   = b"ACP1"      # 4-byte protocol magic
+_mdns_peers   = {}            # { "ip:port" -> {name, token, link, seen_at} }
+_mdns_lock    = threading.Lock()
+_mdns_thread  = None
+_mdns_running = False
+
+
+def _mdns_announce_payload(name: str, token: str, ws_port: int, http_port: int) -> bytes:
+    """Build a compact UDP announce packet: MAGIC + JSON."""
+    payload = {
+        "v":    1,
+        "name": name,
+        "tok":  token,
+        "wp":   ws_port,
+        "hp":   http_port,
+    }
+    return _MDNS_MAGIC + json.dumps(payload, separators=(",", ":")).encode()
+
+
+def _mdns_send_announce(name: str, token: str, ws_port: int, http_port: int):
+    """Send one UDP multicast announce."""
+    try:
+        data = _mdns_announce_payload(name, token, ws_port, http_port)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.sendto(data, (_MDNS_GROUP, _MDNS_PORT))
+        sock.close()
+    except Exception as e:
+        log.debug(f"mDNS announce error: {e}")
+
+
+def _mdns_listener_loop(name: str, token: str, ws_port: int, http_port: int):
+    """Background thread: listen for peer announces + re-announce self periodically."""
+    global _mdns_running
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except AttributeError:
+            pass  # Windows doesn't have SO_REUSEPORT
+        sock.bind(("", _MDNS_PORT))
+        mreq = struct.pack("4sL", socket.inet_aton(_MDNS_GROUP), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        sock.setblocking(False)
+        log.info(f"mDNS listener started on {_MDNS_GROUP}:{_MDNS_PORT}")
+    except Exception as e:
+        log.warning(f"mDNS listener failed to start: {e}")
+        _mdns_running = False
+        return
+
+    last_announce = 0
+    ANNOUNCE_INTERVAL = 30  # re-announce every 30 s
+    PEER_TTL          = 120  # forget peers not heard from in 2 min
+
+    while _mdns_running:
+        now = time.time()
+
+        # Re-announce self
+        if now - last_announce > ANNOUNCE_INTERVAL:
+            _mdns_send_announce(name, token, ws_port, http_port)
+            last_announce = now
+
+        # Listen for incoming announces
+        readable, _, _ = select.select([sock], [], [], 1.0)
+        if readable:
+            try:
+                data, addr = sock.recvfrom(1024)
+                src_ip = addr[0]
+                if not data.startswith(_MDNS_MAGIC):
+                    continue
+                payload = json.loads(data[len(_MDNS_MAGIC):].decode())
+                peer_token = payload.get("tok", "")
+                # Ignore our own announce
+                if peer_token == token:
+                    continue
+                peer_ws_port   = payload.get("wp", 7801)
+                peer_http_port = payload.get("hp", 7901)
+                peer_link      = f"acp://{src_ip}:{peer_ws_port}/{peer_token}"
+                peer_key       = f"{src_ip}:{peer_ws_port}"
+                with _mdns_lock:
+                    is_new = peer_key not in _mdns_peers
+                    _mdns_peers[peer_key] = {
+                        "name":      payload.get("name", "unknown"),
+                        "token":     peer_token,
+                        "link":      peer_link,
+                        "ip":        src_ip,
+                        "ws_port":   peer_ws_port,
+                        "http_port": peer_http_port,
+                        "seen_at":   now,
+                    }
+                if is_new:
+                    log.info(f"mDNS: discovered peer '{payload.get('name')}' @ {peer_link}")
+                    _broadcast_sse_event("mdns", {"event": "discovered",
+                                                   "name": payload.get("name"),
+                                                   "link": peer_link,
+                                                   "ip":   src_ip})
+            except Exception as e:
+                log.debug(f"mDNS recv error: {e}")
+
+        # Prune stale peers
+        with _mdns_lock:
+            stale = [k for k, v in _mdns_peers.items() if now - v["seen_at"] > PEER_TTL]
+            for k in stale:
+                log.info(f"mDNS: peer {k} expired (no announce for {PEER_TTL}s)")
+                del _mdns_peers[k]
+
+    sock.close()
+    log.info("mDNS listener stopped")
+
+
+def _mdns_start(name: str, token: str, ws_port: int, http_port: int):
+    """Start mDNS advertise + listen in a background thread."""
+    global _mdns_thread, _mdns_running
+    _mdns_running = True
+    _mdns_send_announce(name, token, ws_port, http_port)  # immediate first announce
+    _mdns_thread = threading.Thread(
+        target=_mdns_listener_loop,
+        args=(name, token, ws_port, http_port),
+        daemon=True, name="acp-mdns"
+    )
+    _mdns_thread.start()
+    log.info("mDNS discovery started")
+
+
+def _mdns_stop():
+    """Stop mDNS background thread."""
+    global _mdns_running
+    _mdns_running = False
+
+
+def _mdns_peer_list() -> list:
+    """Return a serializable snapshot of discovered LAN peers."""
+    with _mdns_lock:
+        return [
+            {k: v for k, v in p.items()}
+            for p in _mdns_peers.values()
+        ]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Part model (v0.5)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -367,6 +522,8 @@ def _make_agent_card(name, skills):
             "server_seq":         True,
             "multi_session":      True,   # v0.6: multiple simultaneous peer connections
             "hmac_signing":       bool(_hmac_secret),  # v0.7: optional HMAC-SHA256 message signing
+            "lan_discovery":      _mdns_running,       # v0.7: mDNS LAN peer discovery
+            "context_id":         True,                # v0.7: optional multi-turn context grouping
         },
         "trust": {
             "scheme":  "hmac-sha256" if _hmac_secret else "none",
@@ -382,6 +539,7 @@ def _make_agent_card(name, skills):
             "peers":        "/peers",                  # v0.6
             "peer_send":    "/peer/{id}/send",         # v0.6
             "peers_connect": "/peers/connect",         # v0.6
+            "discover":     "/discover",               # v0.7 mDNS LAN discovery
         },
     }
 
@@ -894,7 +1052,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         if p in ("/card", "/.well-known/acp.json"):
-            self._json({"self": _status.get("agent_card"), "peer": _status.get("peer_card")})
+            # Rebuild dynamically so capabilities like lan_discovery reflect runtime state
+            skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
+            live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
+            self._json({"self": live_card, "peer": _status.get("peer_card")})
 
         elif p == "/status":
             self._json(_status)
@@ -919,6 +1080,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 })
             active = sum(1 for p2 in _peers.values() if p2["connected"])
             self._json({"peers": peer_list, "count": len(peer_list), "active": active})
+
+        # ── GET /discover — LAN peers via mDNS (v0.7) ────────────────────────
+        elif p == "/discover":
+            discovered = _mdns_peer_list()
+            self._json({
+                "lan_peers":  discovered,
+                "count":      len(discovered),
+                "mdns_active": _mdns_running,
+                "note": "Start with --advertise-mdns to enable LAN discovery" if not _mdns_running else None,
+            })
 
         # ── GET /peers/{id} — single peer info (v0.6) ─────────────────────────
         elif p.startswith("/peers/") and not p.endswith("/send"):
@@ -1593,6 +1764,10 @@ def main():
                         help="(v0.7) Optional HMAC-SHA256 shared secret for message signing. "
                              "Both peers must use the same secret to verify signatures. "
                              "If omitted, messages are unsigned (plain mode).")
+    parser.add_argument("--advertise-mdns", action="store_true",
+                        help="(v0.7) Advertise this agent on the LAN via UDP multicast "
+                             "and discover nearby ACP peers. Enables GET /discover endpoint. "
+                             "Uses 224.0.0.251:5354 — no zeroconf library required.")
     args = parser.parse_args()
 
     MAX_MSG_BYTES = args.max_msg_size
@@ -1620,6 +1795,12 @@ def main():
 
     threading.Thread(target=run_http, args=(http_port,), daemon=True).start()
     log.info(f"HTTP interface: http://127.0.0.1:{http_port}")
+
+    # ── mDNS LAN discovery (v0.7) ─────────────────────────────────────────────
+    if args.advertise_mdns:
+        token_placeholder = _make_token()  # will be replaced after host_mode assigns real token
+        _mdns_start(args.name, token_placeholder, ws_port, http_port)
+        log.info(f"mDNS: advertising on LAN ({_MDNS_GROUP}:{_MDNS_PORT})")
 
     _loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_loop)
@@ -1665,6 +1846,10 @@ def main():
         else:
             # ── 默认：P2P 模式，监听并等待对方连接 ────────────────────────
             token = _make_token()
+            # Update mDNS with real token now that we have it
+            if args.advertise_mdns and _mdns_running:
+                _mdns_send_announce(args.name, token, ws_port, http_port)
+                log.info(f"mDNS: updated announce with real token {token[:12]}...")
             _loop.run_until_complete(host_mode(token, ws_port, http_port))
     except KeyboardInterrupt:
         pass
