@@ -1,0 +1,17 @@
+{
+  "name": "acp-sdk",
+  "version": "0.8.0",
+  "description": "Node.js SDK for the Agent Communication Protocol (ACP) relay client",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "scripts": {
+    "test": "node --test tests/relay_client.test.js"
+  },
+  "keywords": ["acp", "agent", "communication", "protocol", "relay"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
