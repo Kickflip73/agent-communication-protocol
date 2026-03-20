@@ -1,9 +1,14 @@
 # ACP Transport Specification
 
 **Status:** Draft  
-**Version:** 0.2 (2026-03-20 — reorganized: Protocol Bindings vs Extensions)  
+**Version:** 0.3 (2026-03-20 — §3.6 transport-level HTTP headers clarification, Binding A)  
 **Language:** **English** · [中文](transports.zh.md)
 
+> **What changed in v0.3:**  
+> Added §3.6 transport-level HTTP headers clarification for Binding A.  
+> Explains the Binding-layer vs Extension-layer distinction for HTTP headers,  
+> resolving the ambiguity raised in A2A #1653.
+>
 > **What changed in v0.2:**  
 > Introduced the Protocol Binding / Extension distinction (inspired by A2A #1619).  
 > Added Binding A (WebSocket P2P) and Binding C (HTTP Public Relay) which are the  
@@ -131,11 +136,39 @@ Each WebSocket frame carries one JSON message (text frame, UTF-8):
 }
 ```
 
-### 3.6 Limitations
+### 3.6 Transport-Level HTTP Headers (Binding A)
+
+When the WebSocket upgrade request is made during connection setup, the connecting agent MAY include transport-level HTTP headers. These headers are a **Binding A concern** — they are not part of the ACP message envelope and are invisible to the application layer.
+
+**Headers used by the reference implementation:**
+
+| Header | Direction | Purpose |
+|--------|-----------|---------|
+| `X-ACP-Token` | Guest → Host | Alternative to token-in-URL; some reverse proxies strip path segments |
+| `X-ACP-Agent` | Guest → Host | Agent display name (human-readable, not identity-verified) |
+| `X-ACP-Version` | Both | Protocol version string (e.g. `"0.7"`) |
+
+**Classification:**
+
+```
+Transport-level (Binding A only):     X-ACP-Token, X-ACP-Agent, X-ACP-Version
+                                       ↑ Set during WS upgrade request
+                                       ↑ Not visible in message envelope
+                                       ↑ NOT carried over if agent switches to Binding C
+
+Extension fields (all bindings):       message_id, server_seq, context_id, sig, task_id
+                                       ↑ Part of the JSON message envelope
+                                       ↑ Survive binding switches transparently
+```
+
+> **Why this matters (A2A #1653 context):** A2A has an unresolved debate about whether custom HTTP headers belong to the "Data" or "Profile Extension" layer. ACP resolves this cleanly: HTTP headers are **Binding-layer metadata** (§2 Protocol Bindings), not envelope Extensions (§2 Extensions). Any semantics that must survive a binding switch MUST be in the envelope, not in headers.
+
+### 3.7 Limitations
 
 - Requires both agents to have mutually reachable IPs
 - Does not work in strict K8s / corporate NAT environments without port exposure
 - Automatic fallback to Binding C handles these cases transparently
+- Transport-level headers (§3.6) are lost when falling back to Binding C; use envelope fields for durable metadata
 
 ---
 

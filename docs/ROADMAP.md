@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-20 17:13（文档轮：v0.7 mDNS + context_id 标记完成）
+> 最后更新：2026-03-20 18:13（开发轮：spec/transports.md v0.3，v0.7 全部完成）
 
 ---
 
@@ -116,7 +116,7 @@ msgs = c.recv()
 
 ---
 
-### 🔮 v0.7（进行中，目标：2026-04-23）
+### ✅ v0.7（全部完成 🎉，2026-03-20，目标原为 2026-04-23）
 **主题：轻量身份信号 + 多轮对话**
 
 | 特性 | 状态 | 备注 |
@@ -125,7 +125,7 @@ msgs = c.recv()
 | AgentCard `trust` + `hmac_signing` 能力声明 | ✅ 已实现 | `87dad51` |
 | contextId 多轮对话（跨 Task 上下文延续） | ✅ 已实现 | `aabfae5`，可选字段 + capability 声明 |
 | 本地局域网 Agent 发现（mDNS / 广播） | ✅ 已实现 | `aabfae5`，`--advertise-mdns`，GET /discover |
-| spec/transports.md header 说明（transport-level vs Extension） | ⏳ 待完善 | 低优先级 polish，来自 A2A #1653 |
+| spec/transports.md §3.6 HTTP headers 说明 | ✅ 已完善 | v0.3，§3.6，解决 A2A #1653 分类争议 |
 
 **设计决策（2026-03-20 研究轮确认）：**
 - 默认：信任 = 连接本身（零成本）
@@ -152,7 +152,7 @@ curl http://localhost:7901/discover
 - Peer TTL 120s，自动过期静默节点
 - SSE `type=mdns` 事件：实时新 peer 通知
 
-**v0.7 进度（4/5 完成）：**
+**v0.7 进度（5/5 全部完成 🎉）：**
 
 | 特性 | 状态 | Commit |
 |------|------|--------|
@@ -160,7 +160,7 @@ curl http://localhost:7901/discover
 | AgentCard trust 声明 | ✅ | `87dad51` |
 | mDNS LAN 发现 | ✅ | `aabfae5` |
 | context_id 能力声明 | ✅ | `aabfae5` |
-| transports.md header 说明 | ⏳ | polish |
+| transports.md §3.6 HTTP headers 说明 | ✅ | polish，v0.3 |
 
 ---
 
