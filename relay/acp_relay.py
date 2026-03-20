@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v0.5
-==================
+ACP P2P Relay v0.6-dev
+======================
 Zero-server, zero-code-change P2P Agent communication.
+
+v0.6 changes (2026-03-20):
+  - Standardized error codes: 6 codes (ERR_NOT_CONNECTED/MSG_TOO_LARGE/NOT_FOUND/
+    INVALID_REQUEST/TIMEOUT/INTERNAL) with failed_message_id for precise retries
+  - Multi-session peer registry: /peers, /peer/{id}, /peer/{id}/send
+  - AgentCard capabilities.multi_session=true
 
 v0.5 changes (2026-03-19):
   - Task state machine: 5 states (submitted/working/completed/failed/input_required)
@@ -128,6 +134,29 @@ async def _proxy_ws_connect(uri, **kwargs):
         return await websockets.connect(uri, **kwargs)
 
 MAX_MSG_BYTES = 1 * 1024 * 1024
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Standardized error codes (v0.6, inspired by ANP failed_msg_id)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# ACP uses 6 error codes. Every error response includes:
+#   { "ok": false, "error_code": "<CODE>", "error": "<human message>",
+#     "failed_message_id": "<msg_id if applicable>" }
+#
+ERR_NOT_CONNECTED   = "ERR_NOT_CONNECTED"    # No peer connected
+ERR_MSG_TOO_LARGE   = "ERR_MSG_TOO_LARGE"    # Message exceeds max_msg_bytes
+ERR_NOT_FOUND       = "ERR_NOT_FOUND"        # Task/peer/resource not found
+ERR_INVALID_REQUEST = "ERR_INVALID_REQUEST"  # Bad input (missing fields, invalid parts)
+ERR_TIMEOUT         = "ERR_TIMEOUT"          # Sync wait timed out
+ERR_INTERNAL        = "ERR_INTERNAL"         # Unexpected server error
+
+def _err(code: str, message: str, http_status: int = 400,
+         failed_message_id: str = None) -> tuple:
+    """Build a standardized ACP error response dict + HTTP status code."""
+    body = {"ok": False, "error_code": code, "error": message}
+    if failed_message_id:
+        body["failed_message_id"] = failed_message_id
+    return body, http_status
 
 # ── Task states ────────────────────────────────────────────────────────────────
 #
@@ -1021,14 +1050,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if parts:
                     ok, err = _validate_parts(parts)
                     if not ok:
-                        self._json({"ok": False, "error": err}, 400)
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err)
+                        self._json(e_body, e_code)
                         return
                 else:
                     # Auto-wrap plain text in a text Part
                     text = body.get("text") or body.get("content") or ""
                     parts = [_make_text_part(str(text))] if text else []
                     if not parts:
-                        self._json({"ok": False, "error": "provide 'parts' or 'text'"}, 400)
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, "provide 'parts' or 'text'")
+                        self._json(e_body, e_code)
                         return
 
                 message_id = body.get("message_id") or _make_id("msg")
@@ -1048,7 +1079,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
                 serialized = json.dumps(msg, ensure_ascii=False)
                 if len(serialized.encode()) > MAX_MSG_BYTES:
-                    self._json({"ok": False, "error": f"message too large (max {MAX_MSG_BYTES} bytes)"}, 413)
+                    e_body, e_code = _err(ERR_MSG_TOO_LARGE,
+                                          f"message too large (max {MAX_MSG_BYTES} bytes)", 413,
+                                          failed_message_id=message_id)
+                    self._json(e_body, e_code)
                     return
 
                 want_sync = body.get("sync", False)
@@ -1080,15 +1114,19 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         _sync_pending.pop(message_id, None)
                         if task:
                             _update_task(task["id"], TASK_FAILED, error="reply timeout")
-                        self._json({"ok": False, "error": "reply timeout", "message_id": message_id}, 408)
+                        e_body, e_code = _err(ERR_TIMEOUT, "reply timeout", 408,
+                                              failed_message_id=message_id)
+                        self._json(e_body, e_code)
                 else:
                     _ws_send_sync(msg)
                     self._json({"ok": True, "message_id": message_id, "task": task})
 
             except ConnectionError as e:
-                self._json({"ok": False, "error": str(e)}, 503)
+                e_body, e_code = _err(ERR_NOT_CONNECTED, str(e), 503)
+                self._json(e_body, e_code)
             except Exception as e:
-                self._json({"ok": False, "error": str(e)}, 500)
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500)
+                self._json(e_body, e_code)
 
         # /send  — legacy endpoint (backward-compat)
         elif p == "/send":
