@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v0.6-dev
+ACP P2P Relay v0.7-dev
 ======================
 Zero-server, zero-code-change P2P Agent communication.
+
+v0.7 changes (2026-03-20):
+  - Optional HMAC-SHA256 message signing: --secret <shared_key>
+    sig = HMAC-SHA256(secret, message_id + ":" + ts).hexdigest()
+  - AgentCard trust block: { "scheme": "hmac-sha256" | "none", "enabled": bool }
+  - AgentCard capabilities.hmac_signing field
+  - Verification: warn-only on mismatch (never drop) — graceful interop
+  - Without --secret: unsigned mode, fully backward compatible
 
 v0.6 changes (2026-03-20):
   - Standardized error codes: 6 codes (ERR_NOT_CONNECTED/MSG_TOO_LARGE/NOT_FOUND/
@@ -43,6 +51,8 @@ import signal
 import sys
 import socket
 import os
+import hmac
+import hashlib
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -60,7 +70,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "0.6-dev"
+VERSION = "0.7-dev"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -189,6 +199,29 @@ _push_webhooks       = []
 # Idempotency cache (bounded)
 _seen_message_ids: dict = {}
 _SEEN_MAX = 2000
+
+# ── HMAC optional signing (v0.7) ──────────────────────────────────────────
+# _hmac_secret: bytes | None
+# When set, every outbound message gets a `sig` field:
+#   sig = HMAC-SHA256(secret, message_id + ":" + ts_str).hexdigest()
+# Inbound: if sig present AND secret set, verify; mismatch → log warning (not drop).
+# If secret not set, sig is ignored on receive (graceful interop).
+_hmac_secret: bytes = None
+
+
+def _hmac_sign(message_id: str, ts) -> str:
+    """Compute HMAC-SHA256(secret, '{message_id}:{ts}') as hex."""
+    payload = f"{message_id}:{ts}".encode()
+    return hmac.new(_hmac_secret, payload, hashlib.sha256).hexdigest()
+
+
+def _hmac_verify(message_id: str, ts, sig: str) -> bool:
+    """Verify inbound sig. Returns True if valid (or if no secret configured)."""
+    if not _hmac_secret:
+        return True  # no secret = accept all
+    expected = _hmac_sign(message_id, ts)
+    return hmac.compare_digest(expected, sig)
+
 
 # ── Multi-session peer registry (v0.6) ─────────────────────────────────────
 # Stores all active peer connections keyed by peer_id (auto-assigned or named)
@@ -333,6 +366,11 @@ def _make_agent_card(name, skills):
             "query_skill":        True,
             "server_seq":         True,
             "multi_session":      True,   # v0.6: multiple simultaneous peer connections
+            "hmac_signing":       bool(_hmac_secret),  # v0.7: optional HMAC-SHA256 message signing
+        },
+        "trust": {
+            "scheme":  "hmac-sha256" if _hmac_secret else "none",
+            "enabled": bool(_hmac_secret),
         },
         "auth":      {"schemes": ["none"]},
         "endpoints": {
@@ -487,6 +525,13 @@ def _on_message(raw):
     msg_type   = msg.get("type", "")
     message_id = msg.get("message_id") or msg.get("id")
 
+    # HMAC verification (v0.7) — warn-only; never drop for sig mismatch
+    # This is graceful: agents without --secret still interop fine
+    if _hmac_secret and msg.get("sig") and message_id:
+        if not _hmac_verify(str(message_id), str(msg.get("ts", "")), msg["sig"]):
+            log.warning(f"⚠️  HMAC sig mismatch on {message_id} — message accepted but flagged")
+            msg["_sig_invalid"] = True
+
     if msg_type == "acp.agent_card":
         _status["peer_card"] = msg.get("card")
         peer = msg.get("card", {})
@@ -568,10 +613,17 @@ def _on_message(raw):
 # WebSocket helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _attach_sig(msg: dict) -> dict:
+    """Attach HMAC sig to outbound message if secret is configured (v0.7)."""
+    if _hmac_secret and "message_id" in msg and "ts" in msg:
+        msg["sig"] = _hmac_sign(str(msg["message_id"]), str(msg["ts"]))
+    return msg
+
+
 async def _ws_send(msg):
     if _peer_ws is None:
         raise ConnectionError("No P2P connection")
-    await _peer_ws.send(json.dumps(msg, ensure_ascii=False))
+    await _peer_ws.send(json.dumps(_attach_sig(msg), ensure_ascii=False))
     _status["messages_sent"] += 1
 
 def _ws_send_sync(msg):
@@ -1537,10 +1589,22 @@ def main():
     parser.add_argument("--skills",       default="")
     parser.add_argument("--inbox",        default=None)
     parser.add_argument("--max-msg-size", type=int, default=MAX_MSG_BYTES)
+    parser.add_argument("--secret",       default=None,
+                        help="(v0.7) Optional HMAC-SHA256 shared secret for message signing. "
+                             "Both peers must use the same secret to verify signatures. "
+                             "If omitted, messages are unsigned (plain mode).")
     args = parser.parse_args()
 
     MAX_MSG_BYTES = args.max_msg_size
     _status["max_msg_bytes"] = MAX_MSG_BYTES
+
+    # HMAC optional signing (v0.7)
+    global _hmac_secret
+    if args.secret:
+        _hmac_secret = args.secret.encode()
+        log.info("🔐 HMAC signing enabled (--secret configured)")
+    else:
+        _hmac_secret = None
 
     ws_port   = args.port
     http_port = args.port + 100
