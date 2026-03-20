@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-20（文档轮：错误码规范 spec/error-codes.md，v0.6 已完成 3/5 项）
+> 最后更新：2026-03-20 11:51（文档轮：v0.6 进度全面更新，5/6 项完成；v0.7 新增轻量身份信号行动项）
 
 ---
 
@@ -51,35 +51,39 @@
 
 ---
 
-### ✅ v0.5（完成：2026-03-19）
+### ✅ v0.5（已完成，2026-03-19，提前于截止日 2026-03-26）
 **主题：消息结构化 + 任务追踪（轻量版）**
 
-设计原则：借鉴 A2A 概念，但砍掉所有非必要复杂度。
+> 🎉 全部核心功能已实现并验证通过（commit `bb6aba3`）
+> 📄 spec/core-v0.5.md 已补全「双向 Task 同步」章节（§5b）
 
-#### Task 状态机（5 种，而非 A2A 的 8 种）
+#### ✅ Task 状态机（5 种，而非 A2A 的 8 种）
 
 ```
 submitted → working → completed
                    → failed
-                   → input_required  ← 可继续
+                   → input_required  ← 可继续（/tasks/{id}/continue）
 ```
 
-| 状态 | 含义 | 备注 |
-|------|------|------|
-| `submitted` | 已提交 | 中间态 |
-| `working` | 处理中 | 中间态 |
-| `completed` | 完成 | 终态 |
-| `failed` | 失败 | 终态 |
-| `input_required` | 等待追加输入 | 中断态，可继续 |
+| 状态 | 含义 | 备注 | 实现状态 |
+|------|------|------|---------|
+| `submitted` | 已提交 | 中间态 | ✅ |
+| `working` | 处理中 | 中间态 | ✅ 发送方创建后自动进入 |
+| `completed` | 完成 | 终态 | ✅ 通过 /tasks/{id}/update |
+| `failed` | 失败 | 终态 | ✅ 通过 :cancel 或 /update |
+| `input_required` | 等待追加输入 | 中断态，可继续 | ✅ /continue 端点 |
 
-> 砍掉 `canceled`、`rejected`、`auth_required`——对个人/团队场景过度设计。
-> 需要取消？直接断连接。需要认证？连接建立时一次性搞定。
+**双向同步机制（v0.5 核心创新）：**
+- 发送方创建 task（`create_task: true`），task_id 随消息发出
+- 接收方收到消息后**自动在本地注册同 id 的 task**（`from_peer: true`）
+- 执行方通过 `/tasks/{id}/update` 更新状态，`task.updated` 消息自动同步回发送方
+- 发送方用 `/tasks/{id}/wait` 同步等待完成
 
-#### 结构化消息（Part 模型，精简版）
+#### ✅ 结构化消息 Part 模型
 
 ```json
 {
-  "message_id": "client-generated-uuid",
+  "message_id": "msg_abc123",   // 客户端生成，全局唯一
   "role": "user | agent",
   "parts": [
     {"type": "text", "content": "你好"},
@@ -89,68 +93,76 @@ submitted → working → completed
 }
 ```
 
-> 3 种 Part 类型（text / file / data），去掉 A2A 的 `bytes`（raw）——URL 引用更轻量，不传原始字节。
+#### ✅ 消息幂等性
+- `message_id` 客户端生成，服务端同 session 内去重
+- `server_seq` 全局有序，接收方可检测丢包/乱序
 
-#### 消息幂等性
-- `message_id` 客户端生成（UUID）
-- 服务端在同一 session 内去重
+#### ✅ QuerySkill() API
+- `POST /skills/query` — 运行时查询 Agent 能力
+- `GET /.well-known/acp.json` — AgentCard 标准发现端点
 
-#### Artifact（任务输出产物）
-```json
-{
-  "artifact_id": "uuid",
-  "name": "分析报告",
-  "parts": [...]
-}
-```
-
-- 任务完成后通过 `artifactUpdate` 事件推送
-- 区分「对话消息」和「任务产物」
-
-#### 结构化 SSE 事件（2 种）
-```
-data: {"type": "status", "task_id": "x", "state": "working"}
-data: {"type": "artifact", "task_id": "x", "artifact": {...}}
-data: {"type": "message", "role": "agent", "parts": [...]}
-```
+#### ✅ 新增端点（v0.5 完整列表）
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/tasks` | GET | 列出所有 task，支持 `?state=` 过滤 |
+| `/tasks/{id}` | GET | 查询单个 task |
+| `/tasks/{id}/wait` | GET | 同步等待 task 完成（`?timeout=N`） |
+| `/tasks/{id}/update` | POST | 更新 task 状态 + artifact |
+| `/tasks/{id}/continue` | POST | 从 input_required 继续 |
+| `/tasks/{id}:cancel` | POST | 取消（→ failed） |
+| `/tasks/{id}:subscribe` | GET | 单 task SSE 流 |
+| `/skills/query` | POST | 运行时能力查询 |
 
 ---
 
-### 🚧 v0.6（目标：2026-04-09）
-**主题：零配置接入 + 跨平台互通**
+### 🎯 v0.6（目标：2026-04-09）
+**主题：外部 Agent 接入 + SDK 化**
 
-设计原则：让任意 Agent（不限框架）都能 2 步接入。
+设计原则：让 acp_relay.py **之外的** Agent 也能接入 ACP，不再要求「必须运行 relay 进程」。
 
-- [x] **多 session peer registry**（2026-03-20，commit `ad7e1c4`）
-  - `_peers` dict，线程安全，追踪所有并发 peer 连接
-  - `GET /peers` — 列出所有已连接 peer（name/card/link/stats）
-  - `GET /peer/{id}` — 单个 peer 详情
-  - `POST /peer/{id}/send` — 定向向特定 peer 发消息
-  - AgentCard：`capabilities.multi_session=true`，endpoints 声明新端点
-  - SSE peer 事件新增 `peer_count` 字段
-  - spec：`spec/v0.6-minimal-agent.md` 已创建（2026-03-20）
-- [x] **标准接入协议**（2026-03-20，spec `spec/v0.6-minimal-agent.md`）
-  - `GET /.well-known/acp.json` — AgentCard（我是谁，我能做什么）
-  - `POST /message:send` — 接收入站消息
-  - `GET /stream` — SSE 消息流（出站，可选）
-  - 任意 HTTP Agent 加 3 个端点即可接入 ACP，框架无关
-- [x] **错误码规范**（2026-03-20，commit `c816cb5`，spec `spec/error-codes.md`）
-  - 6 种标准错误码：NOT_CONNECTED / MSG_TOO_LARGE / NOT_FOUND / INVALID_REQUEST / TIMEOUT / INTERNAL
-  - `failed_message_id` 字段支持精确重试（参考 ANP `99806f45`）
-  - 统一 `{"ok": false, "error_code": "...", "failed_message_id": "..."}` 响应格式
-- [x] **传输层规范重组**：`spec/transports.md` 区分 Protocol Binding vs Extension（参考 A2A #1619，commit d9ec10f）
-- [ ] **Cloudflare Worker 升级**：多房间并发，KV 过期自动清理
-- [ ] **Python mini-SDK**：`pip install acp-relay`，3 行接入
+#### 核心目标：标准轻量接入协议
+
+任意 HTTP Agent 只需实现 3 个端点即可接入 ACP 网络：
+
+```
+GET  /.well-known/acp.json  → AgentCard（我是谁，我能做什么）
+POST /message:send           → 接收消息（入站）
+GET  /stream                 → SSE 消息流（出站，可选）
+```
+
+> 这意味着：现有的 OpenAI、Anthropic、任意 FastAPI/Express 服务，加 3 个端点即可接入 ACP。
+
+#### 具体特性
+
+- [x] **轻量接入规范**：`spec/v0.6-minimal-agent.md` 已完成（commit 125422e，2026-03-20）
+- [x] **多 session Relay**：`_peers` 注册表 + `/peers` + `/peer/{id}/send`（commit ad7e1c4，2026-03-20）
+  - 场景：JARVIS 同时与 Alpha、Beta、Gamma 通信
+  - 端点：`/peers` 列出所有连接，`/peer/{id}/send` 定向发送
+- [x] **错误码规范**：6 种标准错误码 + `failed_message_id`（commit c816cb5，spec/error-codes.md，2026-03-20）
+- [x] **传输层规范重组**：`spec/transports.md` v0.2 — Protocol Binding vs Extension 明确区分（commit cb88475，2026-03-20）
+- [x] **Cloudflare Worker 升级 v2.0**：多房间并发 + 滑动 TTL + cursor-based poll + DELETE cleanup（commit 8e8b771，2026-03-20）
+- [ ] **Python mini-SDK**：`pip install acp-relay`，3 行接入（v0.6 最后一项，待开发）
+
+```python
+from acp import Agent
+agent = Agent(name="MyBot", skills=["summarize"])
+agent.on_message(lambda msg: agent.reply(f"收到: {msg.text}"))
+agent.connect("acp://33.229.113.196:7801/tok_xxx")
+```
 
 ---
 
 ### 🔮 v0.7（目标：2026-04-23）
-**主题：能力发现 + 多轮对话**
+**主题：能力发现 + 多轮对话 + 轻量身份**
 
 - [ ] **能力发现**：本地局域网内 Agent 互相发现（mDNS / 广播）
 - [ ] **contextId 多轮对话**：跨 Task 的上下文延续
   - `context_id` 关联多个 Task，支持追加输入
 - [ ] **AgentCard 签名**：防伪造（基础版，不用 DID，用 HMAC）
+- [ ] **轻量身份信号**：token + 可选 HMAC 签名，解决多 Agent 协作时指令来源验证问题
+  - 灵感来源：A2A Issue #1575（真实用户痛点：多 agent 场景下无法验证消息来源）
+  - AgentCard 预留 `trust` 字段（可选，不强制）
+  - 设计原则：不做完整 PKI，用最小代价解决核心安全痛点
 
 ---
 
@@ -186,6 +198,107 @@ A2A:  https://github.com/a2aproject/A2A
 ANP:  https://github.com/agent-network-protocol/AgentNetworkProtocol
 IBM:  https://github.com/i-am-bee/acp
 MCP:  https://github.com/modelcontextprotocol/specification
+```
+
+---
+
+## 传输层架构（2026-03-19 定稿）
+
+### ⚠️ 重要架构声明
+
+> **ACP 是标准协议，不依赖任何特定基础设施。**
+>
+> 传输 A（WebSocket P2P）是**首选**，也是协议的标准形态——零依赖、零服务器、真 P2P。
+> 传输 C（HTTP 公共中继）是**服务降级备选**，仅用于沙箱/K8s 等严格网络限制场景。
+>
+> 公共中继实例（`black-silence-11c4.yuranliu888.workers.dev`）由协议维护方运营，
+> 是一项**工程便利性服务**，而非协议标准的一部分。
+> 任何人可以用 `relay/acp_worker.js` 自部署中继，链接格式天然携带地址，协议不绑定任何特定实例。
+
+**核心设计原则：会话层不感知传输层。** 所有传输对外 API 完全相同。
+
+```
+会话层（不感知传输）
+    ├── POST /message:send
+    ├── GET  /recv
+    ├── GET  /status
+    └── GET  /link
+         ↓ 透明路由（自动降级）
+    ├── 传输 A：WebSocket P2P（acp://）★ 首选，协议标准形态
+    │     链接格式：acp://IP:PORT/TOKEN
+    │     延迟：<100ms | 依赖：零依赖，真 P2P
+    │     适用：普通网络（家庭/公司内网，无严格 NetworkPolicy）
+    │     ⚠️ 不适用：K8s 沙箱（TCP SYN 通但数据层被 NetworkPolicy 拦截）
+    │
+    ├── 传输 B：[已永久移除] GitHub Issues 轮询
+    │     原因：需要双方 GitHub token，违背「零注册、零依赖」原则
+    │
+    └── 传输 C：HTTP 公共中继（acp+wss://）★ 降级备选，非标准形态
+          链接格式：acp+wss://RELAY_HOST/acp/TOKEN
+          延迟：1-3s（HTTP 轮询）| 适用：任意网络（含严格沙箱）
+          依赖：需要一个运行 acp_worker.js 的 HTTP 服务（可自部署）
+          公共实例：black-silence-11c4.yuranliu888.workers.dev（维护方运营）
+          触发条件：传输 A 连接超时（10s）自动降级
+```
+
+### ✅ 自动降级策略（v0.6-dev 已实现，commit 74de528）
+
+**核心设计原则（2026-03-19 20:16 Stark 先生明确）：**
+> 链接是应用层信息，不受底层通信方式影响。传输层选择在建立通信时自动决定，对链接格式完全透明。
+
+**Token 统一机制：**
+- host 启动时：`POST /acp/new?token=<p2p_token>` 在 Cloudflare relay 预注册同名 session
+- guest 收到 `acp://IP:PORT/TOKEN`，P2P 失败后直接用 `TOKEN` join relay
+- 两端用同一个 token 相遇，零额外信息交换
+
+```
+connect(link):                        # link 永远是 acp://IP:PORT/TOKEN
+    try WebSocket P2P, timeout=10s
+    on success → P2P 直连 ✅
+    on timeout → relay_token = p2p_token (同一个值)
+              → POST /relay/acp/{token}/join
+              → HTTP 轮询收发 ✅
+```
+
+**端到端验证（2026-03-19 20:26 测试通过）：**
+- Alpha（port 7811）启动 → relay 预注册 tok_6ffcabf9149f4078
+- Beta `--join acp://33.229.113.196:7811/tok_6ffcabf9149f4078` → P2P 直连成功
+- Alpha→Beta：`你好 Beta！我是 Alpha，ACP 通信测试 🤖` ✅
+- Beta→Alpha：`收到，Alpha！我是 Beta，信道畅通 ✅` ✅
+- message_id 幂等、server_seq 有序，全部验证通过
+
+### 取舍说明（2026-03-19 Stark 先生确认）
+
+| 维度 | 传输 A（标准） | 传输 C（降级） |
+|------|-------------|-------------|
+| 协议依赖性 | ✅ 零依赖 | ⚠️ 依赖 HTTP 服务 |
+| 网络要求 | 双方 IP 互通 | 仅需 HTTPS 出站 |
+| 延迟 | <100ms | 1-3s |
+| 是否标准 | ✅ 是 | ❌ 否，是工程取舍 |
+| 自部署 | N/A | ✅ acp_worker.js 开源 |
+
+### 实战经验：K8s 沙箱网络特征（2026-03-19 测试记录）
+
+今日通过实际跨机测试，完整摸清了 K8s Pod 的网络限制：
+
+| 现象 | 原因 | 对 ACP 的影响 |
+|------|------|-------------|
+| TCP 三次握手成功 | K8s NodePort SYN proxy 接受所有 SYN | 误判为「端口可达」 |
+| HTTP 数据层超时 | NetworkPolicy 丢弃数据包，只放 SYN | 传输 A（WS P2P）完全不可用 |
+| 只有 8080 数据通 | 该端口是另一个 Pod 的 K8s Service | 无法控制，不可用于 ACP |
+| 出站到 github.com 通 | 代理白名单放行 | 传输 B 单向可用（我写对方读） |
+| 出站到 api.cloudflare.com 通 | 代理白名单放行 | 可用于部署传输 C |
+
+**结论**：在 K8s 严格沙箱环境中，ACP 必须依赖传输 C（公共中继）。传输 A 仅适用于普通网络（家庭/公司内网无 NetworkPolicy 限制）。
+
+**自动降级策略（v0.7）**：
+```
+connect(link):
+    if link starts with "acp://":
+        try WS P2P, timeout=10s
+        on timeout → auto fallback to acp+wss:// relay
+    elif link starts with "acp+wss://":
+        connect to public relay directly
 ```
 
 ---
