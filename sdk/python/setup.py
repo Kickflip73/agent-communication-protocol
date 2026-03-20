@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="acp-sdk",
-    version="0.1.0",
+    version="0.6.0",
     description="Agent Communication Protocol (ACP) SDK for Python",
     long_description=open("../../README.md").read(),
     long_description_content_type="text/markdown",
