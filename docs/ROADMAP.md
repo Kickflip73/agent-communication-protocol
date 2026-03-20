@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-20 20:13（文档轮：v0.8 进度表格启动，Node SDK ✅）
+> 最后更新：2026-03-20 21:43（文档轮：v0.8 兼容性测试套件 ✅，剩余 Ed25519）
 
 ---
 
@@ -170,9 +170,16 @@ curl http://localhost:7901/discover
 | 特性 | 优先级 | 状态 | Commit |
 |------|--------|------|--------|
 | Node.js SDK RelayClient（零依赖，TS 类型，19 tests） | P0 | ✅ 已完成 | `fd8c02a` |
-| 兼容性测试套件（tests/compat/，黑盒 HTTP） | P0 | ⏳ 待开发 | — |
-| Ed25519 可选身份扩展（spec/identity-v0.8.md） | P1 | ⏳ 待开发 | — |
+| 兼容性测试套件（tests/compat/，黑盒 HTTP） | P0 | ✅ 已完成 | `98197cf` |
+| Ed25519 可选身份扩展（spec/identity-v0.8.md） | P1 | ⏳ 开发中 | — |
 | 规范文档正式发布（三层架构） | P2 | ⏳ 待开发 | — |
+
+**兼容性测试套件（`tests/compat/`）：**
+- `python3 tests/compat/run.py --url http://localhost:7901` — 黑盒合规性验证
+- 41 个检查点，7 套件（AgentCard/MessageSend/Tasks/ErrorCodes/Peers/QuerySkills/HMAC）
+- 三级断言：MUST / SHOULD / MAY；可选能力自动 SKIP
+- `--json` 输出支持 CI 集成；零外部依赖（stdlib only）
+- 任意 ACP 实现均可用此工具验证合规性
 
 **安全细节备注（来自 APS Module 36A，2026-03-20 研究轮）：**
 - Ed25519 签名载荷**必须包含 `expiresAt`**，防止重放攻击（APS 曾在此处有 bug）
