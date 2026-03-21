@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acp-relay"
+version = "0.9.0.dev0"
+description = "Agent Communication Protocol (ACP) — P2P relay for Agent-to-Agent communication"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [
+    { name = "ACP Community" }
+]
+keywords = ["agent", "acp", "p2p", "llm", "multi-agent", "communication", "protocol"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+
+# ── Core dependencies ─────────────────────────────────────────────────────────
+# acp_relay.py itself only needs websockets.
+# The Python SDK client (sdk/python) is stdlib-only.
+dependencies = [
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+# Optional: Ed25519 identity signing (--identity flag)
+identity = ["cryptography>=42.0"]
+
+# Development / testing
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",          # for integration tests against live relay
+]
+
+# Full install (relay + SDK + identity)
+full = [
+    "websockets>=12.0",
+    "cryptography>=42.0",
+]
+
+[project.urls]
+Homepage      = "https://github.com/Kickflip73/agent-communication-protocol"
+Repository    = "https://github.com/Kickflip73/agent-communication-protocol"
+Documentation = "https://github.com/Kickflip73/agent-communication-protocol/blob/main/docs/integration-guide.md"
+Changelog     = "https://github.com/Kickflip73/agent-communication-protocol/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/Kickflip73/agent-communication-protocol/issues"
+
+[project.scripts]
+# `acp-relay` CLI entry-point — runs acp_relay.py main()
+acp-relay = "acp_relay:main"
+
+# ── Package discovery ─────────────────────────────────────────────────────────
+# acp_relay.py is a single-file module in relay/.
+# We use package-dir to map the root search path to relay/ so setuptools finds it.
+# The SDK packages (acp_sdk) live in sdk/python/ and are listed explicitly.
+[tool.setuptools]
+py-modules = ["acp_relay"]
+
+[tool.setuptools.package-dir]
+# Map "acp_relay" module root to relay/
+"" = "relay"
+
+[tool.setuptools.packages.find]
+where = ["relay"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+# ── Pytest ─────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths    = ["tests", "sdk/python/tests"]
+asyncio_mode = "auto"
+
+# ── Ruff (linting, optional) ───────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py310"
+line-length    = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]   # line length handled by formatter
