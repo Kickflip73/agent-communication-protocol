@@ -1,4 +1,4 @@
-# ACP CLI Reference — v0.9
+# ACP CLI Reference — v1.1
 
 `acp_relay.py` is both the reference implementation and the command-line interface.
 This document covers every flag, common usage patterns, and environment variables.
@@ -41,11 +41,12 @@ python3 acp_relay.py [OPTIONS]
 | `--relay` | `false` | Use public HTTP relay instead of direct P2P. Useful behind firewalls / K8s NAT. Produces `acp+wss://` link instead of `acp://` |
 | `--relay-url <url>` | `https://black-silence-11c4.yuranliu888.workers.dev` | Override the relay endpoint. Use this to self-host with `relay/acp_worker.js` |
 
-### Security — HMAC Signing (v0.7)
+### Security — HMAC Signing (v0.7 / v1.1)
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--secret <key>` | *(none)* | Enable HMAC-SHA256 message signing. Both peers must use the same key. Messages with wrong or missing signatures log a warning but are **not dropped** (warn-only). No extra packages required. |
+| `--hmac-window <seconds>` | `300` | **(v1.1)** Replay-window for HMAC-signed messages. Inbound messages whose `ts` field is outside `±SECONDS` of server clock are **dropped** (hard reject). Only active when `--secret` is set. Set `0` to disable. Recommended: 60–300 s. |
 
 ### Security — Ed25519 Identity (v0.8)
 
@@ -118,10 +119,25 @@ python3 acp_relay.py --name "AgentB" --join "acp://..." --secret "shared-team-ke
 
 Messages with a wrong or absent `sig` field will log:
 ```
-⚠️  HMAC verification failed for message msg_xxx
+⚠️  HMAC sig mismatch on msg_xxx — message accepted but flagged
 ```
-The message is still delivered (warn-only). To enforce strict rejection, set
-`capabilities.hmac_strict: true` in a future version.
+The message is still delivered (warn-only). Sig mismatch does not drop the message;
+this preserves graceful interop for agents that may not implement signing.
+
+### HMAC signing with replay-window (v1.1) — high-security deployment
+
+```bash
+# Tight 60-second replay window: replay attacks blocked immediately
+python3 acp_relay.py --name "AgentA" --secret "shared-team-key-2026" --hmac-window 60
+python3 acp_relay.py --name "AgentB" --join "acp://..." --secret "shared-team-key-2026" --hmac-window 60
+```
+
+Messages with a `ts` field outside ±`HMAC_WINDOW` seconds are **hard-rejected and dropped**:
+```
+⚠️  HMAC replay-window reject on msg_xxx: ts outside replay-window (450s > 300s)
+```
+The default window is 300 s (5 min), suitable for most Agent-to-Agent use.
+For high-security environments, use 60–120 s. Requires synchronized clocks (NTP).
 
 ### Ed25519 identity — open federation
 
@@ -214,6 +230,13 @@ INFO  📡 mDNS advertising active (224.0.0.251:5354)
 When `--secret` is set:
 ```
 INFO  🔐 HMAC signing enabled (--secret configured)
+INFO  🕐 HMAC replay-window: ±300s
+```
+
+When `--secret` + `--hmac-window 60` is set:
+```
+INFO  🔐 HMAC signing enabled (--secret configured)
+INFO  🕐 HMAC replay-window: ±60s
 ```
 
 When `--identity` is set:
@@ -276,6 +299,7 @@ Keys use the same names as CLI long flags (hyphens, not underscores):
 | `inbox` | string | `"/var/log/acp/messages.jsonl"` |
 | `max-msg-size` | int | `2097152` |
 | `secret` | string | `"shared-key"` |
+| `hmac-window` | int | `120` |
 | `advertise-mdns` | bool | `true` |
 | `identity` | string | `"~/.acp/identity.json"` |
 | `verbose` | bool | `true` |
