@@ -1,0 +1,6 @@
+{
+  "name": "RelayAgent",
+  "relay": true,
+  "skills": "code-review",
+  "verbose": false
+}

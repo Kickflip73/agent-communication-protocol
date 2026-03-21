@@ -1,4 +1,4 @@
-# ACP CLI Reference — v0.8
+# ACP CLI Reference — v0.9
 
 `acp_relay.py` is both the reference implementation and the command-line interface.
 This document covers every flag, common usage patterns, and environment variables.
@@ -14,6 +14,14 @@ python3 acp_relay.py [OPTIONS]
 ---
 
 ## Flags
+
+### Meta (v0.9)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--version` | — | Print `acp_relay.py <version>` and exit |
+| `--verbose` / `-v` | `false` | Enable DEBUG-level logging. Default is INFO. |
+| `--config <FILE>` | *(none)* | Load defaults from a JSON or YAML config file. CLI flags always override file values. See [Config Files](#config-files) below. |
 
 ### Core
 
@@ -242,6 +250,68 @@ curl http://localhost:7901/discover
 ```
 
 Full API reference: [`spec/core-v0.8.md §4`](../spec/core-v0.8.md).
+
+---
+
+---
+
+## Config Files
+
+All CLI flags (except `--version`) can be set in a JSON or YAML config file
+and loaded with `--config <path>`. **CLI flags always take precedence** over
+file values.
+
+### Supported keys
+
+Keys use the same names as CLI long flags (hyphens, not underscores):
+
+| Key | Type | Example |
+|-----|------|---------|
+| `name` | string | `"MyAgent"` |
+| `port` | int | `8000` |
+| `join` | string | `"acp://1.2.3.4:7801/tok_xxx"` |
+| `relay` | bool | `true` |
+| `relay-url` | string | `"https://my-relay.example.com"` |
+| `skills` | string (CSV) | `"summarize,translate"` |
+| `inbox` | string | `"/var/log/acp/messages.jsonl"` |
+| `max-msg-size` | int | `2097152` |
+| `secret` | string | `"shared-key"` |
+| `advertise-mdns` | bool | `true` |
+| `identity` | string | `"~/.acp/identity.json"` |
+| `verbose` | bool | `true` |
+
+### JSON example (`relay/examples/config.json`)
+
+```json
+{
+  "name": "MyAgent",
+  "port": 7801,
+  "skills": "summarize,translate,search",
+  "verbose": false
+}
+```
+
+### YAML example (`relay/examples/config-secure.yaml`)
+
+```yaml
+# HMAC + Ed25519 + LAN discovery
+name: SecureAgent
+skills: summarize
+secret: replace-with-your-shared-secret
+advertise-mdns: true
+identity: ~/.acp/identity.json
+verbose: false
+```
+
+> **YAML note**: The built-in YAML parser supports only JSON-compatible flat
+> key-value pairs (no nested objects, no multi-line strings). For complex YAML,
+> use JSON format instead.
+
+### Precedence order
+
+```
+CLI flags  >  --config file  >  hardcoded defaults
+```
 
 ---
 

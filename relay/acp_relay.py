@@ -1873,48 +1873,213 @@ def parse_link(link):
 # Entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _load_config_file(path: str) -> dict:
+    """
+    Load a YAML or JSON config file and return a dict of option overrides.
+
+    Supported keys match CLI long-option names (hyphens, not underscores):
+      name, port, join, relay, relay-url, skills, inbox, max-msg-size,
+      secret, advertise-mdns, identity, verbose
+
+    YAML support uses stdlib only (no PyYAML required) — only the subset of
+    YAML that is valid JSON is accepted. For true YAML, install PyYAML.
+
+    Example config.json:
+        {
+          "name": "MyAgent",
+          "port": 8000,
+          "skills": "summarize,translate",
+          "verbose": true
+        }
+
+    Example config.yaml (JSON-compatible subset):
+        name: MyAgent
+        port: 8000
+        skills: summarize,translate
+        verbose: true
+    """
+    if not os.path.exists(path):
+        print(f"[acp] Error: config file not found: {path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(path, "r") as f:
+        text = f.read()
+
+    # Try JSON first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Minimal YAML parser (key: value lines, bool/int coercion, no nesting)
+    try:
+        result = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ":" not in line:
+                continue
+            key, _, val = line.partition(":")
+            key = key.strip()
+            val = val.strip()
+            # bool coercion
+            if val.lower() in ("true", "yes"):
+                val = True
+            elif val.lower() in ("false", "no"):
+                val = False
+            else:
+                # int coercion
+                try:
+                    val = int(val)
+                except ValueError:
+                    pass
+            result[key] = val
+        return result
+    except Exception as e:
+        print(f"[acp] Error parsing config file {path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     global _loop, _status, _inbox_path, MAX_MSG_BYTES
 
-    parser = argparse.ArgumentParser(description=f"ACP P2P v{VERSION} — zero-server Agent communication")
-    parser.add_argument("--name",         default="ACP-Agent")
-    parser.add_argument("--join",         default=None, help="acp:// link to connect to")
+    parser = argparse.ArgumentParser(
+        description=f"ACP P2P v{VERSION} — zero-server Agent communication",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Minimal P2P host
+  python3 acp_relay.py --name AgentA
+
+  # Join an existing session
+  python3 acp_relay.py --name AgentB --join acp://1.2.3.4:7801/tok_xxx
+
+  # Use public relay (firewall-friendly)
+  python3 acp_relay.py --name AgentA --relay
+
+  # Load config from file (JSON or YAML)
+  python3 acp_relay.py --config agent.json
+
+  # Show version and exit
+  python3 acp_relay.py --version
+
+  # Verbose debug logging
+  python3 acp_relay.py --name AgentA --verbose
+""",
+    )
+
+    # ── Meta ──────────────────────────────────────────────────────────────────
+    parser.add_argument(
+        "--version", action="version",
+        version=f"acp_relay.py {VERSION}",
+        help="Show version string and exit",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable DEBUG-level logging (default: INFO)",
+    )
+    parser.add_argument(
+        "--config", default=None, metavar="FILE",
+        help="Path to a JSON or YAML config file. CLI flags override file values.",
+    )
+
+    # ── Core ──────────────────────────────────────────────────────────────────
+    parser.add_argument("--name",         default=None,  help="Agent name (default: ACP-Agent)")
+    parser.add_argument("--join",         default=None,  help="acp:// link to connect to")
     parser.add_argument("--relay",        action="store_true", help="Use public HTTP relay instead of P2P")
-    parser.add_argument("--relay-url",    default="https://black-silence-11c4.yuranliu888.workers.dev", help="Relay URL")
-    parser.add_argument("--port",         type=int, default=7801)
-    parser.add_argument("--skills",       default="")
-    parser.add_argument("--inbox",        default=None)
-    parser.add_argument("--max-msg-size", type=int, default=MAX_MSG_BYTES)
+    parser.add_argument("--relay-url",    default=None,
+                        help="Relay endpoint URL (default: public Cloudflare Worker)")
+    parser.add_argument("--port",         type=int, default=None,
+                        help="WebSocket listen port (default: 7801; HTTP API = port+100)")
+    parser.add_argument("--skills",       default=None,
+                        help="Comma-separated skill ids to advertise in AgentCard")
+    parser.add_argument("--inbox",        default=None,
+                        help="Path to JSONL message persistence file")
+    parser.add_argument("--max-msg-size", type=int, default=None,
+                        help=f"Max inbound message size in bytes (default: {MAX_MSG_BYTES})")
+
+    # ── Security (v0.7+) ──────────────────────────────────────────────────────
     parser.add_argument("--secret",       default=None,
-                        help="(v0.7) Optional HMAC-SHA256 shared secret for message signing. "
-                             "Both peers must use the same secret to verify signatures. "
-                             "If omitted, messages are unsigned (plain mode).")
+                        help="(v0.7) HMAC-SHA256 shared secret for message signing. "
+                             "Both peers must use the same value.")
     parser.add_argument("--advertise-mdns", action="store_true",
-                        help="(v0.7) Advertise this agent on the LAN via UDP multicast "
-                             "and discover nearby ACP peers. Enables GET /discover endpoint. "
-                             "Uses 224.0.0.251:5354 — no zeroconf library required.")
+                        help="(v0.7) Advertise on LAN via UDP multicast. "
+                             "Enables GET /discover. No extra packages required.")
     parser.add_argument("--identity",     default=None,
-                        help="(v0.8) Enable Ed25519 message signing and identity attribution. "
-                             "Optional path to identity.json keypair file. "
-                             "If omitted but flag is set, uses ~/.acp/identity.json (auto-generated). "
-                             "Requires: pip install cryptography. "
-                             "Example: --identity (use default path) or --identity /path/to/id.json")
+                        help="(v0.8) Path to Ed25519 keypair JSON (auto-generated if absent). "
+                             "Omit path to use ~/.acp/identity.json. "
+                             "Requires: pip install cryptography.")
+
     args = parser.parse_args()
 
-    MAX_MSG_BYTES = args.max_msg_size
+    # ── Apply config file (lowest precedence) ─────────────────────────────────
+    cfg: dict = {}
+    if args.config:
+        cfg = _load_config_file(args.config)
+
+    # Helpers: resolve with CLI > config > hardcoded default
+    def _get(cli_val, cfg_key: str, default):
+        if cli_val is not None:
+            return cli_val
+        if cfg_key in cfg:
+            return cfg[cfg_key]
+        return default
+
+    def _get_bool(cli_flag: bool, cfg_key: str) -> bool:
+        if cli_flag:
+            return True
+        return bool(cfg.get(cfg_key, False))
+
+    # ── Resolve all values ────────────────────────────────────────────────────
+    _DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+
+    verbose        = _get_bool(args.verbose,        "verbose")
+    agent_name     = _get(args.name,         "name",           "ACP-Agent")
+    join_link      = _get(args.join,         "join",           None)
+    use_relay      = _get_bool(args.relay,          "relay")
+    relay_url      = _get(args.relay_url,    "relay-url",      _DEFAULT_RELAY)
+    port           = _get(args.port,         "port",           7801)
+    skills_str     = _get(args.skills,       "skills",         "")
+    inbox_path     = _get(args.inbox,        "inbox",          None)
+    max_msg_size   = _get(args.max_msg_size, "max-msg-size",   MAX_MSG_BYTES)
+    secret_str     = _get(args.secret,       "secret",         None)
+    advertise_mdns = _get_bool(args.advertise_mdns, "advertise-mdns")
+    identity_path  = _get(args.identity,     "identity",       None)
+
+    # ── Configure logging ─────────────────────────────────────────────────────
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        log.debug("Verbose/DEBUG logging enabled")
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+
+    # ── Apply resolved values ─────────────────────────────────────────────────
+    MAX_MSG_BYTES = max_msg_size
     _status["max_msg_bytes"] = MAX_MSG_BYTES
 
     # HMAC optional signing (v0.7)
     global _hmac_secret
-    if args.secret:
-        _hmac_secret = args.secret.encode()
+    if secret_str:
+        _hmac_secret = secret_str.encode()
         log.info("🔐 HMAC signing enabled (--secret configured)")
     else:
         _hmac_secret = None
 
     # Ed25519 optional identity (v0.8)
-    if args.identity is not None:
-        _ed25519_load_or_create(args.identity if args.identity else None)
+    if identity_path is not None:
+        _ed25519_load_or_create(identity_path if identity_path else None)
+
+    # Rebuild args-like namespace for the rest of main() to consume
+    # (avoids rewriting all downstream args.xxx references)
+    args.name          = agent_name
+    args.join          = join_link
+    args.relay         = use_relay
+    args.relay_url     = relay_url
+    args.port          = port
+    args.skills        = skills_str
+    args.inbox         = inbox_path
+    args.advertise_mdns = advertise_mdns
 
     ws_port   = args.port
     http_port = args.port + 100
