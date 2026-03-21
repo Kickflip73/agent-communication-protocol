@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acp-relay"
-version = "0.9.0.dev0"
+version = "1.0.0"
 description = "Agent Communication Protocol (ACP) — P2P relay for Agent-to-Agent communication"
 readme = "README.md"
 license = { text = "Apache-2.0" }

@@ -12,7 +12,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="acp-relay-sdk",
-    version="0.9.0.dev0",
+    version="1.0.0",
     description="ACP Python SDK — RelayClient & AsyncRelayClient for acp_relay.py",
     long_description=open("../../README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
