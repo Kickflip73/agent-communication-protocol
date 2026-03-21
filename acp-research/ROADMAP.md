@@ -126,9 +126,9 @@
 - [x] 版本号 1.0.0 bump + git tag v1.0.0-rc.1（commit `ddfaf07`，2026-03-21）
 
 #### P1（随 1.0 发布）
-- [ ] HMAC 安全审计（常量时间比较、无 timing oracle）
-- [ ] Ed25519 安全审计（canonical form、key 权限、graceful fallback）
-- [ ] `docs/security.md`：安全模型、限制说明、TLS 建议
+- [x] HMAC 安全审计：8 PASS, 1 PARTIAL（replay window），commit `a3ee229`
+- [x] Ed25519 安全审计：8 PASS，commit `a3ee229`
+- [x] `docs/security.md`：安全模型、限制说明、TLS 建议，commit `a3ee229`
 - [ ] Go SDK stub（`sdk/go/`，stdlib `net/http` + `bufio` SSE，零依赖）
 
 #### P2（可选 / v1.1）
