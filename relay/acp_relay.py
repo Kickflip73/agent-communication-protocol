@@ -1388,12 +1388,29 @@ class LocalHTTP(BaseHTTPRequestHandler):
         p = parsed.path
 
         # /message:send  — primary v0.5 endpoint (A2A-aligned)
-        # Accepts: {message_id?, role?, parts, task_id?, context_id?, sync?, timeout?}
+        # Accepts: {message_id?, role, parts|text, task_id?, context_id?, sync?, timeout?}
+        # Required fields (server-side validated, v0.9):
+        #   role    — must be present and one of: "user" | "agent"
+        #   content — at least one of: parts (non-empty list) or text/content (non-empty string)
         if p == "/message:send":
             try:
                 body = self._read_body()
 
-                # Build structured message
+                # ── v0.9: server-side required-field validation ───────────────
+                _VALID_ROLES = {"user", "agent"}
+                role_raw = body.get("role")
+                if role_raw is None:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be 'user' or 'agent')")
+                    self._json(e_body, e_code)
+                    return
+                if role_raw not in _VALID_ROLES:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          f"invalid role '{role_raw}': must be 'user' or 'agent'")
+                    self._json(e_body, e_code)
+                    return
+
+                # ── Build structured message ───────────────────────────────────
                 parts = body.get("parts")
                 if parts:
                     ok, err = _validate_parts(parts)
@@ -1406,7 +1423,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     text = body.get("text") or body.get("content") or ""
                     parts = [_make_text_part(str(text))] if text else []
                     if not parts:
-                        e_body, e_code = _err(ERR_INVALID_REQUEST, "provide 'parts' or 'text'")
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "missing required field: provide 'parts' (list) or 'text' (string)")
                         self._json(e_body, e_code)
                         return
 
@@ -1417,7 +1435,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "server_seq": _next_seq(),
                     "ts":         _now(),
                     "from":       _status.get("agent_name", "unknown"),
-                    "role":       body.get("role", "user"),
+                    "role":       role_raw,
                     "parts":      parts,
                 }
                 if body.get("task_id"):

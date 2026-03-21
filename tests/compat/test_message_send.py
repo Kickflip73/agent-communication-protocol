@@ -1,19 +1,26 @@
 """
 Suite: Message Send (ACP spec §4)
 Tests /message:send endpoint behavior including idempotency.
+
+v0.9 additions:
+  - Server-side required-field validation: role + content (§4.1)
+    Per ACP spec v0.9, servers MUST reject messages that are missing
+    'role' or have an invalid role value, and MUST reject messages
+    that have neither 'parts' nor 'text'/'content'.
 """
 import time
 import uuid
 from compat_base import Compat
 
 
-def _msg(text: str = "compat-test", message_id: str | None = None) -> dict:
+def _msg(text: str = "compat-test", message_id: str | None = None,
+         role: str = "user") -> dict:
     return {
         "type": "acp.message",
         "message_id": message_id or f"msg_{uuid.uuid4().hex[:16]}",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "from": "compat-runner",
-        "role": "user",
+        "role": role,
         "parts": [{"type": "text", "content": text}],
     }
 
@@ -43,13 +50,58 @@ class MessageSendSuite(Compat):
                        isinstance(resp.get("server_seq"), int),
                        "SHOULD")
 
-        # ── Required envelope fields validation ───────────────────────────────
-        # Missing message_id → should get error
-        bad = {"type": "acp.message", "parts": [{"type": "text", "content": "x"}]}
-        s2, r2 = self.post("/message:send", bad)
-        self.check("missing message_id returns 4xx",
-                   400 <= s2 < 500, "SHOULD",
-                   f"got {s2} — server should validate required fields")
+        # ── Required-field validation (v0.9, server-side) ────────────────────
+        # §4.1: role is REQUIRED; missing → 400
+        no_role = {"type": "acp.message", "parts": [{"type": "text", "content": "x"}]}
+        s_no_role, r_no_role = self.post("/message:send", no_role)
+        self.check("missing 'role' returns 400",
+                   s_no_role == 400, "MUST",
+                   f"got {s_no_role} — server MUST reject requests without role")
+
+        if isinstance(r_no_role, dict):
+            self.check("missing 'role' error has error_code ERR_INVALID_REQUEST",
+                       r_no_role.get("error_code") == "ERR_INVALID_REQUEST", "MUST",
+                       f"got error_code={r_no_role.get('error_code')!r}")
+            self.check("missing 'role' error has 'error' string",
+                       isinstance(r_no_role.get("error"), str), "MUST")
+
+        # §4.1: role must be 'user' or 'agent'
+        bad_role = {"type": "acp.message", "role": "superagent",
+                    "parts": [{"type": "text", "content": "x"}]}
+        s_bad_role, r_bad_role = self.post("/message:send", bad_role)
+        self.check("invalid role value returns 400",
+                   s_bad_role == 400, "MUST",
+                   f"got {s_bad_role} — role must be 'user' or 'agent'")
+
+        if isinstance(r_bad_role, dict):
+            self.check("invalid role error_code is ERR_INVALID_REQUEST",
+                       r_bad_role.get("error_code") == "ERR_INVALID_REQUEST", "MUST",
+                       f"got {r_bad_role.get('error_code')!r}")
+
+        # §4.1: at least one of parts / text / content is REQUIRED
+        no_content = {"type": "acp.message", "role": "user"}
+        s_no_content, r_no_content = self.post("/message:send", no_content)
+        self.check("missing content (no parts, no text) returns 400",
+                   s_no_content == 400, "MUST",
+                   f"got {s_no_content} — server MUST reject empty-content messages")
+
+        if isinstance(r_no_content, dict):
+            self.check("missing content error_code is ERR_INVALID_REQUEST",
+                       r_no_content.get("error_code") == "ERR_INVALID_REQUEST", "MUST",
+                       f"got {r_no_content.get('error_code')!r}")
+
+        # role='agent' is valid
+        s_agent, r_agent = self.post("/message:send", _msg("agent message", role="agent"))
+        self.check("role='agent' is accepted",
+                   s_agent in (200, 202), "MUST",
+                   f"got {s_agent}")
+
+        # Missing message_id is allowed (server auto-generates)
+        no_mid = {"role": "user", "text": "no explicit message_id"}
+        s_no_mid, r_no_mid = self.post("/message:send", no_mid)
+        self.check("missing message_id is acceptable (server auto-assigns)",
+                   s_no_mid in (200, 202), "SHOULD",
+                   f"got {s_no_mid} — servers MAY auto-generate message_id")
 
         # ── Idempotency (message_id deduplication) ────────────────────────────
         dup_id = f"msg_{uuid.uuid4().hex[:16]}"
