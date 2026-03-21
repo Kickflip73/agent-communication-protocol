@@ -379,84 +379,432 @@ class RelayClient:
 
 
 # ─────────────────────────────────────────────
-# Async variant (optional, requires aiohttp)
+# ─────────────────────────────────────────────
+# AsyncRelayClient — stdlib-only async client (v0.9)
 # ─────────────────────────────────────────────
 
 class AsyncRelayClient:
     """
-    Async HTTP client for acp_relay.py (v0.6). Requires aiohttp.
+    Async HTTP client for acp_relay.py (v0.8).
 
-    Example:
+    **Zero external dependencies** — uses stdlib asyncio + urllib only.
+    No aiohttp, no httpx, no requests. Truly optional extras.
+
+    Supports all ACP v0.8 features:
+      - Async send/recv/stream
+      - Multi-session peer registry (v0.6)
+      - Task lifecycle with input_required (v0.5)
+      - context_id multi-turn grouping (v0.7)
+      - Structured Parts: text / file / data (v0.5)
+      - QuerySkill API (v0.5)
+      - LAN discovery (v0.7, requires --advertise-mdns on relay)
+
+    Usage:
+        # Context manager (recommended)
         async with AsyncRelayClient("http://localhost:7901") as client:
             await client.send("Hello async!")
-            peers = await client.peers()
+            async for event in client.stream(timeout=30):
+                print(event)
+
+        # Manual lifecycle
+        client = AsyncRelayClient("http://localhost:7901")
+        resp = await client.send("Hello")
+        await client.close()
+
+    Comparison with aiohttp-based approach:
+        The previous AsyncRelayClient required `pip install aiohttp`.
+        This implementation uses only asyncio.get_event_loop() +
+        loop.run_in_executor() to offload stdlib urllib calls without
+        blocking the event loop — no third-party packages needed.
     """
 
     def __init__(self, base_url: str = "http://localhost:7901", timeout: float = 10.0):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self._session = None
 
-    async def __aenter__(self):
-        try:
-            import aiohttp
-            self._session = aiohttp.ClientSession()
-        except ImportError:
-            raise ImportError("AsyncRelayClient requires aiohttp: pip install aiohttp")
+    async def __aenter__(self) -> "AsyncRelayClient":
         return self
 
-    async def __aexit__(self, *args):
-        if self._session:
-            await self._session.close()
+    async def __aexit__(self, *args) -> None:
+        pass  # no persistent connection to close
+
+    async def close(self) -> None:
+        """No-op — kept for API compatibility with aiohttp-based clients."""
+        pass
+
+    # ── Internal helpers ────────────────────────────────────────────────
 
     async def _get(self, path: str) -> dict:
-        async with self._session.get(
-            f"{self.base_url}{path}",
-            timeout=self.timeout,
-        ) as resp:
-            return await resp.json()
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, _http_get, f"{self.base_url}{path}", self.timeout
+        )
 
     async def _post(self, path: str, body: dict) -> dict:
-        async with self._session.post(
-            f"{self.base_url}{path}",
-            json=body,
-            timeout=self.timeout,
-        ) as resp:
-            return await resp.json()
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, _http_post, f"{self.base_url}{path}", body, self.timeout
+        )
+
+    # ── Status & discovery ──────────────────────────────────────────────
 
     async def status(self) -> dict:
+        """Get relay status, version, and AgentCard."""
         return await self._get("/status")
 
+    async def card(self) -> dict:
+        """Get AgentCard (.well-known/acp.json)."""
+        return await self._get("/.well-known/acp.json")
+
+    async def link(self) -> str:
+        """Get the acp:// link for this node."""
+        data = await self._get("/link")
+        return data.get("link", "")
+
+    async def discover(self) -> list[dict]:
+        """
+        List LAN peers discovered via mDNS (v0.7).
+        Requires relay started with --advertise-mdns.
+        """
+        data = await self._get("/discover")
+        return data.get("peers", [])
+
+    # ── Peer management ─────────────────────────────────────────────────
+
     async def peers(self) -> list[dict]:
+        """List all connected peers (multi-session, v0.6)."""
         data = await self._get("/peers")
         return data.get("peers", [])
 
-    async def send(self, text: str, *, role: str = "user", message_id: str = None) -> dict:
-        body: dict = {"role": role, "text": text}
+    async def peer(self, peer_id: str) -> dict:
+        """Get info for a specific peer."""
+        return await self._get(f"/peer/{peer_id}")
+
+    async def connect_peer(self, link: str) -> dict:
+        """
+        Connect to a new peer via its acp:// link (v0.6).
+
+        Args:
+            link: The acp:// (or acp+wss://) link from the other agent.
+        """
+        return await self._post("/peers/connect", {"link": link})
+
+    async def is_connected(self) -> bool:
+        """Return True if at least one peer is connected."""
+        try:
+            st = await self.status()
+            return st.get("connected", False)
+        except Exception:
+            return False
+
+    # ── Messaging ───────────────────────────────────────────────────────
+
+    async def send(
+        self,
+        text: str = None,
+        *,
+        parts: list[dict] = None,
+        role: str = "user",
+        message_id: str = None,
+        task_id: str = None,
+        context_id: str = None,
+        create_task: bool = False,
+        sync: bool = False,
+        sync_timeout: float = 30.0,
+    ) -> dict:
+        """
+        Send a message to the connected peer (primary).
+
+        Args:
+            text:         Plain text content (shorthand for parts=[{type:text,...}]).
+            parts:        Structured Part list. Overrides `text`.
+            role:         Message role ("user" | "agent"). Default "user".
+            message_id:   Client-assigned idempotency key. Auto-generated if omitted.
+            task_id:      Associate message with an existing task (v0.5).
+            context_id:   Multi-turn context group identifier (v0.7).
+            create_task:  Auto-create a task for this message (v0.5).
+            sync:         Block until peer replies (v0.5).
+            sync_timeout: Seconds to wait for sync reply (default 30).
+
+        Returns:
+            {"ok": True, "message_id": "msg_..."} on success,
+            or {"ok": False, "error_code": "ERR_...", "error": "..."} on failure.
+        """
+        body: dict = {"role": role}
         if message_id:
             body["message_id"] = message_id
+        if parts:
+            body["parts"] = parts
+        elif text is not None:
+            body["text"] = text
+        else:
+            raise ValueError("Provide either 'text' or 'parts'")
+        if task_id:
+            body["task_id"] = task_id
+        if context_id:
+            body["context_id"] = context_id
+        if create_task:
+            body["create_task"] = True
+        if sync:
+            body["sync"] = True
+            body["timeout"] = int(sync_timeout)
         return await self._post("/message:send", body)
 
     async def send_to_peer(
-        self, peer_id: str, text: str, *, role: str = "user"
+        self,
+        peer_id: str,
+        text: str = None,
+        *,
+        parts: list[dict] = None,
+        role: str = "user",
+        message_id: str = None,
+        task_id: str = None,
+        context_id: str = None,
     ) -> dict:
-        return await self._post(f"/peer/{peer_id}/send", {"role": role, "text": text})
+        """
+        Send a message to a specific peer (multi-session, v0.6).
+
+        Args:
+            peer_id:    The session_id of the target peer.
+            text:       Plain text content.
+            parts:      Structured Part list.
+            role:       Message role.
+            message_id: Client-assigned idempotency key.
+            task_id:    Associate with an existing task (v0.5).
+            context_id: Multi-turn context group identifier (v0.7).
+        """
+        body: dict = {"role": role}
+        if message_id:
+            body["message_id"] = message_id
+        if parts:
+            body["parts"] = parts
+        elif text is not None:
+            body["text"] = text
+        else:
+            raise ValueError("Provide either 'text' or 'parts'")
+        if task_id:
+            body["task_id"] = task_id
+        if context_id:
+            body["context_id"] = context_id
+        return await self._post(f"/peer/{peer_id}/send", body)
 
     async def recv(self, limit: int = 50) -> list[dict]:
+        """Poll received messages (non-SSE)."""
         data = await self._get(f"/recv?limit={limit}")
         return data.get("messages", [])
 
-    async def tasks(self) -> list[dict]:
-        data = await self._get("/tasks")
+    # ── SSE async stream ────────────────────────────────────────────────
+
+    async def stream(self, timeout: float = 60.0):
+        """
+        Async generator that yields parsed SSE events.
+
+        Each yielded item is a dict (parsed from the data: line).
+        Iterates until `timeout` seconds elapse or connection closes.
+
+        Usage:
+            async for event in client.stream(timeout=120):
+                if event.get("type") == "acp.message":
+                    handle_message(event)
+
+        Implemented using run_in_executor to offload blocking I/O without
+        requiring aiohttp or any external async HTTP library.
+        """
+        import asyncio
+        import queue as _queue
+
+        q: _queue.Queue = _queue.Queue()
+        sentinel = object()
+
+        def _read_sse():
+            """Blocking SSE reader — runs in thread pool."""
+            req = urllib.request.Request(
+                f"{self.base_url}/stream",
+                headers={"Accept": "text/event-stream"},
+            )
+            try:
+                resp = urllib.request.urlopen(req, timeout=min(timeout, 30.0))
+                buffer = ""
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    chunk = resp.read(512)
+                    if not chunk:
+                        break
+                    buffer += chunk.decode("utf-8", errors="replace")
+                    while "\n\n" in buffer:
+                        event_str, buffer = buffer.split("\n\n", 1)
+                        data_lines = [
+                            line[5:]
+                            for line in event_str.splitlines()
+                            if line.startswith("data:")
+                        ]
+                        if data_lines:
+                            raw = "".join(data_lines)
+                            try:
+                                q.put(json.loads(raw))
+                            except json.JSONDecodeError:
+                                q.put({"_raw": raw})
+            except Exception:
+                pass
+            finally:
+                q.put(sentinel)
+
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, _read_sse)
+
+        while True:
+            # Non-blocking queue check with small async sleep
+            try:
+                item = q.get_nowait()
+                if item is sentinel:
+                    return
+                yield item
+            except _queue.Empty:
+                await asyncio.sleep(0.05)
+
+    # ── Tasks ───────────────────────────────────────────────────────────
+
+    async def tasks(self, status: str = None) -> list[dict]:
+        """List tasks, optionally filtered by status."""
+        path = "/tasks"
+        if status:
+            path += f"?status={status}"
+        data = await self._get(path)
         return data.get("tasks", [])
 
-    async def create_task(self, payload: dict, delegate: bool = False) -> dict:
-        return await self._post("/tasks/create", {"payload": payload, "delegate": delegate})
+    async def get_task(self, task_id: str) -> dict:
+        """Get details for a specific task."""
+        return await self._get(f"/tasks/{task_id}")
 
-    async def query_skills(self, skill_id: str = None, capability: str = None) -> dict:
-        body = {}
+    async def create_task(
+        self,
+        payload: dict,
+        delegate: bool = False,
+    ) -> dict:
+        """Create a task locally or delegate to peer."""
+        return await self._post(
+            "/tasks/create",
+            {"payload": payload, "delegate": delegate},
+        )
+
+    async def update_task(
+        self,
+        task_id: str,
+        state: str,
+        output: dict = None,
+        artifact: dict = None,
+    ) -> dict:
+        """
+        Update a task's state.
+
+        Args:
+            task_id:  Task to update.
+            state:    New state (working/completed/failed/input_required).
+            output:   Result payload (for completed).
+            artifact: Artifact object with parts (for completed, v0.8).
+        """
+        body: dict = {"state": state}
+        if output:
+            body["output"] = output
+        if artifact:
+            body["artifact"] = artifact
+        return await self._post(f"/tasks/{task_id}:update", body)
+
+    async def continue_task(self, task_id: str, text: str = None, parts: list[dict] = None) -> dict:
+        """
+        Resume an input_required task with additional input (v0.5).
+
+        Args:
+            task_id: The task awaiting input.
+            text:    Follow-up text.
+            parts:   Follow-up parts.
+        """
+        body: dict = {}
+        if parts:
+            body["parts"] = parts
+        elif text is not None:
+            body["text"] = text
+        return await self._post(f"/tasks/{task_id}/continue", body)
+
+    async def cancel_task(self, task_id: str) -> dict:
+        """Cancel a task."""
+        return await self._post(f"/tasks/{task_id}:cancel", {})
+
+    async def wait_for_task(
+        self,
+        task_id: str,
+        timeout: float = 60.0,
+        poll_interval: float = 1.0,
+    ) -> dict:
+        """
+        Poll a task until it reaches a terminal state or timeout.
+
+        Terminal states: completed, failed, canceled.
+
+        Returns:
+            Final task dict, or last-known state on timeout.
+        """
+        import asyncio
+        TERMINAL = {"completed", "failed", "canceled"}
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            task = await self.get_task(task_id)
+            if task.get("status") in TERMINAL:
+                return task
+            await asyncio.sleep(poll_interval)
+        return task  # return last known state
+
+    # ── Skills / QuerySkill ─────────────────────────────────────────────
+
+    async def query_skills(
+        self,
+        query: str = None,
+        skill_id: str = None,
+        capability: str = None,
+        limit: int = None,
+    ) -> dict:
+        """
+        Query this agent's available skills (QuerySkill, v0.5).
+
+        Args:
+            query:      Free-text search query.
+            skill_id:   Exact skill id lookup.
+            capability: Filter by capability keyword.
+            limit:      Max results to return.
+        """
+        body: dict = {}
+        if query:
+            body["query"] = query
         if skill_id:
             body["skill_id"] = skill_id
         if capability:
             body["capability"] = capability
+        if limit:
+            body["limit"] = limit
         return await self._post("/skills/query", body)
+
+    # ── Convenience ─────────────────────────────────────────────────────
+
+    async def wait_for_peer(
+        self,
+        timeout: float = 30.0,
+        poll_interval: float = 1.0,
+    ) -> bool:
+        """
+        Async-wait until a peer connects or timeout expires.
+
+        Returns:
+            True if a peer connected, False on timeout.
+        """
+        import asyncio
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if await self.is_connected():
+                return True
+            await asyncio.sleep(poll_interval)
+        return False
+
+    def __repr__(self) -> str:
+        return f"<AsyncRelayClient base_url={self.base_url!r}>"
