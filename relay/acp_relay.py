@@ -1176,19 +1176,19 @@ class LocalHTTP(BaseHTTPRequestHandler):
         p  = parsed.path
         qs = parse_qs(parsed.query)
 
-        if p in ("/card", "/.well-known/acp.json"):
+        if p in ("/card", "/.well-known/acp.json"):  # [stable] AgentCard
             # Rebuild dynamically so capabilities like lan_discovery reflect runtime state
             skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
             live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
             self._json({"self": live_card, "peer": _status.get("peer_card")})
 
-        elif p == "/status":
+        elif p == "/status":  # [stable] relay status
             self._json(_status)
 
         elif p == "/link":
             self._json({"link": _status.get("link"), "session_id": _status.get("session_id")})
 
-        # ── GET /peers — list all known peers (v0.6) ──────────────────────────
+        # ── GET /peers — list all known peers (v0.6)  [stable] ─────────────────
         elif p == "/peers":
             peer_list = []
             for pid, info in _peers.items():
@@ -1206,7 +1206,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
             active = sum(1 for p2 in _peers.values() if p2["connected"])
             self._json({"peers": peer_list, "count": len(peer_list), "active": active})
 
-        # ── GET /discover — LAN peers via mDNS (v0.7) ────────────────────────
+        # ── GET /discover — LAN peers via mDNS (v0.7)  [experimental] ──────────
         elif p == "/discover":
             discovered = _mdns_peer_list()
             self._json({
@@ -1266,12 +1266,12 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
-        elif p == "/recv":
+        elif p == "/recv":  # [stable] poll received messages
             limit = int(qs.get("limit", ["50"])[0])
             msgs  = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
             self._json({"messages": msgs, "count": len(msgs), "remaining": len(_recv_queue)})
 
-        elif p == "/tasks":
+        elif p == "/tasks":  # [stable] task CRUD
             state_filter = qs.get("state", [None])[0]
             tasks = list(_tasks.values())
             if state_filter:
@@ -1353,7 +1353,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
             limit = int(qs.get("limit", ["100"])[0])
             self._json({"history": history[-limit:], "total": len(history)})
 
-        elif p == "/stream":
+        elif p == "/stream":  # [stable] SSE event stream
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -1387,7 +1387,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         p = parsed.path
 
-        # /message:send  — primary v0.5 endpoint (A2A-aligned)
+        # /message:send  — primary v0.5 endpoint (A2A-aligned)  [stable]
         # Accepts: {message_id?, role, parts|text, task_id?, context_id?, sync?, timeout?}
         # Required fields (server-side validated, v0.9):
         #   role    — must be present and one of: "user" | "agent"
@@ -1495,7 +1495,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json(e_body, e_code)
 
         # /send  — legacy endpoint (backward-compat)
-        elif p == "/send":
+        elif p == "/send":  # [stable] legacy alias for /message:send
             try:
                 msg = self._read_body()
                 msg.setdefault("id",         _make_id())
@@ -1628,7 +1628,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)}, 500)
 
         # ── POST /peers/connect — connect to a new peer, add to registry (v0.6) ─
-        elif p == "/peers/connect":
+        elif p == "/peers/connect":  # [stable] connect to peer via acp:// link
             try:
                 body = self._read_body()
                 peer_link = body.get("link", "").strip()
@@ -1695,7 +1695,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
-        # /tasks/{id}/continue — resume input_required task
+        # /tasks/{id}/continue — resume input_required task  [stable]
         elif p.startswith("/tasks/") and p.endswith("/continue"):
             task_id = p[len("/tasks/"):-len("/continue")]
             try:
@@ -1721,7 +1721,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
-        # /tasks/{id}:cancel — A2A-aligned cancel endpoint
+        # /tasks/{id}:cancel — A2A-aligned cancel endpoint  [stable]
         elif p.startswith("/tasks/") and p.endswith(":cancel"):
             task_id = p[len("/tasks/"):-len(":cancel")]
             task = _tasks.get(task_id)
@@ -1762,7 +1762,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
         # Request:  {"skill_id": "summarize", "constraints": {"file_size_bytes": 52428800}}
         # Response: {"skill_id": "...", "support_level": "supported|partial|unsupported",
         #            "reason": "...", "constraints_applied": {...}, "agent": {...}}
-        elif p == "/skills/query":
+        elif p == "/skills/query":  # [stable] QuerySkill runtime capability discovery
             try:
                 body = self._read_body()
                 skill_id    = (body.get("skill_id") or "").strip()
