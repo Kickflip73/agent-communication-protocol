@@ -111,7 +111,7 @@
 
 #### P2（可选）
 - [x] `sdk/python/` 支持 `pip install acp-relay`（setup.py → pyproject.toml，acp-relay CLI 入口）（setup.py / pyproject.toml 完善）
-- [ ] `sdk/node/` 发布到 npm（`acp-relay-client`）
+- [x] `sdk/node/` 发布到 npm（`acp-relay-client`，package.json + ESM + .npmignore + LICENSE）
 - [ ] HTTP/2 transport binding 探索
 
 ---
