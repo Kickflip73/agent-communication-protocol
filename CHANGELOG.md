@@ -7,7 +7,67 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [0.9.0-dev] — 2026-03-21
+## [1.0.0] — 2026-03-21
+
+### Added (P0 — Specification & Versioning)
+- **`spec/core-v1.0.md`**: authoritative v1.0 specification (631 lines) (commit `20aa1ed`)
+  - Supersedes `spec/core-v0.8.md`
+  - Stability annotations: `stable` / `experimental` per endpoint and field
+  - §1.1: role MUST-level validation rules (v0.9 breaking change formally recorded)
+  - §4: complete HTTP API stability matrix (17 endpoints)
+  - §6: `ERR_INVALID_REQUEST` formal definition (incl. role trigger)
+  - §11: CLI reference (12 flags, stability annotations)
+  - §12: package distribution (`pip install acp-relay`, `npm install acp-relay-client`)
+  - §13: v1.0 compatibility guarantees (4 MUST requirements)
+  - Appendix A: version history through v0.9 + v1.0
+  - Appendix B: ACP vs A2A comparison table (refs #876, #883)
+- **API stability annotations** in `acp_relay.py` (commit `19b3627`)
+  - `[stable]` (13 endpoints): `/.well-known/acp.json`, `/status`, `/peers`, `/recv`,
+    `/tasks`, `/stream`, `/message:send`, `/send` (legacy), `/peers/connect`,
+    `/tasks/{id}/continue`, `/tasks/{id}:cancel`, `/skills/query`
+  - `[experimental]` (1 endpoint): `/discover` (mDNS, platform-dependent)
+- **`docs/security.md`**: complete security model documentation (commit `a3ee229`)
+  - §1 HMAC-SHA256: mechanism, audit findings table, replay-window limitation
+  - §2 Ed25519: mechanism, audit findings table, HMAC coexistence
+  - §3 HMAC vs Ed25519 side-by-side comparison
+  - §4 Transport security recommendations (nginx/Caddy/Cloudflare Tunnel)
+  - §5 Known limitations summary (severity + roadmap)
+  - §6 Audit history
+- **Go SDK stub** (`sdk/go/`) (commit `bcf6b75`)
+  - Package `acprelay` — stdlib-only, zero external dependencies (Go 1.21+)
+  - `Client` struct with 6 stable methods: `Send`, `Recv`, `GetStatus`, `GetTasks`,
+    `CancelTask`, `QuerySkills`
+  - 16 tests via `net/http/httptest.Server`
+  - `sdk/go/README.md` with install + quick start + API reference table
+
+### Changed (P0)
+- **Version bumped to `1.0.0`** across all package files (commit `ddfaf07`)
+  - `relay/acp_relay.py`: `VERSION = "0.8-dev"` → `"1.0.0"`
+  - `pyproject.toml`: `0.9.0.dev0` → `1.0.0`
+  - `sdk/python/setup.py`: `0.9.0.dev0` → `1.0.0`
+  - `sdk/node/package.json`: `0.9.0-dev.0` → `1.0.0`
+
+### Security (P1 — Audit)
+- **HMAC-SHA256 audit** (commit `a3ee229`)
+  - ✅ PASS: `hmac.compare_digest` constant-time comparison
+  - ✅ PASS: no timing oracle in error path
+  - ✅ PASS: `message_id` unpredictability (`secrets.token_hex(8)`)
+  - ✅ PASS: secret never written to disk
+  - ⚠️ PARTIAL: no server-side replay-window timestamp check (planned v1.1 `--replay-window`)
+- **Ed25519 identity audit** (commit `a3ee229`)
+  - ✅ PASS: key file permissions enforced (`chmod 0600`)
+  - ✅ PASS: canonical form deterministic (`sort_keys=True` + compact separators)
+  - ✅ PASS: `identity.sig` excluded from signing payload correctly
+  - ✅ PASS: `InvalidSignature` exception handling (no exception leaks)
+  - ✅ PASS: graceful fallback when `cryptography` not installed
+  - ✅ PASS: key generation from OS CSPRNG (`Ed25519PrivateKey.generate()`)
+
+### Release Tag
+- `v1.0.0-rc.1` pushed (commit `ddfaf07`)
+
+---
+
+## [0.9.0] — 2026-03-21
 
 ### Added (P0 — Developer UX)
 - **CLI `--version`**: prints `acp_relay.py <version>` and exits (commit `e74afdf`)
