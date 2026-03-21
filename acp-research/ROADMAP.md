@@ -116,13 +116,28 @@
 
 ---
 
-### 📋 v1.0（目标：2026-05）
-**主题：生产发布 + 稳定性保证**
-- [ ] 正式版本语义：API 稳定性承诺
-- [ ] `spec/core-v1.0.md`：纳入所有 v0.9 修订
-- [ ] DID 身份可选扩展（`did:acp:` 格式，向 ANP 靠拢，不强制）
-- [ ] 安全审计（HMAC/Ed25519 实现复核）
-- [ ] 多语言 SDK 矩阵（Go / Rust stub）
+### 📋 v1.0（目标：2026-05-05）
+**主题：生产发布 + 稳定性保证**  
+详细规划：[spec/v1.0-planning.md](../spec/v1.0-planning.md)（commit `167d67d`，2026-03-21）
+
+#### P0（必须）
+- [ ] `spec/core-v1.0.md`：纳入所有 v0.9 修订，API 稳定性标注（目标 2026-04-07）
+- [ ] 端点稳定性标注：stable / experimental / internal（审计 `acp_relay.py`）
+- [ ] 版本号 1.0.0 bump：`acp_relay.py` + `pyproject.toml` + `sdk/node/package.json` + git tag
+
+#### P1（随 1.0 发布）
+- [ ] HMAC 安全审计（常量时间比较、无 timing oracle）
+- [ ] Ed25519 安全审计（canonical form、key 权限、graceful fallback）
+- [ ] `docs/security.md`：安全模型、限制说明、TLS 建议
+- [ ] Go SDK stub（`sdk/go/`，stdlib `net/http` + `bufio` SSE，零依赖）
+
+#### P2（可选 / v1.1）
+- [ ] Rust SDK stub + crates.io 发布（`acp-relay-client`）
+- [ ] DID 可选扩展（`did:acp:` 格式，`spec/did-v1.0.md`）
+- [ ] HTTP/2 transport binding 探索
+- [ ] Docker + systemd 部署示例（`relay/examples/`）
+
+**Timeline：** 规范草稿 2026-04-01 → API 标注 2026-04-07 → 安全审计 2026-04-14 → Go SDK 2026-04-21 → RC 2026-04-28 → GA 2026-05-05
 
 ---
 
