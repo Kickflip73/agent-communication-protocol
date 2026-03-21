@@ -123,7 +123,7 @@
 #### P0（必须）
 - [x] `spec/core-v1.0.md`：纳入所有 v0.9 修订，API 稳定性标注（commit `20aa1ed`，2026-03-21）
 - [x] 端点稳定性标注：stable / experimental（commit `19b3627`，2026-03-21）
-- [ ] 版本号 1.0.0 bump：`acp_relay.py` + `pyproject.toml` + `sdk/node/package.json` + git tag
+- [x] 版本号 1.0.0 bump + git tag v1.0.0-rc.1（commit `ddfaf07`，2026-03-21）
 
 #### P1（随 1.0 发布）
 - [ ] HMAC 安全审计（常量时间比较、无 timing oracle）
