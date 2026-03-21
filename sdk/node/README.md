@@ -1,20 +1,31 @@
-# acp-sdk (Node.js)
+# acp-relay-client (Node.js)
 
-Node.js SDK for the [Agent Communication Protocol (ACP)](../../README.md) relay client.
+Node.js client for the [Agent Communication Protocol (ACP)](../../README.md) P2P relay.
 
-**Version:** 0.8.0 | **Zero external dependencies** | **Node.js ≥ 18**
+**Version:** 0.9.0-dev | **Zero external dependencies** | **Node.js ≥ 18** | **ESM + CJS**
 
 ## Installation
 
 ```bash
-# Copy to your project (no npm registry yet)
-cp -r sdk/node/ my-project/acp-sdk/
+# From npm (once published)
+npm install acp-relay-client
+
+# From GitHub (latest dev)
+npm install github:Kickflip73/agent-communication-protocol#main --prefix . \
+  && cp -r node_modules/acp-relay-client .
+
+# Or copy the sdk/node/ directory directly
+cp -r sdk/node/ my-project/acp-relay-client/
 ```
 
 ## Quick Start
 
 ```js
-const { RelayClient } = require('./acp-sdk/src');
+// CommonJS
+const { RelayClient } = require('acp-relay-client');
+
+// ESM
+import { RelayClient } from 'acp-relay-client';
 
 const client = new RelayClient('http://localhost:7901');
 
@@ -69,6 +80,14 @@ for await (const event of client.stream({ timeout: 30000 })) {
 | `sendAndRecv(text, [options])` | Send + wait for first reply |
 | `reply(messageId, text)` | Reply to a specific message |
 
+## TypeScript
+
+TypeScript definitions are included at `src/index.d.ts`.
+
+```ts
+import type { RelayClient, AcpMessage, AcpPeer } from 'acp-relay-client';
+```
+
 ## Testing
 
 ```bash
@@ -76,10 +95,9 @@ node --test tests/relay_client.test.js
 # 19 tests, 0 failures
 ```
 
-## TypeScript
+## Links
 
-TypeScript definitions are included at `src/index.d.ts`.
-
-```ts
-import { RelayClient, AcpMessage, AcpPeer } from './acp-sdk/src';
-```
+- [Protocol spec](../../spec/core-v0.8.md)
+- [Integration guide](../../docs/integration-guide.md)
+- [CLI reference](../../docs/cli-reference.md)
+- [CHANGELOG](../../CHANGELOG.md)

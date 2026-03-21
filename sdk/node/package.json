@@ -1,14 +1,47 @@
 {
-  "name": "acp-sdk",
-  "version": "0.8.0",
-  "description": "Node.js SDK for the Agent Communication Protocol (ACP) relay client",
+  "name": "acp-relay-client",
+  "version": "0.9.0-dev.0",
+  "description": "Node.js client for the Agent Communication Protocol (ACP) P2P relay — zero dependencies, ESM + CJS",
   "main": "src/index.js",
+  "module": "src/index.mjs",
   "types": "src/index.d.ts",
-  "scripts": {
-    "test": "node --test tests/relay_client.test.js"
+  "exports": {
+    ".": {
+      "import": "./src/index.mjs",
+      "require": "./src/index.js",
+      "types": "./src/index.d.ts"
+    }
   },
-  "keywords": ["acp", "agent", "communication", "protocol", "relay"],
-  "license": "MIT",
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test tests/relay_client.test.js",
+    "lint": "node --check src/index.js src/relay_client.js"
+  },
+  "keywords": [
+    "acp",
+    "agent-communication-protocol",
+    "agent",
+    "multi-agent",
+    "p2p",
+    "relay",
+    "llm",
+    "ai"
+  ],
+  "author": "ACP Community",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Kickflip73/agent-communication-protocol",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kickflip73/agent-communication-protocol.git",
+    "directory": "sdk/node"
+  },
+  "bugs": {
+    "url": "https://github.com/Kickflip73/agent-communication-protocol/issues"
+  },
   "engines": {
     "node": ">=18.0.0"
   },
