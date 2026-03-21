@@ -101,12 +101,13 @@
 #### P0（必做）
 - [x] `spec/core-v0.8.md` 综合规范（超前完成于 v0.8 阶段）
 - [x] Python async SDK 重写（stdlib-only，35 tests）
-- [ ] **CLI 改进**：`--version` 标志、`--verbose` 日志级别、`--config` 文件支持（YAML/JSON）
+- [x] **CLI 改进**：`--version` 标志、`--verbose` 日志级别、`--config` 文件支持（YAML/JSON）
 
 #### P1（计划）
-- [ ] **`acp_relay.py` 单测**：覆盖 `_err()` helper、task 状态机转换、HMAC 签名逻辑
-- [ ] **CHANGELOG.md**：从 v0.1 至今的完整变更历史
-- [ ] **`docs/integration-guide.md` 更新**：补充 v0.7/v0.8 功能示例
+- [x] **`acp_relay.py` 单测**：`tests/unit/test_relay_core.py`，63 tests，全部通过
+  覆盖：`_err()`、ID/token 生成、Part 构造器/校验、HMAC 签名/验证、Task 状态常量、`_load_config_file()`、`parse_link()`
+- [x] **CHANGELOG.md**：从 v0.1 至今的完整变更历史
+- [x] **`docs/integration-guide.md` 更新**：v0.7/v0.8/v0.9 全面重写
 
 #### P2（可选）
 - [ ] `sdk/python/` 支持 `pip install acp-relay`（setup.py / pyproject.toml 完善）
