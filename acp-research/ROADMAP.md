@@ -121,7 +121,7 @@
 详细规划：[spec/v1.0-planning.md](../spec/v1.0-planning.md)（commit `167d67d`，2026-03-21）
 
 #### P0（必须）
-- [ ] `spec/core-v1.0.md`：纳入所有 v0.9 修订，API 稳定性标注（目标 2026-04-07）
+- [x] `spec/core-v1.0.md`：纳入所有 v0.9 修订，API 稳定性标注（commit `20aa1ed`，2026-03-21）
 - [ ] 端点稳定性标注：stable / experimental / internal（审计 `acp_relay.py`）
 - [ ] 版本号 1.0.0 bump：`acp_relay.py` + `pyproject.toml` + `sdk/node/package.json` + git tag
 
