@@ -149,7 +149,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 灵感来源：A2A issue #1667（2026-03-21），A2A 协议层尚无此能力，ACP 可率先实现。
 
-- [ ] **AgentCard `availability` 块**（P1）——heartbeat/cron 型 Agent 可用性元数据
+- ✅ **AgentCard `availability` 块**（P1）——heartbeat/cron 型 Agent 可用性元数据（commit `c10c230`，2026-03-22）
   - `mode`: persistent / heartbeat / cron / manual
   - `interval_seconds`: 心跳间隔（秒）
   - `next_active_at` / `last_active_at`: ISO-8601 UTC 时间戳
