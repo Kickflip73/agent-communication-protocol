@@ -7,11 +7,11 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [0.9.0-dev] — 2026-03-21 (in progress)
+## [0.9.0-dev] — 2026-03-21
 
-### Added
-- **CLI `--version`**: prints `acp_relay.py <version>` and exits
-- **CLI `--verbose` / `-v`**: switch root logger from INFO to DEBUG at startup
+### Added (P0 — Developer UX)
+- **CLI `--version`**: prints `acp_relay.py <version>` and exits (commit `e74afdf`)
+- **CLI `--verbose` / `-v`**: switch root logger from INFO → DEBUG at startup
 - **CLI `--config <FILE>`**: load defaults from a JSON or YAML config file
   - JSON: stdlib `json.loads`
   - YAML: stdlib-only flat key-value parser (no PyYAML required); bool/int coercion
@@ -19,23 +19,54 @@ Dates: Asia/Shanghai (UTC+8)
   - All 12 flags supported; clear error + exit(1) on missing file
 - **Example config files**: `relay/examples/config.json`, `config-relay.json`, `config-secure.yaml`
 - **`docs/cli-reference.md`**: comprehensive CLI reference (all flags, port layout, 8 usage patterns, config file section)
+- **`spec/core-v0.8.md`**: single authoritative specification (515 lines, supersedes core-v0.5.md) (commit `4728b0e`)
+  - 11 chapters: principles, message envelope, Part model, Task FSM, AgentCard, error codes, extensions, transport, peer registration, skill query, versioning
+  - Appendix A: full version history v0.1–v0.8
+  - Appendix B: A2A v1.0 comparison table
 
-### Changed
-- `AsyncRelayClient` rewritten — **stdlib-only, zero external dependencies** (removed `aiohttp`)
-  - Implementation: `asyncio.get_event_loop().run_in_executor()` offloads urllib calls
+### Changed (P0)
+- `AsyncRelayClient` rewritten — **stdlib-only, zero external dependencies** (removed `aiohttp`) (commit `7bcb907`)
+  - Implementation: `asyncio.get_event_loop().run_in_executor()` offloads urllib calls to thread pool
   - New methods: `connect_peer`, `discover`, `card`, `link`, `get_task`, `continue_task`,
     `cancel_task`, `wait_for_task`, async `stream` generator
   - `send()`: adds `context_id` (v0.7), `task_id`, `create_task`, `sync` mode
+  - `update_task()`: new `artifact` parameter
   - `query_skills()`: adds `query` free-text + `limit` params
   - `wait_for_peer()`: converted to async
   - 35 new tests in `sdk/python/tests/test_async_relay_client.py` — all passing
 - Python SDK `__version__`: `0.6.0` → `0.8.0`
 - `acp-research/ROADMAP.md`: full rewrite — all v0.1–v0.8 milestones marked complete
 
-### Planning (P1)
-- Server-side `required` field validation in `/message:send` handler
-- `CHANGELOG.md` (this file) ← *in progress*
-- `docs/integration-guide.md` update for v0.7/v0.8 features
+### Added (P1 — Quality & Docs)
+- **`/message:send` server-side required field validation** (commit `bb1c80e`)
+  - Missing `role` → `400 ERR_INVALID_REQUEST` with descriptive error message
+  - Invalid `role` value (not `user`/`agent`) → `400 ERR_INVALID_REQUEST`
+  - Replaces silent default `"user"` fallback; addresses A2A issue #876 gap
+  - 7 new MUST-level test cases in `tests/compat/test_message_send.py`
+- **`CHANGELOG.md`** (this file): complete version history v0.1.0–v0.9.0-dev (commit `b48e9d5`)
+- **`docs/integration-guide.md`** comprehensive rewrite (commit `2a74d3e`)
+  - Covers P2P / Relay / mDNS transport options; port layout (WS :7801 + HTTP :7901)
+  - Task CRUD, multi-peer sessions, HMAC signing, Ed25519 identity
+  - Python sync + async SDK examples; Node.js SDK examples
+  - Multi-language quick-start (curl / Go / Java / Rust)
+  - Troubleshooting table (503 / 400 / 413 + solutions)
+- **`tests/unit/test_relay_core.py`**: 63 unit tests covering all internal helpers (commit `ac9846c`)
+  - TestErrHelper, TestIdGenerators, TestPartConstructors, TestValidatePart/Parts,
+    TestHMACHelpers, TestTaskStateConstants, TestLoadConfigFile, TestParseLink, TestVersion
+
+### Added (P2 — Package Distribution)
+- **`pyproject.toml`**: `pip install acp-relay` support (commit `0fb0c9e`)
+  - Package name: `acp-relay`; version: `0.9.0.dev0`
+  - Required dep: `websockets>=12.0` only
+  - Optional `[identity]`: `cryptography>=42.0`; Optional `[dev]`: pytest + httpx
+  - CLI entry-point: `acp-relay = 'acp_relay:main'`
+  - `relay/py.typed` PEP 561 marker
+- **Node.js SDK renamed** to `acp-relay-client` (commit `9c1b0d9`)
+  - ESM entry-point `src/index.mjs` (createRequire bridge, `export default RelayClient`)
+  - `package.json`: full npm metadata, `exports` field (ESM + CJS + types), files whitelist
+  - `.npmignore`: excludes `tests/` from published package
+  - `LICENSE`: Apache-2.0 (aligned with repo root)
+  - 19 tests passing
 
 ---
 
@@ -232,7 +263,7 @@ Dates: Asia/Shanghai (UTC+8)
 
 | Version | Date | Theme | Key Feature |
 |---------|------|-------|-------------|
-| 0.9.0-dev | 2026-03-21 | Developer UX | `--version`/`--verbose`/`--config`, async SDK stdlib-only |
+| 0.9.0-dev | 2026-03-21 | Developer UX + Distribution | CLI flags, async SDK stdlib-only, unit tests, `pip install acp-relay`, `acp-relay-client` npm |
 | 0.8.0 | 2026-03-21 | Ecosystem | Ed25519 identity, Node.js SDK, compat test suite |
 | 0.7.0 | 2026-03-20 | Trust + Discovery | HMAC signing, mDNS LAN discovery, context_id |
 | 0.6.0 | 2026-03-20 | Multi-peer + Reliability | Peer registry, error codes, HTTP relay, Python SDK |
