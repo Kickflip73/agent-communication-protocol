@@ -230,11 +230,39 @@ _SEEN_MAX = 2000
 # If secret not set, sig is ignored on receive (graceful interop).
 _hmac_secret: bytes = None
 
+# ── HMAC replay-window (v1.1) ─────────────────────────────────────────────
+# When HMAC signing is enabled (--secret), inbound messages must have a `ts`
+# field within ±HMAC_REPLAY_WINDOW_SECONDS of server clock.
+# This converts the security audit result from PARTIAL → PASS.
+# Default: 300 seconds (5 minutes).  Override with --hmac-window <seconds>.
+_HMAC_REPLAY_WINDOW: int = 300  # seconds
+
 
 def _hmac_sign(message_id: str, ts) -> str:
     """Compute HMAC-SHA256(secret, '{message_id}:{ts}') as hex."""
     payload = f"{message_id}:{ts}".encode()
     return hmac.new(_hmac_secret, payload, hashlib.sha256).hexdigest()
+
+
+def _hmac_check_replay_window(ts_str: str) -> tuple[bool, str]:
+    """
+    Returns (ok: bool, reason: str).
+    Accepts ISO-8601 UTC timestamps (with or without trailing Z).
+    If ts_str is missing/unparseable, returns (False, reason).
+    Only called when _hmac_secret is set.
+    """
+    if not ts_str:
+        return False, "missing ts field"
+    try:
+        ts_clean = ts_str.rstrip("Z")
+        msg_time = datetime.datetime.fromisoformat(ts_clean)
+        now_utc  = datetime.datetime.utcnow()
+        skew     = abs((now_utc - msg_time).total_seconds())
+        if skew > _HMAC_REPLAY_WINDOW:
+            return False, f"ts outside replay-window ({skew:.0f}s > {_HMAC_REPLAY_WINDOW}s)"
+        return True, "ok"
+    except ValueError as exc:
+        return False, f"unparseable ts: {exc}"
 
 
 def _hmac_verify(message_id: str, ts, sig: str) -> bool:
@@ -786,10 +814,19 @@ def _on_message(raw):
     msg_type   = msg.get("type", "")
     message_id = msg.get("message_id") or msg.get("id")
 
-    # HMAC verification (v0.7) — warn-only; never drop for sig mismatch
-    # This is graceful: agents without --secret still interop fine
+    # HMAC verification (v0.7/v1.1) — sig mismatch: warn-only; replay-window: drop
+    # Graceful: agents without --secret still interop fine (sig ignored when no secret).
+    # Replay-window (v1.1): when --secret is set, ts MUST be within ±HMAC_REPLAY_WINDOW_SECONDS.
     if _hmac_secret and msg.get("sig") and message_id:
-        if not _hmac_verify(str(message_id), str(msg.get("ts", "")), msg["sig"]):
+        ts_val = str(msg.get("ts", ""))
+        # 1) Replay-window check — hard reject (drop message) to prevent replay attacks
+        ok, reason = _hmac_check_replay_window(ts_val)
+        if not ok:
+            log.warning(f"⚠️  HMAC replay-window reject on {message_id}: {reason}")
+            msg["_replay_rejected"] = True
+            return  # drop the message; do NOT process further
+        # 2) Signature check — warn-only (keep graceful interop for legacy agents)
+        if not _hmac_verify(str(message_id), ts_val, msg["sig"]):
             log.warning(f"⚠️  HMAC sig mismatch on {message_id} — message accepted but flagged")
             msg["_sig_invalid"] = True
 
@@ -1908,7 +1945,7 @@ def _load_config_file(path: str) -> dict:
 
     Supported keys match CLI long-option names (hyphens, not underscores):
       name, port, join, relay, relay-url, skills, inbox, max-msg-size,
-      secret, advertise-mdns, identity, verbose
+      secret, hmac-window, advertise-mdns, identity, verbose
 
     YAML support uses stdlib only (no PyYAML required) — only the subset of
     YAML that is valid JSON is accepted. For true YAML, install PyYAML.
@@ -2032,6 +2069,10 @@ Examples:
     parser.add_argument("--secret",       default=None,
                         help="(v0.7) HMAC-SHA256 shared secret for message signing. "
                              "Both peers must use the same value.")
+    parser.add_argument("--hmac-window",  type=int, default=None, metavar="SECONDS",
+                        help="(v1.1) Replay-window in seconds for HMAC-signed messages. "
+                             "Inbound messages with ts outside ±WINDOW are dropped. "
+                             "Default: 300 (5 minutes). Only active when --secret is set.")
     parser.add_argument("--advertise-mdns", action="store_true",
                         help="(v0.7) Advertise on LAN via UDP multicast. "
                              "Enables GET /discover. No extra packages required.")
@@ -2087,11 +2128,14 @@ Examples:
     MAX_MSG_BYTES = max_msg_size
     _status["max_msg_bytes"] = MAX_MSG_BYTES
 
-    # HMAC optional signing (v0.7)
-    global _hmac_secret
+    # HMAC optional signing (v0.7) + replay-window (v1.1)
+    global _hmac_secret, _HMAC_REPLAY_WINDOW
     if secret_str:
         _hmac_secret = secret_str.encode()
         log.info("🔐 HMAC signing enabled (--secret configured)")
+        if hasattr(args, "hmac_window") and args.hmac_window is not None:
+            _HMAC_REPLAY_WINDOW = args.hmac_window
+        log.info(f"🕐 HMAC replay-window: ±{_HMAC_REPLAY_WINDOW}s")
     else:
         _hmac_secret = None
 

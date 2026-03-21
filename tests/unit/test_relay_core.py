@@ -301,6 +301,76 @@ class TestHMACHelpers(unittest.TestCase):
         self.assertEqual(relay._hmac_sign(msg_id, ts), expected)
 
 
+class TestHMACReplayWindow(unittest.TestCase):
+    """Tests for v1.1 _hmac_check_replay_window()."""
+
+    def setUp(self):
+        self._orig_window = relay._HMAC_REPLAY_WINDOW
+        relay._HMAC_REPLAY_WINDOW = 300  # reset to default
+
+    def tearDown(self):
+        relay._HMAC_REPLAY_WINDOW = self._orig_window
+
+    def _ts_offset(self, delta_seconds: int) -> str:
+        """Return an ISO-8601 UTC timestamp offset by delta_seconds from now."""
+        import datetime
+        t = datetime.datetime.utcnow() + datetime.timedelta(seconds=delta_seconds)
+        return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_within_window_ok(self):
+        ts = self._ts_offset(0)   # now
+        ok, reason = relay._hmac_check_replay_window(ts)
+        self.assertTrue(ok, reason)
+
+    def test_slightly_past_ok(self):
+        ts = self._ts_offset(-60)  # 1 minute ago
+        ok, reason = relay._hmac_check_replay_window(ts)
+        self.assertTrue(ok, reason)
+
+    def test_slightly_future_ok(self):
+        ts = self._ts_offset(+60)  # 1 minute in future (clock skew)
+        ok, reason = relay._hmac_check_replay_window(ts)
+        self.assertTrue(ok, reason)
+
+    def test_too_old_rejected(self):
+        ts = self._ts_offset(-400)  # 400 seconds ago > 300 window
+        ok, reason = relay._hmac_check_replay_window(ts)
+        self.assertFalse(ok)
+        self.assertIn("outside replay-window", reason)
+
+    def test_too_future_rejected(self):
+        ts = self._ts_offset(+400)  # 400 seconds in future
+        ok, reason = relay._hmac_check_replay_window(ts)
+        self.assertFalse(ok)
+
+    def test_missing_ts_rejected(self):
+        ok, reason = relay._hmac_check_replay_window("")
+        self.assertFalse(ok)
+        self.assertIn("missing ts", reason)
+
+    def test_none_ts_rejected(self):
+        # None is coerced to "" by the caller in production code, but test directly
+        ok, reason = relay._hmac_check_replay_window(None)
+        self.assertFalse(ok)
+
+    def test_invalid_ts_rejected(self):
+        ok, reason = relay._hmac_check_replay_window("not-a-timestamp")
+        self.assertFalse(ok)
+        self.assertIn("unparseable ts", reason)
+
+    def test_custom_window_honored(self):
+        relay._HMAC_REPLAY_WINDOW = 10  # very tight
+        ts = self._ts_offset(-15)  # 15 s ago > 10 s window
+        ok, reason = relay._hmac_check_replay_window(ts)
+        self.assertFalse(ok)
+
+    def test_custom_window_within(self):
+        relay._HMAC_REPLAY_WINDOW = 600  # 10 minutes
+        ts = self._ts_offset(-400)  # 400 s ago, within 600 s window
+        ok, reason = relay._hmac_check_replay_window(ts)
+        self.assertTrue(ok, reason)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Task state constants
 # ══════════════════════════════════════════════════════════════════════════════

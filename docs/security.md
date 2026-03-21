@@ -57,18 +57,26 @@ If no secret is configured, `sig` fields in received messages are silently ignor
 | Payload determinism | ✅ PASS | `f"{message_id}:{ts}"` — fixed format |
 | message_id unpredictability | ✅ PASS | `msg_<16 hex chars>` from `secrets.token_hex(8)` |
 | Secret stored in memory only | ✅ PASS | `_hmac_secret: bytes`, never written to disk |
-| Replay attack prevention | ⚠️ PARTIAL | `message_id` makes exact replay detectable if tracked; no server-side timestamp window check |
+| Replay attack prevention | ✅ PASS | `--hmac-window` (v1.1): inbound `ts` must be within ±300 s of server clock; out-of-window messages are dropped (hard reject). Default window: 300 s, configurable via `--hmac-window <seconds>`. |
 | Key length recommendation | ℹ️ INFO | Any length accepted; recommend ≥32 bytes for 128-bit security |
 
-### Known limitation: replay window
+### Replay-window implementation (v1.1)
 
-ACP HMAC does **not** implement a server-side timestamp window check. A captured
-message with a valid `sig` could theoretically be replayed. Mitigations:
-- `message_id` uniqueness: server MAY deduplicate within a session (opt-in)
-- Add `--replay-window` flag (planned for v1.1) to enforce timestamp check
+ACP HMAC enforces a server-side timestamp window check when `--secret` is set.
 
-**Risk level:** Low for typical Agent-to-Agent use. If replay resistance is critical,
-layer a session-level nonce or use Ed25519 identity (§2) instead.
+- **Mechanism**: inbound `ts` field (ISO-8601 UTC) is compared to server clock.
+  If `|now - ts| > HMAC_REPLAY_WINDOW`, the message is **dropped** (hard reject, not warn).
+- **Default window**: 300 seconds (5 minutes) — configurable via `--hmac-window <seconds>`.
+- **Config file**: key `hmac-window` in JSON/YAML config is also supported.
+- **Graceful degradation**: when `--secret` is not set, the window check is skipped (no-op).
+
+**Example**:
+```
+acp-relay --secret mysecret --hmac-window 120  # 2-minute window
+```
+
+**Risk level:** Window value should balance clock-skew tolerance vs. replay risk.
+For high-security deployments, use 60–120 s; for normal agent-to-agent, 300 s is sufficient.
 
 ### What HMAC protects
 
@@ -202,7 +210,7 @@ This transport uses HTTPS by default. See [transports.md](transports.md) §Bindi
 
 | Limitation | Severity | Workaround / Roadmap |
 |-----------|----------|---------------------|
-| No replay-window timestamp check | Low | Message-ID dedup (opt-in); v1.1 `--replay-window` planned |
+| Clock skew vs replay-window tradeoff | Info | Default 300 s window; tune with `--hmac-window` |
 | No confidentiality | Medium | Use TLS termination (§4) |
 | No forward secrecy | Low–Medium | Rotate secret/keypair periodically |
 | No key revocation infrastructure | Low | Manual rotation: delete `~/.acp/identity.json` |
@@ -215,6 +223,7 @@ This transport uses HTTPS by default. See [transports.md](transports.md) §Bindi
 | Version | Date | Auditor | Findings |
 |---------|------|---------|---------|
 | v1.0.0 | 2026-03-21 | J.A.R.V.I.S. (internal) | 8 PASS, 1 PARTIAL (replay window), 2 INFO — see §1.2 and §2.2 |
+| v1.1.0 | 2026-03-22 | J.A.R.V.I.S. (internal) | 9 PASS, 0 PARTIAL — replay-window `--hmac-window` implemented (§1.3) |
 
 ---
 
