@@ -217,3 +217,55 @@ class TestTaskCancel:
             relay_url + "/tasks/nonexistent_task_xyz:cancel", {}
         )
         assert status == 404, f"expected 404, got {status}: {body}"
+
+
+# ── failed_message_id coverage (v1.1 — ANP convergence) ─────────────────
+
+class TestFailedMessageId:
+    """All error responses should include failed_message_id when message_id is known."""
+
+    def test_invalid_request_includes_failed_message_id(self, relay_url):
+        """ERR_INVALID_REQUEST with client message_id → echoed as failed_message_id."""
+        mid = "inttest_fmid_001"
+        status, body = http_post(
+            relay_url + "/message:send",
+            {"text": "no role", "message_id": mid}
+        )
+        assert status == 400
+        assert body.get("failed_message_id") == mid, (
+            f"expected failed_message_id={mid!r}, got {body.get('failed_message_id')!r}\n"
+            f"full body: {body}"
+        )
+
+    def test_invalid_role_includes_failed_message_id(self, relay_url):
+        mid = "inttest_fmid_002"
+        status, body = http_post(
+            relay_url + "/message:send",
+            {"role": "hacker", "text": "bad role", "message_id": mid}
+        )
+        assert status == 400
+        assert body.get("failed_message_id") == mid, (
+            f"expected failed_message_id={mid!r}, got {body.get('failed_message_id')!r}"
+        )
+
+    def test_empty_content_includes_failed_message_id(self, relay_url):
+        mid = "inttest_fmid_003"
+        status, body = http_post(
+            relay_url + "/message:send",
+            {"role": "user", "message_id": mid}
+        )
+        assert status == 400
+        assert body.get("failed_message_id") == mid, (
+            f"expected failed_message_id={mid!r}, got {body.get('failed_message_id')!r}"
+        )
+
+    def test_no_message_id_no_failed_message_id(self, relay_url):
+        """When client omits message_id, failed_message_id should be absent (not null)."""
+        status, body = http_post(
+            relay_url + "/message:send",
+            {"text": "no role"}
+        )
+        assert status == 400
+        # failed_message_id should not appear (or be None) when no message_id given
+        fmid = body.get("failed_message_id")
+        assert fmid is None, f"unexpected failed_message_id={fmid!r} when none provided"

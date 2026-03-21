@@ -1397,16 +1397,20 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 body = self._read_body()
 
                 # ── v0.9: server-side required-field validation ───────────────
+                # Pre-extract client-supplied message_id for failed_message_id in errors
+                _client_msg_id = body.get("message_id")  # may be None; used in error envelopes
                 _VALID_ROLES = {"user", "agent"}
                 role_raw = body.get("role")
                 if role_raw is None:
                     e_body, e_code = _err(ERR_INVALID_REQUEST,
-                                          "missing required field: role (must be 'user' or 'agent')")
+                                          "missing required field: role (must be 'user' or 'agent')",
+                                          failed_message_id=_client_msg_id)
                     self._json(e_body, e_code)
                     return
                 if role_raw not in _VALID_ROLES:
                     e_body, e_code = _err(ERR_INVALID_REQUEST,
-                                          f"invalid role '{role_raw}': must be 'user' or 'agent'")
+                                          f"invalid role '{role_raw}': must be 'user' or 'agent'",
+                                          failed_message_id=_client_msg_id)
                     self._json(e_body, e_code)
                     return
 
@@ -1415,7 +1419,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if parts:
                     ok, err = _validate_parts(parts)
                     if not ok:
-                        e_body, e_code = _err(ERR_INVALID_REQUEST, err)
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err,
+                                              failed_message_id=_client_msg_id)
                         self._json(e_body, e_code)
                         return
                 else:
@@ -1424,7 +1429,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     parts = [_make_text_part(str(text))] if text else []
                     if not parts:
                         e_body, e_code = _err(ERR_INVALID_REQUEST,
-                                              "missing required field: provide 'parts' (list) or 'text' (string)")
+                                              "missing required field: provide 'parts' (list) or 'text' (string)",
+                                              failed_message_id=_client_msg_id)
                         self._json(e_body, e_code)
                         return
 
@@ -1488,10 +1494,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     self._json({"ok": True, "message_id": message_id, "task": task})
 
             except ConnectionError as e:
-                e_body, e_code = _err(ERR_NOT_CONNECTED, str(e), 503)
+                # message_id may be defined if we got past body parsing
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_NOT_CONNECTED, str(e), 503,
+                                     failed_message_id=_fmid)
                 self._json(e_body, e_code)
             except Exception as e:
-                e_body, e_code = _err(ERR_INTERNAL, str(e), 500)
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
+                                     failed_message_id=_fmid)
                 self._json(e_body, e_code)
 
         # /send  — legacy endpoint (backward-compat)
