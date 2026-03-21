@@ -110,7 +110,7 @@
 - [x] **`docs/integration-guide.md` 更新**：v0.7/v0.8/v0.9 全面重写
 
 #### P2（可选）
-- [ ] `sdk/python/` 支持 `pip install acp-relay`（setup.py / pyproject.toml 完善）
+- [x] `sdk/python/` 支持 `pip install acp-relay`（setup.py → pyproject.toml，acp-relay CLI 入口）（setup.py / pyproject.toml 完善）
 - [ ] `sdk/node/` 发布到 npm（`acp-relay-client`）
 - [ ] HTTP/2 transport binding 探索
 
