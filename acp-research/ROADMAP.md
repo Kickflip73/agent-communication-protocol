@@ -144,6 +144,20 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - [ ] HTTP/2 传输绑定
 - [ ] Docker 官方镜像
 
+### 🔮 v1.2 规划（目标：2026-Q2）
+**主题：Heartbeat Agent 支持 + 生态完善**
+
+灵感来源：A2A issue #1667（2026-03-21），A2A 协议层尚无此能力，ACP 可率先实现。
+
+- [ ] **AgentCard `availability` 块**（P1）——heartbeat/cron 型 Agent 可用性元数据
+  - `mode`: persistent / heartbeat / cron / manual
+  - `interval_seconds`: 心跳间隔（秒）
+  - `next_active_at` / `last_active_at`: ISO-8601 UTC 时间戳
+  - `task_latency_max_seconds`: 最大预期延迟
+  - 全部可选字段，向后兼容 v1.0
+- [ ] AgentCard 自动更新 API：Agent 启动时 PATCH `/.well-known/acp.json`（P2）
+- [ ] Rust SDK stub（P2）
+
 ---
 
 ### 🔮 v2.0（目标：2026-Q3）
