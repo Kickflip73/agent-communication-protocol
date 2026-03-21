@@ -60,8 +60,30 @@ func main() {
 | `GetTasks(ctx)` | `GET /tasks` | stable |
 | `CancelTask(ctx, id)` | `POST /tasks/{id}:cancel` | stable |
 | `QuerySkills(ctx, opts)` | `POST /skills/query` | stable |
+| `Stream(ctx, StreamOptions)` | `GET /stream` (SSE) | stable |
+
+## SSE Streaming
+
+```go
+events, err := client.Stream(ctx, acprelay.StreamOptions{
+    Timeout: 30 * time.Second,
+})
+if err != nil {
+    log.Fatal(err)
+}
+for ev := range events {
+    if ev.Type == "error" {
+        log.Println("stream error:", ev.Data)
+        break
+    }
+    fmt.Printf("[%s] %s\n", ev.Type, ev.Data)
+}
+```
+
+Event types: `"message"` · `"artifact"` · `"status"` · `"error"` (transport failure)
 
 ## Running Tests
+
 
 ```bash
 cd sdk/go
