@@ -129,7 +129,7 @@
 - [x] HMAC 安全审计：8 PASS, 1 PARTIAL（replay window），commit `a3ee229`
 - [x] Ed25519 安全审计：8 PASS，commit `a3ee229`
 - [x] `docs/security.md`：安全模型、限制说明、TLS 建议，commit `a3ee229`
-- [ ] Go SDK stub（`sdk/go/`，stdlib `net/http` + `bufio` SSE，零依赖）
+- [x] Go SDK stub（`sdk/go/`，6 methods + 16 tests，commit `bcf6b75`，2026-03-21）
 
 #### P2（可选 / v1.1）
 - [ ] Rust SDK stub + crates.io 发布（`acp-relay-client`）
