@@ -9,7 +9,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v0.8--dev-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v1.0.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -185,6 +185,23 @@ ACP's optional features are isolated and gracefully degraded without installatio
 - **Node.js SDK** (`sdk/node/`) — zero external dependencies, TypeScript types, 19 tests
 - **Compatibility test suite** (`tests/compat/`) — black-box spec compliance runner, parameterized by `ACP_BASE_URL`
 
+### v0.9 — Quality & Distribution
+- **Strict role validation** — `role` field required on `/message:send`; missing or invalid → `400 ERR_INVALID_REQUEST`
+- **`pip install acp-relay`** — `pyproject.toml`, `acp-relay` CLI entry-point, optional `[identity]` / `[dev]` extras
+- **`npm install acp-relay-client`** — ESM + CJS + TypeScript types, zero external dependencies
+- **CLI flags**: `--version`, `--verbose`, `--config <FILE>` (JSON/YAML, stdlib-only)
+- **63 unit tests** (`tests/unit/`), **7 compat test suites** (`tests/compat/`)
+
+### v1.0 — Production Stable 🎉
+- **`spec/core-v1.0.md`** — authoritative 1.0 specification with API stability annotations
+  - `[stable]` 13 endpoints · `[experimental]` 1 endpoint (`/discover`)
+  - §13: v1.0 compatibility guarantees (4 MUST-level requirements)
+- **Security audit** — HMAC-SHA256 + Ed25519 formally audited (`docs/security.md`)
+  - 11 PASS · 1 PARTIAL (replay-window, planned v1.1)
+- **Go SDK** (`sdk/go/`) — stdlib-only, Go 1.21+, zero external deps, 24 tests
+- **End-to-end integration tests** (`tests/integration/`) — 30 tests against live relay subprocess
+- **CHANGELOG** — full version history v0.1.0 → v1.0.0
+
 ---
 
 ## API Reference
@@ -268,9 +285,32 @@ console.log(msg.parts[0].content);
 
 TypeScript types included (`src/index.d.ts`).
 
+### Go SDK (`sdk/go/`)
+
+Zero external dependencies (Go 1.21+, stdlib `net/http` only):
+
+```go
+import "github.com/Kickflip73/agent-communication-protocol/sdk/go/acprelay"
+
+client := acprelay.New("http://localhost:7901")
+
+// Send a message
+resp, err := client.Send(ctx, acprelay.SendRequest{Role: "user", Text: "Hello from Go!"})
+
+// SSE streaming
+events, _ := client.Stream(ctx, acprelay.StreamOptions{Timeout: 30 * time.Second})
+for ev := range events {
+    fmt.Printf("[%s] %s\n", ev.Type, ev.Data)
+}
+```
+
+See [`sdk/go/README.md`](sdk/go/README.md) for full API reference.
+
 ---
 
-## Compatibility Test Suite
+## Testing
+
+### Compatibility Test Suite
 
 Any ACP implementation can be validated against the spec:
 
@@ -283,6 +323,17 @@ ACP_BASE_URL=http://other-agent:8080 python3 tests/compat/run.py
 ```
 
 Tests cover: AgentCard schema, `/message:send`, SSE streaming, task lifecycle, peer registry, error codes, HMAC signing. See [`tests/compat/README.md`](tests/compat/README.md).
+
+### Integration Test Suite
+
+End-to-end tests that spin up a real `acp_relay.py` subprocess:
+
+```bash
+pytest tests/integration/ -v
+# 30 tests — zero external deps beyond pytest
+```
+
+Covers: `/status`, `/card`, `/peers`, `/tasks`, `/message:send`, `/recv`, `/skills/query`, `/link`, `/stream`, `/tasks/{id}:cancel`.
 
 ---
 
