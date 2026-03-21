@@ -628,8 +628,22 @@ def _validate_parts(parts):
 # AgentCard v2
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── Availability metadata (v1.2) ──────────────────────────────────────────
+# Optional AgentCard 'availability' block for heartbeat/cron-type agents.
+# Inspired by A2A issue #1667 (2026-03-21): AgentCard has no scheduling fields.
+# ACP is the first Agent communication protocol to support this natively.
+#
+# Fields (all optional):
+#   mode: "persistent" | "heartbeat" | "cron" | "manual"
+#   interval_seconds: int         # heartbeat/cron wake interval
+#   next_active_at:   ISO-8601 Z  # next scheduled wake (agent-maintained)
+#   last_active_at:   ISO-8601 Z  # last wake time (auto-set on startup)
+#   task_latency_max_seconds: int # worst-case task processing latency
+_availability: dict = {}         # empty = persistent (default behaviour)
+
+
 def _make_agent_card(name, skills):
-    return {
+    card = {
         "name":        name,
         "version":     "1.0.0",
         "acp_version": VERSION,
@@ -651,6 +665,7 @@ def _make_agent_card(name, skills):
             "context_id":         True,                        # v0.7: optional multi-turn context grouping
             "error_codes":        True,                        # v0.6: standard ACP error codes
             "identity":           "ed25519" if _ed25519_private else "none",  # v0.8: optional identity
+            "availability":       bool(_availability),         # v1.2: heartbeat/cron availability metadata
         },
         "identity": ({
             "scheme":     "ed25519",
@@ -673,6 +688,19 @@ def _make_agent_card(name, skills):
             "discover":     "/discover",               # v0.7 mDNS LAN discovery
         },
     }
+    # v1.2: attach availability block only when configured (opt-in)
+    if _availability:
+        card["availability"] = dict(_availability)  # shallow copy
+        # auto-stamp last_active_at if not explicitly set
+        if "last_active_at" not in card["availability"]:
+            started = _status.get("started_at")
+            if started and isinstance(started, (int, float)):
+                card["availability"]["last_active_at"] = (
+                    datetime.datetime.utcfromtimestamp(started).strftime("%Y-%m-%dT%H:%M:%SZ")
+                )
+            else:
+                card["availability"]["last_active_at"] = _now()
+    return card
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2080,6 +2108,18 @@ Examples:
                         help="(v0.8) Path to Ed25519 keypair JSON (auto-generated if absent). "
                              "Omit path to use ~/.acp/identity.json. "
                              "Requires: pip install cryptography.")
+    parser.add_argument("--availability-mode", default=None,
+                        choices=["persistent", "heartbeat", "cron", "manual"],
+                        help="(v1.2) Agent availability mode. 'persistent' = always-on (default). "
+                             "'heartbeat'/'cron' = wakes periodically; set --heartbeat-interval. "
+                             "Populates the AgentCard 'availability' block.")
+    parser.add_argument("--heartbeat-interval", type=int, default=None, metavar="SECONDS",
+                        help="(v1.2) Heartbeat/cron wake interval in seconds. "
+                             "Used with --availability-mode heartbeat|cron. "
+                             "Sets availability.interval_seconds and task_latency_max_seconds.")
+    parser.add_argument("--next-active-at", default=None, metavar="ISO8601",
+                        help="(v1.2) ISO-8601 UTC timestamp of next scheduled wake "
+                             "(e.g. 2026-03-22T07:00:00Z). Written into AgentCard availability block.")
 
     args = parser.parse_args()
 
@@ -2142,6 +2182,23 @@ Examples:
     # Ed25519 optional identity (v0.8)
     if identity_path is not None:
         _ed25519_load_or_create(identity_path if identity_path else None)
+
+    # Availability metadata (v1.2) — opt-in AgentCard block for heartbeat/cron agents
+    global _availability
+    avail_mode     = _get(getattr(args, "availability_mode",    None), "availability-mode",    None)
+    hb_interval    = _get(getattr(args, "heartbeat_interval",   None), "heartbeat-interval",   None)
+    next_active_at = _get(getattr(args, "next_active_at",       None), "next-active-at",       None)
+    if avail_mode and avail_mode != "persistent":
+        _availability = {"mode": avail_mode}
+        if hb_interval is not None:
+            _availability["interval_seconds"]        = int(hb_interval)
+            _availability["task_latency_max_seconds"] = int(hb_interval)
+        if next_active_at:
+            _availability["next_active_at"] = next_active_at
+        log.info(f"📅 Availability mode: {avail_mode}" +
+                 (f" (interval={hb_interval}s)" if hb_interval else ""))
+    elif avail_mode == "persistent":
+        _availability = {"mode": "persistent"}
 
     # Rebuild args-like namespace for the rest of main() to consume
     # (avoids rewriting all downstream args.xxx references)

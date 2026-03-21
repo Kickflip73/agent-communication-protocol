@@ -571,5 +571,80 @@ class TestVersion(unittest.TestCase):
                         f"VERSION '{relay.VERSION}' should start with a digit")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# AgentCard availability block (v1.2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAgentCardAvailability(unittest.TestCase):
+    """Tests for v1.2 _availability block in _make_agent_card()."""
+
+    def setUp(self):
+        self._orig_availability = relay._availability
+        self._orig_started      = relay._status.get("started_at")
+        relay._status["started_at"] = 1774137600.0  # 2026-03-22T08:00:00+08 = 2026-03-22T00:00:00Z UTC
+
+    def tearDown(self):
+        relay._availability = self._orig_availability
+        relay._status["started_at"] = self._orig_started
+
+    def test_no_availability_block_by_default(self):
+        relay._availability = {}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertNotIn("availability", card)
+
+    def test_capability_flag_false_when_no_availability(self):
+        relay._availability = {}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertFalse(card["capabilities"]["availability"])
+
+    def test_availability_block_present_when_configured(self):
+        relay._availability = {"mode": "heartbeat", "interval_seconds": 3600}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertIn("availability", card)
+        self.assertEqual(card["availability"]["mode"], "heartbeat")
+        self.assertEqual(card["availability"]["interval_seconds"], 3600)
+
+    def test_capability_flag_true_when_configured(self):
+        relay._availability = {"mode": "cron", "interval_seconds": 7200}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertTrue(card["capabilities"]["availability"])
+
+    def test_last_active_at_auto_stamped(self):
+        relay._availability = {"mode": "heartbeat"}
+        card = relay._make_agent_card("test-agent", [])
+        # started_at=1742601600.0 → 2026-03-22T00:00:00Z
+        self.assertEqual(card["availability"]["last_active_at"], "2026-03-22T00:00:00Z")
+
+    def test_last_active_at_not_overridden_if_explicit(self):
+        relay._availability = {"mode": "heartbeat", "last_active_at": "2026-03-21T12:00:00Z"}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertEqual(card["availability"]["last_active_at"], "2026-03-21T12:00:00Z")
+
+    def test_next_active_at_preserved(self):
+        relay._availability = {"mode": "heartbeat", "next_active_at": "2026-03-22T07:00:00Z"}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertEqual(card["availability"]["next_active_at"], "2026-03-22T07:00:00Z")
+
+    def test_availability_is_copy_not_reference(self):
+        """Mutations to card['availability'] must not affect _availability global."""
+        relay._availability = {"mode": "cron", "interval_seconds": 1800}
+        card = relay._make_agent_card("test-agent", [])
+        card["availability"]["mode"] = "MUTATED"
+        self.assertEqual(relay._availability["mode"], "cron")
+
+    def test_persistent_mode_stored_cleanly(self):
+        relay._availability = {"mode": "persistent"}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertIn("availability", card)
+        self.assertEqual(card["availability"]["mode"], "persistent")
+
+    def test_task_latency_field_accepted(self):
+        relay._availability = {"mode": "heartbeat",
+                               "interval_seconds": 3600,
+                               "task_latency_max_seconds": 3600}
+        card = relay._make_agent_card("test-agent", [])
+        self.assertEqual(card["availability"]["task_latency_max_seconds"], 3600)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
