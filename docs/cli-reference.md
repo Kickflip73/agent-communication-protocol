@@ -1,4 +1,4 @@
-# ACP CLI Reference — v1.1
+# ACP CLI Reference — v1.2
 
 `acp_relay.py` is both the reference implementation and the command-line interface.
 This document covers every flag, common usage patterns, and environment variables.
@@ -59,6 +59,20 @@ python3 acp_relay.py [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--advertise-mdns` | `false` | Broadcast presence on LAN via UDP multicast (`224.0.0.251:5354`). Enables `GET /discover` endpoint. No external library required. |
+
+### Availability Metadata — Heartbeat/Cron Support (v1.2)
+
+Opt-in `availability` block in the AgentCard for heartbeat- or cron-based agents
+that wake on a schedule rather than running continuously.
+Inspired by the gap identified in A2A protocol (issue #1667).
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--availability-mode MODE` | *(absent = no block)* | Agent availability mode: `persistent` \| `heartbeat` \| `cron` \| `manual`. When set, adds an `availability` object to the AgentCard. Use `persistent` to explicitly declare always-on. |
+| `--heartbeat-interval SECONDS` | *(none)* | Wake interval in seconds. Sets `interval_seconds` and `task_latency_max_seconds` in the availability block. Only meaningful with `--availability-mode heartbeat\|cron`. |
+| `--next-active-at ISO8601` | *(none)* | ISO-8601 UTC timestamp of next scheduled wake (e.g. `2026-03-22T09:00:00Z`). Callers can use this to set retry timers. |
+
+`last_active_at` is **auto-stamped** to the relay's startup time — no manual flag needed.
 
 ---
 
@@ -165,6 +179,38 @@ The AgentCard will include an `identity` block:
   }
 }
 ```
+
+### Heartbeat agent — cron/scheduled deployment (v1.2)
+
+Agents that wake on a schedule (e.g. every hour via cron) can advertise
+their scheduling metadata so callers know when to expect a response.
+
+```bash
+# Cron agent: wakes every hour, next wake at 08:00 UTC
+python3 acp_relay.py \
+  --name "HourlyAgent" \
+  --availability-mode cron \
+  --heartbeat-interval 3600 \
+  --next-active-at "2026-03-22T08:00:00Z"
+```
+
+The AgentCard will include:
+```json
+{
+  "capabilities": { "availability": true },
+  "availability": {
+    "mode": "cron",
+    "interval_seconds": 3600,
+    "task_latency_max_seconds": 3600,
+    "next_active_at": "2026-03-22T08:00:00Z",
+    "last_active_at": "2026-03-22T07:00:00Z"
+  }
+}
+```
+
+Callers can read `next_active_at` to set retry timers, and use
+`task_latency_max_seconds` to bound their timeout expectations.
+This is the first Agent communication protocol to support scheduling metadata natively.
 
 ### Full feature set
 
@@ -302,6 +348,9 @@ Keys use the same names as CLI long flags (hyphens, not underscores):
 | `hmac-window` | int | `120` |
 | `advertise-mdns` | bool | `true` |
 | `identity` | string | `"~/.acp/identity.json"` |
+| `availability-mode` | string | `"heartbeat"` |
+| `heartbeat-interval` | int | `3600` |
+| `next-active-at` | string | `"2026-03-22T09:00:00Z"` |
 | `verbose` | bool | `true` |
 
 ### JSON example (`relay/examples/config.json`)
@@ -343,7 +392,10 @@ CLI flags  >  --config file  >  hardcoded defaults
 
 | ACP Version | Python | Required packages | Optional packages |
 |-------------|--------|-------------------|-------------------|
-| v0.8 (current) | 3.9+ | `websockets` | `cryptography` (Ed25519) |
+| v1.2 (current) | 3.9+ | `websockets` | `cryptography` (Ed25519) |
+| v1.1 | 3.9+ | `websockets` | `cryptography` (Ed25519) |
+| v1.0 | 3.9+ | `websockets` | `cryptography` (Ed25519) |
+| v0.8 | 3.9+ | `websockets` | `cryptography` (Ed25519) |
 | v0.7 | 3.9+ | `websockets` | — |
 | v0.5–v0.6 | 3.9+ | `websockets` | — |
 
