@@ -130,6 +130,9 @@
 - [x] Ed25519 安全审计：8 PASS，commit `a3ee229`
 - [x] `docs/security.md`：安全模型、限制说明、TLS 建议，commit `a3ee229`
 - [x] Go SDK stub（`sdk/go/`，6 methods + 16 tests，commit `bcf6b75`，2026-03-21）
+- [x] Go SDK SSE `Stream()` 方法 + 8 tests（commit `c4cc409`，2026-03-21）
+- [x] CHANGELOG.md v1.0.0 条目（commit `7fe0725`，2026-03-21）
+- [x] 端到端集成测试 `tests/integration/`（30 tests，commit `641bae6`，2026-03-21）
 
 #### P2（可选 / v1.1）
 - [ ] Rust SDK stub + crates.io 发布（`acp-relay-client`）
