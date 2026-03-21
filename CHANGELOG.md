@@ -7,6 +7,27 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.1.0-dev] — 2026-03-22
+
+### Added
+- **HMAC replay-window** (`--hmac-window <seconds>`, default 300 s) (commit `e263f52`)
+  - New `_hmac_check_replay_window(ts_str)` helper: parses ISO-8601 UTC timestamp,
+    checks `|server_now − msg_ts| ≤ window`; returns `(ok, reason)` for clean logging
+  - Inbound WS handler: when `--secret` is set, out-of-window messages are **hard-rejected
+    (dropped)** before any processing — prevents replay attacks
+  - Signature mismatch remains warn-only for graceful interop with legacy agents
+  - Configurable via `--hmac-window <seconds>` CLI flag or `hmac-window` config-file key
+  - Graceful degradation: when `--secret` is not set, replay-window check is a no-op
+  - `docs/security.md`: HMAC audit result PARTIAL → ✅ PASS; new §1.3 replay-window docs;
+    audit history v1.1.0 = 9 PASS, 0 PARTIAL
+  - `tests/unit`: +10 `TestHMACReplayWindow` tests; unit test total 63 → **73 PASS**
+
+### Security
+- HMAC-SHA256 audit now **fully PASS** (9/9, 0 PARTIAL)
+  - Previous PARTIAL item: "no server-side timestamp window check" — now resolved
+
+---
+
 ## [1.0.0] — 2026-03-21
 
 ### Added (P0 — Specification & Versioning)
@@ -27,7 +48,7 @@ Dates: Asia/Shanghai (UTC+8)
     `/tasks/{id}/continue`, `/tasks/{id}:cancel`, `/skills/query`
   - `[experimental]` (1 endpoint): `/discover` (mDNS, platform-dependent)
 - **`docs/security.md`**: complete security model documentation (commit `a3ee229`)
-  - §1 HMAC-SHA256: mechanism, audit findings table, replay-window limitation
+  - §1 HMAC-SHA256: mechanism, audit findings table (replay-window later resolved in v1.1)
   - §2 Ed25519: mechanism, audit findings table, HMAC coexistence
   - §3 HMAC vs Ed25519 side-by-side comparison
   - §4 Transport security recommendations (nginx/Caddy/Cloudflare Tunnel)
@@ -53,7 +74,7 @@ Dates: Asia/Shanghai (UTC+8)
   - ✅ PASS: no timing oracle in error path
   - ✅ PASS: `message_id` unpredictability (`secrets.token_hex(8)`)
   - ✅ PASS: secret never written to disk
-  - ⚠️ PARTIAL: no server-side replay-window timestamp check (planned v1.1 `--replay-window`)
+  - ⚠️ PARTIAL: no server-side replay-window timestamp check (resolved in v1.1 `--hmac-window`)
 - **Ed25519 identity audit** (commit `a3ee229`)
   - ✅ PASS: key file permissions enforced (`chmod 0600`)
   - ✅ PASS: canonical form deterministic (`sort_keys=True` + compact separators)
