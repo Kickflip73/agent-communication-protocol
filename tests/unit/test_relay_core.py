@@ -776,5 +776,125 @@ class TestPatchAvailability(unittest.TestCase):
             self.assertEqual(relay._availability[k], v)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Extension mechanism (v1.3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestExtensions(unittest.TestCase):
+    """Tests for Extension mechanism: AgentCard, register/unregister endpoints."""
+
+    def setUp(self):
+        self._orig_extensions = list(relay._extensions)
+        self._orig_status_name = relay._status.get("agent_name")
+        relay._status["agent_name"] = "test-agent"
+        relay._status["started_at"] = 1774137600.0
+        relay._extensions.clear()
+
+    def tearDown(self):
+        relay._extensions.clear()
+        relay._extensions.extend(self._orig_extensions)
+        relay._status["agent_name"] = self._orig_status_name
+
+    # ── AgentCard inclusion ─────────────────────────────────────────────────
+
+    def test_extensions_absent_when_empty(self):
+        """AgentCard must NOT include 'extensions' key when none declared."""
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertNotIn("extensions", card)
+
+    def test_extensions_present_when_declared(self):
+        relay._extensions.append({"uri": "https://example.com/ext/v1", "required": False})
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertIn("extensions", card)
+        self.assertEqual(len(card["extensions"]), 1)
+        self.assertEqual(card["extensions"][0]["uri"], "https://example.com/ext/v1")
+
+    def test_capabilities_extensions_flag(self):
+        relay._extensions.append({"uri": "https://example.com/ext/v1", "required": False})
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertTrue(card["capabilities"]["extensions"])
+
+    def test_capabilities_extensions_false_when_empty(self):
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertFalse(card["capabilities"]["extensions"])
+
+    def test_extensions_snapshot_not_reference(self):
+        """Modifying _extensions after card creation must not affect the card."""
+        relay._extensions.append({"uri": "https://example.com/ext/v1", "required": False})
+        card = relay._make_agent_card("TestAgent", [])
+        relay._extensions.append({"uri": "https://example.com/ext/v2", "required": False})
+        self.assertEqual(len(card["extensions"]), 1)
+
+    # ── POST /extensions/register ───────────────────────────────────────────
+
+    def _register(self, body):
+        h = _CaptureHandler("/extensions/register", body)
+        h.do_POST()
+        return h._response_code, h._response_body
+
+    def _unregister(self, body):
+        h = _CaptureHandler("/extensions/unregister", body)
+        h.do_POST()
+        return h._response_code, h._response_body
+
+    def test_register_basic(self):
+        code, resp = self._register({"uri": "https://example.com/ext/v1"})
+        self.assertEqual(code, 200)
+        self.assertTrue(resp["ok"])
+        self.assertEqual(len(relay._extensions), 1)
+        self.assertEqual(relay._extensions[0]["uri"], "https://example.com/ext/v1")
+        self.assertFalse(relay._extensions[0]["required"])
+
+    def test_register_with_required_true(self):
+        code, resp = self._register({"uri": "https://example.com/ext/v1", "required": True})
+        self.assertEqual(code, 200)
+        self.assertTrue(relay._extensions[0]["required"])
+
+    def test_register_with_params(self):
+        code, resp = self._register({
+            "uri": "https://example.com/ext/billing",
+            "params": {"tier": "pro", "version": "2"}
+        })
+        self.assertEqual(code, 200)
+        self.assertEqual(relay._extensions[0]["params"]["tier"], "pro")
+
+    def test_register_idempotent_upsert(self):
+        """Re-registering same URI updates the entry, not duplicates it."""
+        self._register({"uri": "https://example.com/ext/v1", "required": False})
+        self._register({"uri": "https://example.com/ext/v1", "required": True})
+        self.assertEqual(len(relay._extensions), 1)
+        self.assertTrue(relay._extensions[0]["required"])
+
+    def test_register_missing_uri_rejected(self):
+        code, resp = self._register({"required": False})
+        self.assertEqual(code, 400)
+
+    def test_register_non_http_uri_rejected(self):
+        code, resp = self._register({"uri": "ftp://example.com/ext"})
+        self.assertEqual(code, 400)
+
+    def test_register_invalid_params_rejected(self):
+        code, resp = self._register({"uri": "https://example.com/ext", "params": "bad"})
+        self.assertEqual(code, 400)
+
+    # ── POST /extensions/unregister ────────────────────────────────────────
+
+    def test_unregister_existing(self):
+        relay._extensions.append({"uri": "https://example.com/ext/v1", "required": False})
+        code, resp = self._unregister({"uri": "https://example.com/ext/v1"})
+        self.assertEqual(code, 200)
+        self.assertEqual(resp["removed"], 1)
+        self.assertEqual(len(relay._extensions), 0)
+
+    def test_unregister_nonexistent_returns_zero(self):
+        code, resp = self._unregister({"uri": "https://example.com/ext/nonexistent"})
+        self.assertEqual(code, 200)
+        self.assertEqual(resp["removed"], 0)
+
+    def test_unregister_missing_uri_rejected(self):
+        code, resp = self._unregister({})
+        self.assertEqual(code, 400)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

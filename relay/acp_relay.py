@@ -639,7 +639,8 @@ def _validate_parts(parts):
 #   next_active_at:   ISO-8601 Z  # next scheduled wake (agent-maintained)
 #   last_active_at:   ISO-8601 Z  # last wake time (auto-set on startup)
 #   task_latency_max_seconds: int # worst-case task processing latency
-_availability: dict = {}         # empty = persistent (default behaviour)
+_availability: dict  = {}         # empty = persistent (default behaviour)
+_extensions:   list  = []         # v1.3: [{uri, required, params}] Extension list (opt-in)
 
 
 def _make_agent_card(name, skills):
@@ -666,6 +667,7 @@ def _make_agent_card(name, skills):
             "error_codes":        True,                        # v0.6: standard ACP error codes
             "identity":           "ed25519" if _ed25519_private else "none",  # v0.8: optional identity
             "availability":       bool(_availability),         # v1.2: heartbeat/cron availability metadata
+            "extensions":         bool(_extensions),           # v1.3: Extension mechanism (URI-identified)
         },
         "identity": ({
             "scheme":     "ed25519",
@@ -686,6 +688,7 @@ def _make_agent_card(name, skills):
             "peer_send":    "/peer/{id}/send",         # v0.6
             "peers_connect": "/peers/connect",         # v0.6
             "discover":     "/discover",               # v0.7 mDNS LAN discovery
+            "extensions":   "/extensions",             # v1.3: list/register extensions
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -700,6 +703,11 @@ def _make_agent_card(name, skills):
                 )
             else:
                 card["availability"]["last_active_at"] = _now()
+
+    # v1.3: attach extensions list only when declared (opt-in)
+    if _extensions:
+        card["extensions"] = list(_extensions)  # shallow copy
+
     return card
 
 
@@ -1281,6 +1289,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "note": "Start with --advertise-mdns to enable LAN discovery" if not _mdns_running else None,
             })
 
+        # ── GET /extensions — list declared extensions (v1.3) ────────────────
+        elif p == "/extensions":
+            self._json({
+                "extensions": list(_extensions),
+                "count":      len(_extensions),
+            })
+
         # ── GET /peers/{id} — single peer info (v0.6) ─────────────────────────
         elif p.startswith("/peers/") and not p.endswith("/send"):
             peer_id = p[len("/peers/"):]
@@ -1449,6 +1464,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
     # ── POST ──────────────────────────────────────────────────────────────────
 
     def do_POST(self):
+        global _extensions  # v1.3: may be mutated by /extensions/register and /extensions/unregister
         parsed = urlparse(self.path)
         p = parsed.path
 
@@ -1893,6 +1909,68 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
+        # ── POST /extensions/register — runtime extension registration (v1.3) ──
+        elif p == "/extensions/register":
+            """Register a new Extension in the AgentCard at runtime (v1.3).
+
+            Body:
+              {
+                "uri":      "https://example.com/ext/billing",   // required
+                "required": false,                               // optional, default false
+                "params":   { "tier": "pro" }                   // optional
+              }
+
+            Returns the updated extensions list.
+            Idempotent: re-registering the same URI updates the entry.
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            uri = body.get("uri")
+            if not uri or not isinstance(uri, str):
+                self._json({"error": "'uri' is required and must be a string"}, 400)
+                return
+            if not uri.startswith("http://") and not uri.startswith("https://"):
+                self._json({"error": "'uri' must be an http(s) URL"}, 400)
+                return
+
+            required = bool(body.get("required", False))
+            params   = body.get("params", {})
+            if not isinstance(params, dict):
+                self._json({"error": "'params' must be a JSON object"}, 400)
+                return
+
+            # Upsert: remove existing entry with same URI, then append
+            _extensions = [e for e in _extensions if e.get("uri") != uri]
+            entry = {"uri": uri, "required": required}
+            if params:
+                entry["params"] = params
+            _extensions.append(entry)
+            log.info(f"🔌 Extension registered: {uri} (required={required})")
+            self._json({"ok": True, "extensions": list(_extensions)})
+
+        # ── POST /extensions/unregister — remove extension at runtime (v1.3) ─
+        elif p == "/extensions/unregister":
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            uri = body.get("uri")
+            if not uri:
+                self._json({"error": "'uri' is required"}, 400)
+                return
+
+            before = len(_extensions)
+            _extensions = [e for e in _extensions if e.get("uri") != uri]
+            removed = before - len(_extensions)
+            log.info(f"🔌 Extension unregistered: {uri} (found={removed > 0})")
+            self._json({"ok": True, "removed": removed, "extensions": list(_extensions)})
+
         else:
             self._json({"error": "not found"}, 404)
 
@@ -2180,6 +2258,11 @@ Examples:
     parser.add_argument("--next-active-at", default=None, metavar="ISO8601",
                         help="(v1.2) ISO-8601 UTC timestamp of next scheduled wake "
                              "(e.g. 2026-03-22T07:00:00Z). Written into AgentCard availability block.")
+    parser.add_argument("--extension", action="append", default=[], metavar="URI[,required=true][,key=val...]",
+                        help="(v1.3) Declare an AgentCard extension. May be repeated. "
+                             "Format: URI  or  URI,required=true,param_key=param_val. "
+                             "Example: --extension https://acp.dev/ext/availability/v1,required=false "
+                             "         --extension https://corp.example.com/ext/billing,tier=pro")
 
     args = parser.parse_args()
 
@@ -2259,6 +2342,33 @@ Examples:
                  (f" (interval={hb_interval}s)" if hb_interval else ""))
     elif avail_mode == "persistent":
         _availability = {"mode": "persistent"}
+
+    # v1.3: parse --extension flags into _extensions list
+    raw_extensions = _get(getattr(args, "extension", []) or [], "extensions", [])
+    if isinstance(raw_extensions, str):
+        raw_extensions = [raw_extensions]
+    for raw_ext in raw_extensions:
+        parts = [p.strip() for p in raw_ext.split(",")]
+        if not parts:
+            continue
+        ext_uri = parts[0]
+        if not ext_uri:
+            continue
+        ext_entry = {"uri": ext_uri, "required": False, "params": {}}
+        for kv in parts[1:]:
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if k == "required":
+                    ext_entry["required"] = v.lower() in ("true", "1", "yes")
+                else:
+                    ext_entry["params"][k] = v
+        if ext_entry["params"] == {}:
+            del ext_entry["params"]
+        _extensions.append(ext_entry)
+    if _extensions:
+        log.info(f"🔌 Extensions declared: {[e['uri'] for e in _extensions]}")
 
     # Rebuild args-like namespace for the rest of main() to consume
     # (avoids rewriting all downstream args.xxx references)

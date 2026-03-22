@@ -164,7 +164,10 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 **主题：联邦化与生态扩展**
 
 - [ ] 公开发布（博客文章 + GitHub README + Hacker News）
-- [ ] Extension 机制（URI 标识扩展，向 A2A 靠拢）
+- ✅ Extension 机制（URI 标识扩展，向 A2A 靠拢）（commit pending，2026-03-22）
+  - AgentCard extensions[] 数组、--extension CLI flag
+  - POST /extensions/register（upsert）/ /extensions/unregister
+  - GET /extensions 列表查询、capabilities.extensions 能力标志
 - [ ] 多语言 SDK 完整矩阵（Python/Node/Go/Rust）
 - [ ] 兼容性认证流程（「如何认证你的实现」文档）
 
