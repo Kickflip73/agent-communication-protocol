@@ -1913,6 +1913,66 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
 
+    def do_PATCH(self):
+        """PATCH /.well-known/acp.json — live-update AgentCard availability block (v1.2).
+
+        Accepts a JSON body with any subset of availability fields:
+          {
+            "availability": {
+              "mode":                    "heartbeat" | "cron" | "persistent" | "manual",
+              "interval_seconds":        <int>,
+              "next_active_at":          "<ISO-8601-UTC>",
+              "last_active_at":          "<ISO-8601-UTC>",
+              "task_latency_max_seconds": <int>
+            }
+          }
+
+        Use-case: a heartbeat agent calls this endpoint on each wake to stamp
+        next_active_at and last_active_at without restarting the relay.
+        """
+        global _availability
+        p = urlparse(self.path).path
+        if p not in ("/card", "/.well-known/acp.json"):
+            self._json({"error": "PATCH only supported on /.well-known/acp.json"}, 404)
+            return
+        try:
+            body = self._read_body()
+        except Exception as e:
+            self._json({"error": f"invalid JSON: {e}"}, 400)
+            return
+
+        patch = body.get("availability")
+        if patch is None:
+            self._json({"error": "request body must contain 'availability' key"}, 400)
+            return
+        if not isinstance(patch, dict):
+            self._json({"error": "'availability' must be a JSON object"}, 400)
+            return
+
+        # Allowed fields for PATCH (whitelist to avoid injection)
+        ALLOWED = {"mode", "interval_seconds", "next_active_at",
+                   "last_active_at", "task_latency_max_seconds"}
+        unknown = set(patch.keys()) - ALLOWED
+        if unknown:
+            self._json({"error": f"unknown availability fields: {sorted(unknown)}"}, 400)
+            return
+
+        # Validate mode if provided
+        valid_modes = {"persistent", "heartbeat", "cron", "manual"}
+        if "mode" in patch and patch["mode"] not in valid_modes:
+            self._json({"error": f"mode must be one of {sorted(valid_modes)}"}, 400)
+            return
+
+        # Merge patch into _availability
+        _availability = {**_availability, **patch}
+        log.info(f"📅 AgentCard availability updated via PATCH: {_availability}")
+
+        # Return the updated live card
+        skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
+        live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
+        self._json({"ok": True, "availability": live_card.get("availability", {})})
+
+
 def run_http(port):
     HTTPServer(("127.0.0.1", port), LocalHTTP).serve_forever()
 

@@ -646,5 +646,135 @@ class TestAgentCardAvailability(unittest.TestCase):
         self.assertEqual(card["availability"]["task_latency_max_seconds"], 3600)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PATCH /.well-known/acp.json — availability update (v1.2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _FakeRequest:
+    """Minimal stand-in for the socket object expected by BaseHTTPRequestHandler."""
+    def makefile(self, *a, **kw):
+        return None
+
+
+class _CaptureHandler(relay.LocalHTTP):
+    """Subclass that captures _json() calls instead of writing to a socket."""
+
+    def __init__(self, path: str, body: dict):
+        # Do NOT call super().__init__ (requires real socket)
+        self._path   = path
+        self._body   = body
+        self._response_body = None
+        self._response_code = None
+
+    # Stubs for methods called by do_PATCH
+    @property
+    def path(self):
+        return self._path
+
+    def _read_body(self):
+        return self._body
+
+    def _json(self, data, code=200):
+        self._response_body = data
+        self._response_code = code
+
+    # Silence BaseHTTPRequestHandler log_message
+    def log_message(self, *args):
+        pass
+
+
+class TestPatchAvailability(unittest.TestCase):
+    """Tests for PATCH /.well-known/acp.json (v1.2)."""
+
+    def setUp(self):
+        self._orig_availability = relay._availability
+        self._orig_status_name  = relay._status.get("agent_name")
+        relay._status["agent_name"] = "test-agent"
+        relay._status["started_at"] = 1774137600.0  # 2026-03-22T00:00:00Z UTC
+
+    def tearDown(self):
+        relay._availability         = self._orig_availability
+        relay._status["agent_name"] = self._orig_status_name
+
+    def _patch(self, path, body):
+        h = _CaptureHandler(path, body)
+        h.do_PATCH()
+        return h._response_code, h._response_body
+
+    def test_patch_sets_next_active_at(self):
+        relay._availability = {"mode": "heartbeat"}
+        code, resp = self._patch("/.well-known/acp.json",
+                                 {"availability": {"next_active_at": "2026-03-22T10:00:00Z"}})
+        self.assertEqual(code, 200)
+        self.assertTrue(resp["ok"])
+        self.assertEqual(relay._availability["next_active_at"], "2026-03-22T10:00:00Z")
+
+    def test_patch_merges_not_replaces(self):
+        relay._availability = {"mode": "heartbeat", "interval_seconds": 3600}
+        code, resp = self._patch("/.well-known/acp.json",
+                                 {"availability": {"next_active_at": "2026-03-22T10:00:00Z"}})
+        self.assertEqual(code, 200)
+        # Original fields preserved
+        self.assertEqual(relay._availability["mode"], "heartbeat")
+        self.assertEqual(relay._availability["interval_seconds"], 3600)
+        # New field added
+        self.assertEqual(relay._availability["next_active_at"], "2026-03-22T10:00:00Z")
+
+    def test_patch_returns_updated_availability_in_response(self):
+        relay._availability = {"mode": "cron", "interval_seconds": 7200}
+        code, resp = self._patch("/.well-known/acp.json",
+                                 {"availability": {"last_active_at": "2026-03-22T08:00:00Z"}})
+        self.assertEqual(code, 200)
+        self.assertIn("availability", resp)
+        self.assertEqual(resp["availability"]["last_active_at"], "2026-03-22T08:00:00Z")
+
+    def test_patch_unknown_field_rejected(self):
+        relay._availability = {}
+        code, resp = self._patch("/.well-known/acp.json",
+                                 {"availability": {"unknown_field": "bad"}})
+        self.assertEqual(code, 400)
+        self.assertIn("unknown", resp["error"])
+
+    def test_patch_invalid_mode_rejected(self):
+        relay._availability = {}
+        code, resp = self._patch("/.well-known/acp.json",
+                                 {"availability": {"mode": "INVALID"}})
+        self.assertEqual(code, 400)
+        self.assertIn("mode", resp["error"])
+
+    def test_patch_missing_availability_key_rejected(self):
+        relay._availability = {}
+        code, resp = self._patch("/.well-known/acp.json", {"foo": "bar"})
+        self.assertEqual(code, 400)
+
+    def test_patch_wrong_path_rejected(self):
+        relay._availability = {}
+        code, resp = self._patch("/status", {"availability": {"mode": "heartbeat"}})
+        self.assertEqual(code, 404)
+
+    def test_patch_card_path_also_accepted(self):
+        relay._availability = {}
+        code, resp = self._patch("/card",
+                                 {"availability": {"mode": "persistent"}})
+        self.assertEqual(code, 200)
+        self.assertEqual(relay._availability["mode"], "persistent")
+
+    def test_patch_all_valid_fields_accepted(self):
+        relay._availability = {}
+        payload = {
+            "availability": {
+                "mode": "cron",
+                "interval_seconds": 1800,
+                "next_active_at": "2026-03-22T09:00:00Z",
+                "last_active_at": "2026-03-22T08:30:00Z",
+                "task_latency_max_seconds": 1800,
+            }
+        }
+        code, resp = self._patch("/.well-known/acp.json", payload)
+        self.assertEqual(code, 200)
+        for k, v in payload["availability"].items():
+            self.assertEqual(relay._availability[k], v)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
