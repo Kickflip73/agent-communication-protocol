@@ -283,11 +283,29 @@ def _hmac_verify(message_id: str, ts, sig: str) -> bool:
 # Without --identity: no identity block; fully backward compatible with v0.7.
 _ed25519_private: "Ed25519PrivateKey | None" = None   # type: ignore
 _ed25519_public_b64: str = None   # base64url-encoded 32-byte public key
+_did_acp: str = None              # v1.3: did:acp:<base64url(pubkey)> — stable Agent identifier
+
+
+def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
+    """Derive a did:acp: identifier from a raw 32-byte Ed25519 public key.
+
+    Format: did:acp:<base64url-no-padding(pubkey)>
+    Zero-dependency (stdlib base64 only); intentionally avoids base58 to keep
+    the relay self-contained.  The 'acp' DID method is key-based — the DID IS
+    the public key, no registry needed.
+
+    Example:
+        did:acp:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK  (conceptual)
+    Actual (base64url):
+        did:acp:AAEC...  (43 chars for a 32-byte key)
+    """
+    encoded = _base64.urlsafe_b64encode(pubkey_bytes).rstrip(b"=").decode()
+    return f"did:acp:{encoded}"
 
 
 def _ed25519_load_or_create(identity_path: str = None) -> bool:
     """Load existing Ed25519 keypair or generate a new one. Returns success."""
-    global _ed25519_private, _ed25519_public_b64
+    global _ed25519_private, _ed25519_public_b64, _did_acp
     if not _ED25519_AVAILABLE:
         log.warning("Ed25519 identity requires: pip install cryptography")
         return False
@@ -305,7 +323,8 @@ def _ed25519_load_or_create(identity_path: str = None) -> bool:
             _ed25519_private = Ed25519PrivateKey.from_private_bytes(raw)
             pub_raw = _ed25519_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
             _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
-            log.info(f"Ed25519 identity loaded from {path} | pubkey={_ed25519_public_b64[:16]}...")
+            _did_acp = _pubkey_to_did_acp(pub_raw)
+            log.info(f"Ed25519 identity loaded from {path} | did={_did_acp}")
             return True
         except Exception as e:
             log.warning(f"Failed to load identity from {path}: {e} — generating new keypair")
@@ -314,16 +333,18 @@ def _ed25519_load_or_create(identity_path: str = None) -> bool:
     pub_raw = _ed25519_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     priv_raw = _ed25519_private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+    _did_acp = _pubkey_to_did_acp(pub_raw)
     priv_b64 = _base64.urlsafe_b64encode(priv_raw).rstrip(b"=").decode()
     try:
         path.write_text(_json.dumps({
             "scheme":      "ed25519",
             "public_key":  _ed25519_public_b64,
+            "did":         _did_acp,
             "private_key": priv_b64,
             "created_at":  _now(),
         }, indent=2))
         path.chmod(0o600)
-        log.info(f"Ed25519 keypair generated and saved to {path} | pubkey={_ed25519_public_b64[:16]}...")
+        log.info(f"Ed25519 keypair generated and saved to {path} | did={_did_acp}")
     except Exception as e:
         log.warning(f"Could not save identity to {path}: {e} — keypair active for this session only")
     return True
@@ -666,12 +687,14 @@ def _make_agent_card(name, skills):
             "context_id":         True,                        # v0.7: optional multi-turn context grouping
             "error_codes":        True,                        # v0.6: standard ACP error codes
             "identity":           "ed25519" if _ed25519_private else "none",  # v0.8: optional identity
+            "did_identity":       bool(_did_acp),              # v1.3: did:acp: stable identifier + DID Document
             "availability":       bool(_availability),         # v1.2: heartbeat/cron availability metadata
             "extensions":         bool(_extensions),           # v1.3: Extension mechanism (URI-identified)
         },
         "identity": ({
             "scheme":     "ed25519",
             "public_key": _ed25519_public_b64,
+            "did":        _did_acp,            # v1.3: stable did:acp: identifier
         } if _ed25519_private else None),
         "trust": {
             "scheme":  "hmac-sha256" if _hmac_secret else "none",
@@ -683,6 +706,7 @@ def _make_agent_card(name, skills):
             "stream":       "/stream",
             "tasks":        "/tasks",
             "agent_card":   "/.well-known/acp.json",
+            "did_document": "/.well-known/did.json",   # v1.3: W3C DID Document (requires --identity)
             "skills_query": "/skills/query",
             "peers":        "/peers",                  # v0.6
             "peer_send":    "/peer/{id}/send",         # v0.6
@@ -970,6 +994,7 @@ def _attach_sig(msg: dict) -> dict:
         msg["identity"] = {
             "scheme":     "ed25519",
             "public_key": _ed25519_public_b64,
+            "did":        _did_acp,            # v1.3: stable did:acp: identifier
         }
         # Sig is computed last (excludes identity.sig from canonical form)
         msg["identity"]["sig"] = _ed25519_sign_msg(msg)
@@ -1254,6 +1279,44 @@ class LocalHTTP(BaseHTTPRequestHandler):
             skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
             live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
             self._json({"self": live_card, "peer": _status.get("peer_card")})
+
+        # ── GET /.well-known/did.json — W3C DID Document (v1.3) ───────────────
+        elif p == "/.well-known/did.json":
+            """Return a W3C-compatible DID Document for this Agent's did:acp: identity.
+
+            Requires --identity flag (Ed25519 keypair).  Returns 404 when
+            identity is not enabled.
+
+            The DID Document maps the did:acp: identifier to:
+              - A verificationMethod (Ed25519VerificationKey2020)
+              - A service endpoint pointing to the current ACP session link
+            """
+            if not _ed25519_private or not _did_acp:
+                self._json({"error": "DID identity not enabled — start with --identity"}, 404)
+                return
+
+            link    = _status.get("link")
+            did_doc = {
+                "@context": [
+                    "https://www.w3.org/ns/did/v1",
+                    "https://w3id.org/security/suites/ed25519-2020/v1",
+                ],
+                "id": _did_acp,
+                "verificationMethod": [{
+                    "id":                f"{_did_acp}#key-1",
+                    "type":              "Ed25519VerificationKey2020",
+                    "controller":        _did_acp,
+                    "publicKeyMultibase": f"z{_ed25519_public_b64}",  # 'z' = base64url multibase prefix
+                }],
+                "authentication":       [f"{_did_acp}#key-1"],
+                "assertionMethod":      [f"{_did_acp}#key-1"],
+                "service": ([{
+                    "id":              f"{_did_acp}#acp",
+                    "type":            "ACPRelay",
+                    "serviceEndpoint": link,
+                }] if link else []),
+            }
+            self._json(did_doc)
 
         elif p == "/status":  # [stable] relay status
             self._json(_status)

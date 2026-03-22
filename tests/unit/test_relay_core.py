@@ -896,5 +896,138 @@ class TestExtensions(unittest.TestCase):
         self.assertEqual(code, 400)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# DID identity — did:acp: (v1.3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDidAcp(unittest.TestCase):
+    """Tests for did:acp: identifier generation and AgentCard / DID Document integration."""
+
+    def setUp(self):
+        self._orig_did      = relay._did_acp
+        self._orig_private  = relay._ed25519_private
+        self._orig_pub_b64  = relay._ed25519_public_b64
+        relay._status["agent_name"] = "did-test-agent"
+        relay._status["started_at"] = 1774137600.0
+        relay._status["link"]       = "acp://relay.acp.dev/test-session"
+
+    def tearDown(self):
+        relay._did_acp          = self._orig_did
+        relay._ed25519_private  = self._orig_private
+        relay._ed25519_public_b64 = self._orig_pub_b64
+
+    # ── _pubkey_to_did_acp ──────────────────────────────────────────────────
+
+    def test_did_format(self):
+        pubkey = bytes(range(32))  # deterministic test key
+        did = relay._pubkey_to_did_acp(pubkey)
+        self.assertTrue(did.startswith("did:acp:"), f"Expected did:acp: prefix, got: {did}")
+
+    def test_did_deterministic(self):
+        pubkey = bytes(range(32))
+        self.assertEqual(relay._pubkey_to_did_acp(pubkey), relay._pubkey_to_did_acp(pubkey))
+
+    def test_did_different_keys_differ(self):
+        key_a = bytes(range(32))
+        key_b = bytes(reversed(range(32)))
+        self.assertNotEqual(relay._pubkey_to_did_acp(key_a), relay._pubkey_to_did_acp(key_b))
+
+    def test_did_no_padding(self):
+        """DID must not contain base64 padding '='."""
+        pubkey = bytes(range(32))
+        did = relay._pubkey_to_did_acp(pubkey)
+        self.assertNotIn("=", did)
+
+    # ── AgentCard integration ───────────────────────────────────────────────
+
+    def _set_identity(self):
+        """Inject a synthetic Ed25519 identity into relay globals."""
+        pubkey = bytes(range(32))
+        import base64
+        relay._ed25519_public_b64 = base64.urlsafe_b64encode(pubkey).rstrip(b"=").decode()
+        relay._did_acp            = relay._pubkey_to_did_acp(pubkey)
+        # Use a mock object so _ed25519_private is truthy without real crypto
+        relay._ed25519_private    = object()
+
+    def test_agentcard_identity_includes_did(self):
+        self._set_identity()
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertIn("identity", card)
+        self.assertIn("did", card["identity"])
+        self.assertTrue(card["identity"]["did"].startswith("did:acp:"))
+
+    def test_agentcard_did_matches_global(self):
+        self._set_identity()
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertEqual(card["identity"]["did"], relay._did_acp)
+
+    def test_agentcard_capability_did_identity_true(self):
+        self._set_identity()
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertTrue(card["capabilities"]["did_identity"])
+
+    def test_agentcard_capability_did_identity_false_when_no_identity(self):
+        relay._ed25519_private = None
+        relay._did_acp         = None
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertFalse(card["capabilities"]["did_identity"])
+        self.assertIsNone(card["identity"])
+
+    # ── GET /.well-known/did.json ───────────────────────────────────────────
+
+    def _get_did_doc(self):
+        h = _CaptureHandler("/.well-known/did.json", None)
+        h.do_GET()
+        return h._response_code, h._response_body
+
+    def test_did_document_404_without_identity(self):
+        relay._ed25519_private = None
+        relay._did_acp         = None
+        code, resp = self._get_did_doc()
+        self.assertEqual(code, 404)
+
+    def test_did_document_200_with_identity(self):
+        self._set_identity()
+        code, resp = self._get_did_doc()
+        self.assertEqual(code, 200)
+
+    def test_did_document_structure(self):
+        self._set_identity()
+        _, resp = self._get_did_doc()
+        self.assertIn("@context", resp)
+        self.assertIn("id", resp)
+        self.assertEqual(resp["id"], relay._did_acp)
+        self.assertIn("verificationMethod", resp)
+        self.assertIn("authentication", resp)
+        self.assertIn("service", resp)
+
+    def test_did_document_verification_method(self):
+        self._set_identity()
+        _, resp = self._get_did_doc()
+        vm = resp["verificationMethod"][0]
+        self.assertEqual(vm["type"], "Ed25519VerificationKey2020")
+        self.assertEqual(vm["controller"], relay._did_acp)
+        self.assertIn("publicKeyMultibase", vm)
+        self.assertTrue(vm["publicKeyMultibase"].startswith("z"))
+
+    def test_did_document_service_endpoint(self):
+        self._set_identity()
+        _, resp = self._get_did_doc()
+        services = resp["service"]
+        self.assertEqual(len(services), 1)
+        self.assertEqual(services[0]["type"], "ACPRelay")
+        self.assertEqual(services[0]["serviceEndpoint"], "acp://relay.acp.dev/test-session")
+
+    def test_did_document_service_empty_when_no_link(self):
+        self._set_identity()
+        orig_link = relay._status.get("link")
+        relay._status["link"] = None
+        try:
+            _, resp = self._get_did_doc()
+            self.assertEqual(resp["service"], [])
+        finally:
+            relay._status["link"] = orig_link
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

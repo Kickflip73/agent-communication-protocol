@@ -140,7 +140,10 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - 覆盖：ERR_INVALID_REQUEST × 4 + ERR_NOT_CONNECTED + ERR_INTERNAL
 - ✅ replay-window：HMAC 重放攻击防护（PARTIAL → PASS）（commit `e263f52`，2026-03-22）
 - ✅ Docker 官方镜像（commit `9d590a7`，2026-03-22）
-- [ ] DID 身份（`did:acp:` 格式，向 ANP 靠拢）
+- ✅ DID 身份（`did:acp:<base64url(pubkey)>`，commit pending，2026-03-22）
+  - _pubkey_to_did_acp()，AgentCard identity.did 字段，capabilities.did_identity 标志
+  - GET /.well-known/did.json（W3C DID Document，Ed25519VerificationKey2020 + ACPRelay service）
+  - 14 个新单元测试
 - [ ] HTTP/2 传输绑定
 - [ ] Rust SDK stub
 
