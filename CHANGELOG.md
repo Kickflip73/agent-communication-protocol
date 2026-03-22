@@ -7,6 +7,51 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.3.0-dev] — 2026-03-22/23
+
+### Added
+- **Extension mechanism** — URI-identified AgentCard extensions (commit `88d00fc`)
+  - New optional `extensions` array in AgentCard: `[{uri, required, params?}]`
+  - `capabilities.extensions: true` flag when at least one extension declared
+  - Runtime APIs:
+    - `GET /extensions` — list all declared extensions with count
+    - `POST /extensions/register` — register new extension at runtime (no restart)
+    - `POST /extensions/unregister` — remove extension by URI at runtime
+  - Merge semantics: URI-keyed; re-registering the same URI updates in-place
+  - Extensions omitted from AgentCard when none declared (clean opt-in)
+  - `tests/unit`: +5 `TestExtensions` tests (card absent/present, capabilities flag, register/unregister)
+  - `docs/integration-guide.md`: full Extension mechanism section with curl examples
+  - `docs/comparison.md`: ACP Extensions vs A2A `extensions[]` comparison row
+  - Design: aligned with A2A extension model (URI-identified, `required` flag), zero-config when unused
+
+- **`did:acp:` DID Identity** — stable, self-sovereign Agent identifier (commit `6595e39`)
+  - Derives `did:acp:<base64url(ed25519-pubkey)>` from existing `--identity` keypair
+  - No external registry; the DID **is** the key (key-based method)
+  - AgentCard gains `did` field when identity enabled; omitted otherwise
+  - New endpoint `GET /.well-known/did.json` — W3C-compatible DID Document:
+    - `verificationMethod[]` with `publicKeyMultibase` (Ed25519VerificationKey2020)
+    - `authentication`, `assertionMethod` relationships
+    - Returns 404 when `--identity` not configured
+  - `capabilities.did_identity: true` flag when `--identity` provided
+  - Outbound AgentCard includes `did` field for peer verification
+  - `tests/unit`: +5 `TestDidAcp` tests (derivation, AgentCard embed, DID Document structure)
+  - `docs/integration-guide.md`: full DID Identity section (format, AgentCard sample,
+    `/.well-known/did.json` sample, Python peer-verification snippet, design notes)
+  - `docs/comparison.md`: DID identifier + DID Document rows — `did:acp:` (key-based, no DNS)
+    vs ANP `did:wba:` (domain-based, requires DNS)
+  - `docs/README.zh-CN.md`: v1.3 status `规划中` → 🚧 进行中, all three items ✅
+
+### Notes
+- v1.3 introduces two orthogonal extensibility layers:
+  **Extensions** (capability advertisement) + **DID** (identity layer)
+- Both are fully opt-in: no breaking changes to v1.0/v1.2 deployments
+- Unit test total: 92 (v1.2) + 10 (v1.3 TestExtensions + TestDidAcp) = **102 PASS**
+- `tests/unit/test_relay_core.py`: 121 `def test_` entries (includes v1.3 classes)
+- ACP now has 4 extensibility dimensions: **HMAC security** · **Ed25519 identity** ·
+  **availability scheduling** · **URI-identified Extensions** — all opt-in, zero-config default
+
+---
+
 ## [1.2.0-dev] — 2026-03-22
 
 ### Added

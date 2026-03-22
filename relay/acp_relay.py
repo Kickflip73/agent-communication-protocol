@@ -92,7 +92,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "1.0.0"
+VERSION = "1.3.0-dev"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -667,7 +667,7 @@ _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension li
 def _make_agent_card(name, skills):
     card = {
         "name":        name,
-        "version":     "1.0.0",
+        "version":     VERSION,
         "acp_version": VERSION,
         "description": f"ACP P2P Agent: {name}",
         "http_port":   _status["http_port"],
