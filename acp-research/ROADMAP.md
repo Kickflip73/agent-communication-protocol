@@ -156,7 +156,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - `task_latency_max_seconds`: 最大预期延迟
   - 全部可选字段，向后兼容 v1.0
 - ✅ AgentCard 自动更新 API：PATCH `/.well-known/acp.json`（P2）（commit `cd67181`，2026-03-22）
-- [ ] Rust SDK stub（P2）
+- ✅ Rust SDK stub（sdk/rust/，P2，commit pending，2026-03-22）
 
 ---
 

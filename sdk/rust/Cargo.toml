@@ -1,0 +1,21 @@
+[package]
+name = "acp-relay-sdk"
+version = "1.2.0"
+edition = "2021"
+rust-edition = "2021"
+description = "ACP Relay SDK for Rust — send/receive messages via acp_relay.py HTTP API"
+license = "Apache-2.0"
+repository = "https://github.com/Kickflip73/agent-communication-protocol"
+homepage = "https://github.com/Kickflip73/agent-communication-protocol"
+keywords = ["acp", "agent", "communication", "protocol", "relay"]
+categories = ["network-programming", "api-bindings"]
+readme = "README.md"
+
+[dependencies]
+reqwest  = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+serde    = { version = "1",    features = ["derive"] }
+serde_json = "1"
+thiserror  = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
