@@ -221,7 +221,7 @@ POST /webhooks/register  {"url":"https://your-host/hook"}
 | **v1.0** | ✅ GA | Task 状态机、消息幂等性、QuerySkill、P2P 直连 |
 | **v1.1** | ✅ | HMAC 重放防护（replay-window）、`failed_message_id` 覆盖 |
 | **v1.2** | ✅ | AgentCard 调度元数据（availability 块）、PATCH 实时更新 API、Docker 官方镜像 |
-| **v1.3** | 🔮 规划中 | Rust SDK stub、DID 身份（`did:acp:`）、Extension 机制 |
+| **v1.3** | 🚧 进行中 | ✅ Rust SDK stub、✅ DID 身份（`did:acp:`）、✅ Extension 机制 |
 
 ---
 

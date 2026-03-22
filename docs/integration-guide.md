@@ -720,6 +720,127 @@ for ext in exts:
 
 ---
 
+## DID Identity (v1.3)
+
+When you start the relay with `--identity`, each agent gets a **stable, persistent DID** — a `did:acp:` identifier that stays the same across sessions (as long as the keypair file is not deleted).
+
+```bash
+python3 acp_relay.py --name Alice --identity
+# Logs:
+#   Ed25519 keypair generated and saved to ~/.acp/identity.json | did=did:acp:AAEC...
+```
+
+The DID is included in:
+- **AgentCard** (`identity.did` field)
+- **Every outbound message** (`identity.did` field alongside the signature)
+- **`~/.acp/identity.json`** keypair file (persisted to disk)
+
+### DID format
+
+```
+did:acp:<base64url-no-padding(32-byte-Ed25519-pubkey)>
+```
+
+Example:
+```
+did:acp:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+```
+
+This is a **key-based DID**: the identifier _is_ the public key. No registration, no DNS, no registry needed — fully P2P-native.
+
+### AgentCard identity block
+
+```json
+{
+  "identity": {
+    "scheme":     "ed25519",
+    "public_key": "AAECAwQF...",
+    "did":        "did:acp:AAECAwQF..."
+  },
+  "capabilities": {
+    "did_identity": true
+  },
+  "endpoints": {
+    "agent_card":   "/.well-known/acp.json",
+    "did_document": "/.well-known/did.json"
+  }
+}
+```
+
+### W3C DID Document endpoint
+
+```bash
+curl http://localhost:8100/.well-known/did.json
+```
+
+Returns a W3C-compatible DID Document:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/suites/ed25519-2020/v1"
+  ],
+  "id": "did:acp:AAECAwQF...",
+  "verificationMethod": [{
+    "id":                "did:acp:AAECAwQF...#key-1",
+    "type":              "Ed25519VerificationKey2020",
+    "controller":        "did:acp:AAECAwQF...",
+    "publicKeyMultibase": "zAAECAwQF..."
+  }],
+  "authentication":  ["did:acp:AAECAwQF...#key-1"],
+  "assertionMethod": ["did:acp:AAECAwQF...#key-1"],
+  "service": [{
+    "id":              "did:acp:AAECAwQF...#acp",
+    "type":            "ACPRelay",
+    "serviceEndpoint": "acp://relay.acp.dev/<session-id>"
+  }]
+}
+```
+
+Returns **404** if `--identity` is not enabled.
+
+### Verifying a peer's DID
+
+```python
+import requests, base64, json
+
+# Fetch peer's AgentCard
+card = requests.get("http://peer-host:8100/.well-known/acp.json").json()
+peer_did = card["self"]["identity"]["did"]
+peer_pubkey_b64 = card["self"]["identity"]["public_key"]
+
+# Derive expected DID from public key
+pub_raw = base64.urlsafe_b64decode(peer_pubkey_b64 + "==")
+expected_did = "did:acp:" + base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+
+assert peer_did == expected_did, "DID mismatch — possible spoofing"
+print(f"Peer verified: {peer_did}")
+```
+
+### Checking inbound message DID
+
+```python
+# Inbound message from ACP relay WebSocket
+msg = json.loads(ws.recv())
+if "identity" in msg:
+    sender_did = msg["identity"].get("did")
+    print(f"Message from: {sender_did}")
+    # Cross-check: DID must match public_key
+    pub_raw = base64.urlsafe_b64decode(msg["identity"]["public_key"] + "==")
+    expected = "did:acp:" + base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+    assert sender_did == expected, "DID/pubkey mismatch"
+```
+
+### Design notes
+
+- **Persistent identity**: The keypair (and thus the DID) persists in `~/.acp/identity.json` across relay restarts. To rotate identity, delete that file.
+- **Backward compatible**: Agents without `--identity` have `identity: null` and `did_identity: false`. Existing integrations are unaffected.
+- **Combination with HMAC**: `--identity` and `--hmac-secret` can be used simultaneously — HMAC covers transport-level authentication, Ed25519/DID covers message-level identity.
+- **Cross-protocol**: The `did:acp:` URI format uses the same `did:<method>:<identifier>` structure as W3C DID Core, making it readable to any W3C-compatible DID resolver (though resolution would require understanding the `acp` method).
+
+---
+
 ## Integration Checklist
 
 ```
