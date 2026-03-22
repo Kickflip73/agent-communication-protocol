@@ -45,3 +45,61 @@ FIPA-ACL (1997) was ahead of its time but:
 - Very complex (hundreds of pages of spec)
 
 ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native, minimal, and modern.
+
+## Feature Comparison: ACP v1.2 vs A2A v1.0 vs MCP
+
+| Feature | ACP v1.2 | A2A v1.0 | MCP |
+|---------|----------|----------|-----|
+| **P2P / zero-server** | ✅ Built-in | ❌ Server required | ❌ Server required |
+| **Single-file deploy** | ✅ One `.py` file | ❌ Full service stack | ❌ Server + client SDK |
+| **Docker image** | ✅ Official `Dockerfile` | ❌ | ❌ |
+| **Scheduling metadata** | ✅ `availability` block (v1.2) | ❌ No native support | ❌ |
+| **Live availability update** | ✅ `PATCH /.well-known/acp.json` | ❌ | ❌ |
+| **HMAC replay-window** | ✅ `--hmac-window` (v1.1) | ⚠️ OAuth only | ⚠️ OAuth only |
+| **Task state machine** | ✅ 5 states (v0.5+) | ✅ 8 states | ❌ |
+| **Ed25519 identity** | ✅ `--identity` flag | ✅ DID-based | ❌ |
+| **LAN discovery (mDNS)** | ✅ `--advertise-mdns` | ❌ | ❌ |
+| **Setup complexity** | `pip install websockets` | OAuth + agent registry | MCP server + config |
+| **Target audience** | Personal/small team | Enterprise | Tool integration |
+
+## ACP v1.2 Unique Differentiators
+
+### 1. Scheduling Metadata (Heartbeat/Cron Agents)
+
+ACP v1.2 is the **first Agent communication protocol** to support scheduling metadata natively in the AgentCard. An agent that wakes on a schedule can advertise:
+
+```json
+"availability": {
+  "mode": "cron",
+  "interval_seconds": 3600,
+  "next_active_at": "2026-03-22T10:00:00Z",
+  "last_active_at": "2026-03-22T09:00:00Z",
+  "task_latency_max_seconds": 3600
+}
+```
+
+A2A issue #1667 (filed 2026-03-21) confirms A2A has no plan for this. Callers of a cron agent can read `next_active_at` to avoid timeout storms.
+
+### 2. Live Availability Update (PATCH)
+
+Running heartbeat agents update their `next_active_at` / `last_active_at` on each wake without restarting:
+
+```bash
+curl -X PATCH http://localhost:8100/.well-known/acp.json \
+  -H 'Content-Type: application/json' \
+  -d '{"availability":{"last_active_at":"2026-03-22T09:00:00Z","next_active_at":"2026-03-22T10:00:00Z"}}'
+```
+
+### 3. P2P with Zero Infrastructure
+
+No central registry, no OAuth dance, no gRPC service. Two agents connect in two steps:
+
+```
+Agent A:  python3 acp_relay.py --name Alice
+          → prints acp://relay.acp.dev/<id>
+
+Agent B:  python3 acp_relay.py --name Bob --join acp://relay.acp.dev/<id>
+          → connected
+```
+
+This is intentionally designed as **"WhatsApp for Agents"** — simple enough for individuals, powerful enough for teams.

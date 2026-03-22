@@ -1,7 +1,7 @@
 # ACP — Agent 通信协议
 
 <p align="center">
-  <img src="https://img.shields.io/badge/版本-v0.6-dev-blue" alt="Version">
+  <img src="https://img.shields.io/badge/版本-v1.2-blue" alt="Version">
   <img src="https://img.shields.io/badge/许可证-Apache_2.0-green" alt="License">
   <img src="https://img.shields.io/badge/依赖-websockets-orange" alt="Dependency">
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue" alt="Python">
@@ -216,10 +216,12 @@ POST /webhooks/register  {"url":"https://your-host/hook"}
 
 ## 路线图
 
-| 版本 | 计划功能 |
-|------|---------|
-| **v0.4** | 多模态消息（文本/文件引用/结构化数据）、NAT 穿透探索 |
-| **v1.0** | DID 去中心化身份认证、Agent 发现网络 |
+| 版本 | 状态 | 亮点 |
+|------|------|------|
+| **v1.0** | ✅ GA | Task 状态机、消息幂等性、QuerySkill、P2P 直连 |
+| **v1.1** | ✅ | HMAC 重放防护（replay-window）、`failed_message_id` 覆盖 |
+| **v1.2** | ✅ | AgentCard 调度元数据（availability 块）、PATCH 实时更新 API、Docker 官方镜像 |
+| **v1.3** | 🔮 规划中 | Rust SDK stub、DID 身份（`did:acp:`）、Extension 机制 |
 
 ---
 
