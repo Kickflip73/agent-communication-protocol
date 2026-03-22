@@ -341,6 +341,8 @@ ACP_BASE_URL=http://other-agent:8080 python3 tests/compat/run.py
 
 Tests cover: AgentCard schema, `/message:send`, SSE streaming, task lifecycle, peer registry, error codes, HMAC signing. See [`tests/compat/README.md`](tests/compat/README.md).
 
+For full conformance levels, badge instructions, and a guide for third-party implementors, see **[`docs/conformance.md`](docs/conformance.md)**.
+
 ### Integration Test Suite
 
 End-to-end tests that spin up a real `acp_relay.py` subprocess:
