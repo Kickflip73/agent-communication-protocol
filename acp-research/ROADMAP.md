@@ -145,7 +145,11 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - GET /.well-known/did.json（W3C DID Document，Ed25519VerificationKey2020 + ACPRelay service）
   - 14 个新单元测试
 - [ ] HTTP/2 传输绑定
-- [ ] Rust SDK stub
+- ✅ Rust SDK stub（sdk/rust/，commit pending，2026-03-22）
+  - lib.rs：RelayClient, MessageRequest, AgentCard, AvailabilityPatch, RelayStatus + 10 structs/enums
+  - 全部 API：send_message / agent_card / patch_availability / status / link / ping
+  - 8 单元测试，Cargo.toml 含 reqwest 0.12 (blocking+rustls) + serde + thiserror
+  - README.md 含完整使用说明、API 参考表、类型参考表
 
 ### 🔮 v1.2 规划（目标：2026-Q2）
 **主题：Heartbeat Agent 支持 + 生态完善**
