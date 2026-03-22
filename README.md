@@ -9,7 +9,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v1.2.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v1.3.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -17,6 +17,9 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/node-18%2B-brightgreen?style=flat-square" alt="Node">
   <img src="https://img.shields.io/badge/required_dep-websockets_only-orange?style=flat-square" alt="Required Dependency">
+  <a href="https://github.com/Kickflip73/agent-communication-protocol/actions/workflows/docker-publish.yml">
+    <img src="https://img.shields.io/badge/docker-GHCR-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker GHCR">
+  </a>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/issues">
     <img src="https://img.shields.io/github/issues/Kickflip73/agent-communication-protocol?style=flat-square" alt="Issues">
   </a>
@@ -411,7 +414,7 @@ Requires: no additional packages (raw UDP multicast).
 | **v1.0** | ✅ Done | Production stable, security audit, Go SDK, integration tests |
 | **v1.1** | ✅ Done | HMAC replay-window, `failed_message_id`, 9/9 security PASS |
 | **v1.2** | ✅ Done | AgentCard scheduling metadata, PATCH live-update, Docker image |
-| **v1.3** | 🔮 Planned | Rust SDK stub, DID identity (`did:acp:`), Extension mechanism |
+| **v1.3** | ✅ Done | Rust SDK, DID identity (`did:acp:`), Extension mechanism, Docker CI (GHCR) |
 
 See [`acp-research/ROADMAP.md`](acp-research/ROADMAP.md) for detailed planning.
 
@@ -432,7 +435,7 @@ See [`acp-research/ROADMAP.md`](acp-research/ROADMAP.md) for detailed planning.
 | **LAN discovery** | — | — | — | ✅ mDNS (optional) |
 | **Scheduling metadata** | — | — | — | ✅ `availability` block (v1.2) |
 | **Live availability update** | — | — | — | ✅ `PATCH /.well-known/acp.json` (v1.2) |
-| **Docker image** | — | — | — | ✅ Official (v1.2) |
+| **Docker image** | — | — | — | ✅ Official (v1.3) + GHCR CI |
 | **Node.js SDK** | ✅ | ✅ | — | ✅ (zero deps) |
 | **Compat test suite** | — | ✅ | — | ✅ |
 | **Target audience** | Enterprise / teams | Enterprise | Enterprise | **Personal / small teams** |
@@ -473,25 +476,48 @@ agent-communication-protocol/
 └── LICENSE                   # Apache 2.0
 ```
 
-### Docker (v1.2)
+### Docker (v1.3) 🐳
+
+**Pull from GHCR** (auto-published on every `main` push and semver tag via GitHub Actions):
 
 ```bash
-# Build
-docker build -t acp-relay .                          # base (websockets only)
-docker build --build-arg EXTRAS=full -t acp-relay:full .  # + Ed25519
+docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest
+docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:full  # + Ed25519 + websockets
+```
 
-# Run
+**Build locally:**
+
+```bash
+docker build -t acp-relay .                               # base (no extra deps)
+docker build --build-arg EXTRAS=full -t acp-relay:full .  # + websockets + cryptography
+```
+
+**Run:**
+
+```bash
+# Basic P2P agent
 docker run --rm -p 8000:8000 -p 8100:8100 acp-relay --name MyAgent
 
-# Cron agent with scheduling metadata
+# HMAC signing + replay-window (v1.1)
+docker run --rm -p 8000:8000 -p 8100:8100 acp-relay \
+  --name MyAgent --secret mysecret --hmac-window 120
+
+# Cron agent with scheduling metadata (v1.2)
 docker run --rm -p 8000:8000 -p 8100:8100 acp-relay \
   --name HourlyAgent --availability-mode cron --heartbeat-interval 3600
+
+# DID identity + Extension (v1.3, requires :full)
+docker run --rm -p 8000:8000 -p 8100:8100 \
+  -v acp-identity:/root/.acp \
+  acp-relay:full --name MyAgent --identity \
+  --extension-uri https://example.com/ext/my-capability/v1
 
 # Local two-agent test (Alice + Bob)
 docker-compose up
 ```
 
 The image includes a built-in HEALTHCHECK on `http://localhost:8100/.well-known/acp.json`.
+Multi-arch: `linux/amd64` + `linux/arm64`.
 
 ---
 

@@ -41,6 +41,23 @@ Dates: Asia/Shanghai (UTC+8)
     vs ANP `did:wba:` (domain-based, requires DNS)
   - `docs/README.zh-CN.md`: v1.3 status `规划中` → 🚧 进行中, all three items ✅
 
+- **Official Docker image v1.3 + GHCR CI publish pipeline** (commit `1f0b7e5`)
+  - `Dockerfile` version label bumped `1.2.0` → `1.3.0`
+  - New run examples in `Dockerfile` header: v1.3 Extension + DID identity flags
+  - GHCR pull instructions: `docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest`
+  - **`.github/workflows/docker-publish.yml`** — automated multi-arch build & push:
+    - Triggers: push to `main`, semver tags (`v*.*.*`), manual `workflow_dispatch`
+    - Matrix: `base` (no extra deps) + `full` (`websockets` + `cryptography`)
+    - Registry: GitHub Container Registry (`ghcr.io`)
+    - Tags: `:latest`, `:vX.Y.Z`, `:sha-<short>`, `-full` variant suffix
+    - Platforms: `linux/amd64` + `linux/arm64` (multi-arch)
+    - GHA layer cache (`cache-from/to: type=gha`) for fast incremental rebuilds
+    - Smoke-test job: pull `:latest`, start container, verify `/.well-known/acp.json` returns valid AgentCard
+  - `docker-compose.yml` v1.3 additions:
+    - Commented DID Identity pair example (requires `acp-relay:full`, persistent `acp-identity` volume)
+    - Commented Extension registration demo example
+    - `volumes.acp-identity` declaration for stable Ed25519 keypair across container restarts
+
 ### Notes
 - v1.3 introduces two orthogonal extensibility layers:
   **Extensions** (capability advertisement) + **DID** (identity layer)
@@ -49,6 +66,8 @@ Dates: Asia/Shanghai (UTC+8)
 - `tests/unit/test_relay_core.py`: 121 `def test_` entries (includes v1.3 classes)
 - ACP now has 4 extensibility dimensions: **HMAC security** · **Ed25519 identity** ·
   **availability scheduling** · **URI-identified Extensions** — all opt-in, zero-config default
+- v1.1 Backlog fully closed: `failed_message_id` ✅ · replay-window ✅ · Rust SDK ✅ · DID ✅ · Docker CI ✅
+  (only HTTP/2 transport binding remains open as optional long-term item)
 
 ---
 
