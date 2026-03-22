@@ -1,0 +1,116 @@
+# ACP Relay — Docker image publish to GitHub Container Registry (GHCR)
+#
+# Triggers:
+#   - Push to main (publishes :latest + :full)
+#   - Tag push vX.Y.Z (publishes :vX.Y.Z + :X.Y.Z + :latest)
+#   - Manual dispatch (workflow_dispatch)
+#
+# Images published:
+#   ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest   (base)
+#   ghcr.io/kickflip73/agent-communication-protocol/acp-relay:full     (with websockets+cryptography)
+#   ghcr.io/kickflip73/agent-communication-protocol/acp-relay:vX.Y.Z  (on tag)
+
+name: Docker Publish
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]*"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/acp-relay
+
+jobs:
+  build-and-push:
+    name: Build & Push (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          - variant: base
+            extras: base
+            tag_suffix: ""          # :latest / :vX.Y.Z
+          - variant: full
+            extras: full
+            tag_suffix: "-full"     # :full / :vX.Y.Z-full
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            suffix=${{ matrix.tag_suffix }}
+          tags: |
+            # On tag push: vX.Y.Z and X.Y.Z
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            # On main push: latest
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Always include short SHA for traceability
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          build-args: |
+            EXTRAS=${{ matrix.extras }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # Smoke-test: pull the just-published image and check AgentCard endpoint
+  smoke-test:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Pull and run acp-relay:latest
+        run: |
+          docker pull ghcr.io/${{ github.repository }}/acp-relay:latest
+          docker run -d --name acp-smoke \
+            -p 8100:8100 \
+            ghcr.io/${{ github.repository }}/acp-relay:latest \
+            --name SmokeTest --port 8000
+          sleep 5
+
+      - name: Check /.well-known/acp.json
+        run: |
+          curl -sf http://localhost:8100/.well-known/acp.json | python3 -c "
+          import sys, json
+          card = json.load(sys.stdin)
+          assert card.get('name') == 'SmokeTest', f'Unexpected name: {card}'
+          assert 'acp_version' in card, 'Missing acp_version'
+          print(f'✅ Smoke test PASS — acp_version={card[\"acp_version\"]}')
+          "
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f acp-smoke || true

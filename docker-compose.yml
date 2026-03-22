@@ -52,10 +52,51 @@ services:
       alice:
         condition: service_healthy
 
-  # Optional: HMAC-secured pair
+  # Optional: HMAC-secured pair (v1.1)
   # secure-alice:
   #   image: acp-relay:local
   #   command: [--name, SecureAlice, --port, "8002", --secret, "shared-secret-32chars", --hmac-window, "120"]
   # secure-bob:
   #   image: acp-relay:local
   #   command: [--name, SecureBob, --port, "8003", --join, "acp://secure-alice:8002", --secret, "shared-secret-32chars"]
+
+  # Optional: v1.3 DID Identity pair (requires acp-relay:full — includes cryptography)
+  # Build with: docker-compose build --build-arg EXTRAS=full
+  #
+  # did-agent:
+  #   build:
+  #     context: .
+  #     args:
+  #       EXTRAS: full
+  #   image: acp-relay:full
+  #   container_name: acp-did-agent
+  #   ports:
+  #     - "8002:8002"
+  #     - "8102:8102"
+  #   volumes:
+  #     - acp-identity:/root/.acp    # persist Ed25519 keypair → stable did:acp: identifier
+  #   command:
+  #     - --name
+  #     - DIDAgent
+  #     - --port
+  #     - "8002"
+  #     - --identity                 # enable Ed25519 + did:acp: (generates keypair on first run)
+
+  # Optional: v1.3 Extension registration demo
+  # extension-agent:
+  #   image: acp-relay:local
+  #   container_name: acp-ext-agent
+  #   ports:
+  #     - "8003:8003"
+  #     - "8103:8103"
+  #   command:
+  #     - --name
+  #     - ExtAgent
+  #     - --port
+  #     - "8003"
+  #     # Register extensions at startup via /extensions/register after boot
+  #     # (use curl or SDK; no --extension-uri flag needed at startup)
+
+volumes:
+  acp-identity:
+    # Stores Ed25519 keypair for stable did:acp: identifier across container restarts

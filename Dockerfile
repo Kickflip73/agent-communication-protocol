@@ -22,8 +22,18 @@
 #     -v acp-identity:/root/.acp \
 #     acp-relay:full --name MyAgent --identity
 #
+# Run (v1.3 Extension + DID identity):
+#   docker run --rm -p 8000:8000 -p 8100:8100 \
+#     -v acp-identity:/root/.acp \
+#     acp-relay:full --name MyAgent --identity \
+#     --extension-uri https://example.com/ext/my-capability/v1
+#
 # Health check:
 #   curl http://localhost:8100/.well-known/acp.json
+#
+# Pull from GHCR (after CI publish):
+#   docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest
+#   docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:full
 # ─────────────────────────────────────────────────────────────────────────────
 
 FROM python:3.11-slim
@@ -33,7 +43,7 @@ ARG EXTRAS=base
 
 LABEL org.opencontainers.image.title="ACP Relay" \
       org.opencontainers.image.description="ACP P2P Agent Communication Protocol relay" \
-      org.opencontainers.image.version="1.2.0" \
+      org.opencontainers.image.version="1.3.0" \
       org.opencontainers.image.source="https://github.com/Kickflip73/agent-communication-protocol" \
       org.opencontainers.image.licenses="MIT"
 
