@@ -424,6 +424,65 @@ CLI flags  >  --config file  >  hardcoded defaults
 
 ---
 
+## Docker (v1.2)
+
+An official `Dockerfile` and `docker-compose.yml` are included for containerised deployments.
+
+### Quick start
+
+```bash
+# Build base image (no optional deps — pure stdlib + websockets)
+docker build -t acp-relay .
+
+# Build full image (+ Ed25519 identity support)
+docker build --build-arg EXTRAS=full -t acp-relay:full .
+
+# Run a named agent
+docker run --rm -p 8000:8000 -p 8100:8100 acp-relay --name MyAgent
+
+# Run with HMAC signing + replay-window
+docker run --rm -p 8000:8000 -p 8100:8100 acp-relay \
+  --name MyAgent --secret mysecret --hmac-window 120
+
+# Run as heartbeat/cron agent
+docker run --rm -p 8000:8000 -p 8100:8100 acp-relay \
+  --name HourlyAgent --availability-mode cron --heartbeat-interval 3600
+
+# Persist Ed25519 keypair across restarts
+docker run --rm -p 8000:8000 -p 8100:8100 \
+  -v acp-identity:/root/.acp \
+  acp-relay:full --name MyAgent --identity
+```
+
+### Health check
+
+The image includes a built-in HEALTHCHECK that polls `/.well-known/acp.json` every 30 s:
+
+```bash
+curl http://localhost:8100/.well-known/acp.json
+```
+
+### Multi-agent local testing
+
+```bash
+# Start Alice + Bob (Bob auto-connects to Alice)
+docker-compose up
+
+# Send a message from Bob → Alice via HTTP API
+curl -X POST http://localhost:8101/message:send \
+  -H 'Content-Type: application/json' \
+  -d '{"role":"user","text":"Hello Alice!"}'
+```
+
+### Port mapping
+
+| Port | Purpose |
+|------|---------|
+| `8000` | WebSocket P2P (default `--port`) |
+| `8100` | HTTP API + AgentCard (`--port + 100`) |
+
+Pass any `acp_relay.py` flag after the image name to override defaults.
+
 ## Compatibility
 
 | ACP Version | Python | Required packages | Optional packages |

@@ -1,0 +1,60 @@
+# ── ACP Relay — Official Docker Image ────────────────────────────────────────
+# Single-file relay: zero-dependency fast path (no websockets) works out of
+# the box; install optional deps for full feature set (see below).
+#
+# Build:
+#   docker build -t acp-relay .
+#   docker build --build-arg EXTRAS=full -t acp-relay:full .
+#
+# Run (basic — P2P, HTTP fallback, no signing):
+#   docker run --rm -p 8000:8000 -p 8100:8100 acp-relay --name MyAgent
+#
+# Run (HMAC signing + replay-window):
+#   docker run --rm -p 8000:8000 -p 8100:8100 acp-relay \
+#     --name MyAgent --secret mysecret --hmac-window 120
+#
+# Run (heartbeat/cron mode):
+#   docker run --rm -p 8000:8000 -p 8100:8100 acp-relay \
+#     --name HourlyAgent --availability-mode cron --heartbeat-interval 3600
+#
+# Run (Ed25519 identity — persistent keypair via volume):
+#   docker run --rm -p 8000:8000 -p 8100:8100 \
+#     -v acp-identity:/root/.acp \
+#     acp-relay:full --name MyAgent --identity
+#
+# Health check:
+#   curl http://localhost:8100/.well-known/acp.json
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.11-slim
+
+# Build arg: "base" = no extra deps (default), "full" = websockets + cryptography
+ARG EXTRAS=base
+
+LABEL org.opencontainers.image.title="ACP Relay" \
+      org.opencontainers.image.description="ACP P2P Agent Communication Protocol relay" \
+      org.opencontainers.image.version="1.2.0" \
+      org.opencontainers.image.source="https://github.com/Kickflip73/agent-communication-protocol" \
+      org.opencontainers.image.licenses="MIT"
+
+WORKDIR /app
+
+# Copy relay (single file — no build step needed)
+COPY relay/acp_relay.py /app/acp_relay.py
+
+# Install optional dependencies based on EXTRAS arg
+RUN pip install --no-cache-dir \
+      $([ "$EXTRAS" = "full" ] && echo "websockets cryptography" || echo "") \
+    && chmod +x /app/acp_relay.py
+
+# WS port + HTTP port (HTTP = WS + 100; default WS=8000 → HTTP=8100)
+EXPOSE 8000 8100
+
+# Healthcheck via AgentCard endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8100/.well-known/acp.json', timeout=4)" || exit 1
+
+# Default: listen on all interfaces inside the container
+# Pass any acp_relay.py flags after the image name
+ENTRYPOINT ["python3", "/app/acp_relay.py"]
+CMD ["--name", "ACP-Agent", "--port", "8000"]

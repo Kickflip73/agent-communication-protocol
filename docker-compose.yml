@@ -1,0 +1,61 @@
+# ACP Relay — docker-compose for local multi-agent testing
+# Usage: docker-compose up
+#
+# Two agents (Alice + Bob) start and connect to each other via the built-in
+# HTTP public relay fallback. For P2P direct mode, replace the --join flag
+# with the link printed by alice on startup.
+
+version: "3.9"
+
+services:
+  alice:
+    build:
+      context: .
+      args:
+        EXTRAS: base
+    image: acp-relay:local
+    container_name: acp-alice
+    ports:
+      - "8000:8000"   # WS
+      - "8100:8100"   # HTTP / AgentCard
+    command:
+      - --name
+      - Alice
+      - --port
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8100/.well-known/acp.json', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  bob:
+    build:
+      context: .
+      args:
+        EXTRAS: base
+    image: acp-relay:local
+    container_name: acp-bob
+    ports:
+      - "8001:8001"
+      - "8101:8101"
+    # Bob connects to Alice's WS on the Docker network
+    command:
+      - --name
+      - Bob
+      - --port
+      - "8001"
+      - --join
+      - "acp://alice:8000"
+    depends_on:
+      alice:
+        condition: service_healthy
+
+  # Optional: HMAC-secured pair
+  # secure-alice:
+  #   image: acp-relay:local
+  #   command: [--name, SecureAlice, --port, "8002", --secret, "shared-secret-32chars", --hmac-window, "120"]
+  # secure-bob:
+  #   image: acp-relay:local
+  #   command: [--name, SecureBob, --port, "8003", --join, "acp://secure-alice:8002", --secret, "shared-secret-32chars"]

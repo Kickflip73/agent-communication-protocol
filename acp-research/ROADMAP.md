@@ -138,11 +138,11 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - ✅ `failed_message_id` 覆盖所有 /message:send 错误码（commit `e281790`，2026-03-21）
   - 灵感：ANP commit 99806f45（failed_msg_id in e2ee_error）
   - 覆盖：ERR_INVALID_REQUEST × 4 + ERR_NOT_CONNECTED + ERR_INTERNAL
-- [ ] replay-window：HMAC 重放攻击防护（PARTIAL → PASS）
-- [ ] Rust SDK stub
+- ✅ replay-window：HMAC 重放攻击防护（PARTIAL → PASS）（commit `e263f52`，2026-03-22）
+- [ ] Docker 官方镜像
 - [ ] DID 身份（`did:acp:` 格式，向 ANP 靠拢）
 - [ ] HTTP/2 传输绑定
-- [ ] Docker 官方镜像
+- [ ] Rust SDK stub
 
 ### 🔮 v1.2 规划（目标：2026-Q2）
 **主题：Heartbeat Agent 支持 + 生态完善**
