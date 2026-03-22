@@ -9,7 +9,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v1.0.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v1.2.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -197,10 +197,24 @@ ACP's optional features are isolated and gracefully degraded without installatio
   - `[stable]` 13 endpoints · `[experimental]` 1 endpoint (`/discover`)
   - §13: v1.0 compatibility guarantees (4 MUST-level requirements)
 - **Security audit** — HMAC-SHA256 + Ed25519 formally audited (`docs/security.md`)
-  - 11 PASS · 1 PARTIAL (replay-window, planned v1.1)
 - **Go SDK** (`sdk/go/`) — stdlib-only, Go 1.21+, zero external deps, 24 tests
 - **End-to-end integration tests** (`tests/integration/`) — 30 tests against live relay subprocess
 - **CHANGELOG** — full version history v0.1.0 → v1.0.0
+
+### v1.1 — Security Hardening
+- **HMAC replay-window** (`--hmac-window <seconds>`, default 300 s) — messages outside the window are hard-rejected; prevents replay attacks
+- **`failed_message_id`** — all `/message:send` error responses now echo back the client-supplied `message_id` for request tracing
+- **Security audit: 9/9 PASS, 0 PARTIAL** (`docs/security.md`)
+
+### v1.2 — Heartbeat Agent Support + Docker 🐳
+- **AgentCard `availability` block** — first Agent communication protocol with native scheduling metadata
+  ```json
+  "availability": { "mode": "cron", "interval_seconds": 3600,
+                    "next_active_at": "...", "last_active_at": "..." }
+  ```
+- **`PATCH /.well-known/acp.json`** — live availability update; heartbeat agents stamp wake times without restarting
+- **Official Docker image** — `Dockerfile` + `docker-compose.yml` included; `EXTRAS=full` for Ed25519 support
+- **92 unit tests** — all passing
 
 ---
 
@@ -393,8 +407,11 @@ Requires: no additional packages (raw UDP multicast).
 | **v0.6** | ✅ Done | Peer registry, standardized error codes, minimal agent spec |
 | **v0.7** | ✅ Done | HMAC signing, mDNS LAN discovery, context_id |
 | **v0.8** | ✅ Done | Ed25519 identity, Node.js SDK, compat test suite |
-| **v0.9** | 🚧 Planning | `spec/core-v0.8.md` consolidated spec, Python async SDK, CLI improvements |
-| **v1.0** | 📋 Planned | Production release, DID identity option, stability guarantees |
+| **v0.9** | ✅ Done | Consolidated spec, server-side validation, CHANGELOG |
+| **v1.0** | ✅ Done | Production stable, security audit, Go SDK, integration tests |
+| **v1.1** | ✅ Done | HMAC replay-window, `failed_message_id`, 9/9 security PASS |
+| **v1.2** | ✅ Done | AgentCard scheduling metadata, PATCH live-update, Docker image |
+| **v1.3** | 🔮 Planned | Rust SDK stub, DID identity (`did:acp:`), Extension mechanism |
 
 See [`acp-research/ROADMAP.md`](acp-research/ROADMAP.md) for detailed planning.
 
@@ -413,11 +430,15 @@ See [`acp-research/ROADMAP.md`](acp-research/ROADMAP.md) for detailed planning.
 | **Streaming** | ✅ SSE | ✅ SSE | — | ✅ SSE |
 | **Identity / signing** | — | OAuth 2.0 (mandatory) | — | HMAC or Ed25519 (optional) |
 | **LAN discovery** | — | — | — | ✅ mDNS (optional) |
+| **Scheduling metadata** | — | — | — | ✅ `availability` block (v1.2) |
+| **Live availability update** | — | — | — | ✅ `PATCH /.well-known/acp.json` (v1.2) |
+| **Docker image** | — | — | — | ✅ Official (v1.2) |
 | **Node.js SDK** | ✅ | ✅ | — | ✅ (zero deps) |
 | **Compat test suite** | — | ✅ | — | ✅ |
 | **Target audience** | Enterprise / teams | Enterprise | Enterprise | **Personal / small teams** |
 
 > ACP's position: MCP standardizes Agent↔Tool. ACP standardizes Agent↔Agent. P2P, lightweight, open, zero infra.
+> ACP v1.2 is the **first Agent communication protocol** with native heartbeat/cron scheduling metadata (A2A issue #1667, 2026-03-21).
 
 ---
 
@@ -451,6 +472,26 @@ agent-communication-protocol/
 ├── CONTRIBUTING.md
 └── LICENSE                   # Apache 2.0
 ```
+
+### Docker (v1.2)
+
+```bash
+# Build
+docker build -t acp-relay .                          # base (websockets only)
+docker build --build-arg EXTRAS=full -t acp-relay:full .  # + Ed25519
+
+# Run
+docker run --rm -p 8000:8000 -p 8100:8100 acp-relay --name MyAgent
+
+# Cron agent with scheduling metadata
+docker run --rm -p 8000:8000 -p 8100:8100 acp-relay \
+  --name HourlyAgent --availability-mode cron --heartbeat-interval 3600
+
+# Local two-agent test (Alice + Bob)
+docker-compose up
+```
+
+The image includes a built-in HEALTHCHECK on `http://localhost:8100/.well-known/acp.json`.
 
 ---
 
