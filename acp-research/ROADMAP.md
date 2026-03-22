@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-23 06:23（开发轮：Docker 官方镜像 + GHCR CI 发布管道；v1.1 Backlog 状态同步）
+> 最后更新：2026-03-23 07:53（开发轮：conformance.md 兼容性认证指南；v2.0 Backlog 状态同步）
 
 ---
 
@@ -155,9 +155,13 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 **主题：联邦化与生态扩展**
 
 - [ ] 公开发布（博客文章 + GitHub README + Hacker News）
-- [ ] Extension 机制（URI 标识扩展，向 A2A 靠拢）
-- [ ] 多语言 SDK 完整矩阵（Python/Node/Go/Rust）
-- [ ] 兼容性认证流程（「如何认证你的实现」文档）
+- ✅ Extension 机制（URI 标识扩展，v1.3，commit `88d00fc`）
+- ✅ 多语言 SDK 完整矩阵（Python/Node/Go/Rust，v1.2 完成）
+- ✅ 兼容性认证流程（`docs/conformance.md`，2026-03-23，v1.3 开发轮）
+  - 三级认证：Core/Recommended/Full Compliant
+  - 测试套件运行指南（本地/远程/Docker/CI）
+  - 实现者参考（必须端点、AgentCard 字段、错误格式）
+  - 自认证 badge 方案（Shields.io 静态 + 动态 endpoint）
 
 ---
 
