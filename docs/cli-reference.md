@@ -212,6 +212,42 @@ Callers can read `next_active_at` to set retry timers, and use
 `task_latency_max_seconds` to bound their timeout expectations.
 This is the first Agent communication protocol to support scheduling metadata natively.
 
+#### Live availability update (PATCH) — v1.2
+
+A running heartbeat agent can stamp its wake times **without restarting the relay**
+by calling `PATCH /.well-known/acp.json` on the local HTTP port (`--port + 100`):
+
+```bash
+# On each cron wake: update last_active_at + compute next_active_at
+NEXT=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
+       date -u -v+1H +%Y-%m-%dT%H:%M:%SZ)   # macOS fallback
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+curl -s -X PATCH http://localhost:8100/.well-known/acp.json \
+  -H 'Content-Type: application/json' \
+  -d "{\"availability\":{\"last_active_at\":\"$NOW\",\"next_active_at\":\"$NEXT\"}}"
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "availability": {
+    "mode": "cron",
+    "interval_seconds": 3600,
+    "task_latency_max_seconds": 3600,
+    "last_active_at": "2026-03-22T09:00:00Z",
+    "next_active_at": "2026-03-22T10:00:00Z"
+  }
+}
+```
+
+**PATCH rules**:
+- Merge semantics — only the fields you send are updated; others are preserved.
+- Allowed fields: `mode`, `interval_seconds`, `next_active_at`, `last_active_at`, `task_latency_max_seconds`.
+- Unknown fields → `400 Bad Request`.
+- Invalid `mode` value → `400 Bad Request`.
+
 ### Full feature set
 
 ```bash

@@ -7,6 +7,37 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.2.0-dev] — 2026-03-22
+
+### Added
+- **AgentCard `availability` block** — heartbeat/cron agent scheduling metadata (commit `c10c230`)
+  - New optional `availability` object in AgentCard; omitted when not configured (opt-in)
+  - Fields: `mode` (`persistent`|`heartbeat`|`cron`|`manual`), `interval_seconds`,
+    `next_active_at`, `last_active_at` (auto-stamped from startup time), `task_latency_max_seconds`
+  - `capabilities.availability: true` flag when block is present
+  - CLI flags: `--availability-mode`, `--heartbeat-interval`, `--next-active-at`
+  - Config-file keys: `availability-mode`, `heartbeat-interval`, `next-active-at`
+  - ACP is the **first Agent communication protocol** to support scheduling metadata natively
+    (A2A issue #1667, 2026-03-21: A2A AgentCard has no scheduling fields)
+  - `tests/unit`: +10 `TestAgentCardAvailability` tests; total 83 PASS
+- **`PATCH /.well-known/acp.json`** — live availability update API (commit `cd67181`)
+  - Heartbeat agents can stamp `next_active_at` / `last_active_at` on each wake
+    without restarting the relay
+  - Merge semantics: only patched fields are updated; others preserved
+  - Whitelist validation: allowed fields enforced; unknown fields → 400
+  - Mode enum validation; missing `availability` key → 400
+  - Supports both `/card` and `/.well-known/acp.json` paths
+  - `tests/unit`: +9 `TestPatchAvailability` tests; total 92 PASS
+- **`docs/cli-reference.md`** updated to v1.2
+  - New section: "Live availability update (PATCH)" with curl examples, response schema,
+    PATCH rules summary, macOS/Linux `date` command portability note
+
+### Notes
+- Inspired by A2A issue #1667: A2A protocol has no mechanism for heartbeat/cron agents
+  to advertise scheduling intent. ACP v1.2 fills this gap with a clean, opt-in design.
+
+---
+
 ## [1.1.0-dev] — 2026-03-22
 
 ### Added
