@@ -418,6 +418,130 @@ for await (const event of client.stream(30)) {
 
 ---
 
+## Go SDK
+
+```go
+import "github.com/Kickflip73/agent-communication-protocol/sdk/go/acprelay"
+
+client := acprelay.NewClient("http://localhost:8100")
+
+// Send a message
+resp, err := client.Send(ctx, "Hello from Go!", "user")
+
+// Fetch AgentCard
+card, err := client.AgentCard(ctx)
+fmt.Println(card.Self.Name)
+```
+
+---
+
+## Rust SDK (v1.2)
+
+Add to `Cargo.toml`:
+
+```toml
+[dependencies]
+acp-relay-sdk = "1.2"
+```
+
+### Send a message
+
+```rust
+use acp_relay_sdk::{RelayClient, MessageRequest};
+
+fn main() -> Result<(), acp_relay_sdk::AcpError> {
+    let client = RelayClient::new("http://localhost:8100")?;
+
+    // Simple text message
+    let resp = client.send_message(MessageRequest::user("Hello, Agent!"))?;
+    println!("task_id: {}", resp.task_id.unwrap_or_default());
+
+    // With idempotency key
+    let resp = client.send_message(
+        MessageRequest::user("Idempotent message")
+            .with_message_id("my-uuid-1234")
+    )?;
+
+    // Synchronous request-response (block until complete)
+    let resp = client.send_message(
+        MessageRequest::user("Summarise this document")
+            .sync_timeout(30)
+    )?;
+    println!("status: {:?}", resp.status);
+
+    Ok(())
+}
+```
+
+### Fetch AgentCard
+
+```rust
+let card = client.agent_card()?;
+println!("agent: {:?}", card.self_card.name);
+if let Some(peer) = card.peer {
+    println!("peer: {:?}", peer.name);
+    if let Some(avail) = peer.availability {
+        println!("next active: {:?}", avail.next_active_at);
+    }
+}
+```
+
+### Heartbeat agent — live availability update (v1.2)
+
+```rust
+use acp_relay_sdk::{RelayClient, AvailabilityPatch};
+
+fn on_cron_wake() -> Result<(), acp_relay_sdk::AcpError> {
+    let client = RelayClient::new("http://localhost:8100")?;
+
+    client.patch_availability(AvailabilityPatch {
+        last_active_at: Some("2026-03-22T13:00:00Z".into()),
+        next_active_at: Some("2026-03-22T14:00:00Z".into()),
+        ..Default::default()
+    })?;
+
+    // ... do actual work ...
+
+    Ok(())
+}
+```
+
+### Get session link
+
+```rust
+if let Some(link) = client.link()? {
+    println!("Share this link: {}", link);
+    // → acp://relay.acp.dev/<session_id>
+}
+```
+
+### Error handling
+
+```rust
+use acp_relay_sdk::AcpError;
+
+match client.send_message(MessageRequest::user("hello")) {
+    Ok(resp)  => println!("ok: {:?}", resp.task_id),
+    Err(AcpError::Relay { code, message, .. }) =>
+        eprintln!("relay error {}: {}", code, message),
+    Err(AcpError::Http(e)) =>
+        eprintln!("connection error: {}", e),
+    Err(e) => eprintln!("other: {}", e),
+}
+```
+
+### Prerequisites
+
+```bash
+pip install websockets
+python3 acp_relay.py --name MyAgent --port 8000
+# Rust SDK connects to HTTP port = WS port + 100 = 8100
+```
+
+See `sdk/rust/` for the full source and `sdk/rust/README.md` for more examples.
+
+---
+
 ## Config File (v0.9)
 
 Instead of long command lines, use a config file:

@@ -32,9 +32,25 @@ Dates: Asia/Shanghai (UTC+8)
   - New section: "Live availability update (PATCH)" with curl examples, response schema,
     PATCH rules summary, macOS/Linux `date` command portability note
 
+- **Rust SDK** — `sdk/rust/` — `acp-relay-sdk` v1.2 (commit `bed7884`)
+  - Thin blocking HTTP client (`reqwest 0.12` + `serde` + `thiserror`)
+  - `RelayClient::new(base_url)` — validates URL scheme; strips trailing slash
+  - `send_message(MessageRequest)` → `MessageResponse`
+    - `MessageRequest::user/agent(text)` helpers; `.with_message_id(id)`;
+      `.sync_timeout(secs)` for blocking request-response
+  - `agent_card()` → `AgentCardResponse` (self + optional peer, with `Availability`)
+  - `patch_availability(AvailabilityPatch)` → live update scheduling metadata (v1.2)
+  - `status()`, `link()`, `ping()` utility methods
+  - `AcpError` enum: `Http` / `Relay { code, message }` / `InvalidUrl` / `Json`
+  - 8 unit tests (helpers, URL validation, skip_serializing_if behaviour)
+  - `sdk/rust/README.md`: quick-start, heartbeat example, API table
+- **`docs/integration-guide.md`** — new full Rust SDK section (send, card, PATCH, error handling)
+  - Added Go SDK section header to match Python/Node/Rust consistency
+
 ### Notes
 - Inspired by A2A issue #1667: A2A protocol has no mechanism for heartbeat/cron agents
   to advertise scheduling intent. ACP v1.2 fills this gap with a clean, opt-in design.
+- Multi-language SDK matrix now complete: Python ✅ · Go ✅ · Node.js ✅ · Rust ✅
 
 ---
 
