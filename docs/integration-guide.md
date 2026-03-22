@@ -609,6 +609,117 @@ client.post("http://localhost:7901/message:send")
 
 ---
 
+## Extension Mechanism (v1.3)
+
+Extensions allow agents to advertise custom capabilities beyond the core ACP spec — using URI-identified namespaces. They appear in the AgentCard and can be registered at startup or updated at runtime without restarting the relay.
+
+### Declare at startup (CLI)
+
+```bash
+# Single extension (required=false by default)
+python3 acp_relay.py --name MyAgent \
+  --extension https://acp.dev/ext/availability/v1
+
+# With params
+python3 acp_relay.py --name MyAgent \
+  --extension https://corp.example.com/ext/billing,tier=pro,version=2
+
+# Required extension (peer must understand it)
+python3 acp_relay.py --name MyAgent \
+  --extension https://example.com/ext/auth,required=true
+
+# Multiple extensions (repeat the flag)
+python3 acp_relay.py --name MyAgent \
+  --extension https://acp.dev/ext/availability/v1 \
+  --extension https://acp.dev/ext/scheduling/v1,required=false
+```
+
+The extensions appear in the AgentCard:
+
+```json
+{
+  "name": "MyAgent",
+  "capabilities": { "extensions": true },
+  "extensions": [
+    {
+      "uri": "https://acp.dev/ext/availability/v1",
+      "required": false
+    },
+    {
+      "uri": "https://corp.example.com/ext/billing",
+      "required": true,
+      "params": { "tier": "pro", "version": "2" }
+    }
+  ]
+}
+```
+
+### Register at runtime (HTTP)
+
+No restart required — callers can register or unregister extensions while the relay is running.
+
+```bash
+# Register (upsert — re-registering the same URI updates, not duplicates)
+curl -X POST http://localhost:8100/extensions/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uri":      "https://acp.dev/ext/availability/v1",
+    "required": false,
+    "params":   { "mode": "cron", "interval_seconds": 3600 }
+  }'
+
+# Unregister
+curl -X POST http://localhost:8100/extensions/unregister \
+  -H "Content-Type: application/json" \
+  -d '{ "uri": "https://acp.dev/ext/availability/v1" }'
+
+# List current extensions
+curl http://localhost:8100/extensions
+```
+
+### Extension API reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/extensions` | GET | List all declared extensions |
+| `/extensions/register` | POST | Register or update an extension (upsert by URI) |
+| `/extensions/unregister` | POST | Remove an extension by URI |
+
+### Register request body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `uri` | string | ✅ | `http(s)://` URI uniquely identifying the extension |
+| `required` | boolean | — | Whether peer must understand this extension (default: `false`) |
+| `params` | object | — | Extension-specific parameters (arbitrary key-value) |
+
+### Checking peer extensions
+
+```python
+# Python: inspect peer's extensions from AgentCard
+import requests
+
+card = requests.get("http://localhost:8100/.well-known/acp.json").json()
+peer = card.get("peer", {})
+exts = peer.get("extensions", [])
+
+for ext in exts:
+    if ext["uri"] == "https://acp.dev/ext/availability/v1":
+        print("Peer supports availability extension:", ext.get("params"))
+    if ext.get("required"):
+        print("REQUIRED extension:", ext["uri"])
+```
+
+### Design notes
+
+- **URI namespace**: Use your own domain to avoid collisions (e.g. `https://example.com/ext/myfeature/v1`)
+- **Opt-in**: Extensions are absent from AgentCard when none are declared
+- **Upsert semantics**: Re-registering the same URI replaces the entry
+- **Validation**: URI must be `http://` or `https://`; `params` must be a JSON object
+- **A2A compatibility**: Mirrors A2A's proposed extension URI format, enabling future cross-protocol discovery
+
+---
+
 ## Integration Checklist
 
 ```

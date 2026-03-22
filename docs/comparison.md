@@ -48,17 +48,19 @@ ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native,
 
 ## Feature Comparison: ACP v1.2 vs A2A v1.0 vs MCP
 
-| Feature | ACP v1.2 | A2A v1.0 | MCP |
+| Feature | ACP v1.3 | A2A v1.0 | MCP |
 |---------|----------|----------|-----|
 | **P2P / zero-server** | ✅ Built-in | ❌ Server required | ❌ Server required |
 | **Single-file deploy** | ✅ One `.py` file | ❌ Full service stack | ❌ Server + client SDK |
 | **Docker image** | ✅ Official `Dockerfile` | ❌ | ❌ |
-| **Scheduling metadata** | ✅ `availability` block (v1.2) | ❌ No native support | ❌ |
+| **Scheduling metadata** | ✅ `availability` block (v1.2) | ❌ No native support (issue #1667) | ❌ |
 | **Live availability update** | ✅ `PATCH /.well-known/acp.json` | ❌ | ❌ |
+| **Extension mechanism** | ✅ URI-identified, runtime register/unregister (v1.3) | ⚠️ Proposed (no impl yet) | ❌ |
 | **HMAC replay-window** | ✅ `--hmac-window` (v1.1) | ⚠️ OAuth only | ⚠️ OAuth only |
 | **Task state machine** | ✅ 5 states (v0.5+) | ✅ 8 states | ❌ |
 | **Ed25519 identity** | ✅ `--identity` flag | ✅ DID-based | ❌ |
 | **LAN discovery (mDNS)** | ✅ `--advertise-mdns` | ❌ | ❌ |
+| **Multi-language SDKs** | ✅ Python / Go / Node.js / Rust | ✅ Python / JS / Java | ⚠️ Python / JS only |
 | **Setup complexity** | `pip install websockets` | OAuth + agent registry | MCP server + config |
 | **Target audience** | Personal/small team | Enterprise | Tool integration |
 
@@ -90,7 +92,26 @@ curl -X PATCH http://localhost:8100/.well-known/acp.json \
   -d '{"availability":{"last_active_at":"2026-03-22T09:00:00Z","next_active_at":"2026-03-22T10:00:00Z"}}'
 ```
 
-### 3. P2P with Zero Infrastructure
+### 3. Extension Mechanism (v1.3)
+
+ACP v1.3 implements URI-identified extensions in the AgentCard — mirroring the direction A2A is proposing in issue #1667, but already shipping:
+
+```json
+"extensions": [
+  { "uri": "https://acp.dev/ext/availability/v1", "required": false },
+  { "uri": "https://corp.example.com/ext/billing", "required": true, "params": { "tier": "pro" } }
+]
+```
+
+Unlike A2A's proposed Extension spec (which has no reference implementation), ACP ships with:
+- `--extension URI[,required=true][,key=val]` CLI flag
+- `POST /extensions/register` — upsert at runtime (no restart needed)
+- `POST /extensions/unregister` — remove at runtime
+- `GET /extensions` — list current extensions
+
+**Cross-protocol note**: ACP extension URIs use the same `https://` URI format A2A plans to use — so an agent advertising `https://acp.dev/ext/availability/v1` is readable by any A2A-compatible client that understands that URI.
+
+### 4. P2P with Zero Infrastructure
 
 No central registry, no OAuth dance, no gRPC service. Two agents connect in two steps:
 
