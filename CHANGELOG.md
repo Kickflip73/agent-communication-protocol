@@ -8,6 +8,12 @@ Dates: Asia/Shanghai (UTC+8)
 ---
 
 ## [1.3.0-dev] — 2026-03-22/23
+### Added (v1.1)
+- **`GET /tasks` pagination** — keyset cursor pagination, state/peer_id filter, sort order
+  - New params: `limit` (max 200), `cursor` (exclusive keyset), `state`, `peer_id`, `sort`
+  - Response: `has_more`, `next_cursor`, `total` fields
+  - Addresses the gap noted in A2A issue #1667 discussion
+
 
 ### Added (2026-03-23 — DCUtR NAT 穿透初版实现)
 

@@ -1481,12 +1481,51 @@ class LocalHTTP(BaseHTTPRequestHandler):
             msgs  = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
             self._json({"messages": msgs, "count": len(msgs), "remaining": len(_recv_queue)})
 
-        elif p == "/tasks":  # [stable] task CRUD
-            state_filter = qs.get("state", [None])[0]
+        elif p == "/tasks":  # [stable] task CRUD — supports pagination (v1.1)
+            # Query params:
+            #   state=<status>         filter by status
+            #   limit=<n>              max tasks to return (default 50, max 200)
+            #   cursor=<task_id>       exclusive cursor: return tasks after this id
+            #   peer_id=<peer_id>      filter by originating peer
+            #   sort=created_asc|created_desc  (default: created_desc, newest first)
+            state_filter  = qs.get("state",   [None])[0]
+            peer_filter   = qs.get("peer_id", [None])[0]
+            limit         = min(int(qs.get("limit",  ["50"])[0]),  200)
+            cursor        = qs.get("cursor", [None])[0]
+            sort_order    = qs.get("sort",   ["created_desc"])[0]
+
             tasks = list(_tasks.values())
+
+            # Filter
             if state_filter:
-                tasks = [t for t in tasks if t["status"] == state_filter]
-            self._json({"tasks": tasks, "count": len(tasks)})
+                tasks = [t for t in tasks if t.get("status") == state_filter]
+            if peer_filter:
+                tasks = [t for t in tasks if t.get("peer_id") == peer_filter]
+
+            # Sort by creation time (task_id contains timestamp prefix for natural sort)
+            reverse = (sort_order != "created_asc")
+            tasks.sort(key=lambda t: t.get("created_at", ""), reverse=reverse)
+
+            # Cursor pagination (keyset-based, exclusive)
+            if cursor and cursor in _tasks:
+                try:
+                    cursor_idx = next(i for i, t in enumerate(tasks) if t["id"] == cursor)
+                    tasks = tasks[cursor_idx + 1:]
+                except StopIteration:
+                    tasks = []
+
+            # Limit + next_cursor
+            has_more    = len(tasks) > limit
+            page        = tasks[:limit]
+            next_cursor = page[-1]["id"] if has_more and page else None
+
+            self._json({
+                "tasks":       page,
+                "count":       len(page),
+                "total":       len(_tasks),
+                "has_more":    has_more,
+                "next_cursor": next_cursor,
+            })
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # BUG-008 fix: support both /wait and :wait styles
