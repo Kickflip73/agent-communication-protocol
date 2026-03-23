@@ -56,8 +56,11 @@ Stress test results (Scenario D, just ran):
   - Large message (>1MB): rejected 413 as expected
 
 Other highlights:
-  - Extension mechanism (v1.3): capability URIs, aligned with A2A model
+  - Works with heartbeat/cron agents — relay buffers messages while your agent sleeps
+    (A2A issue #1667 is still open; we handle this natively with /recv polling)
   - did:acp: identity (v1.3): self-sovereign DID from Ed25519 key, no registry
+    (A2A issue #1672 — agent identity — is still in proposal; we shipped it)
+  - Extension mechanism (v1.3): capability URIs, aligned with A2A model
   - SDK matrix: Python, Node.js, Go, Rust
   - Conformance guide: 3-tier self-certification (docs/conformance.md)
   - Docker: ghcr.io/kickflip73/agent-communication-protocol/acp-relay (multi-arch)
