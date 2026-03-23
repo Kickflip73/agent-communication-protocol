@@ -151,10 +151,50 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 🔮 v2.0（目标：2026-Q3）
+### 🔥 v1.4（目标：2026-04，P0 优先）
+**主题：真 P2P NAT 穿透 — 协议初衷的核心实现**
+
+> **背景**：当前 `acp://` 直连在双方都位于 NAT 后面时必然失败，用户被迫使用
+> `--relay`（Cloudflare Worker 转发），每条消息都经过第三方，违背 P2P 无中间人原则。
+> v1.4 是修复这一根本缺陷的专项版本。
+
+**三级连接策略（自动选择，用户零感知）：**
+
+```
+Level 1: 直连        — ws://IP:7801/token，3s 超时
+Level 2: TCP 打洞 ★  — Signaling 交换公网地址 → 双方 SYN 打洞（新增）
+Level 3: Relay 降级  — Cloudflare Worker 转发（兜底，约 30% 场景触发）
+```
+
+- [ ] **TCP Hole Punching 实现**（`acp_relay.py`）
+  - `_get_public_addr()` — HTTP 反射获取公网 IP:Port
+  - `_signaling_announce()` / `_signaling_get_peer_addr()` — 地址交换
+  - `_tcp_hole_punch()` — 双向 SYN，asyncio + stdlib socket
+  - 全部 stdlib only，不增加新依赖
+- [ ] **Cloudflare Worker 改造**（约 50 行 JS）
+  - 新增 `/acp/announce`、`/acp/peer`、`/acp/myip` 三个轻量端点
+  - 地址记录 TTL 30s，握手后立即删除，不存储任何消息
+- [ ] **自动降级集成**：`_connect_with_nat_traversal()` 替换现有直连逻辑
+- [ ] **链接格式不变**：`acp://` 底层透明升级，向后完全兼容
+- [ ] **`--relay` 语义变更**：从「用户主动选择」→「自动最后降级」，用户无需手动指定
+- [ ] **测试**：`tests/unit/test_nat_traversal.py` + `tests/integration/test_p2p_behind_nat.py`
+- [ ] **规范文档**：`spec/nat-traversal-v1.4.md`（已创建，2026-03-23）
+
+**成功指标：**
+- 双 NAT 场景直连成功率 ≥70%（覆盖 Full Cone / Restricted Cone NAT）
+- 消息经过第三方节点 ≤30%（对称 NAT 兜底场景）
+- 连接建立延迟 <600ms（含打洞握手）
+- `--relay` 用户操作：从必须手动指定 → 零感知自动降级
+
+**参考规范**：`spec/nat-traversal-v1.4.md`
+
+---
+
+### 🔮 v2.0（目标：2026-Q3，待 v1.4 完成后）
 **主题：联邦化与生态扩展**
 
 - [ ] 公开发布（博客文章 + GitHub README + Hacker News）
+  - ⚠️ 延后至 v1.4 完成后：真 P2P 是核心卖点，先做到再发布
 - ✅ Extension 机制（URI 标识扩展，v1.3，commit `88d00fc`）
 - ✅ 多语言 SDK 完整矩阵（Python/Node/Go/Rust，v1.2 完成）
 - ✅ 兼容性认证流程（`docs/conformance.md`，2026-03-23，v1.3 开发轮）
