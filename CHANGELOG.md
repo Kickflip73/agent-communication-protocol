@@ -9,6 +9,42 @@ Dates: Asia/Shanghai (UTC+8)
 
 ## [1.3.0-dev] — 2026-03-22/23
 
+### Fixed (commit `643450c` — 2026-03-23, real dual-agent testing)
+Six bugs discovered during first live AlphaAgent↔BetaAgent P2P communication session:
+
+- **BUG-001 (P0)** — SSE `/stream` never delivered message events (only keepalive)
+  - Root cause 1: `HTTPServer` is single-threaded; the `/stream` blocking loop blocked all
+    subsequent HTTP requests including `/message:send`. Fix: use `ThreadingHTTPServer`.
+  - Root cause 2: BaseHTTP defaults to HTTP/1.0 and sets `close_connection = True` after
+    `handle_one_request()` returns, silently closing the SSE connection before any events
+    are sent. Fix: `self.close_connection = False` + `X-Accel-Buffering: no` header.
+  - Root cause 3: `/message:send` outbound path never called `_broadcast_sse_event`.
+    Fix: add broadcast with `direction: "outbound"` after `_ws_send_sync`.
+  - Test fix: `tests/compat/test_stream.py` raw-socket reader returns 0 bytes against
+    HTTP/1.0 keep-alive connections; replaced with `http.client` streaming reader.
+
+- **BUG-002 (P0)** — Task `:cancel` endpoint returned `status: "failed"` instead of `"canceled"`
+  - Added `TASK_CANCELED = "canceled"` constant; added to `TERMINAL_STATES`;
+    cancel handler now uses the constant.
+
+- **BUG-003 (P1)** — `/peers/connect` for the same link created duplicate peer entries
+  - Two-layer fix: (1) `/peers/connect` checks existing connected peers before registering;
+    returns `already_connected: true` on match. (2) `guest_mode()` WS connect reuses
+    pre-registered peer entry (matched by token link) instead of calling `_register_peer()`
+    again, which had created a second entry.
+
+- **BUG-004 (P1)** — `/message:send` response body missing `server_seq` field
+  - Captured `seq = msg["server_seq"]` before `_ws_send_sync`; included in both sync
+    (reply) and async (fire-and-forget) response paths.
+
+- **BUG-005 (P1)** — `peer.messages_received` counter never incremented
+  - `_on_message()` now looks up sender peer by `msg.get("from")` name; falls back to
+    single connected peer when `from` field absent; increments `messages_received`.
+
+- **BUG-006 (P2)** — Client-supplied `task_id` in POST `/tasks` body was ignored
+  - `_create_task()` now accepts optional `task_id` parameter; if the ID already exists,
+    returns the existing task (idempotent). `/tasks` handler passes `body.get("task_id")`.
+
 ### Added
 - **Extension mechanism** — URI-identified AgentCard extensions (commit `88d00fc`)
   - New optional `extensions` array in AgentCard: `[{uri, required, params?}]`

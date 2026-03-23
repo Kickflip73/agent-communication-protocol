@@ -12,14 +12,14 @@
 - **期望**：每条收到的消息应推送 `event: acp.message\ndata: {...}` 事件
 - **影响**：流式场景完全不可用；`test_stream.py` 的 SHOULD 测试全部 SKIP/FAIL
 - **文件**：`relay/acp_relay.py` SSE handler
-- **状态**：🔴 待修复
+- **状态**：✅ 已修复 (2026-03-23 commit 643450c)
 
 ### BUG-002: Task cancel 返回 `failed` 而非 `canceled`
 - **现象**：`POST /tasks/{id}:cancel` 响应 `{"status": "failed"}`，后续 GET 也是 `failed`
 - **期望**：状态应变为 `canceled`（spec §3 明确定义 5 种状态）
 - **影响**：Task 状态机语义错误，下游逻辑无法区分「取消」和「失败」
 - **文件**：`relay/acp_relay.py` task cancel handler
-- **状态**：🔴 待修复
+- **状态**：✅ 已修复 (2026-03-23 commit 643450c)
 
 ---
 
@@ -30,21 +30,21 @@
 - **期望**：幂等连接，相同 link 只创建一个 peer 记录
 - **影响**：peer 列表膨胀，重复投递风险
 - **文件**：`relay/acp_relay.py` peers/connect handler
-- **状态**：🟡 待修复
+- **状态**：✅ 已修复 (2026-03-23 commit 643450c)
 
 ### BUG-004: `/message:send` 响应缺少 `server_seq`
 - **现象**：响应只有 `{"ok": true, "message_id": "...", "task": null}`，没有 `server_seq` 字段
 - **期望**：spec §4 SHOULD 要求响应包含 `server_seq` 整数
 - **影响**：客户端无法追踪消息序号，幂等重发校验失效
 - **文件**：`relay/acp_relay.py` message send handler
-- **状态**：🟡 待修复
+- **状态**：✅ 已修复 (2026-03-23 commit 643450c)
 
 ### BUG-005: peer.messages_received 统计不更新
 - **现象**：AgentB 收到消息后，`/peers` 中 `peer_001.messages_received` 仍为 0
 - **期望**：每收到一条来自该 peer 的消息，计数器 +1
 - **影响**：监控/调试时无法判断 peer 通道是否正常工作
 - **文件**：`relay/acp_relay.py` peer message tracking
-- **状态**：🟡 待修复
+- **状态**：✅ 已修复 (2026-03-23 commit 643450c)
 
 ---
 
@@ -55,7 +55,7 @@
 - **期望**：若客户端提供 `task_id`，服务端应使用该 ID（幂等语义）；若已存在则返回现有 task
 - **影响**：客户端无法预知 task ID，需要额外解析响应
 - **文件**：`relay/acp_relay.py` task create handler
-- **状态**：🟢 待讨论（行为是否符合设计意图）
+- **状态**：✅ 已修复 (2026-03-23 commit 643450c，client task_id 现在被尊重)
 
 ---
 
@@ -87,3 +87,11 @@ P2: BUG-006 task_id 语义讨论
 ---
 
 *最后更新：2026-03-23 11:58 by J.A.R.V.I.S.*
+
+
+---
+
+## ✅ 全部修复完成
+
+**修复 commit**: `643450c` (2026-03-23)
+**验证方式**: AlphaAgent(7910) ↔ BetaAgent(7920) 真实 P2P 通信测试
