@@ -1,10 +1,11 @@
 # ACP — Agent 通信协议
 
 <p align="center">
-  <img src="https://img.shields.io/badge/版本-v1.2-blue" alt="Version">
+  <img src="https://img.shields.io/badge/版本-v1.3-blue" alt="Version">
   <img src="https://img.shields.io/badge/许可证-Apache_2.0-green" alt="License">
   <img src="https://img.shields.io/badge/依赖-websockets-orange" alt="Dependency">
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue" alt="Python">
+  <img src="https://img.shields.io/badge/docker-GHCR-2496ED?logo=docker&logoColor=white" alt="Docker GHCR">
 </p>
 
 **ACP（Agent Communication Protocol）是一个零服务器、零代码修改的 P2P Agent 通信协议。** 人只需完成 2 步操作，任意两个 AI Agent 即可建立直接加密通信通道。
@@ -201,16 +202,24 @@ POST /webhooks/register  {"url":"https://your-host/hook"}
 
 ---
 
-## v0.6-dev 新特性
+## v1.3 新特性
 
-参考 **Google A2A v1.0** 的四种交互模式实现：
+- **Extension 机制** — URI 标识的 AgentCard 扩展，支持运行时注册/注销；向 A2A 扩展模型对齐
+- **`did:acp:` DID 身份** — 基于 Ed25519 公钥派生的自主权标识符；`/.well-known/did.json` W3C 兼容文档
+- **Docker GHCR CI** — `ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest`，支持 linux/amd64 + linux/arm64
+- **兼容性认证指南** — 三级认证体系（Core/Recommended/Full），含自认证 badge 方案，见 [`docs/conformance.md`](conformance.md)
 
-- **同步模式** — `"sync":true` 发送后阻塞等待 `/reply`；`/wait/<id>` 显式等待
-- **Task 生命周期** — submitted → working → completed/failed/cancelled；支持 artifact 附件；状态变更自动广播至 SSE 和 Push Webhook
-- **Push Webhook** — 注册任意 HTTP 端点，守护进程后台推送所有事件
-- **连接事件** — `peer.connected`、`peer.disconnected` 等系统事件也进入 SSE 流
+```bash
+# 一行拉取最新镜像
+docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest
 
-**v0.6-dev 已有特性：** AgentCard 能力声明、断线自动重连（指数退避）、消息持久化（JSONL）、SSE 流式端点
+# 带 DID 身份 + Extension 运行（需 :full 变体）
+docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:full
+docker run --rm -p 8000:8000 -p 8100:8100 \
+  -v acp-identity:/root/.acp \
+  ghcr.io/kickflip73/agent-communication-protocol/acp-relay:full \
+  --name MyAgent --identity
+```
 
 ---
 
@@ -221,7 +230,7 @@ POST /webhooks/register  {"url":"https://your-host/hook"}
 | **v1.0** | ✅ GA | Task 状态机、消息幂等性、QuerySkill、P2P 直连 |
 | **v1.1** | ✅ | HMAC 重放防护（replay-window）、`failed_message_id` 覆盖 |
 | **v1.2** | ✅ | AgentCard 调度元数据（availability 块）、PATCH 实时更新 API、Docker 官方镜像 |
-| **v1.3** | 🚧 进行中 | ✅ Rust SDK stub、✅ DID 身份（`did:acp:`）、✅ Extension 机制 |
+| **v1.3** | ✅ | Rust SDK、DID 身份（`did:acp:`）、Extension 机制、Docker GHCR CI、兼容性认证指南 |
 
 ---
 
@@ -236,6 +245,11 @@ POST /webhooks/register  {"url":"https://your-host/hook"}
 | 能力声明 | ✅ | ✅ AgentCard | - | ✅ AgentCard |
 | 断线重连 | - | - | - | ✅ |
 | 消息持久化 | - | - | - | ✅ |
+| 调度元数据 | - | - | - | ✅ `availability`（v1.2） |
+| DID 身份 | - | - | - | ✅ `did:acp:`（v1.3） |
+| 扩展机制 | - | ✅（企业级） | - | ✅ URI 扩展（v1.3） |
+| Docker 镜像 | - | - | - | ✅ GHCR（v1.3） |
+| 兼容性认证 | - | ✅ | - | ✅ 三级自认证（v1.3） |
 
 > MCP、A2A、IBM ACP 各有其设计目标，本项目聚焦「极简 P2P 直连」场景。
 
