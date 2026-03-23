@@ -2716,7 +2716,543 @@ async def _http_relay_guest(relay_base_url: str, token: str, http_port: int):
         await asyncio.sleep(POLL_INTERVAL)
 
 _http_relay_send = None  # 由 _http_relay_guest 设置
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NAT Traversal — DCUtR-style UDP Hole Punching (v1.4 initial impl)
+#
+# Design: Three-level connection strategy, fully automatic, zero user config:
+#   Level 1: Direct connect (existing, 3s timeout)
+#   Level 2: UDP hole punching via Relay signaling (new, 5s timeout)
+#   Level 3: Relay permanent relay (existing fallback)
+#
+# All code here is stdlib-only: asyncio, socket, struct, os, time, uuid
+# No third-party deps. Any failure silently degrades to the next level.
+#
+# New ACP message types (transported over Relay WebSocket):
+#   dcutr_connect  — initiator sends its addresses, requests hole punch
+#   dcutr_sync     — responder sends its addresses + synchronized punch time
+#   dcutr_result   — notify relay of outcome (informational)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import struct as _struct
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STUNClient — discover public UDP address via STUN Binding Request (stdlib)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class STUNClient:
+    """
+    Minimal STUN Binding Request client (RFC 5389 / RFC 8489).
+    Uses only stdlib: asyncio, socket, struct.
+    Returns the public (NAT-mapped) UDP address observed by the STUN server.
+    """
+
+    MAGIC_COOKIE = 0x2112A442
+    BINDING_REQUEST  = 0x0001
+    BINDING_RESPONSE = 0x0101
+    ATTR_MAPPED_ADDRESS     = 0x0001
+    ATTR_XOR_MAPPED_ADDRESS = 0x0020
+
+    @staticmethod
+    async def get_public_address(
+        stun_host: str = "stun.l.google.com",
+        stun_port: int = 19302,
+        timeout: float = 3.0,
+    ):
+        """
+        Send a STUN Binding Request and parse the XOR-MAPPED-ADDRESS response.
+
+        Returns:
+            (ip: str, port: int) — the public UDP address as seen by STUN server
+            None                 — on any failure / timeout
+        """
+        try:
+            # Build 20-byte STUN Binding Request
+            transaction_id = os.urandom(12)
+            header = _struct.pack(
+                "!HHI12s",
+                STUNClient.BINDING_REQUEST,  # Message Type
+                0,                           # Message Length (no attributes)
+                STUNClient.MAGIC_COOKIE,     # Magic Cookie
+                transaction_id,
+            )
+
+            loop = asyncio.get_event_loop()
+
+            def _send_recv():
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(timeout)
+                try:
+                    server_ip = socket.gethostbyname(stun_host)
+                    sock.sendto(header, (server_ip, stun_port))
+                    data, _ = sock.recvfrom(512)
+                    return data
+                finally:
+                    sock.close()
+
+            data = await asyncio.wait_for(
+                loop.run_in_executor(None, _send_recv),
+                timeout=timeout + 0.5,
+            )
+
+            return STUNClient._parse_response(data)
+
+        except Exception as e:
+            log.debug(f"[STUN] address discovery failed: {e}")
+            return None
+
+    @staticmethod
+    def _parse_response(data: bytes):
+        """
+        Parse STUN Binding Response.
+        Prefers XOR-MAPPED-ADDRESS (0x0020) over MAPPED-ADDRESS (0x0001).
+        Returns (ip, port) or None.
+        """
+        if len(data) < 20:
+            return None
+
+        msg_type, msg_len, magic, txn_id = _struct.unpack_from("!HHI12s", data, 0)
+        if msg_type != STUNClient.BINDING_RESPONSE:
+            return None
+
+        # Walk attributes
+        offset = 20
+        result_mapped = None
+        result_xor    = None
+
+        while offset + 4 <= len(data):
+            attr_type, attr_len = _struct.unpack_from("!HH", data, offset)
+            offset += 4
+            attr_val = data[offset: offset + attr_len]
+            # Pad to 4-byte boundary
+            offset += (attr_len + 3) & ~3
+
+            if attr_type == STUNClient.ATTR_MAPPED_ADDRESS and attr_len >= 8:
+                # Format: 1-byte reserved, 1-byte family(0x01=IPv4), 2-byte port, 4-byte ip
+                family = attr_val[1]
+                if family == 0x01:  # IPv4
+                    port = _struct.unpack_from("!H", attr_val, 2)[0]
+                    ip   = socket.inet_ntoa(attr_val[4:8])
+                    result_mapped = (ip, port)
+
+            elif attr_type == STUNClient.ATTR_XOR_MAPPED_ADDRESS and attr_len >= 8:
+                family = attr_val[1]
+                if family == 0x01:  # IPv4
+                    xport = _struct.unpack_from("!H", attr_val, 2)[0] ^ (STUNClient.MAGIC_COOKIE >> 16)
+                    xip_raw = _struct.unpack_from("!I", attr_val, 4)[0] ^ STUNClient.MAGIC_COOKIE
+                    xip = socket.inet_ntoa(_struct.pack("!I", xip_raw))
+                    result_xor = (xip, xport)
+
+        return result_xor or result_mapped
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DCUtRPuncher — UDP hole punching state machine
+# ─────────────────────────────────────────────────────────────────────────────
+
+class DCUtRPuncher:
+    """
+    DCUtR-style UDP hole punching.
+
+    State machine:
+        IDLE → DISCOVERING → SIGNALING → PUNCHING → CONNECTED / FAILED
+
+    The puncher requires an existing Relay WebSocket connection (relay_ws)
+    which acts as the signaling channel for address exchange.
+    Both sides must coordinate: one calls attempt(), the other calls listen_for_dcutr().
+    """
+
+    # Timing constants
+    STUN_TIMEOUT      = 3.0   # seconds to wait for STUN response
+    SIGNAL_TIMEOUT    = 5.0   # seconds to wait for dcutr_sync from peer
+    PUNCH_AHEAD_MS    = 500   # ms ahead of t_punch to start listening
+    PUNCH_PROBES      = 3     # number of UDP probe packets per target
+    PUNCH_INTERVAL    = 0.10  # seconds between probe packets
+    PUNCH_WAIT        = 3.0   # seconds to wait for incoming UDP reply
+    UDP_PROBE_PAYLOAD = b"ACP-DCUtR-PROBE"
+
+    # ── Initiator side ────────────────────────────────────────────────────────
+
+    async def attempt(self, relay_ws, local_port: int):
+        """
+        Initiator: discover addresses → signal → punch → return direct addr or None.
+
+        Args:
+            relay_ws:   An active websockets connection to the Relay/peer.
+                        Must support send(str) and recv().
+            local_port: Local UDP port to use for hole punching.
+
+        Returns:
+            (ip: str, port: int) — direct peer address on success
+            None                 — on any failure (caller falls back to relay)
+        """
+        session_id = str(uuid.uuid4())
+        log.info(f"[DCUtR] initiating hole punch (session={session_id[:8]})")
+
+        # ── Phase 1: STUN — discover public UDP address ───────────────────────
+        stun_addr = await STUNClient.get_public_address(timeout=self.STUN_TIMEOUT)
+        addresses = []
+        if stun_addr:
+            addresses.append(f"{stun_addr[0]}:{stun_addr[1]}")
+            log.info(f"[DCUtR] public address: {stun_addr[0]}:{stun_addr[1]}")
+        else:
+            log.debug("[DCUtR] STUN failed, using local address only")
+
+        # Always include local address as fallback (same-LAN case)
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+            addresses.append(f"{local_ip}:{local_port}")
+        except Exception:
+            pass
+
+        if not addresses:
+            log.debug("[DCUtR] no addresses discovered, aborting")
+            return None
+
+        # ── Phase 2: Signal — send dcutr_connect, wait for dcutr_sync ─────────
+        connect_msg = json.dumps({
+            "type":       "dcutr_connect",
+            "addresses":  addresses,
+            "session_id": session_id,
+        })
+        try:
+            await relay_ws.send(connect_msg)
+            log.debug(f"[DCUtR] sent dcutr_connect with {len(addresses)} address(es)")
+        except Exception as e:
+            log.debug(f"[DCUtR] failed to send dcutr_connect: {e}")
+            return None
+
+        # Wait for dcutr_sync from peer
+        try:
+            sync_data = await asyncio.wait_for(
+                self._recv_dcutr_sync(relay_ws, session_id),
+                timeout=self.SIGNAL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.debug("[DCUtR] timeout waiting for dcutr_sync")
+            return None
+        except Exception as e:
+            log.debug(f"[DCUtR] error receiving dcutr_sync: {e}")
+            return None
+
+        if sync_data is None:
+            log.debug("[DCUtR] no dcutr_sync received")
+            return None
+
+        peer_addrs = sync_data.get("addresses", [])
+        t_punch    = sync_data.get("t_punch", time.time())
+        log.info(f"[DCUtR] peer addresses: {peer_addrs}, t_punch={t_punch}")
+
+        # ── Phase 3: Punch — simultaneous UDP probes ───────────────────────────
+        result = await self._do_punch(local_port, peer_addrs, t_punch)
+
+        # Notify peer of result (best-effort, non-blocking)
+        try:
+            result_msg = json.dumps({
+                "type":        "dcutr_result",
+                "session_id":  session_id,
+                "success":     result is not None,
+                "direct_addr": f"{result[0]}:{result[1]}" if result else None,
+            })
+            await relay_ws.send(result_msg)
+        except Exception:
+            pass  # non-critical
+
+        return result
+
+    # ── Responder side ────────────────────────────────────────────────────────
+
+    async def listen_for_dcutr(self, relay_ws, local_port: int):
+        """
+        Responder: wait for dcutr_connect, reply with dcutr_sync, punch.
+
+        Args:
+            relay_ws:   Active Relay WebSocket connection.
+            local_port: Local UDP port for punching.
+
+        Returns:
+            (ip: str, port: int) — direct peer address on success
+            None                 — on any failure
+        """
+        log.info("[DCUtR] listening for hole punch request")
+
+        # Wait for dcutr_connect
+        try:
+            connect_data = await asyncio.wait_for(
+                self._recv_dcutr_connect(relay_ws),
+                timeout=self.SIGNAL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.debug("[DCUtR] timeout waiting for dcutr_connect")
+            return None
+        except Exception as e:
+            log.debug(f"[DCUtR] error receiving dcutr_connect: {e}")
+            return None
+
+        if connect_data is None:
+            return None
+
+        peer_addrs = connect_data.get("addresses", [])
+        session_id = connect_data.get("session_id", str(uuid.uuid4()))
+        log.info(f"[DCUtR] received dcutr_connect, peer addrs: {peer_addrs}")
+
+        # Discover our own addresses
+        stun_addr = await STUNClient.get_public_address(timeout=self.STUN_TIMEOUT)
+        my_addrs = []
+        if stun_addr:
+            my_addrs.append(f"{stun_addr[0]}:{stun_addr[1]}")
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+            my_addrs.append(f"{local_ip}:{local_port}")
+        except Exception:
+            pass
+
+        # Schedule punch time: now + PUNCH_AHEAD_MS + signaling buffer
+        t_punch = time.time() + (self.PUNCH_AHEAD_MS / 1000.0) + 0.2
+
+        # Reply with dcutr_sync
+        sync_msg = json.dumps({
+            "type":       "dcutr_sync",
+            "addresses":  my_addrs,
+            "session_id": session_id,
+            "t_punch":    t_punch,
+        })
+        try:
+            await relay_ws.send(sync_msg)
+            log.debug(f"[DCUtR] sent dcutr_sync, t_punch={t_punch:.3f}")
+        except Exception as e:
+            log.debug(f"[DCUtR] failed to send dcutr_sync: {e}")
+            return None
+
+        # Execute punch
+        return await self._do_punch(local_port, peer_addrs, t_punch)
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    async def _recv_dcutr_sync(self, relay_ws, session_id: str):
+        """Receive messages from relay_ws until dcutr_sync for our session_id."""
+        while True:
+            try:
+                raw = await relay_ws.recv()
+                msg = json.loads(raw)
+                if msg.get("type") == "dcutr_sync" and msg.get("session_id") == session_id:
+                    return msg
+                # Other messages are silently dropped in this phase
+            except Exception:
+                return None
+
+    async def _recv_dcutr_connect(self, relay_ws):
+        """Receive messages from relay_ws until dcutr_connect arrives."""
+        while True:
+            try:
+                raw = await relay_ws.recv()
+                msg = json.loads(raw)
+                if msg.get("type") == "dcutr_connect":
+                    return msg
+                # Other messages dropped silently
+            except Exception:
+                return None
+
+    async def _do_punch(self, local_port: int, peer_addrs: list, t_punch: float):
+        """
+        Core UDP hole punch: bind local socket, wait until t_punch,
+        send probes to all peer addresses, wait for reply.
+
+        Returns (ip, port) on success, None on failure.
+        """
+        if not peer_addrs:
+            return None
+
+        # Parse peer addresses
+        targets = []
+        for addr_str in peer_addrs:
+            try:
+                host, port_str = addr_str.rsplit(":", 1)
+                targets.append((host, int(port_str)))
+            except Exception:
+                continue
+
+        if not targets:
+            return None
+
+        loop = asyncio.get_event_loop()
+
+        def _punch_sync():
+            """Blocking punch (run in executor to not block event loop)."""
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.bind(("0.0.0.0", local_port))
+                sock.settimeout(0.1)
+            except Exception as e:
+                log.debug(f"[DCUtR] socket bind failed (port={local_port}): {e}")
+                # Try with a random port
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.bind(("0.0.0.0", 0))
+                    sock.settimeout(0.1)
+                except Exception as e2:
+                    log.debug(f"[DCUtR] fallback socket also failed: {e2}")
+                    return None
+
+            try:
+                # Wait until t_punch (clock sync)
+                delay = t_punch - time.time()
+                if delay > 0:
+                    time.sleep(delay)
+
+                # Send probe packets to all targets
+                deadline = time.time() + self.PUNCH_WAIT
+                for _ in range(self.PUNCH_PROBES):
+                    for target in targets:
+                        try:
+                            sock.sendto(self.UDP_PROBE_PAYLOAD, target)
+                            log.debug(f"[DCUtR] probe → {target[0]}:{target[1]}")
+                        except Exception:
+                            pass
+                    time.sleep(self.PUNCH_INTERVAL)
+
+                # Listen for incoming probes
+                while time.time() < deadline:
+                    try:
+                        data, addr = sock.recvfrom(256)
+                        if data.startswith(b"ACP-DCUtR"):
+                            log.info(f"[DCUtR] ✅ punch success! peer={addr[0]}:{addr[1]}")
+                            # Send ack
+                            try:
+                                sock.sendto(b"ACP-DCUtR-ACK", addr)
+                            except Exception:
+                                pass
+                            return addr  # (ip, port)
+                    except socket.timeout:
+                        pass
+                    except Exception:
+                        pass
+
+                log.debug("[DCUtR] punch timeout — no reply received")
+                return None
+            finally:
+                sock.close()
+
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, _punch_sync),
+                timeout=self.PUNCH_WAIT + self.PUNCH_PROBES * self.PUNCH_INTERVAL + 1.0,
+            )
+            return result
+        except asyncio.TimeoutError:
+            log.debug("[DCUtR] _do_punch executor timed out")
+            return None
+        except Exception as e:
+            log.debug(f"[DCUtR] _do_punch error: {e}")
+            return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# connect_with_holepunch — public three-level connection API
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def connect_with_holepunch(ws_uri: str, relay_ws=None, local_udp_port: int = 0):
+    """
+    Three-level connection strategy for ACP (DCUtR-style NAT traversal).
+
+    Levels:
+        1. Direct WebSocket connect (3s timeout) — existing behavior
+        2. UDP hole punch via relay signaling    — new in v1.4
+        3. Relay permanent relay (ws_uri must be relay URI) — existing fallback
+
+    Args:
+        ws_uri:         The WebSocket URI to connect to (direct or relay).
+        relay_ws:       An existing Relay WebSocket (for signaling in Level 2).
+                        If None, Level 2 is skipped.
+        local_udp_port: Local UDP port for hole punching.
+                        0 = OS-assigned (may limit port-restricted NAT success).
+
+    Returns:
+        (websocket, is_direct: bool)
+            websocket  — connected websockets.WebSocketClientProtocol
+            is_direct  — True if direct/hole-punched, False if relay
+        Raises ConnectionError if all three levels fail.
+
+    Usage:
+        ws, direct = await connect_with_holepunch("ws://1.2.3.4:7801/tok_xxx")
+        ws, direct = await connect_with_holepunch(
+            relay_uri, relay_ws=existing_relay_ws, local_udp_port=9001
+        )
+    """
+    # ── Level 1: Direct connect ───────────────────────────────────────────────
+    try:
+        ws = await asyncio.wait_for(
+            _proxy_ws_connect(ws_uri),
+            timeout=3.0,
+        )
+        log.info(f"[connect] Level 1 direct connect succeeded: {ws_uri}")
+        return (ws, True)
+    except Exception as e:
+        log.debug(f"[connect] Level 1 direct failed ({type(e).__name__}): {e}")
+
+    # ── Level 2: UDP hole punch ───────────────────────────────────────────────
+    if relay_ws is not None:
+        try:
+            puncher = DCUtRPuncher()
+            direct_addr = await puncher.attempt(relay_ws, local_udp_port)
+
+            if direct_addr is not None:
+                # Build a direct WebSocket URI from the punched address
+                # (reuse scheme/path from ws_uri, replace host:port)
+                from urllib.parse import urlparse as _up2, urlunparse as _uu2
+                parsed = _up2(ws_uri)
+                direct_uri = _uu2((
+                    parsed.scheme,
+                    f"{direct_addr[0]}:{direct_addr[1]}",
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                ))
+                try:
+                    ws = await asyncio.wait_for(
+                        _proxy_ws_connect(direct_uri),
+                        timeout=3.0,
+                    )
+                    log.info(
+                        f"[connect] Level 2 hole punch succeeded: "
+                        f"{direct_addr[0]}:{direct_addr[1]}"
+                    )
+                    # Close relay connection now that we have a direct path
+                    try:
+                        await relay_ws.close()
+                    except Exception:
+                        pass
+                    return (ws, True)
+                except Exception as e2:
+                    log.debug(f"[connect] Level 2 WS upgrade failed after punch: {e2}")
+        except Exception as e:
+            log.debug(f"[connect] Level 2 hole punch error: {e}")
+
+    # ── Level 3: Relay permanent relay ───────────────────────────────────────
+    if relay_ws is not None:
+        log.info("[connect] Level 3 relay fallback (permanent)")
+        # relay_ws is already connected; return it as the communication channel
+        return (relay_ws, False)
+
+    # Last resort: try direct connect one more time (in case of transient failure)
+    try:
+        ws = await asyncio.wait_for(
+            _proxy_ws_connect(ws_uri),
+            timeout=5.0,
+        )
+        log.info(f"[connect] Level 3 direct retry succeeded")
+        return (ws, True)
+    except Exception as e:
+        raise ConnectionError(
+            f"All connection levels failed for {ws_uri}: {e}"
+        ) from e
+
+
 if __name__ == "__main__":
     main()
+
 
 

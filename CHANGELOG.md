@@ -9,6 +9,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ## [1.3.0-dev] — 2026-03-22/23
 
+### Added (2026-03-23 — DCUtR NAT 穿透初版实现)
+
+- **DCUtR 风格 UDP 打洞 NAT 穿透 — Level 2 连接策略（v1.4 特性，初版实装）**
+  - 新增 `STUNClient` 类 (~120 行)：stdlib-only STUN Binding Request 客户端
+    - 支持 RFC 5389 / RFC 8489（XOR-MAPPED-ADDRESS 优先，MAPPED-ADDRESS 兜底）
+    - 使用公共 STUN 服务器 `stun.l.google.com:19302`
+    - 3s 超时，失败静默返回 None（不抛异常）
+    - 运行在 executor 中，不阻塞 asyncio event loop
+  - 新增 `DCUtRPuncher` 类 (~200 行)：UDP 打洞状态机
+    - `attempt(relay_ws, local_port)` — 发起方：发 dcutr_connect → 等 dcutr_sync → 双方同时发 UDP 包 → 等回包
+    - `listen_for_dcutr(relay_ws, local_port)` — 响应方：等 dcutr_connect → 回 dcutr_sync → 执行打洞
+    - 打洞成功后自动关闭 Relay 连接（后续通信完全直连）
+    - 所有超时/失败均静默降级，不抛异常到上层
+  - 新增 `connect_with_holepunch()` 函数 (~60 行)：对外公开 API
+    - 返回 `(websocket, is_direct: bool)`
+    - Level 1: 直连（3s timeout）→ Level 2: UDP 打洞（5s 信令 + 3s 探测）→ Level 3: Relay 永久中转
+  - 新增 3 种 ACP 控制消息类型：`dcutr_connect` / `dcutr_sync` / `dcutr_result`
+    - 在 Relay WebSocket 上传输，不影响业务消息
+  - **stdlib only**：`asyncio`, `socket`, `struct`, `os`, `time`, `uuid` — 无新增第三方依赖
+  - **向后兼容**：`acp://` 链接格式不变，NAT 穿透对上层完全透明
+  - 文档：新建 `docs/nat-traversal.md`（用户指南），更新 `spec/nat-traversal-v1.4.md`（完整规范）
+
 ### Fixed (commit `638f778` — 2026-03-23, scenario-C ring pipeline testing)
 
 - **BUG-007 part 2 (P1)** — `/message:send` with `peer_id` still routed to wrong peer
