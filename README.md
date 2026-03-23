@@ -246,9 +246,9 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Min dependencies** | Heavy SDK | **`pip install websockets`** |
 | **Identity** | OAuth tokens | **Ed25519 + did:acp: DID** |
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
-| **Agent identity proof** | ❌ (open issue #1672) | **✅ Ed25519 keypair (v0.8+)** |
+| **Agent identity proof** | ❌ (open issue #1672) | **✅ `did:acp:` self-sovereign DID (v1.3)** |
 
-> ACP solves problems A2A is still discussing in GitHub issues.
+> ACP ships solutions to problems A2A is still filing GitHub issues about.
 
 ### Numbers
 

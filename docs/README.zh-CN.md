@@ -254,8 +254,8 @@ HTTP 默认端口：`7901`（WS 端口：`7801`）
 | 需要改代码 | ✅ 是 | ✅ 是 | ❌ **否** |
 | 必要依赖 | 较多 | 较多 | **仅 `websockets`** |
 | Task 状态机 | — | ✅ | ✅ |
-| 调度元数据 | — | — | ✅ `availability`（v1.2，业界首创） |
-| DID 身份 | — | OAuth 2.0（强制） | ✅ `did:acp:`（可选） |
+| 调度元数据 | — | ❌（issue #1667 讨论中） | ✅ `availability`（v1.2，早于 A2A） |
+| Agent 身份验证 | — | ❌（issue #1672 讨论中） | ✅ `did:acp:` 去中心化 DID（v1.3）|
 | Docker 镜像 | — | — | ✅ GHCR CI（v1.3） |
 
 ---
