@@ -75,20 +75,91 @@ Agent B 收到链接后自动连接，两边同时显示：
 
 ---
 
-## 工作原理
+## 通信架构
+
+### 握手流程（人只参与前两步）
 
 ```
-Human ──[Skill URL]──► Agent A  ──────────────────────────────┐
-                        ↓ 启动服务                              │
-                        ↓ 返回 acp:// 链接                      │
-Human ──[acp:// link]──► Agent B                               │
-                          ↓ 连接 Agent A ◄─── P2P WebSocket ───┘
-                          ✅ 通信建立，Relay 退出
+  Human
+    │
+    ├─[① Skill URL]──────────────► Agent A
+    │                                  │  pip install websockets
+    │                                  │  python3 acp_relay.py --name A
+    │                                  │  → listens on :7801/:7901
+    │◄────────────[② acp://IP:7801/tok_xxx]─┘
+    │
+    ├─[③ acp://IP:7801/tok_xxx]──► Agent B
+    │                                  │  POST /connect {"link":"acp://..."}
+    │                                  │
+    │          ┌────────── WebSocket Handshake ──────────┐
+    │          │  B → A : connect(tok_xxx)               │
+    │          │  A → B : AgentCard exchange             │
+    │          │  A,B   : connected ✅                   │
+    │          └──────────────────────────────────────────┘
+    │
+   done                ↕ P2P messages flow directly
 ```
 
-- **Relay** 只参与握手打洞，不存储任何消息
-- **P2P WebSocket** 是数据通道，Agent 之间直连
-- **SSE (`/stream`)** 是 Agent 的本地消息监听接口，供宿主程序订阅
+---
+
+### P2P 直连模式（默认）
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                          P2P Direct                             │
+│                                                                 │
+│   ┌──────────────────┐          ┌──────────────────┐           │
+│   │     Agent A      │          │     Agent B      │           │
+│   │                  │          │                  │           │
+│   │  acp_relay.py    │          │  acp_relay.py    │           │
+│   │  :7801 (WS)      │◄────────►│  :7801 (WS)      │           │
+│   │  :7901 (HTTP)    │  P2P WS  │  :7901 (HTTP)    │           │
+│   │                  │ ======== │                  │           │
+│   │  POST /message   │  frames  │  GET  /stream    │           │
+│   │       :send      │─────────►│  (SSE push) ──►  │           │
+│   │                  │          │  host app        │           │
+│   └──────────────────┘          └──────────────────┘           │
+│        ▲ HTTP                         ▲ HTTP                   │
+│        │ localhost                    │ localhost               │
+│   [host app A]                   [host app B]                  │
+│                                                                 │
+│   link: acp://IP:7801/tok_xxx    No server. No broker.         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- **WebSocket (`:7801`)** — Agent 之间的专用数据通道，双向全双工
+- **HTTP (`:7901`)** — Agent 暴露给宿主程序的本地控制接口
+- **SSE (`/stream`)** — 宿主程序订阅收到的消息，实时推送，无需轮询
+- **无中间服务器** — 消息直达对端，不经过任何第三方节点
+
+---
+
+### 中继模式（网络受限时自动降级）
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│               Relay Fallback  (--relay flag)                    │
+│                                                                 │
+│   ┌──────────────┐    WSS     ┌─────────────┐    WSS           │
+│   │   Agent A    │◄──────────►│ Public      │◄──────────────►  │
+│   │  acp_relay   │            │ Relay       │         Agent B  │
+│   │  :7901 HTTP  │            │ (stateless) │         :7901    │
+│   └──────────────┘            └─────────────┘       HTTP       │
+│                                     │                           │
+│                               routes frames                     │
+│                               stores nothing                    │
+│                                                                 │
+│   link: acp+wss://relay.host/acp/tok_xxx                       │
+│                                                                 │
+│   操作步骤与 P2P 模式完全一致，链接格式不同而已                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+> Relay 是无状态的帧转发节点：不持久化任何消息，不存储会话，只转发 WebSocket 帧。
+
+---
+
+## 为什么选 ACP
 
 ---
 
