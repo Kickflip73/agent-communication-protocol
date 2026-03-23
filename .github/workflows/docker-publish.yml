@@ -96,20 +96,38 @@ jobs:
       - name: Pull and run acp-relay:latest
         run: |
           docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest
+          # WS port = 8000, HTTP interface port = WS + 100 = 8100
           docker run -d --name acp-smoke \
-            -p 8100:8100 \
+            -p 8000:8000 -p 8100:8100 \
             ghcr.io/${{ env.IMAGE_NAME }}:latest \
             --name SmokeTest --port 8000
-          sleep 5
+          # Wait for relay to start (retry up to 15s)
+          for i in $(seq 1 15); do
+            sleep 1
+            if curl -sf http://localhost:8100/.well-known/acp.json > /dev/null 2>&1; then
+              echo "Relay ready after ${i}s"
+              break
+            fi
+            echo "Waiting... (${i}s)"
+          done
+          docker logs acp-smoke || true
 
       - name: Check /.well-known/acp.json
         run: |
-          curl -sf http://localhost:8100/.well-known/acp.json | python3 -c "
+          CARD=$(curl -sf http://localhost:8100/.well-known/acp.json)
+          echo "Card response: $CARD"
+          echo "$CARD" | python3 -c "
           import sys, json
-          card = json.load(sys.stdin)
-          assert card.get('self', card).get('name', card.get('name')) == 'SmokeTest', f'Unexpected card: {card}'
-          assert 'acp_version' in card or 'self' in card, 'Missing acp_version or self'
-          print('✅ Smoke test PASS — card OK')
+          raw = sys.stdin.read().strip()
+          if not raw:
+              print('ERROR: empty response from /.well-known/acp.json')
+              sys.exit(1)
+          card = json.loads(raw)
+          # AgentCard: fields are under 'self' sub-object
+          info = card.get('self', card)
+          name = info.get('name', '')
+          assert name == 'SmokeTest', f'Unexpected name={name!r}, card={card}'
+          print(f'✅ Smoke test PASS — name={name}')
           "
 
       - name: Cleanup
