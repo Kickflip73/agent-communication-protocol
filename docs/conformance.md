@@ -274,9 +274,9 @@ Standard error codes: `ERR_INVALID_REQUEST` · `ERR_NOT_CONNECTED` · `ERR_INTER
 
 ## Known Limitations
 
-- **No SSE stream suite in compat runner yet** — `test_stream.py` is listed in
-  `tests/compat/README.md` but not yet implemented. SSE streaming is tested in
-  `tests/integration/` instead.
+- **SSE stream suite is basic** — `test_stream.py` uses raw socket reads with a 2-second
+  window; it cannot test long-lived event sequences or backpressure. Full SSE testing
+  is in `tests/integration/`.
 - **HMAC replay-window testing is timing-sensitive** — the `test_hmac.py` suite
   injects a past `ts` value; ensure your implementation rejects messages older
   than your configured `--hmac-window`.

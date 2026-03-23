@@ -22,16 +22,16 @@ python3 tests/compat/run.py -v
 
 ## What It Tests
 
-| Suite | Spec Section | Tests |
-|-------|-------------|-------|
-| `test_agentcard.py` | AgentCard (§3) | Required fields, capability declarations |
-| `test_message_send.py` | Message protocol (§4) | /message:send, message_id idempotency |
-| `test_tasks.py` | Task state machine (§5) | 5-state transitions, cancel, continue |
-| `test_stream.py` | SSE stream (§6) | /stream endpoint, event types |
-| `test_peers.py` | Multi-session (§7) | /peers, /peer/{id}/send |
-| `test_query_skills.py` | QuerySkill (§8) | /skills endpoint |
-| `test_error_codes.py` | Error codes (§9) | Standard error format, error_code field |
-| `test_hmac.py` | HMAC signing (§10, optional) | sig field validation (skipped if not declared) |
+| Suite | Spec Section | Status | Tests |
+|-------|-------------|--------|-------|
+| `test_agentcard.py` | AgentCard (§3) | ✅ | Required fields, capability declarations |
+| `test_message_send.py` | Message protocol (§4) | ✅ | /message:send, message_id idempotency |
+| `test_tasks.py` | Task state machine (§5) | ✅ | 5-state transitions, cancel, continue |
+| `test_stream.py` | SSE stream (§6) | ✅ | Content-Type, event: line, JSON data, known types, ?since= |
+| `test_peers.py` | Multi-session (§7) | ✅ | /peers, /peer/{id}/send |
+| `test_query_skills.py` | QuerySkill (§8) | ✅ | /skills endpoint |
+| `test_error_codes.py` | Error codes (§9) | ✅ | Standard error format, error_code field |
+| `test_hmac.py` | HMAC signing (§10, optional) | ✅ | sig field validation (skipped if not declared) |
 
 ## Compliance Levels
 

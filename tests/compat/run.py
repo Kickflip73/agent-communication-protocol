@@ -27,6 +27,7 @@ from test_error_codes import ErrorCodesSuite
 from test_peers import PeersSuite
 from test_query_skills import QuerySkillsSuite
 from test_hmac import HMACSigningSuite
+from test_stream import SSEStreamSuite
 
 
 VERSION = "0.1.0"
@@ -90,6 +91,7 @@ def main():
         ErrorCodesSuite(base_url, agent_card, verbose=args.verbose),
         PeersSuite(base_url, agent_card, verbose=args.verbose),
         QuerySkillsSuite(base_url, agent_card, verbose=args.verbose),
+        SSEStreamSuite(base_url, agent_card, verbose=args.verbose),
         HMACSigningSuite(base_url, agent_card, verbose=args.verbose, secret=args.secret),
     ]
 
