@@ -105,32 +105,54 @@ Agent B 收到链接后自动连接，两边同时显示：
 ### P2P 直连模式（默认）
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          P2P Direct                             │
-│                                                                 │
-│   ┌──────────────────┐          ┌──────────────────┐           │
-│   │     Agent A      │          │     Agent B      │           │
-│   │                  │          │                  │           │
-│   │  acp_relay.py    │          │  acp_relay.py    │           │
-│   │  :7801 (WS)      │◄────────►│  :7801 (WS)      │           │
-│   │  :7901 (HTTP)    │  P2P WS  │  :7901 (HTTP)    │           │
-│   │                  │ ======== │                  │           │
-│   │  POST /message   │  frames  │  GET  /stream    │           │
-│   │       :send      │─────────►│  (SSE push) ──►  │           │
-│   │                  │          │  host app        │           │
-│   └──────────────────┘          └──────────────────┘           │
-│        ▲ HTTP                         ▲ HTTP                   │
-│        │ localhost                    │ localhost               │
-│   [host app A]                   [host app B]                  │
-│                                                                 │
-│   link: acp://IP:7801/tok_xxx    No server. No broker.         │
-└─────────────────────────────────────────────────────────────────┘
+  Machine A                                          Machine B
+┌─────────────────────────────┐    ┌─────────────────────────────┐
+│                             │    │                             │
+│  ┌─────────────────────┐    │    │    ┌─────────────────────┐  │
+│  │    Host App A       │    │    │    │    Host App B       │  │
+│  │  (LLM / Script)     │    │    │    │  (LLM / Script)     │  │
+│  └──────────┬──────────┘    │    │    └──────────┬──────────┘  │
+│             │ HTTP          │    │               │ HTTP         │
+│             │ localhost     │    │               │ localhost    │
+│  ┌──────────▼──────────┐    │    │    ┌──────────▼──────────┐  │
+│  │   acp_relay.py      │    │    │    │   acp_relay.py      │  │
+│  │                     │    │    │    │                     │  │
+│  │  :7901  HTTP API ◄──┼────┼────┼────┼──── POST /message   │  │
+│  │         │           │    │    │    │          :send      │  │
+│  │         │ SSE push  │    │    │    │                     │  │
+│  │         ▼           │    │    │    │  GET /stream (SSE)  │  │
+│  │  GET /stream ───────┼────┼────┼────┼──────────────────►  │  │
+│  │  (real-time push    │    │    │    │  host app receives  │  │
+│  │   to host app)      │    │    │    │  messages instantly │  │
+│  │                     │    │    │    │                     │  │
+│  │  :7801  WebSocket ◄─┼────┼────┼────┼──────────────────── │  │
+│  └──────────────────── │    │    │    └────────────────────►│  │
+│                        │    │    │                          │  │
+│            WebSocket   │    │    │   WebSocket              │  │
+│            P2P Direct  │◄═══╪════╪═══►Direct               │  │
+│            (no broker) │    │    │   (no broker)            │  │
+└────────────────────────┘    │    └──────────────────────────┘  │
+                              │                                   │
+                         Internet / LAN
+                      (no relay server involved)
 ```
 
-- **WebSocket (`:7801`)** — Agent 之间的专用数据通道，双向全双工
-- **HTTP (`:7901`)** — Agent 暴露给宿主程序的本地控制接口
-- **SSE (`/stream`)** — 宿主程序订阅收到的消息，实时推送，无需轮询
-- **无中间服务器** — 消息直达对端，不经过任何第三方节点
+| 通道 | 端口 | 方向 | 用途 |
+|------|------|------|------|
+| **WebSocket** | `:7801` | Agent ↔ Agent | P2P 数据通道，消息直达对端，无中间节点 |
+| **HTTP API** | `:7901` | Host App → Agent | 发消息 (`POST /message:send`)、查状态、管理任务 |
+| **SSE** | `:7901/stream` | Agent → Host App | 实时推送收到的消息，长连接，无需轮询 |
+
+**宿主程序接入示例（3 行代码）：**
+
+```python
+# 发消息给对端 Agent
+requests.post("http://localhost:7901/message:send", json={"text": "Hello"})
+
+# 实时监听收到的消息（SSE 长连接，消息即达即收）
+for event in sseclient.SSEClient("http://localhost:7901/stream"):
+    print(event.data)   # {"type":"message","text":"Hi back","from":"AgentB"}
+```
 
 ---
 
