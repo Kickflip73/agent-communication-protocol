@@ -1251,12 +1251,64 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
             log.info(f"Relay fallback: marked peer '{_pid2}' as disconnected (P2P lost)")
     _status["peer_count"] = 0
 
-    # ── 自动降级：P2P 失败 → 优先用内嵌 relay，否则新建 session ────────
+    # ── Level 2: DCUtR UDP hole punch (v1.4) ─────────────────────────────────
+    # Before falling back to relay-as-transport, attempt UDP hole punching.
+    # We establish a *signaling-only* relay WS, exchange addresses, punch holes,
+    # then connect directly via the punched address. If punching fails (symmetric
+    # NAT, CGNAT, ~25% of cases), we fall through to Level 3 relay as normal.
     DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
-    log.warning(f"P2P unreachable after {P2P_MAX_RETRIES} retries. Auto-fallback to relay.")
+    _dcutr_direct_addr = None
+
     print(f"\n{'='*55}")
-    print(f"⚠️  P2P direct connect failed (network restricted)")
-    print(f"   Auto-fallback to relay...")
+    print(f"⚡ P2P direct connect failed. Trying NAT hole punch (Level 2)...")
+    print(f"{'='*55}\n")
+    log.info("[v1.4] Attempting DCUtR hole punch before relay fallback")
+
+    try:
+        relay_ws_url = DEFAULT_RELAY.replace("https://", "wss://") + f"/acp/{token}/ws"
+        async with await asyncio.wait_for(
+            _proxy_ws_connect(relay_ws_url, open_timeout=5),
+            timeout=6.0,
+        ) as _sig_ws:
+            log.info(f"[DCUtR] signaling channel established via relay: {relay_ws_url}")
+            _status["dcutr_state"] = "punching"
+            _broadcast_sse_event("peer", {"event": "dcutr_started"})
+            puncher = DCUtRPuncher()
+            _dcutr_direct_addr = await asyncio.wait_for(
+                puncher.attempt(_sig_ws, local_udp_port=0),
+                timeout=12.0,
+            )
+    except asyncio.TimeoutError:
+        log.debug("[DCUtR] hole punch timed out (12s) — falling through to relay")
+    except Exception as e:
+        log.debug(f"[DCUtR] hole punch error ({type(e).__name__}): {e} — falling through to relay")
+    finally:
+        _status.pop("dcutr_state", None)
+
+    if _dcutr_direct_addr is not None:
+        # ── Hole punch succeeded: connect directly ────────────────────────────
+        direct_host, direct_port = _dcutr_direct_addr
+        direct_uri = f"ws://{direct_host}:{direct_port}/{token}"
+        log.info(f"[DCUtR] hole punch succeeded → direct connect: {direct_uri}")
+        print(f"\n{'='*55}")
+        print(f"✅ NAT hole punch SUCCESS — direct P2P connection established!")
+        print(f"   Peer: {direct_host}:{direct_port} (punched)")
+        print(f"{'='*55}\n")
+        _status["connection_type"] = "dcutr_direct"
+        _broadcast_sse_event("peer", {"event": "dcutr_connected",
+                                       "peer_addr": f"{direct_host}:{direct_port}"})
+        # Re-enter guest mode with the punched address (Level 1 will succeed this time)
+        await guest_mode(direct_host, direct_port, token, http_port)
+        return
+
+    # ── Level 3: Relay fallback ───────────────────────────────────────────────
+    log.warning(f"[v1.4] DCUtR hole punch failed. Falling back to relay (Level 3).")
+    log.warning(f"P2P unreachable after {P2P_MAX_RETRIES} retries. Auto-fallback to relay.")
+    _status["connection_type"] = "relay"
+    _broadcast_sse_event("peer", {"event": "relay_fallback",
+                                   "reason": "dcutr_failed"})
+    print(f"\n{'='*55}")
+    print(f"⚠️  NAT hole punch failed. Auto-fallback to relay (Level 3)...")
     print(f"{'='*55}\n")
 
     import subprocess as _sp
