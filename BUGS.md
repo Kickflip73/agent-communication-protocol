@@ -103,7 +103,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-007 🟡 P1 — `/message:send` ambiguous in multi-peer mode
 
 **发现时间**: 2026-03-23 场景B测试
-**状态**: ✅ 已修复 (commit 3a1c499)
+**状态**: ✅ 已修复 (commit `3a1c499` + `638f778`)
 
 **现象**: Orchestrator 连接了 Worker1 (peer_001) 和 Worker2 (peer_002) 两个 peer。
 调用 `/message:send` 时，消息只发给 `_peer_ws`（模块级变量），
@@ -113,11 +113,11 @@ P2: BUG-006 task_id 语义讨论
 
 **影响范围**: 任何连接 ≥2 个 peer 的 Orchestrator/Coordinator Agent
 
-**期望行为**:
-- `/message:send` 在多 peer 时应返回 `ERR_AMBIGUOUS_PEER` (400)，引导用户用 `/peer/{id}/send`
-- 或者：`/message:send` 接受可选 `peer_id` 字段
-
-**修复方向**: 在 `/message:send` handler 里，若 `len(_peers) > 1` 且 body 无 `peer_id`，返回 400 错误码 `ERR_AMBIGUOUS_PEER`
+**修复（两阶段）**:
+- **Part 1** (`3a1c499`): 无 `peer_id` 时返回 `ERR_AMBIGUOUS_PEER` (400) + `connected_peers` 列表
+- **Part 2** (`638f778`): 当 `peer_id` 提供时真正路由到目标 peer；
+  `_ws_send(msg, peer_id=None)` 查找 `_peers[peer_id]["ws"]` 定向发送，
+  更新 per-peer `messages_sent` 计数器。场景C验证：8/8 ✅
 
 ---
 
@@ -174,3 +174,27 @@ P2: BUG-006 task_id 语义讨论
 4. 同步修复 `/tasks/{id}:subscribe` handler
 
 **预期修复效果**: SSE 延迟 < 10ms（实测，基于 threading.Event 响应时间）
+
+---
+
+## Round 3 — Scenario C: Ring Pipeline (2026-03-23, 13:20)
+
+### 场景C测试结果总结
+
+**场景**: 3-Agent 环形流水线 A → B → C → A
+
+**通过 ✅** (8/8):
+- Ring 拓扑建立（A→B主动连, B→C主动连, C→A主动连）
+- BUG-007 part2 发现与修复：`/message:send` 的 `peer_id` 路由实际生效
+- A→B 定向发送（peer_id 字段）
+- B 正确接收 A 的消息（B.recv=1）
+- B→C 转发（B 的 peer_id 路由）
+- C 正确接收 B 的消息（C.recv=1）
+- C→A 回传结果
+- A 接收最终结果（pipeline 完整闭环）
+- Task `pipeline_001` 状态机 submitted→working→completed
+- 每跳 sent/recv 统计精确（A:2/1, B:1/1, C:1/1）
+
+**遗留未测**: SSE 延迟（BUG-009, 已记录，待下次修复轮处理）
+
+**下次轮转**: 文档轮 → 修复轮（修 BUG-009 SSE 延迟）

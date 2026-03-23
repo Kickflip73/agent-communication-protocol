@@ -135,6 +135,11 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ### 🔧 v1.1 Backlog（持续迭代）
 
+- ✅ **场景测试里程碑（2026-03-23）——真实多 Agent 通信验证**
+  - 场景A（2026-03-22）：双 Agent P2P 通信，发现并修复 BUG-001~006 (commit `643450c`)
+  - 场景B（2026-03-23）：Orchestrator→Worker1+Worker2，发现 BUG-007/008，修复后 5/5 ✅
+  - 场景C（2026-03-23）：A→B→C→A 环形流水线，8/8 全绿 ✅（同步修复 BUG-007 part2, commit `638f778`）
+  - 遗留：BUG-009 SSE 延迟 ~950ms（P1，threading.Event 方案已设计，待下个修复轮）
 - ✅ `failed_message_id` 覆盖所有 /message:send 错误码（commit `e281790`，2026-03-21）
   - 灵感：ANP commit 99806f45（failed_msg_id in e2ee_error）
   - 覆盖：ERR_INVALID_REQUEST × 4 + ERR_NOT_CONNECTED + ERR_INTERNAL
