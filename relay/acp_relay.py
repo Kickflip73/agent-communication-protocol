@@ -2225,12 +2225,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
         self._json({"ok": True, "availability": live_card.get("availability", {})})
 
 
-def run_http(port):
+def run_http(port, host="127.0.0.1"):
     # BUG-001 root-cause fix (2026-03-23): use ThreadingHTTPServer so that
     # /stream (blocking SSE loop) does not prevent /message:send from being served.
     # The original HTTPServer was single-threaded; any open /stream connection
     # would block ALL subsequent HTTP requests, making SSE effectively useless.
-    ThreadingHTTPServer(("127.0.0.1", port), LocalHTTP).serve_forever()
+    # host defaults to 127.0.0.1 (local-only); pass "0.0.0.0" for Docker/container use.
+    ThreadingHTTPServer((host, port), LocalHTTP).serve_forever()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2441,6 +2442,9 @@ Examples:
                              "Format: URI  or  URI,required=true,param_key=param_val. "
                              "Example: --extension https://acp.dev/ext/availability/v1,required=false "
                              "         --extension https://corp.example.com/ext/billing,tier=pro")
+    parser.add_argument("--http-host", default="127.0.0.1", metavar="HOST",
+                        help="Host/IP the HTTP interface binds to (default: 127.0.0.1). "
+                             "Use 0.0.0.0 for Docker/container deployments so port mapping works.")
 
     args = parser.parse_args()
 
@@ -2571,8 +2575,9 @@ Examples:
     _inbox_path = args.inbox or f"/tmp/acp_inbox_{args.name.replace(' ', '_')}.jsonl"
     log.info(f"Message persistence: {_inbox_path}")
 
-    threading.Thread(target=run_http, args=(http_port,), daemon=True).start()
-    log.info(f"HTTP interface: http://127.0.0.1:{http_port}")
+    http_host = getattr(args, "http_host", "127.0.0.1")
+    threading.Thread(target=run_http, args=(http_port, http_host), daemon=True).start()
+    log.info(f"HTTP interface: http://{http_host}:{http_port}")
 
     # ── mDNS LAN discovery (v0.7) ─────────────────────────────────────────────
     if args.advertise_mdns:

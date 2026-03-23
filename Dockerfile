@@ -68,6 +68,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8100/.well-known/acp.json', timeout=4)" || exit 1
 
 # Default: listen on all interfaces inside the container
-# Pass any acp_relay.py flags after the image name
+# --http-host 0.0.0.0 is required so Docker port mapping (-p 8100:8100) works;
+# the HTTP server must bind 0.0.0.0 inside the container, not 127.0.0.1.
+# Pass any acp_relay.py flags after the image name to override defaults.
 ENTRYPOINT ["python3", "/app/acp_relay.py"]
-CMD ["--name", "ACP-Agent", "--port", "8000"]
+CMD ["--name", "ACP-Agent", "--port", "8000", "--http-host", "0.0.0.0"]
