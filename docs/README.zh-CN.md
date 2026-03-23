@@ -1,290 +1,172 @@
-# ACP — Agent 通信协议
+<div align="center">
 
-<p align="center">
-  <img src="https://img.shields.io/badge/版本-v1.3-blue" alt="Version">
-  <img src="https://img.shields.io/badge/许可证-Apache_2.0-green" alt="License">
-  <img src="https://img.shields.io/badge/依赖-websockets-orange" alt="Dependency">
-  <img src="https://img.shields.io/badge/Python-3.9%2B-blue" alt="Python">
-  <img src="https://img.shields.io/badge/docker-GHCR-2496ED?logo=docker&logoColor=white" alt="Docker GHCR">
+<h1>ACP — Agent Communication Protocol</h1>
+
+<p>
+  <strong>让任意两个 AI Agent 直接通信。人只需做两件事。</strong>
 </p>
 
-**ACP（Agent Communication Protocol）是一个零服务器、零代码修改的 P2P Agent 通信协议。** 人只需完成 2 步操作，任意两个 AI Agent 即可建立直接加密通信通道。
+<p>
+  <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
+    <img src="https://img.shields.io/badge/版本-v1.3.0-blue?style=flat-square" alt="Version">
+  </a>
+  <a href="../LICENSE">
+    <img src="https://img.shields.io/badge/协议-Apache_2.0-green?style=flat-square" alt="License">
+  </a>
+  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square">
+  <img src="https://img.shields.io/badge/依赖-仅_websockets-orange?style=flat-square">
+</p>
+
+<p>
+  <a href="../README.md">English</a> ·
+  <strong>简体中文</strong>
+</p>
+
+</div>
 
 ---
 
-## 目录
+## 两步完成 Agent 互联
 
-- [为什么选择 ACP](#为什么选择-acp)
-- [工作原理](#工作原理)
-- [快速上手（2分钟）](#快速上手2分钟)
-- [接口文档](#接口文档)
-- [v0.6-dev 新特性](#v02-新特性)
-- [路线图](#路线图)
-- [与同类协议对比](#与同类协议对比)
-- [贡献指南](#贡献指南)
-- [许可证](#许可证)
+```
+第一步 → 把 Skill URL 发给 Agent A，它会返回一个 acp:// 链接
+第二步 → 把这个链接发给 Agent B
+         两个 Agent 自动建立直连，开始通信
+```
+
+**人只做两件事：传 URL、传链接。其余全自动。**
 
 ---
 
-## 为什么选择 ACP
+## 快速开始
 
-现有 Agent 通信方案存在三大痛点：
+### 第一步 — 把 Skill URL 发给 Agent A
 
-| 问题 | 传统方案 | ACP |
-|------|---------|-----|
-| 需要中间服务器 | ✗ 必须部署 relay/broker | ✅ 纯 P2P 直连 |
-| 需要修改代码 | ✗ 集成 SDK，侵入框架 | ✅ Skill 驱动，零代码变更 |
-| 配置繁琐 | ✗ 注册、配置、维护 | ✅ 一条链接，即用即连 |
+```
+https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/SKILL.md
+```
 
-**核心理念：** 人只是信使——把一个 Skill 地址传给 Agent A，把 Agent A 返回的链接传给 Agent B，剩下的全部自动完成。
+Agent A 会自动完成：下载脚本 → 安装依赖 → 启动服务 → 返回链接
+
+```
+✅ Ready. Your link: acp://1.2.3.4:7801/tok_xxxxx
+```
+
+### 第二步 — 把链接发给 Agent B
+
+把上面的 `acp://...` 链接发给 Agent B（同样先发 Skill URL 启动它）。
+
+Agent B 收到链接后自动连接，两边同时显示：
+
+```
+✅ Connected to AgentA
+```
+
+**完成。** 两个 Agent 现在可以互发消息了。
+
+---
+
+## 网络受限（沙箱 / K8s / 内网）？
+
+如果 `acp://` 直连失败，让 Agent 加 `--relay` 参数重启，得到 `acp+wss://` 链接走公共中继。操作步骤完全一样，只是链接格式不同。
 
 ---
 
 ## 工作原理
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  人类操作（仅 2 步）                                         │
-│                                                              │
-│  Step 1: 把 Skill URL 发给 Agent A                          │
-│  Step 2: 把 Agent A 返回的 acp:// 链接发给 Agent B          │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Agent 自动完成                                              │
-│                                                              │
-│  Agent A                          Agent B                   │
-│  ┌─────────────────┐              ┌─────────────────┐       │
-│  │ 1. pip install  │              │ 1. pip install  │       │
-│  │ 2. 下载脚本     │  WebSocket   │ 2. 下载脚本     │       │
-│  │ 3. 监听端口     │◄────────────►│ 3. 解析链接     │       │
-│  │ 4. 返回链接     │   直连，无   │ 4. 直接连接     │       │
-│  │                 │  中间服务器  │                 │       │
-│  │ HTTP :7901      │              │ HTTP :7920      │       │
-│  └─────────────────┘              └─────────────────┘       │
-│        ↑                                  ↑                 │
-│   POST /send                         POST /send             │
-│   GET  /recv                         GET  /recv             │
-└─────────────────────────────────────────────────────────────┘
-
-链接格式: acp://<host>:<port>/<token>
+人 ──[Skill URL]──► Agent A  ─────────────────────────────┐
+                     ↓ 启动服务                              │
+                     ↓ 返回 acp:// 链接                      │
+人 ──[acp:// 链接]──► Agent B                               │
+                       ↓ 连接 Agent A ◄─── P2P WebSocket ───┘
+                       ✅ 通信建立，Relay 退出
 ```
+
+- **Relay** 只参与握手打洞，不存储任何消息
+- **P2P WebSocket** 是数据通道，Agent 之间直连
+- **SSE (`/stream`)** 是 Agent 的本地消息监听接口，供宿主程序订阅
 
 ---
 
-## 快速上手（2分钟）
+## 为什么选 ACP
 
-人只需做 **2 件事**，Agent 负责其余所有操作。
+| 问题 | 其他方案 | ACP |
+|------|---------|-----|
+| 需要服务器 | ✅ 是 | ❌ **不需要** |
+| 需要改代码 | ✅ 是 | ❌ **不需要** |
+| 配置成本 | 注册 / 部署 / 配置 | **一个链接** |
+| 框架依赖 | 绑定特定框架 | **任意 Agent、任意语言** |
+| 依赖数量 | 重量级 SDK | **只需 `websockets`** |
 
-### 第 1 步 — 把 Skill 地址发给 Agent A
-
-```
-https://raw.githubusercontent.com/Kickflip73/agent-communication-protocol/main/relay/SKILL.md
-```
-
-Agent A 读取 Skill，自动安装依赖、启动 P2P 服务，然后返回一条链接：
-
-```
-✅ ACP P2P 通信服务已启动。
-你的链接：acp://1.2.3.4:7801/tok_abc123def456
-请将此链接转发给 Agent B。
-```
-
-### 第 2 步 — 把链接发给 Agent B
-
-```
-acp://1.2.3.4:7801/tok_abc123def456
-```
-
-Agent B 读取同一份 Skill，检测到 `acp://` 链接，直接连接 Agent A，并确认：
-
-```
-✅ P2P 连接成功（无中间服务器）。
-已连接至：Agent-A  |  能力：summarize, code-review
-发消息接口：POST http://localhost:7920/send
-```
-
-完成。两个 Agent 已建立直接通信通道。
-
-> **对 Agent 而言：** 完整执行指令在上方 Skill 地址中。Agent 应先读取该文件——其中包含发起方流程、接收方流程、所有 API 端点及回复格式规范。
+> MCP 标准化了 Agent↔Tool，ACP 标准化 Agent↔Agent。
 
 ---
 
-## 通信模式
+## API 速查
 
-ACP v0.6-dev 支持四种通信模式，参考 [Google A2A v1.0](https://a2a-protocol.org) 设计：
-
-### 模式一：同步（请求/响应）
-
-发送消息并**阻塞等待对方回复**（或超时）：
-
-```
-POST /send  {"type":"query","content":"...","sync":true,"timeout":30}
-            ── 阻塞 ──► 对方调用 POST /reply {"correlation_id":"<id>","content":"..."}
-            ◄── 立即返回回复内容
-```
-
-### 模式二：异步（Task 生命周期）
-
-创建任务、委托给对方、轮询或推送获取结果：
-
-```
-POST /tasks/create  {"payload":{...},"delegate":true}
-  → 状态: submitted
-    → 对方更新: working
-    → 对方更新: completed + artifact
-GET  /tasks/<id>    ← 随时轮询状态
-DELETE /tasks/<id>  ← 取消任务
-```
-
-状态流转：`submitted` → `working` → `completed` | `failed` | `cancelled`
-
-### 模式三：流式（SSE 实时推送）
-
-订阅一次，持续接收所有事件：
-
-```
-GET /stream
-  ← data: {"event":"peer.connected"}
-  ← data: {"event":"message.received","message":{...}}
-  ← data: {"event":"task.updated","task_id":"...","status":"working"}
-```
-
-### 模式四：Push（Webhook 回调）
-
-注册回调 URL，守护进程自动 POST 所有事件：
-
-```
-POST /webhooks/register  {"url":"https://your-host/hook"}
-  ← 守护进程在后台将每个事件 POST 到你的 URL
-```
-
----
-
-## 接口文档
-
-> 发起方 HTTP `7901`（WS `7801`）；接收方 HTTP `7920`（WS `7820`）。
-> 规则：**HTTP 端口 = WS 端口 + 100**
-
-| 方法 | 路径 | 模式 | 描述 |
-|------|------|------|------|
-| `POST` | `/send` | 同步/异步 | 发消息。加 `"sync":true` 阻塞等待回复 |
-| `POST` | `/reply` | 同步 | 通过 `correlation_id` 回复消息 |
-| `GET`  | `/recv` | 异步 | 消费队列消息（`?limit=N`） |
-| `GET`  | `/wait/<id>` | 同步 | 阻塞等待关联回复（`?timeout=30`） |
-| `POST` | `/tasks/create` | 异步 | 创建任务（`"delegate":true` 发给对方） |
-| `GET`  | `/tasks` | 异步 | 列出任务（`?status=working`） |
-| `GET`  | `/tasks/<id>` | 异步 | 获取任务状态 + artifacts |
-| `POST` | `/tasks/<id>/update` | 异步 | 更新状态 / 添加 artifact |
-| `DELETE` | `/tasks/<id>` | 异步 | 取消任务 |
-| `GET`  | `/stream` | 流式 | SSE 实时事件流 |
-| `POST` | `/webhooks/register` | Push | 注册 Webhook URL |
-| `POST` | `/webhooks/deregister` | Push | 取消 Webhook |
-| `GET`  | `/status` | — | 连接状态、统计信息、版本 |
-| `GET`  | `/link` | — | 本端 `acp://` 链接 |
-| `GET`  | `/card` | — | 双端 AgentCard |
-| `GET`  | `/history` | — | 消息持久化历史（`?limit=N`） |
-
-### 消息格式
-
-`id`、`ts`、`from` 未指定时自动填充。
-
-```json
-{
-  "id":      "msg_abc123def456",
-  "ts":      "2026-03-18T12:00:00Z",
-  "from":    "Agent-A",
-  "type":    "task.delegate",
-  "content": "消息内容"
-}
-```
-
----
-
-## v1.3 新特性
-
-- **Extension 机制** — URI 标识的 AgentCard 扩展，支持运行时注册/注销；向 A2A 扩展模型对齐
-- **`did:acp:` DID 身份** — 基于 Ed25519 公钥派生的自主权标识符；`/.well-known/did.json` W3C 兼容文档
-- **Docker GHCR CI** — `ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest`，支持 linux/amd64 + linux/arm64
-- **兼容性认证指南** — 三级认证体系（Core/Recommended/Full），含自认证 badge 方案，见 [`docs/conformance.md`](conformance.md)
-
-```bash
-# 一行拉取最新镜像
-docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest
-
-# 带 DID 身份 + Extension 运行（需 :full 变体）
-docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:full
-docker run --rm -p 8000:8000 -p 8100:8100 \
-  -v acp-identity:/root/.acp \
-  ghcr.io/kickflip73/agent-communication-protocol/acp-relay:full \
-  --name MyAgent --identity
-```
-
----
-
-## 路线图
-
-| 版本 | 状态 | 亮点 |
+| 功能 | 方法 | 路径 |
 |------|------|------|
-| **v1.0** | ✅ GA | Task 状态机、消息幂等性、QuerySkill、P2P 直连 |
-| **v1.1** | ✅ | HMAC 重放防护（replay-window）、`failed_message_id` 覆盖 |
-| **v1.2** | ✅ | AgentCard 调度元数据（availability 块）、PATCH 实时更新 API、Docker 官方镜像 |
-| **v1.3** | ✅ | Rust SDK、DID 身份（`did:acp:`）、Extension 机制、Docker GHCR CI、兼容性认证指南 |
+| 获取本机链接 | GET | `/link` |
+| 主动连接对方 | POST | `/connect` `{"link":"acp://..."}` |
+| 发消息 | POST | `/message:send` `{"text":"..."}` |
+| 实时收消息 | GET | `/stream` (SSE) |
+| 查状态 | GET | `/status` |
+| 查已连接 Peer | GET | `/peers` |
+| AgentCard | GET | `/.well-known/acp.json` |
+
+HTTP 默认端口：`7901`（WS 端口：`7801`）
 
 ---
 
-## 与同类协议对比
+## 可选特性
 
-| 维度 | MCP | A2A (Google) | ACP (IBM) | **ACP (本项目)** |
-|------|-----|-------------|-----------|------------------|
-| 定位 | Agent ↔ 工具 | Agent ↔ Agent（企业级）| Agent ↔ Agent（REST）| Agent ↔ Agent（P2P）|
-| 传输层 | stdio / HTTP+SSE | HTTP+SSE / JSON-RPC | REST HTTP | WebSocket（直连）|
-| 需要服务器 | ✗ | ✅ 需要 | ✅ 需要 | **无需** |
-| 需要修改代码 | ✅ 需要 | ✅ 需要 | ✅ 需要 | **零修改** |
-| 能力声明 | ✅ | ✅ AgentCard | - | ✅ AgentCard |
-| 断线重连 | - | - | - | ✅ |
-| 消息持久化 | - | - | - | ✅ |
-| 调度元数据 | - | - | - | ✅ `availability`（v1.2） |
-| DID 身份 | - | - | - | ✅ `did:acp:`（v1.3） |
-| 扩展机制 | - | ✅（企业级） | - | ✅ URI 扩展（v1.3） |
-| Docker 镜像 | - | - | - | ✅ GHCR（v1.3） |
-| 兼容性认证 | - | ✅ | - | ✅ 三级自认证（v1.3） |
-
-> MCP、A2A、IBM ACP 各有其设计目标，本项目聚焦「极简 P2P 直连」场景。
+| 特性 | 参数 | 说明 |
+|------|------|------|
+| 公共中继（网络受限时） | `--relay` | `acp+wss://` 格式链接 |
+| HMAC 消息签名 | `--secret <key>` | 两端共享密钥，无需额外依赖 |
+| Ed25519 身份 | `--identity` | 需 `pip install cryptography` |
+| mDNS 局域网发现 | `--advertise-mdns` | 无需 zeroconf 库 |
+| Docker | `docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay` | 多架构 |
 
 ---
 
-## 仓库结构
+## 协议对比
 
-```
-agent-communication-protocol/
-├── relay/
-│   ├── acp_relay.py     ← 核心：P2P 守护进程（~400行，单依赖）
-│   └── SKILL.md         ← Agent 自动执行手册（直接发给任意 Agent）
-├── spec/
-│   ├── core-v0.1.md     ← 核心协议规范（英文）
-│   ├── core-v0.1.zh.md  ← 核心协议规范（中文）
-│   ├── transports.md    ← 传输层绑定
-│   └── identity.md      ← 身份认证规范
-├── docs/
-│   └── README.zh-CN.md  ← 本文档
-├── research/
-│   └── *.md             ← 竞品研究报告
-└── examples/            ← 示例代码
-```
+| 维度 | MCP (Anthropic) | A2A (Google) | **ACP（本项目）** |
+|------|----------------|-------------|-----------------|
+| 定位 | Agent ↔ Tool | Agent ↔ Agent（企业级） | Agent ↔ Agent（**P2P 个人/小团队**） |
+| 需要服务器 | — | ✅ 是 | ❌ **否** |
+| 需要改代码 | ✅ 是 | ✅ 是 | ❌ **否** |
+| 必要依赖 | 较多 | 较多 | **仅 `websockets`** |
+| Task 状态机 | — | ✅ | ✅ |
+| 调度元数据 | — | — | ✅ `availability`（v1.2，业界首创） |
+| DID 身份 | — | OAuth 2.0（强制） | ✅ `did:acp:`（可选） |
+| Docker 镜像 | — | — | ✅ GHCR CI（v1.3） |
 
 ---
 
-## 贡献指南
+## 版本历史
 
-欢迎提交 Issue 和 PR！详见 [CONTRIBUTING.md](../CONTRIBUTING.zh.md)。
-
-- 报告 Bug / 提议功能 → [GitHub Issues](https://github.com/Kickflip73/agent-communication-protocol/issues)
-- 讨论协议设计 → [GitHub Discussions](https://github.com/Kickflip73/agent-communication-protocol/discussions)
+| 版本 | 状态 | 重点 |
+|------|------|------|
+| v0.1–v0.5 | ✅ | P2P 核心、Task 状态机、消息幂等 |
+| v0.6 | ✅ | 多 Peer 注册、标准错误码 |
+| v0.7 | ✅ | HMAC 签名、mDNS 发现 |
+| v0.8–v0.9 | ✅ | Ed25519 身份、Node.js SDK、compat 测试套件 |
+| v1.0 | ✅ | 生产稳定、安全审计、Go SDK |
+| v1.1 | ✅ | HMAC replay-window、`failed_message_id` |
+| v1.2 | ✅ | 调度元数据 (`availability`)、Docker 镜像 |
+| v1.3 | ✅ | Rust SDK、DID 身份、Extension 机制、GHCR CI |
 
 ---
 
-## 许可证
+## License
 
 [Apache License 2.0](../LICENSE)
+
+---
+
+<div align="center">
+<sub>MCP 标准化 Agent↔Tool，ACP 标准化 Agent↔Agent。P2P · 零服务器 · curl 可接入。</sub>
+</div>
