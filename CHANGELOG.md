@@ -8,6 +8,18 @@ Dates: Asia/Shanghai (UTC+8)
 ---
 
 ## [1.3.0-dev] — 2026-03-22/23
+### Added (v1.4-dev)
+- **Three-level connection strategy fully integrated** in `guest_mode`:
+  - Level 1: Direct WebSocket (unchanged)
+  - Level 2: DCUtR UDP hole punch via relay signaling (**NEW** — wired into main connect flow)
+    - Signaling-only relay WS for address exchange
+    - STUNClient public address discovery
+    - Simultaneous UDP probes via DCUtRPuncher
+    - SSE events: `dcutr_started`, `dcutr_connected`, `relay_fallback`
+    - `status.connection_type`: `p2p_direct` | `dcutr_direct` | `relay`
+  - Level 3: Relay permanent fallback (unchanged)
+- **tests/test_three_level_connection.py**: 20/20 PASS
+
 ### Added (v1.1)
 - **`GET /tasks` pagination** — keyset cursor pagination, state/peer_id filter, sort order
   - New params: `limit` (max 200), `cursor` (exclusive keyset), `state`, `peer_id`, `sort`
