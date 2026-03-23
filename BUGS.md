@@ -95,3 +95,54 @@ P2: BUG-006 task_id 语义讨论
 
 **修复 commit**: `643450c` (2026-03-23)
 **验证方式**: AlphaAgent(7910) ↔ BetaAgent(7920) 真实 P2P 通信测试
+
+---
+
+## Round 2 — Scenario B: Team Collaboration (2026-03-23, 13:00)
+
+### BUG-007 🟡 P1 — `/message:send` ambiguous in multi-peer mode
+
+**发现时间**: 2026-03-23 场景B测试
+**状态**: 🔴 待修复
+
+**现象**: Orchestrator 连接了 Worker1 (peer_001) 和 Worker2 (peer_002) 两个 peer。
+调用 `/message:send` 时，消息只发给 `_peer_ws`（模块级变量），
+而 `_peer_ws` 始终被最后建立 WS 连接的 peer 覆盖。
+结果：无论意图如何，`/message:send` 只能发给 peer_002 (Worker2)。
+多 peer 场景下正确做法应用 `/peer/{id}/send` 定向发送。
+
+**影响范围**: 任何连接 ≥2 个 peer 的 Orchestrator/Coordinator Agent
+
+**期望行为**:
+- `/message:send` 在多 peer 时应返回 `ERR_AMBIGUOUS_PEER` (400)，引导用户用 `/peer/{id}/send`
+- 或者：`/message:send` 接受可选 `peer_id` 字段
+
+**修复方向**: 在 `/message:send` handler 里，若 `len(_peers) > 1` 且 body 无 `peer_id`，返回 400 错误码 `ERR_AMBIGUOUS_PEER`
+
+---
+
+### BUG-008 🟢 P2 — Task 更新 API 端点命名不一致
+
+**发现时间**: 2026-03-23 场景B测试
+**状态**: 🔴 待修复
+
+**现象**: 
+- `:cancel` 使用冒号分隔：`POST /tasks/{id}:cancel` ✅
+- `/update` 使用斜杠分隔：`POST /tasks/{id}/update`
+- `/subscribe` 使用斜杠分隔：`GET /tasks/{id}/subscribe`
+
+**期望行为**: 所有 task 动词端点统一用冒号风格（A2A/Google API 规范）：
+- `POST /tasks/{id}:update`
+- `GET /tasks/{id}:subscribe`
+
+**修复方向**: 在 path router 里同时支持两种格式（向后兼容），并在 spec 里统一规范
+
+---
+
+### 场景B测试结果总结
+
+**通过 ✅**: 3-agent 拓扑连接、定向发送 (`/peer/{id}/send`)、Task 创建/状态机、AgentCard（需用 `.self` 字段）、入站消息 SSE 推送（经验证可用）
+
+**问题 ❌**: 2 个新 bug (BUG-007, BUG-008)；测试脚本 API 调用错误（role 用 `orchestrator` 而非 `agent`；task update 用 `:update` 而非 `/update`）
+
+**下次轮转**: 修复轮 — 修 BUG-007 (P1)
