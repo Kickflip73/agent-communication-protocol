@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v1.3.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v1.4.0--dev-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-19%2F19_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-20%2F20_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -97,9 +97,23 @@ docker run -p 7801:7801 -p 7901:7901 \
 
 ## 网络受限（沙箱 / K8s / 内网）？
 
-如果 `acp://` 直连失败，ACP v1.4 起会**自动尝试 UDP 打洞（DCUtR 风格）**升级到直连；打洞失败才降级到 Relay 中转。整个过程用户零感知，不需要手动加 `--relay`。
+ACP v1.4 内置三级自动连接策略，**用户零感知**：
 
-如需显式走 Relay（如老版本兼容），可加 `--relay` 参数启动，得到 `acp+wss://` 链接。
+```
+Level 1 — Direct connect       (has public IP / same LAN)
+   ↓ fail within 3s
+Level 2 — UDP hole punch        (both behind NAT — NEW in v1.4)
+           DCUtR-style: STUN address discovery → relay signaling → simultaneous probes
+           ✅ Works with ~70% of real-world NAT types (full-cone, port-restricted)
+   ↓ fail
+Level 3 — Relay fallback        (symmetric NAT / CGNAT — ~30% of cases)
+           Cloudflare Worker relay, stateless, no message storage
+```
+
+SSE 事件实时反映当前连接层级：`dcutr_started` → `dcutr_connected` / `relay_fallback`。
+`GET /status` 返回 `connection_type`: `p2p_direct` | `dcutr_direct` | `relay`。
+
+如需显式走 Relay（如旧版本兼容），可加 `--relay` 参数启动，得到 `acp+wss://` 链接。
 
 → **详见 [NAT 穿透与网络接入指南](docs/nat-traversal.md)**
 
@@ -197,7 +211,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 │  │  Agent A   │◄══════ WS direct ══════►│  Agent B   │          │
 │  └────────────┘    (public IP / LAN)    └────────────┘          │
 │                                                                 │
-│  Level 2 ─ TCP Hole Punch ★ v1.4 新增（双方在 NAT 后面）         │
+│  Level 2 ─ UDP Hole Punch ✅ v1.4 已实现（双方在 NAT 后面）        │
 │  ┌────────────┐   ┌────────────┐        ┌────────────┐          │
 │  │  Agent A   │──►│ Signaling  │◄───────│  Agent B   │          │
 │  │  (NAT)     │   │ (addr exch)│        │  (NAT)     │          │
@@ -309,7 +323,7 @@ API：`POST /tasks` 创建，`POST /tasks/{id}:update` 更新状态。
 | v1.1 | ✅ | HMAC replay-window、`failed_message_id` |
 | v1.2 | ✅ | 调度元数据 (`availability`)、Docker 镜像 |
 | v1.3 | ✅ | Rust SDK、DID 身份 (`did:acp:`)、Extension 机制、GHCR CI |
-| **v1.4** | 🔥 **进行中** | **真 P2P NAT 穿透**：TCP 打洞 + Signaling，Relay 退化为最后降级 |
+| **v1.4** | ✅ **已实现** | **真 P2P NAT 穿透**：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级，Relay 退化为最后兜底 |
 
 ---
 

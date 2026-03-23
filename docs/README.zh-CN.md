@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/版本-v1.3.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/版本-v1.4.0--dev-blue?style=flat-square" alt="Version">
   </a>
   <a href="../LICENSE">
     <img src="https://img.shields.io/badge/协议-Apache_2.0-green?style=flat-square" alt="License">
@@ -68,9 +68,23 @@ Agent B 收到链接后自动连接，两边同时显示：
 
 ## 网络受限（沙箱 / K8s / 内网）？
 
-如果 `acp://` 直连失败，ACP v1.4 起会**自动尝试 UDP 打洞（DCUtR 风格）**升级到直连；打洞失败才降级到 Relay 中转。全程用户零感知，无需手动 `--relay`。
+ACP v1.4 内置三级自动连接策略，**全程零感知**：
 
-如需显式走 Relay（兼容旧版），加 `--relay` 参数重启，得到 `acp+wss://` 链接。
+```
+Level 1 — 直连               （有公网 IP / 同局域网）
+   ↓ 3 秒内失败
+Level 2 — UDP 打洞            （双方都在 NAT 后面 — v1.4 新增）
+           DCUtR 风格：STUN 地址发现 → Relay 信令交换 → 同时发 UDP 探包
+           ✅ 覆盖约 70% 真实 NAT 场景（全锥形、端口受限型）
+   ↓ 失败
+Level 3 — Relay 降级          （对称 NAT / CGNAT — 约 30% 场景）
+           Cloudflare Worker 中转，无状态，不存储消息内容
+```
+
+SSE 实时事件：`dcutr_started` → `dcutr_connected` / `relay_fallback`。
+`GET /status` 返回 `connection_type`：`p2p_direct` | `dcutr_direct` | `relay`。
+
+如需显式走 Relay（兼容旧版），加 `--relay` 参数启动，得到 `acp+wss://` 链接。
 
 → **详见 [NAT 穿透与网络接入指南](nat-traversal.md)**
 
@@ -166,7 +180,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 │  │  Agent A   │◄═══════ WS 直连 ════════►│  Agent B   │          │
 │  └────────────┘   （公网 IP 或同内网）   └────────────┘          │
 │                                                                 │
-│  Level 2 — TCP 打洞 ★ v1.4 新增（双方都在 NAT 后面）             │
+│  Level 2 — UDP 打洞 ✅ v1.4 已实现（双方都在 NAT 后面）            │
 │  ┌────────────┐   ┌────────────┐        ┌────────────┐          │
 │  │  Agent A   │──►│  Signaling │◄───────│  Agent B   │          │
 │  │  (NAT)     │   │ （地址交换）│        │  (NAT)     │          │
@@ -258,7 +272,7 @@ HTTP 默认端口：`7901`（WS 端口：`7801`）
 | v1.1 | ✅ | HMAC replay-window、`failed_message_id` |
 | v1.2 | ✅ | 调度元数据 (`availability`)、Docker 镜像 |
 | v1.3 | ✅ | Rust SDK、DID 身份、Extension 机制、GHCR CI |
-| **v1.4** | 🔥 **进行中** | **真 P2P NAT 穿透**：TCP 打洞 + Signaling，Relay 退化为最后降级 |
+| **v1.4** | ✅ **已实现** | **真 P2P NAT 穿透**：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级，Relay 退化为最后兜底 |
 
 ---
 
