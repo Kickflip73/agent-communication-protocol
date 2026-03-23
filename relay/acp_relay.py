@@ -61,7 +61,7 @@ import hashlib
 import struct
 import select
 from collections import deque
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import urllib.request
 import urllib.error
@@ -196,15 +196,16 @@ def _err(code: str, message: str, http_status: int = 400,
 #                       -> failed     (terminal)
 #                       -> input_required  (interrupted; resumes via /tasks/{id}/continue)
 #
-# Deliberately NO: canceled/rejected/auth_required — over-engineered for personal use.
+# BUG-002 fix (2026-03-23): added TASK_CANCELED — spec §3 defines 5 states including canceled.
 #
 TASK_SUBMITTED      = "submitted"
 TASK_WORKING        = "working"
 TASK_COMPLETED      = "completed"
 TASK_FAILED         = "failed"
+TASK_CANCELED       = "canceled"
 TASK_INPUT_REQUIRED = "input_required"
 
-TERMINAL_STATES    = {TASK_COMPLETED, TASK_FAILED}
+TERMINAL_STATES    = {TASK_COMPLETED, TASK_FAILED, TASK_CANCELED}
 INTERRUPTED_STATES = {TASK_INPUT_REQUIRED}
 
 # ── Global state ───────────────────────────────────────────────────────────────
@@ -799,8 +800,11 @@ def _deliver_push(url, body):
 # Task helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _create_task(payload, message_id=None):
-    task_id = _make_id("task")
+def _create_task(payload, message_id=None, task_id=None):
+    # BUG-006 fix: honour client-supplied task_id (idempotent — return existing if already known)
+    if task_id and task_id in _tasks:
+        return _tasks[task_id]
+    task_id = task_id or _make_id("task")
     task = {
         "id":         task_id,
         "status":     TASK_SUBMITTED,
@@ -963,6 +967,17 @@ def _on_message(raw):
         _recv_queue.append(entry)
         _persist(entry)
         _status["messages_received"] += 1
+        # BUG-005 fix: update per-peer messages_received counter
+        _from = msg.get("from", "")
+        for pid, pinfo in _peers.items():
+            if pinfo.get("name") == _from or pinfo.get("id") == _from:
+                pinfo["messages_received"] = pinfo.get("messages_received", 0) + 1
+                break
+        else:
+            # fallback: credit the first connected peer (single-peer common case)
+            connected = [p for p in _peers.values() if p.get("connected")]
+            if len(connected) == 1:
+                connected[0]["messages_received"] = connected[0].get("messages_received", 0) + 1
         _broadcast_sse_event("message", {
             "message_id": message_id,
             "role":       msg.get("role", "agent"),
@@ -1156,8 +1171,21 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
                 _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
 
                 # v0.6: register in multi-session peer registry
+                # BUG-003 fix: reuse the peer pre-registered by /peers/connect if link matches,
+                # instead of creating a duplicate entry.
                 peer_link = f"acp://{host}:{ws_port}/{token}"
-                peer_id = _register_peer(link=peer_link, ws=ws)
+                existing_pid = next(
+                    (pid for pid, info in _peers.items()
+                     if info.get("link") == peer_link and info.get("ws") is None),
+                    None
+                )
+                if existing_pid:
+                    _peers[existing_pid]["ws"] = ws
+                    _peers[existing_pid]["connected"] = True
+                    _peers[existing_pid]["connected_at"] = _now()
+                    peer_id = existing_pid
+                else:
+                    peer_id = _register_peer(link=peer_link, ws=ws)
                 _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
 
                 print(f"\n{'='*55}")
@@ -1451,9 +1479,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     self._json({"error": "task not found"}, 404)
                     return
                 # SSE stream filtered to this task
+                self.close_connection = False
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 q = deque()
@@ -1497,9 +1527,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json({"history": history[-limit:], "total": len(history)})
 
         elif p == "/stream":  # [stable] SSE event stream
+            # BUG-001 additional fix: prevent BaseHTTP HTTP/1.0 from closing
+            # the connection after headers. SSE requires a persistent connection.
+            self.close_connection = False
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             q = deque()
@@ -1624,8 +1658,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         _sync_pending.pop(message_id, None)
                         if task:
                             _update_task(task["id"], TASK_COMPLETED, artifact={"parts": reply.get("parts", [])})
-                        self._json({"ok": True, "message_id": message_id, "reply": reply,
-                                    "task": task})
+                        self._json({"ok": True, "message_id": message_id,
+                                    "server_seq": msg["server_seq"], "reply": reply, "task": task})
                     except asyncio.TimeoutError:
                         _sync_pending.pop(message_id, None)
                         if task:
@@ -1634,8 +1668,19 @@ class LocalHTTP(BaseHTTPRequestHandler):
                                               failed_message_id=message_id)
                         self._json(e_body, e_code)
                 else:
+                    seq = msg["server_seq"]
                     _ws_send_sync(msg)
-                    self._json({"ok": True, "message_id": message_id, "task": task})
+                    # BUG-001 fix: broadcast SSE event for outbound messages so local stream
+                    #              subscribers see all traffic (not just WS-received messages).
+                    # BUG-004 fix: also persist to local recv_queue so /recv and /stream reflect send.
+                    _broadcast_sse_event("message", {
+                        "message_id": message_id,
+                        "role":       role_raw,
+                        "parts":      parts,
+                        "task_id":    msg.get("task_id"),
+                        "direction":  "outbound",
+                    })
+                    self._json({"ok": True, "message_id": message_id, "server_seq": seq, "task": task})
 
             except ConnectionError as e:
                 # message_id may be defined if we got past body parsing
@@ -1791,6 +1836,19 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if not peer_link:
                     self._json({"error": "link required"}, 400)
                     return
+                # BUG-003 fix: idempotent connect — if a peer with the same link already exists
+                # and is connected, return it instead of creating a duplicate.
+                existing_peer_id = None
+                for pid, pinfo in _peers.items():
+                    if pinfo.get("link") == peer_link and pinfo.get("connected"):
+                        existing_peer_id = pid
+                        break
+                if existing_peer_id:
+                    self._json({"ok": True, "peer_id": existing_peer_id,
+                                "connecting_to": peer_link,
+                                "name": _peers[existing_peer_id].get("name", existing_peer_id),
+                                "already_connected": True})
+                    return
                 # Generate peer_id before connecting
                 peer_id = _make_peer_id()
                 _register_peer(peer_id=peer_id, link=peer_link)
@@ -1818,7 +1876,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
             try:
                 body = self._read_body()
                 task = _create_task(body.get("payload", body),
-                                    message_id=body.get("message_id"))
+                                    message_id=body.get("message_id"),
+                                    task_id=body.get("task_id"))  # BUG-006 fix: pass client task_id
                 if body.get("delegate", False):
                     _ws_send_sync({"type": "task.delegate", "message_id": _make_id(), "ts": _now(),
                                    "from": _status.get("agent_name"), "task_id": task["id"],
@@ -1885,8 +1944,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
             elif task["status"] in TERMINAL_STATES:
                 self._json({"error": f"task already in terminal state: {task['status']}"}, 409)
             else:
-                _update_task(task_id, TASK_FAILED, error="canceled by client")
-                self._json({"ok": True, "task_id": task_id, "status": TASK_FAILED})
+                _update_task(task_id, TASK_CANCELED)  # BUG-002 fix: use TASK_CANCELED, not TASK_FAILED
+                self._json({"ok": True, "task_id": task_id, "status": TASK_CANCELED})
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # 比 SSE subscribe 更简单，适合 Agent 调用
@@ -2115,7 +2174,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
 
 def run_http(port):
-    HTTPServer(("127.0.0.1", port), LocalHTTP).serve_forever()
+    # BUG-001 root-cause fix (2026-03-23): use ThreadingHTTPServer so that
+    # /stream (blocking SSE loop) does not prevent /message:send from being served.
+    # The original HTTPServer was single-threaded; any open /stream connection
+    # would block ALL subsequent HTTP requests, making SSE effectively useless.
+    ThreadingHTTPServer(("127.0.0.1", port), LocalHTTP).serve_forever()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

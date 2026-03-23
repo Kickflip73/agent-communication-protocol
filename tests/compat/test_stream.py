@@ -27,70 +27,57 @@ def _read_sse_events(base_url: str, path: str, timeout: float = 3.0) -> list[dic
     """
     Open an SSE stream and collect events for `timeout` seconds.
     Returns list of parsed event dicts: {"event": str, "data": dict, "raw": str}
-    Uses raw socket to avoid urllib blocking on streaming responses.
+
+    Uses http.client for true streaming (chunk-by-chunk read without waiting for EOF).
+    Raw socket recv() with settimeout returns 0 bytes against BaseHTTP/1.0 servers
+    because the server keeps the connection open (no Content-Length, no EOF) while
+    the socket read loop exits on timeout before the response body arrives.
+    http.client.HTTPResponse.read(N) reads N bytes at a time from the live stream.
     """
+    import http.client
     from urllib.parse import urlparse
+
     parsed = urlparse(base_url)
     host = parsed.hostname
     port = parsed.port or 80
-    request_path = path
 
-    events = []
-    raw_lines = []
+    events: list[dict] = []
 
     try:
-        conn = socket.create_connection((host, port), timeout=timeout)
-        request = (
-            f"GET {request_path} HTTP/1.1\r\n"
-            f"Host: {host}:{port}\r\n"
-            f"Accept: text/event-stream\r\n"
-            f"Cache-Control: no-cache\r\n"
-            f"Connection: close\r\n"
-            f"\r\n"
-        )
-        conn.sendall(request.encode())
-        conn.settimeout(timeout)
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        conn.request("GET", path, headers={
+            "Accept": "text/event-stream",
+            "Cache-Control": "no-cache",
+        })
+        resp = conn.getresponse()
 
-        buffer = b""
+        buf = ""
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
-                chunk = conn.recv(4096)
+                chunk = resp.read(256)
                 if not chunk:
                     break
-                buffer += chunk
-            except socket.timeout:
+                buf += chunk.decode("utf-8", errors="replace")
+                # Parse complete SSE events (blank-line delimited)
+                while "\n\n" in buf:
+                    evt_text, buf = buf.split("\n\n", 1)
+                    current_event: dict = {}
+                    for line in evt_text.split("\n"):
+                        if line.startswith("event:"):
+                            current_event["event"] = line[6:].strip()
+                        elif line.startswith("data:"):
+                            raw_data = line[5:].strip()
+                            try:
+                                current_event["data"] = json.loads(raw_data)
+                            except json.JSONDecodeError:
+                                current_event["data"] = raw_data
+                            current_event["raw"] = raw_data
+                    if current_event:
+                        events.append(current_event)
+            except Exception:
                 break
-
         conn.close()
-
-        # Parse HTTP response
-        text = buffer.decode("utf-8", errors="replace")
-        if "\r\n\r\n" in text:
-            _, body = text.split("\r\n\r\n", 1)
-        else:
-            body = text
-
-        # Parse SSE events (blank-line separated)
-        current_event = {}
-        for line in body.splitlines():
-            raw_lines.append(line)
-            if line.startswith("event:"):
-                current_event["event"] = line[6:].strip()
-            elif line.startswith("data:"):
-                raw_data = line[5:].strip()
-                try:
-                    current_event["data"] = json.loads(raw_data)
-                except json.JSONDecodeError:
-                    current_event["data"] = raw_data
-                current_event["raw"] = raw_data
-            elif line == "" and current_event:
-                events.append(current_event)
-                current_event = {}
-
-        if current_event:
-            events.append(current_event)
-
     except Exception:
         pass
 
