@@ -273,7 +273,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-011 🟡 P1 — 非法 JSON body 返回 HTTP 500，應為 400
 
 **發現時間**: 2026-03-23 場景F測試 (F3)
-**狀態**: 🔴 待修復
+**狀態**: ✅ 已修復 (2026-03-23)
 
 **現象**: `POST /message:send` body 為非法 JSON（如 `not_json`），返回 HTTP 500 + `ERR_INTERNAL`
 **期望**: 應返回 HTTP 400 + `ERR_INVALID_REQUEST`（客戶端錯誤，不應 500）

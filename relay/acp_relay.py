@@ -1285,6 +1285,12 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
 # Local HTTP interface
 # ══════════════════════════════════════════════════════════════════════════════
 
+class _BodyReadError(BaseException):
+    """Raised by LocalHTTP._read_body when it has already written a 400 response.
+    Inherits BaseException (not Exception) so it bypasses all 'except Exception'
+    handlers and propagates cleanly to the do_POST wrapper."""
+
+
 class LocalHTTP(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
 
@@ -1300,7 +1306,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
     def _read_body(self):
         n = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(n) if n else b"{}"
-        return json.loads(raw) if raw.strip() else {}
+        if not raw.strip():
+            return {}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            # BUG-011 fix: invalid JSON should be 400 ERR_INVALID_REQUEST, not 500 ERR_INTERNAL
+            e_body, e_code = _err(ERR_INVALID_REQUEST, f"Invalid JSON in request body: {e}", 400)
+            self._json(e_body, e_code)
+            raise _BodyReadError() from e  # signal caller to stop processing
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -1579,6 +1593,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
     def do_POST(self):
         global _extensions  # v1.3: may be mutated by /extensions/register and /extensions/unregister
+        try:
+            self._do_POST_inner()
+        except _BodyReadError:
+            pass  # Response already written by _read_body; just stop processing
+
+    def _do_POST_inner(self):
+        global _extensions
         parsed = urlparse(self.path)
         p = parsed.path
 

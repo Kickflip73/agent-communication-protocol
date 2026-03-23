@@ -104,9 +104,8 @@ except urllib.error.HTTPError as e:
     body = {}; code = e.code
     try: body = json.loads(e.read())
     except: pass
-# BUG-011: 非法 JSON 返回 HTTP 500 + ERR_INTERNAL，應返回 400 + ERR_INVALID_REQUEST
-# 暫時接受 4xx 或 5xx，但記錄為待修復
-r("F3-1 返回 4xx 或 5xx（BUG-011: 應為 400）", code in (400, 500), f"code={code}")
+# BUG-011 fixed: invalid JSON now returns 400 ERR_INVALID_REQUEST
+r("F3-1 HTTP 400（BUG-011 已修復）", code == 400, f"code={code}")
 is_err = "error" in body or "error_code" in body
 r("F3-2 返回錯誤響應", is_err, body.get("error_code","?"))
 
