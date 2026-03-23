@@ -331,3 +331,24 @@ P2: BUG-006 task_id 语义讨论
 | **總計** | **18/19 PASS** |
 
 *最後更新：2026-03-23 by J.A.R.V.I.S.*
+
+---
+
+### BUG-012 根因深挖（2026-03-23 修復嘗試後）
+
+**實際根因**：架構層面——ThreadingHTTPServer + asyncio event loop 混合架構下，
+ws.send 寫入 TCP 緩衝區即返回成功，不等待對端 ACK。
+即使 Beta 進程被 kill，Alpha 側的 `async for raw in ws` 不能立即在 HTTP handler 線程感知到。
+Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功"。
+
+**修復嘗試**：
+1. `future.result(timeout=5)` 等待 send 完成——仍然假成功（send 寫緩衝區，不等 ACK）
+2. relay 降級前清空 peer registry——有效，但無法解決 ping_timeout 前的假成功窗口
+
+**真正的修復需要**：
+1. 應用層 ACK：接收方收到消息後發回 `acp.ack`，發送方等待 ACK 才算成功
+2. 或：降低 ping_interval/ping_timeout（如 3s/3s），讓斷線感知更快（影響性能）
+3. 或：重新設計為純 asyncio 架構，消除 thread 阻塞 event loop 的問題
+
+**當前狀態**：⚠️ 部分修復（relay 降級前清空 peers），核心問題（ping_timeout 前假成功窗口）保留
+**調整優先級**：P1 → P2（有明確技術原因，非簡單 bug，需架構決策）

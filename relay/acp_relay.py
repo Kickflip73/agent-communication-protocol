@@ -1241,6 +1241,16 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
         if retry < P2P_MAX_RETRIES:
             await asyncio.sleep(min(2 ** retry, 8))
 
+    # ── BUG-012 fix: mark all P2P peers as disconnected before relay fallback ──
+    # P2P peers are tied to direct WebSocket connections; relay is a different
+    # transport. Keeping connected=True would allow /peer/{id}/send to silently
+    # send via relay while the actual peer may be offline → fake ok=true.
+    for _pid2 in list(_peers.keys()):
+        if _peers[_pid2].get("connected"):
+            _unregister_peer(_pid2)
+            log.info(f"Relay fallback: marked peer '{_pid2}' as disconnected (P2P lost)")
+    _status["peer_count"] = 0
+
     # ── 自动降级：P2P 失败 → 优先用内嵌 relay，否则新建 session ────────
     DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
     log.warning(f"P2P unreachable after {P2P_MAX_RETRIES} retries. Auto-fallback to relay.")
@@ -1847,15 +1857,32 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     self._json({"ok": False, "error": f"message too large"}, 413)
                     return
 
-                # Send via peer's WebSocket (or fallback to broadcast)
+                # Send via peer's WebSocket
+                # BUG-012 fix: do NOT fallback to _ws_send_sync (relay) when peer ws is None.
+                # If the peer's ws is gone, it means the P2P connection was lost.
+                # Falling back to relay would send to a ghost session → fake ok=true.
+                # Return 503 so the caller knows the peer is unreachable.
                 ws = peer_info.get("ws")
                 if ws:
-                    asyncio.run_coroutine_threadsafe(
-                        ws.send(serialized), _loop
-                    )
+                    # Wait for the send to complete and catch WebSocket errors.
+                    # This ensures a closed-but-not-yet-unregistered ws returns
+                    # 503 instead of silently succeeding (BUG-012).
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(ws.send(serialized), _loop)
+                        future.result(timeout=5)  # blocks up to 5s; raises on ws error
+                    except Exception as ws_err:
+                        # ws is closed or broken; unregister the peer
+                        _unregister_peer(peer_id)
+                        _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+                        self._json({"ok": False,
+                                    "error_code": "ERR_NOT_CONNECTED",
+                                    "error": f"peer '{peer_id}' connection lost: {ws_err}"}, 503)
+                        return
                 else:
-                    # Fallback: use legacy _ws_send_sync
-                    _ws_send_sync(msg)
+                    self._json({"ok": False,
+                                "error_code": "ERR_NOT_CONNECTED",
+                                "error": f"peer '{peer_id}' WebSocket is not active; P2P connection lost"}, 503)
+                    return
 
                 peer_info["messages_sent"] = peer_info.get("messages_sent", 0) + 1
                 _status["messages_sent"] += 1
