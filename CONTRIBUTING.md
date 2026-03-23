@@ -5,10 +5,13 @@ Welcome! ACP is a community-driven open standard. All contributions are welcome.
 ## Ways to Contribute
 
 - 📝 **Spec feedback** — open an Issue to propose changes to the spec
-- 🐛 **Bug reports** — SDK bugs, spec ambiguities
-- 💡 **New message types** — propose via RFC process (see below)
-- 🔌 **Transport bindings** — implement new transport adapters
-- 🌐 **SDK ports** — JavaScript, Go, Rust, Java SDKs welcome
+- 🐛 **Bug reports** — relay bugs, SDK bugs, spec ambiguities
+- 💡 **New features** — propose via RFC process (see below)
+- 🔌 **Transport bindings** — HTTP/2, gRPC-lite, QUIC adapters
+- 🌐 **SDK ports** — Java, C#, Swift, Ruby SDKs welcome  
+  *(Python ✅ · Node.js ✅ · Go ✅ · Rust ✅ — already complete)*
+- 🧪 **Conformance tests** — add compat suite coverage for DID / Extension / SSE  
+  *(see [`docs/conformance.md`](docs/conformance.md))*
 - 📖 **Documentation** — examples, tutorials, blog posts
 
 ## RFC Process (for Spec Changes)
