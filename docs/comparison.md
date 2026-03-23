@@ -58,6 +58,7 @@ ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native,
 | **Extension mechanism** | ✅ URI-identified, runtime register/unregister (v1.3) | ⚠️ Proposed (no impl yet) | ❌ |
 | **HMAC replay-window** | ✅ `--hmac-window` (v1.1) | ⚠️ OAuth only | ⚠️ OAuth only |
 | **Task state machine** | ✅ 5 states (v0.5+) | ✅ 8 states | ❌ |
+| **Agent Card identity verify** | ✅ `did:acp:` cryptographic self-cert (v1.3) | ❌ Open issue #1672, no impl yet | ❌ |
 | **Ed25519 identity** | ✅ `--identity` flag | ✅ DID-based | ❌ |
 | **DID identifier** | ✅ `did:acp:` key-based (v1.3) — no registry | ✅ `did:wba:` domain-based — requires DNS | ❌ |
 | **DID Document** | ✅ `GET /.well-known/did.json` (W3C compatible) | ✅ via well-known URL | ❌ |
