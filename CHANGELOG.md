@@ -9,6 +9,30 @@ Dates: Asia/Shanghai (UTC+8)
 
 ## [1.3.0-dev] — 2026-03-22/23
 
+### Fixed (commit `638f778` — 2026-03-23, scenario-C ring pipeline testing)
+
+- **BUG-007 part 2 (P1)** — `/message:send` with `peer_id` still routed to wrong peer
+  - Root cause: BUG-007 part 1 (commit `3a1c499`) added the ambiguity guard but did not
+    update the actual send dispatch — `_ws_send_sync(msg)` continued to use `_peer_ws`
+    (the last-connected peer) even when `peer_id` was explicitly provided in the body.
+  - Fix: `_ws_send(msg, peer_id=None)` and `_ws_send_sync(msg, peer_id=None)` now accept
+    an optional `peer_id` parameter. When supplied, they look up `_peers[peer_id]["ws"]`
+    and route directly to that WebSocket, also updating the per-peer `messages_sent`
+    counter. Both the sync and async paths of `/message:send` now pass `_req_peer_id`.
+  - Legacy behavior (no `peer_id` → use `_peer_ws`) preserved for backward compatibility.
+  - Verified with Scenario C (A→B→C→A ring pipeline): 8/8 checks pass ✅.
+
+### Tested — Scenario C: A→B→C→A Ring Pipeline (2026-03-23)
+Full end-to-end 3-agent ring pipeline validated:
+- Ring topology established: A→B, B→C, C→A (6 peer connections total, 2 per agent) ✅
+- A injects payload (`raw=[1,2,3,4,5]`) → B via `peer_id`-directed `/message:send` ✅
+- B receives, processes (`doubled=[2,4,6,8,10]`), forwards to C ✅
+- C receives, finalizes (`sum=30`), sends result back to A ✅
+- A receives complete pipeline result ✅
+- Task state machine (`pipeline_001` → `completed`) ✅
+- Per-agent send/recv stats correct (A:2/1, B:1/1, C:1/1) ✅
+- **Result: 8/8 PASS 🎉**
+
 ### Fixed (commit `3a1c499` — 2026-03-23, 3-agent scenario-B testing)
 Two bugs discovered during Orchestrator → Worker1 + Worker2 multi-peer test:
 
