@@ -1016,14 +1016,27 @@ def _attach_sig(msg: dict) -> dict:
     return msg
 
 
-async def _ws_send(msg):
-    if _peer_ws is None:
+async def _ws_send(msg, peer_id=None):
+    """Send msg over WebSocket.
+    If peer_id is provided, route to that specific peer's WS connection.
+    Falls back to legacy _peer_ws for single-peer / backward-compat.
+    """
+    ws = None
+    if peer_id and peer_id in _peers:
+        ws = _peers[peer_id].get("ws")
+        if ws is None:
+            raise ConnectionError(f"Peer '{peer_id}' has no active WebSocket")
+        # Update per-peer counter
+        _peers[peer_id]["messages_sent"] = _peers[peer_id].get("messages_sent", 0) + 1
+    else:
+        ws = _peer_ws
+    if ws is None:
         raise ConnectionError("No P2P connection")
-    await _peer_ws.send(json.dumps(_attach_sig(msg), ensure_ascii=False))
+    await ws.send(json.dumps(_attach_sig(msg), ensure_ascii=False))
     _status["messages_sent"] += 1
 
-def _ws_send_sync(msg):
-    asyncio.run_coroutine_threadsafe(_ws_send(msg), _loop).result(timeout=10)
+def _ws_send_sync(msg, peer_id=None):
+    asyncio.run_coroutine_threadsafe(_ws_send(msg, peer_id=peer_id), _loop).result(timeout=10)
 
 async def _send_agent_card(ws):
     await ws.send(json.dumps({"type": "acp.agent_card", "message_id": _make_id("card"),
@@ -1672,7 +1685,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     msg["correlation_id"] = message_id
                     future = _loop.create_future()
                     _sync_pending[message_id] = future
-                    _ws_send_sync(msg)
+                    _ws_send_sync(msg, peer_id=_req_peer_id or None)
                     try:
                         reply = asyncio.run_coroutine_threadsafe(
                             asyncio.wait_for(asyncio.shield(future), timeout=timeout), _loop
@@ -1691,7 +1704,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         self._json(e_body, e_code)
                 else:
                     seq = msg["server_seq"]
-                    _ws_send_sync(msg)
+                    # BUG-007 fix (part 2): when peer_id supplied in body, route to that peer
+                    _ws_send_sync(msg, peer_id=_req_peer_id or None)
                     # BUG-001 fix: broadcast SSE event for outbound messages so local stream
                     #              subscribers see all traffic (not just WS-received messages).
                     # BUG-004 fix: also persist to local recv_queue so /recv and /stream reflect send.
