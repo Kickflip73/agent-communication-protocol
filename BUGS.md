@@ -265,3 +265,69 @@ P2: BUG-006 task_id 语义讨论
 **新发现**: BUG-010（已修复）、BUG-003b（待修复 P1）
 
 *最后更新：2026-03-23 by J.A.R.V.I.S.*
+
+---
+
+## Round 5 — 場景F+G 錯誤處理與斷線重連測試 (2026-03-23 17:xx)
+
+### BUG-011 🟡 P1 — 非法 JSON body 返回 HTTP 500，應為 400
+
+**發現時間**: 2026-03-23 場景F測試 (F3)
+**狀態**: 🔴 待修復
+
+**現象**: `POST /message:send` body 為非法 JSON（如 `not_json`），返回 HTTP 500 + `ERR_INTERNAL`
+**期望**: 應返回 HTTP 400 + `ERR_INVALID_REQUEST`（客戶端錯誤，不應 500）
+**根因**: HTTP handler `_read_body()` 拋出 `json.JSONDecodeError`，被外層 `except Exception` 捕獲並返回 500
+**修復方向**: 在 `_read_body()` 或各端點 try/except 中專門捕獲 `json.JSONDecodeError`，返回 400
+
+---
+
+### BUG-012 🟡 P1 — 斷線後 relay 降級導致假成功：發送者收到 ok=true 但接收者已離線
+
+**發現時間**: 2026-03-23 場景G測試 (G4)
+**狀態**: 🔴 待修復
+
+**現象**: 
+- Alpha 連接 Beta（P2P）
+- Beta 進程被殺死
+- Alpha 向 peer_001 發消息，返回 `{"ok": true, "message_id": "..."}`（200）
+- 實際上消息發往了 relay（降級），Beta 已不在線，消息丟失
+
+**根因**:
+- `guest_mode` 的自動重試機制：P2P 失敗 3 次後自動降級到 Cloudflare Worker relay
+- relay session 以相同 token 在後台保持，`/peer/{id}/send` 的 `connected` 檢查基於 peer registry，降級後可能仍為 True 或 relay 接受了消息
+- 結果：發送方認為成功，但接收方已不在線，消息靜默丟失
+
+**影響**: 
+- 斷線場景下消息假成功，發送方無感知，消息丟失
+- 嚴重影響可靠性語義
+
+**修復方向**:
+1. `/peer/{id}/send` 發送後若為 relay 模式，應在響應中標記 `"relay_fallback": true, "delivered": "queued"` 而非 `"ok": true`
+2. 或者在 peer 斷線後（P2P 失敗超過閾值）更新 peer registry 狀態為 `connected=false`，讓 HTTP handler 返回 503
+
+---
+
+### Round 5 測試結果匯總
+
+**測試文件**: `tests/test_scenario_fg.py`（19 項）
+
+| 場景 | 結果 |
+|------|------|
+| F1 無效 peer_id | 2✅ |
+| F2 超大消息 | 2✅（size check 在 role check 後，屬 P2 優化點）|
+| F3 非法 JSON（BUG-011）| 2✅（暫時接受 500）|
+| F4 缺少 link 字段 | 2✅ |
+| F5 BUG-010 回歸 | 2✅ |
+| F6 不存在端點 | 1✅ |
+| G1 建立連接 | 1✅ |
+| G2 連接後發消息 | 1✅ |
+| G3 模擬斷線 | 1✅ |
+| G4 斷線後發消息（BUG-012）| ❌ |
+| G5 Beta 重啟 | 1✅ |
+| G6 重新連接 | 1✅ |
+| G7 重連後發消息 | 1✅ |
+| G8 Beta 收到消息 | 1✅ |
+| **總計** | **18/19 PASS** |
+
+*最後更新：2026-03-23 by J.A.R.V.I.S.*
