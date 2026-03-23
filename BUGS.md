@@ -103,7 +103,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-007 🟡 P1 — `/message:send` ambiguous in multi-peer mode
 
 **发现时间**: 2026-03-23 场景B测试
-**状态**: 🔴 待修复
+**状态**: ✅ 已修复 (commit pending)
 
 **现象**: Orchestrator 连接了 Worker1 (peer_001) 和 Worker2 (peer_002) 两个 peer。
 调用 `/message:send` 时，消息只发给 `_peer_ws`（模块级变量），
@@ -124,7 +124,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-008 🟢 P2 — Task 更新 API 端点命名不一致
 
 **发现时间**: 2026-03-23 场景B测试
-**状态**: 🔴 待修复
+**状态**: ✅ 已修复 (commit pending)
 
 **现象**: 
 - `:cancel` 使用冒号分隔：`POST /tasks/{id}:cancel` ✅

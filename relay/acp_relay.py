@@ -1450,8 +1450,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json({"tasks": tasks, "count": len(tasks)})
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
-        elif p.startswith("/tasks/") and p.endswith("/wait"):
-            task_id = p[len("/tasks/"):-len("/wait")]
+        # BUG-008 fix: support both /wait and :wait styles
+        elif p.startswith("/tasks/") and (p.endswith("/wait") or p.endswith(":wait")):
+            sep_len = len("/wait") if p.endswith("/wait") else len(":wait")
+            task_id = p[len("/tasks/"):-sep_len]
             timeout = float(qs.get("timeout", ["30"])[0])
             task = _tasks.get(task_id)
             if not task:
@@ -1589,6 +1591,26 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     e_body, e_code = _err(ERR_INVALID_REQUEST,
                                           f"invalid role '{role_raw}': must be 'user' or 'agent'",
                                           failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+
+                # ── BUG-007 fix: multi-peer ambiguity guard ────────────────────
+                # When >1 peers are connected and no peer_id is supplied,
+                # /message:send cannot unambiguously route the message.
+                # Return ERR_AMBIGUOUS_PEER and guide the caller to use
+                # POST /peer/{id}/send instead.
+                _req_peer_id = body.get("peer_id")
+                _connected_peers = [pid for pid, pinfo in _peers.items() if pinfo.get("connected")]
+                if len(_connected_peers) > 1 and not _req_peer_id:
+                    e_body, e_code = _err(
+                        "ERR_AMBIGUOUS_PEER",
+                        f"multiple peers connected ({len(_connected_peers)}); "
+                        "specify 'peer_id' in the request body or use "
+                        "POST /peer/{{id}}/send for directed delivery",
+                        400,
+                        failed_message_id=_client_msg_id,
+                    )
+                    e_body["connected_peers"] = _connected_peers
                     self._json(e_body, e_code)
                     return
 
@@ -1889,8 +1911,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)}, 500)
 
         # /tasks/{id}/update — update task state + optional artifact
-        elif p.startswith("/tasks/") and p.endswith("/update"):
-            task_id = p[len("/tasks/"):-len("/update")]
+        # BUG-008 fix: support both /update (slash) and :update (colon) styles
+        elif p.startswith("/tasks/") and (p.endswith("/update") or p.endswith(":update")):
+            sep_len = len("/update") if p.endswith("/update") else len(":update")
+            task_id = p[len("/tasks/"):-sep_len]
             try:
                 body = self._read_body()
                 task = _update_task(task_id, body.get("status", TASK_WORKING),
@@ -1910,8 +1934,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)}, 500)
 
         # /tasks/{id}/continue — resume input_required task  [stable]
-        elif p.startswith("/tasks/") and p.endswith("/continue"):
-            task_id = p[len("/tasks/"):-len("/continue")]
+        # BUG-008 fix: support both /continue and :continue styles
+        elif p.startswith("/tasks/") and (p.endswith("/continue") or p.endswith(":continue")):
+            sep_len = len("/continue") if p.endswith("/continue") else len(":continue")
+            task_id = p[len("/tasks/"):-sep_len]
             try:
                 body = self._read_body()
                 task = _tasks.get(task_id)
