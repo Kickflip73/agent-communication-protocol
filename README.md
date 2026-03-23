@@ -134,28 +134,37 @@ Agent B 收到链接后自动连接，两边同时显示：
 
 ---
 
-### 中继模式（网络受限时自动降级）
+### 完整连接策略（v1.4，自动选择，用户零感知）
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│               Relay Fallback  (--relay flag)                    │
+│              Three-Level Connection Strategy                    │
 │                                                                 │
-│   ┌──────────────┐    WSS     ┌─────────────┐    WSS           │
-│   │   Agent A    │◄──────────►│ Public      │◄──────────────►  │
-│   │  acp_relay   │            │ Relay       │         Agent B  │
-│   │  :7901 HTTP  │            │ (stateless) │         :7901    │
-│   └──────────────┘            └─────────────┘       HTTP       │
-│                                     │                           │
-│                               routes frames                     │
-│                               stores nothing                    │
+│  Level 1 ─ Direct Connect（最优）                               │
+│  ┌────────────┐                         ┌────────────┐          │
+│  │  Agent A   │◄══════ WS direct ══════►│  Agent B   │          │
+│  └────────────┘    (public IP / LAN)    └────────────┘          │
 │                                                                 │
-│   link: acp+wss://relay.host/acp/tok_xxx                       │
+│  Level 2 ─ TCP Hole Punch ★ v1.4 新增（双方在 NAT 后面）         │
+│  ┌────────────┐   ┌────────────┐        ┌────────────┐          │
+│  │  Agent A   │──►│ Signaling  │◄───────│  Agent B   │          │
+│  │  (NAT)     │   │ (addr exch)│        │  (NAT)     │          │
+│  └────────────┘   └────────────┘        └────────────┘          │
+│        │           exits after                │                  │
+│        └──────────── WS direct ──────────────┘                  │
+│                   (打洞成功，真 P2P)                              │
 │                                                                 │
-│   操作步骤与 P2P 模式完全一致，链接格式不同而已                   │
+│  Level 3 ─ Relay Fallback（最后降级，约 30% 对称 NAT 场景）      │
+│  ┌────────────┐   ┌─────────────┐       ┌────────────┐          │
+│  │  Agent A   │◄─►│ Relay       │◄─────►│  Agent B   │          │
+│  └────────────┘   │ (stateless) │       └────────────┘          │
+│                   └─────────────┘                               │
+│                   frames only, no storage                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-> Relay 是无状态的帧转发节点：不持久化任何消息，不存储会话，只转发 WebSocket 帧。
+> **Signaling Server** 只做一次性地址交换（TTL 30s），不转发任何消息帧，握手后立即退出。  
+> **Relay** 是真正的最后兜底，不是主路径——对称 NAT 等少数场景才会触发。
 
 ---
 
@@ -240,6 +249,7 @@ API：`POST /tasks` 创建，`POST /tasks/{id}:update` 更新状态。
 | v1.1 | ✅ | HMAC replay-window、`failed_message_id` |
 | v1.2 | ✅ | 调度元数据 (`availability`)、Docker 镜像 |
 | v1.3 | ✅ | Rust SDK、DID 身份 (`did:acp:`)、Extension 机制、GHCR CI |
+| **v1.4** | 🔥 **进行中** | **真 P2P NAT 穿透**：TCP 打洞 + Signaling，Relay 退化为最后降级 |
 
 ---
 
