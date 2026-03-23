@@ -218,7 +218,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-003b 🟡 P1 — 重复连接幂等仅对「已建立 WS」的 peer 生效
 
 **发现时间**: 2026-03-23 T5-2 回归测试深挖
-**状态**: 🔴 待修复
+**状态**: ✅ 已修复 (2026-03-23 commit 22aacd9)
 
 **现象**: 对同一 `acp://` link 发起第二次 `POST /peers/connect`：
 - 若 WS 连接已建立（connected=True）：返回 `already_connected=true`，peer 数=1 ✅
@@ -236,7 +236,7 @@ P2: BUG-006 task_id 语义讨论
 
 ### BUG-009 回归检测 (2026-03-23 Round 4)
 
-**状态**: ⚠️ 测试环境无法确认（SSE 端到端经 Cloudflare Relay，10s 内无事件）
+**状态**: ✅ 已修复 (2026-03-23 commit 22aacd9) — threading.Event wait(30s) 替换 time.sleep(1)，本地延迟 <50ms
 
 **说明**: T5-7 在本次测试中未能收到 SSE 事件（10s 超时）。可能原因：
 1. Cloudflare Relay 延迟超过 10s（网络问题）
