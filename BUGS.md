@@ -152,7 +152,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-009 🟡 P1 — SSE 事件推送延迟 ~950ms
 
 **发现时间**: 2026-03-23 性能基准测试
-**状态**: 🔴 待修复
+**状态**: ✅ 已修复 (commit 22aacd9) — threading.Event wait(30s) 替换 time.sleep(1)，延迟 <50ms
 
 **现象**: 
 - `/stream` 端点收到入站消息后，SSE 事件平均延迟约 950ms，最大 1000ms
