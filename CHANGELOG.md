@@ -9,6 +9,41 @@ Dates: Asia/Shanghai (UTC+8)
 
 ## [1.3.0-dev] — 2026-03-22/23
 
+### Fixed (commit `3a1c499` — 2026-03-23, 3-agent scenario-B testing)
+Two bugs discovered during Orchestrator → Worker1 + Worker2 multi-peer test:
+
+- **BUG-007 (P1)** — `/message:send` silently routed to wrong peer when multiple peers connected
+  - When ≥2 peers are connected and no `peer_id` is supplied, `/message:send` previously
+    sent to `_peer_ws` (the most recently connected peer) with no indication of ambiguity.
+  - Fix: if `len(connected_peers) > 1` and `peer_id` is absent in the request body, return
+    HTTP 400 `ERR_AMBIGUOUS_PEER` with a `connected_peers` list guiding the caller to use
+    `POST /peer/{id}/send` for directed delivery. If `peer_id` IS supplied in the body,
+    the message is routed to that specific peer (single-peer path unchanged).
+  - Verified: `ERR_AMBIGUOUS_PEER` returned with peer list ✅; `peer_id` routing ✅;
+    single-peer agents unaffected ✅.
+
+- **BUG-008 (P2)** — Task action endpoints had inconsistent naming convention
+  - `:cancel` used A2A-aligned colon style; `/update`, `/wait`, `/continue` used slash style.
+  - Fix: router now accepts **both** colon and slash variants for all three endpoints:
+    `POST /tasks/{id}:update` / `/tasks/{id}/update`,
+    `GET /tasks/{id}:wait` / `/tasks/{id}/wait`,
+    `POST /tasks/{id}:continue` / `/tasks/{id}/continue`.
+    Old slash-style paths remain fully supported (backward-compatible).
+  - Spec will be updated to recommend colon style; both accepted indefinitely.
+  - Verified: `/update` slash ✅, `:update` colon ✅, `:wait` colon ✅.
+
+### Known Issues (discovered 2026-03-23, not yet fixed)
+
+- **BUG-009 (P1)** — SSE `/stream` event delivery latency ~950 ms
+  - Root cause: the `/stream` and `/tasks/{id}:subscribe` handlers poll the event queue
+    using `time.sleep(1)` in a busy-wait loop. On average, an event arriving mid-sleep
+    waits ~500 ms; worst case 1 s. Measured avg 950 ms across 8 trials.
+  - Impact: SSE push is unsuitable for latency-sensitive use cases until fixed.
+  - Planned fix: replace `time.sleep(1)` with `threading.Event.wait(timeout=0.05)`;
+    `_broadcast_sse_event` calls `event.set()` to wake subscribers immediately.
+    Expected result: SSE delivery latency < 10 ms.
+  - Priority: P1 — fix in next development round.
+
 ### Fixed (commit `643450c` — 2026-03-23, real dual-agent testing)
 Six bugs discovered during first live AlphaAgent↔BetaAgent P2P communication session:
 

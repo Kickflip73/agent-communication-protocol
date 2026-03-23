@@ -103,7 +103,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-007 🟡 P1 — `/message:send` ambiguous in multi-peer mode
 
 **发现时间**: 2026-03-23 场景B测试
-**状态**: ✅ 已修复 (commit pending)
+**状态**: ✅ 已修复 (commit 3a1c499)
 
 **现象**: Orchestrator 连接了 Worker1 (peer_001) 和 Worker2 (peer_002) 两个 peer。
 调用 `/message:send` 时，消息只发给 `_peer_ws`（模块级变量），
@@ -124,7 +124,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-008 🟢 P2 — Task 更新 API 端点命名不一致
 
 **发现时间**: 2026-03-23 场景B测试
-**状态**: ✅ 已修复 (commit pending)
+**状态**: ✅ 已修复 (commit 3a1c499)
 
 **现象**: 
 - `:cancel` 使用冒号分隔：`POST /tasks/{id}:cancel` ✅
@@ -146,3 +146,31 @@ P2: BUG-006 task_id 语义讨论
 **问题 ❌**: 2 个新 bug (BUG-007, BUG-008)；测试脚本 API 调用错误（role 用 `orchestrator` 而非 `agent`；task update 用 `:update` 而非 `/update`）
 
 **下次轮转**: 修复轮 — 修 BUG-007 (P1)
+
+---
+
+### BUG-009 🟡 P1 — SSE 事件推送延迟 ~950ms
+
+**发现时间**: 2026-03-23 性能基准测试
+**状态**: 🔴 待修复
+
+**现象**: 
+- `/stream` 端点收到入站消息后，SSE 事件平均延迟约 950ms，最大 1000ms
+- 所有 8 次测试结果高度一致（950.0~950.5ms），说明根因稳定可复现
+
+**根本原因**:
+- `/stream` 和 `/tasks/{id}:subscribe` handler 用 `time.sleep(1)` 轮询事件队列
+- 事件到达时平均等待 ~500ms sleep 剩余时间；最坏等 1000ms
+- 实测 ~950ms 因为事件通常在 sleep 早期到达（连接建立 + 传输有额外 50ms 开销）
+
+**影响**:
+- 实时性场景不可用（聊天、流式任务进度、低延迟协调）
+- 当前仅适合"发完再查"的非实时工作流
+
+**修复方向**:
+1. 新增模块级 `_sse_notify = threading.Event()`
+2. `_broadcast_sse_event()` 在 append 到订阅者队列后调用 `_sse_notify.set()`
+3. `/stream` handler 将 `time.sleep(1)` 替换为 `_sse_notify.wait(timeout=0.05); _sse_notify.clear()`
+4. 同步修复 `/tasks/{id}:subscribe` handler
+
+**预期修复效果**: SSE 延迟 < 10ms（实测，基于 threading.Event 响应时间）
