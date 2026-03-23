@@ -3,8 +3,8 @@
 # the box; install optional deps for full feature set (see below).
 #
 # Build:
-#   docker build -t acp-relay .
-#   docker build --build-arg EXTRAS=full -t acp-relay:full .
+#   docker build -t acp-relay .                              # base: websockets only
+#   docker build --build-arg EXTRAS=full -t acp-relay:full . # full: + cryptography (Ed25519)
 #
 # Run (basic — P2P, HTTP fallback, no signing):
 #   docker run --rm -p 8000:8000 -p 8100:8100 acp-relay --name MyAgent
@@ -38,7 +38,7 @@
 
 FROM python:3.11-slim
 
-# Build arg: "base" = no extra deps (default), "full" = websockets + cryptography
+# Build arg: "base" = websockets only (default), "full" = websockets + cryptography
 ARG EXTRAS=base
 
 LABEL org.opencontainers.image.title="ACP Relay" \
@@ -52,11 +52,12 @@ WORKDIR /app
 # Copy relay (single file — no build step needed)
 COPY relay/acp_relay.py /app/acp_relay.py
 
-# Install optional dependencies based on EXTRAS arg
-# NOTE: "base" skips pip entirely (stdlib-only); "full" adds websockets + cryptography
-RUN if [ "$EXTRAS" = "full" ]; then \
-      pip install --no-cache-dir websockets cryptography; \
-    fi \
+# websockets is required for all variants; cryptography is optional (Ed25519 identity)
+# base = websockets only, full = websockets + cryptography
+RUN pip install --no-cache-dir websockets \
+    && if [ "$EXTRAS" = "full" ]; then \
+         pip install --no-cache-dir cryptography; \
+       fi \
     && chmod +x /app/acp_relay.py
 
 # WS port + HTTP port (HTTP = WS + 100; default WS=8000 → HTTP=8100)
