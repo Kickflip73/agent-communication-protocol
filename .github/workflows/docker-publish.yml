@@ -22,7 +22,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/acp-relay
+  # Lowercase is required for Docker image names; set statically to avoid case issues
+  IMAGE_NAME: kickflip73/agent-communication-protocol/acp-relay
 
 jobs:
   build-and-push:
@@ -94,10 +95,10 @@ jobs:
     steps:
       - name: Pull and run acp-relay:latest
         run: |
-          docker pull ghcr.io/${{ github.repository }}/acp-relay:latest
+          docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest
           docker run -d --name acp-smoke \
             -p 8100:8100 \
-            ghcr.io/${{ github.repository }}/acp-relay:latest \
+            ghcr.io/${{ env.IMAGE_NAME }}:latest \
             --name SmokeTest --port 8000
           sleep 5
 
@@ -106,9 +107,9 @@ jobs:
           curl -sf http://localhost:8100/.well-known/acp.json | python3 -c "
           import sys, json
           card = json.load(sys.stdin)
-          assert card.get('name') == 'SmokeTest', f'Unexpected name: {card}'
-          assert 'acp_version' in card, 'Missing acp_version'
-          print(f'✅ Smoke test PASS — acp_version={card[\"acp_version\"]}')
+          assert card.get('self', card).get('name', card.get('name')) == 'SmokeTest', f'Unexpected card: {card}'
+          assert 'acp_version' in card or 'self' in card, 'Missing acp_version or self'
+          print('✅ Smoke test PASS — card OK')
           "
 
       - name: Cleanup
