@@ -53,8 +53,10 @@ WORKDIR /app
 COPY relay/acp_relay.py /app/acp_relay.py
 
 # Install optional dependencies based on EXTRAS arg
-RUN pip install --no-cache-dir \
-      $([ "$EXTRAS" = "full" ] && echo "websockets cryptography" || echo "") \
+# NOTE: "base" skips pip entirely (stdlib-only); "full" adds websockets + cryptography
+RUN if [ "$EXTRAS" = "full" ]; then \
+      pip install --no-cache-dir websockets cryptography; \
+    fi \
     && chmod +x /app/acp_relay.py
 
 # WS port + HTTP port (HTTP = WS + 100; default WS=8000 → HTTP=8100)
