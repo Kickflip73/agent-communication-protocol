@@ -218,6 +218,7 @@ _tasks: dict         = {}
 _sync_pending: dict  = {}
 _sse_subscribers     = []
 _push_webhooks       = []
+_sse_notify          = threading.Event()   # BUG-009 fix: signal SSE handlers on new event
 
 # Idempotency cache (bounded)
 _seen_message_ids: dict = {}
@@ -782,6 +783,7 @@ def _broadcast_sse_event(event_type, payload):
     event = {"type": event_type, "ts": _now(), **payload}
     for q in _sse_subscribers:
         q.append(event)
+    _sse_notify.set()   # BUG-009 fix: wake up SSE polling handlers immediately
     if _push_webhooks:
         body = json.dumps(event, ensure_ascii=False).encode()
         for url in list(_push_webhooks):
@@ -1516,7 +1518,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         else:
                             self.wfile.write(b": keepalive\n\n")
                             self.wfile.flush()
-                            time.sleep(1)
+                            _sse_notify.wait(timeout=30); _sse_notify.clear()
                 except Exception:
                     pass
                 finally:
@@ -1563,7 +1565,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     else:
                         self.wfile.write(b": keepalive\n\n")
                         self.wfile.flush()
-                        time.sleep(1)
+                        _sse_notify.wait(timeout=30); _sse_notify.clear()
             except Exception:
                 pass
             finally:
@@ -1872,11 +1874,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if not peer_link:
                     self._json({"error": "link required"}, 400)
                     return
-                # BUG-003 fix: idempotent connect — if a peer with the same link already exists
-                # and is connected, return it instead of creating a duplicate.
+                # BUG-003 / BUG-003b fix: idempotent connect — if a peer with the same link
+                # already exists (regardless of connected state), return it instead of creating
+                # a duplicate. Previously only checked connected=True, which caused duplicates
+                # when the WS connection was still being established.
                 existing_peer_id = None
                 for pid, pinfo in _peers.items():
-                    if pinfo.get("link") == peer_link and pinfo.get("connected"):
+                    if pinfo.get("link") == peer_link:
                         existing_peer_id = pid
                         break
                 if existing_peer_id:
@@ -1911,7 +1915,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
         elif p == "/tasks/create" or p == "/tasks":
             try:
                 body = self._read_body()
-                task = _create_task(body.get("payload", body),
+                # BUG-010 fix: validate required 'role' field
+                payload = body.get("payload", body)
+                role = payload.get("role") if isinstance(payload, dict) else body.get("role")
+                if not role:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be: agent, user, or system)")
+                    self._json(e_body, e_code)
+                    return
+                task = _create_task(payload,
                                     message_id=body.get("message_id"),
                                     task_id=body.get("task_id"))  # BUG-006 fix: pass client task_id
                 if body.get("delegate", False):

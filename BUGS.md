@@ -198,3 +198,70 @@ P2: BUG-006 task_id 语义讨论
 **遗留未测**: SSE 延迟（BUG-009, 已记录，待下次修复轮处理）
 
 **下次轮转**: 文档轮 → 修复轮（修 BUG-009 SSE 延迟）
+
+---
+
+## Round 4 — DCUtR 功能测试 (2026-03-23, 16:xx)
+
+### BUG-010 🟡 P1 — `/tasks` POST 缺少 `role` 字段时无校验，返回 201
+
+**发现时间**: 2026-03-23 T7-2 边界测试
+**状态**: ✅ 已修复 (本轮 commit，待 push)
+
+**现象**: `POST /tasks` 时省略 `role` 字段，服务器正常创建 task 并返回 201
+**期望**: 缺少必要字段 `role` 时应返回 400 + `ERR_INVALID_REQUEST`
+**影响**: 无效 Task 进入系统，后续 role 校验失败；数据一致性问题
+**修复**: 在 `/tasks` POST handler 添加 `role` 字段存在性检查，缺失时返回 `ERR_INVALID_REQUEST`
+
+---
+
+### BUG-003b 🟡 P1 — 重复连接幂等仅对「已建立 WS」的 peer 生效
+
+**发现时间**: 2026-03-23 T5-2 回归测试深挖
+**状态**: 🔴 待修复
+
+**现象**: 对同一 `acp://` link 发起第二次 `POST /peers/connect`：
+- 若 WS 连接已建立（connected=True）：返回 `already_connected=true`，peer 数=1 ✅
+- 若 WS 连接仍在建立中/失败（connected=False/None）：创建新 peer 记录，peer 数=2 ❌
+
+**根因**: 幂等检查基于 `pinfo.get("connected")` 状态，连接未完成时 connected 为 False，
+导致绕过幂等检查，创建第二个 peer 记录
+
+**影响**: 网络抖动或连接超时后重试，peer 列表膨胀；与 BUG-003 原始问题相同根因未完全修复
+
+**修复方向**: 幂等检查应基于 link（`pinfo.get("link") == peer_link`）而非 connected 状态；
+即只要 link 相同就认为是同一 peer，返回已有的 peer_id，不新建记录
+
+---
+
+### BUG-009 回归检测 (2026-03-23 Round 4)
+
+**状态**: ⚠️ 测试环境无法确认（SSE 端到端经 Cloudflare Relay，10s 内无事件）
+
+**说明**: T5-7 在本次测试中未能收到 SSE 事件（10s 超时）。可能原因：
+1. Cloudflare Relay 延迟超过 10s（网络问题）
+2. BUG-009 SSE 延迟未修复（~950ms 轮询问题仍存在，导致超时）
+
+**待确认**: 在本地直连环境（非 Relay）跑 SSE 延迟测试
+
+---
+
+### Round 4 测试结果汇总
+
+**测试时间**: 2026-03-23
+**测试工具**: `tests/test_dcutr.py`（31 项）
+
+| 项目 | 结果 |
+|------|------|
+| T1 STUNClient | 1✅ 1⏭ |
+| T2 DCUtR 消息格式 | 5✅ |
+| T3 connect_with_holepunch 降级 | 3✅ |
+| T4 DCUtR 握手集成 | 5✅ |
+| T5 BUG-001~009 回归 | 4✅ 1❌(BUG-003b) 1⏭ 1❌(BUG-009待确认) |
+| T6 场景A 回归 | 4✅ |
+| T7 边界异常 | 5✅ |
+| **总计** | **27✅ 2❌ 2⏭** |
+
+**新发现**: BUG-010（已修复）、BUG-003b（待修复 P1）
+
+*最后更新：2026-03-23 by J.A.R.V.I.S.*
