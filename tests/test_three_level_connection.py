@@ -288,6 +288,8 @@ def run_three_level_tests():
                 print(f"  ❌ {name}" + (f" — {note}" if note else ""))
     print(f"{'='*55}")
 
+    failed_names = [name for name, ok, _ in results if not ok]
+    return passed, total, failed_names
 
 
 # ── pytest-compatible test function ──────────────────────────────────────────
