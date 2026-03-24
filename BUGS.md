@@ -390,3 +390,23 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 **修复**: 过滤逻辑改为同时检查 `t.get("peer_id")` 和 `t.get("payload", {}).get("peer_id")`
 
 **影响**: peer_id 过滤之前完全不可用，但因无告警/无人使用，未发现
+
+---
+
+### BUG-015 🟢 P3 — `test_scenario_fg.py` 使用 `sys.exit()` 导致与 pytest 不兼容
+
+**发现时间**: 2026-03-24 测试轮（17:30）
+**状态**: 🔴 待修复（低优先级，不影响核心功能）
+
+**现象**:
+- `python3 -m pytest tests/test_scenario_fg.py tests/test_tasks_filtering.py` 时
+  pytest 报 `INTERNALERROR: SystemExit` 并崩溃
+- 原因：`test_scenario_fg.py` 是脚本风格，模块级调用 `sys.exit(0 if not failed else 1)`
+- 单独运行 `python3 tests/test_scenario_fg.py` 正常
+- 其他 pytest 收集（如 `test_tasks_filtering.py`）也被阻断
+
+**根因**: `test_scenario_fg.py` 不是标准 pytest 格式，使用了脚本入口 `sys.exit()` 在模块导入时直接执行
+
+**修复方向**: 将 `sys.exit()` 移入 `if __name__ == "__main__":` 块，或重构为标准 pytest 测试函数
+
+**影响**: CI 中不能混合运行此文件与 pytest 风格测试；需单独运行
