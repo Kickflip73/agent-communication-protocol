@@ -373,3 +373,20 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 
 **修复**: 在 `parse_link()` 添加校验逻辑（scheme/port/token 三项），`/peers/connect` 中
 调用 `parse_link()` 并 catch `ValueError` 返回 400
+
+---
+
+### BUG-014 🟢 P2 — `GET /tasks?peer_id=` 过滤失效（peer_id 存于 payload 内层）
+
+**发现时间**: 2026-03-24 开发轮（tasks filtering 开发中）
+**状态**: ✅ 已修复（本轮 commit）
+
+**现象**:
+- `GET /tasks?peer_id=<id>` 始终返回空列表
+- 即使任务创建时传入了 `peer_id`，也无法过滤到
+
+**根因**: Task 结构中 `peer_id` 存储在 `payload.peer_id` 中，但过滤代码查的是顶层 `t.get("peer_id")`，层级不匹配
+
+**修复**: 过滤逻辑改为同时检查 `t.get("peer_id")` 和 `t.get("payload", {}).get("peer_id")`
+
+**影响**: peer_id 过滤之前完全不可用，但因无告警/无人使用，未发现

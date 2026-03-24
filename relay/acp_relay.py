@@ -1543,9 +1543,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
             #   cursor=<task_id>       exclusive cursor: return tasks after this id
             #   peer_id=<peer_id>      filter by originating peer
             #   sort=created_asc|created_desc  (default: created_desc, newest first)
-            state_filter  = qs.get("state",   [None])[0]
-            peer_filter   = qs.get("peer_id", [None])[0]
-            limit         = min(int(qs.get("limit",  ["50"])[0]),  200)
+            #   created_after=<iso>    filter tasks created after this ISO-8601 timestamp
+            #   updated_after=<iso>    filter tasks updated after this ISO-8601 timestamp
+            state_filter    = qs.get("state",          [None])[0]
+            peer_filter     = qs.get("peer_id",        [None])[0]
+            created_after   = qs.get("created_after",  [None])[0]
+            updated_after   = qs.get("updated_after",  [None])[0]
+            limit           = min(int(qs.get("limit",  ["50"])[0]),  200)
             cursor        = qs.get("cursor", [None])[0]
             sort_order    = qs.get("sort",   ["created_desc"])[0]
 
@@ -1555,7 +1559,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
             if state_filter:
                 tasks = [t for t in tasks if t.get("status") == state_filter]
             if peer_filter:
-                tasks = [t for t in tasks if t.get("peer_id") == peer_filter]
+                tasks = [t for t in tasks if
+                         t.get("peer_id") == peer_filter or
+                         t.get("payload", {}).get("peer_id") == peer_filter]
+            if created_after:
+                tasks = [t for t in tasks if t.get("created_at", "") > created_after]
+            if updated_after:
+                tasks = [t for t in tasks if t.get("updated_at", t.get("created_at", "")) > updated_after]
 
             # Sort by creation time (task_id contains timestamp prefix for natural sort)
             reverse = (sort_order != "created_asc")
