@@ -7,6 +7,18 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.5.1-dev] — 2026-03-24 (updated 2026-03-25 05:25)
+
+### Research (2026-03-25 05:25 — Competitive scan #7)
+
+- **A2A 9-day code freeze continues** (last merge 2026-03-16, TSC governance mode)
+- **A2A #1681 (security bug)**: `GetTaskPushNotificationConfig` leaks full credentials in response — ACP has no PushNotification mechanism, zero exposure to this class of vulnerability; strong differentiation point for Show HN
+- **A2A #1680 (design gap)**: async cancel semantics unresolved — community debating two approaches for cancel-in-progress tasks; ACP cancel is simple synchronous (`canceled` state returned immediately), no async webhook complexity
+- **A2A #1679**: Python tutorial docs require full rewrite for `v1.0-alpha.0` breaking changes; ACP API stable, low doc maintenance burden
+- **ANP**: confirmed archived (last update 2026-03-05), no new activity
+
+---
+
 ## [1.5.1-dev] — 2026-03-24 (updated 22:47)
 
 ### Added (22:47 — v1.4 NAT traversal signaling layer)
