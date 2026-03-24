@@ -81,8 +81,10 @@ A2A is great if you're building enterprise agent infrastructure. ACP is for:
 - Experiments where you don't want to run an auth server
 - Any scenario where `curl` should be enough
 
-A2A's Working Group is now internally ratifying a DID Resolution spec (not public yet).
-ACP ships `did:acp:` today — self-generated, zero external resolver, zero server dependency.
+A2A's Working Group is now converging on `getagentid.dev` as a reference identity CA
+(issue #1672, 47 comments). That's a central registration service — an external dependency.
+ACP ships `did:acp:` today: self-generated from your Ed25519 pubkey, zero external resolver,
+zero registration, works offline. One flag: `--identity ed25519`.
 
 **What I want feedback on**:
 
@@ -101,6 +103,7 @@ ACP ships `did:acp:` today — self-generated, zero external resolver, zero serv
 
 - **vs MCP**: MCP = Agent↔Tool. ACP = Agent↔Agent. Different layers, complementary.
 - **vs A2A**: A2A is enterprise. ACP is personal/small team. Like nginx vs Apache — both valid.
+- **on identity**: A2A is heading toward `getagentid.dev` (external CA). ACP uses `did:acp:` (self-sovereign, zero external service). If A2A's CA goes down, their identity story breaks. ACP works offline.
 - **vs MQTT/WebSockets**: Those are transports. ACP is a semantic protocol (tasks, agent cards, identity).
 - **vs HTTP APIs**: Agents aren't servers. They come and go. ACP handles NAT, discovery, availability.
 - **Zero-server claim**: The Cloudflare Worker relay is a fallback, not required. P2P works without it if agents are on same LAN or have public IPs.
@@ -109,7 +112,8 @@ ACP ships `did:acp:` today — self-generated, zero external resolver, zero serv
 
 - "Why not just use REST?" → REST assumes servers. Agents are peers.
 - "This is just WebSockets" → Transports are pluggable. The protocol is the semantic layer.
-- "Security concerns?" → HMAC signing + DID identity in v1.5. Encryption roadmap in v2.0.
+- "Security concerns?" → HMAC signing + `did:acp:` self-sovereign identity (v1.5, ships today). E2E encryption on roadmap.
+- "Why not just use getagentid.dev?" → External CA = external dependency + registration + potential downtime. ACP `did:acp:` is derived from your key pair, works offline, no third party.
 - "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python.
 
 ---
