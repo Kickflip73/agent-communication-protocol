@@ -15,11 +15,11 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-20%2F20_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-22%2F22_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
-  <a href="README.md">English</a> ·
+  <strong>English</strong> ·
   <a href="docs/README.zh-CN.md">简体中文</a>
 </p>
 
@@ -43,13 +43,13 @@ $ curl -X POST http://localhost:7901/peers/connect \
 
 $ # Agent B — send a message
 $ curl -X POST http://localhost:7901/message:send \
-       -d '{"text":"Hello AgentA, I need your analysis on X"}'
+       -d '{"role":"agent","parts":[{"type":"text","content":"Hello AgentA!"}]}'
 {"ok":true,"message_id":"msg_abc123","peer_id":"peer_001"}
 
 $ # Agent A — receive in real-time (SSE stream)
 $ curl http://localhost:7901/stream
 event: acp.message
-data: {"from":"AgentB","text":"Hello AgentA, I need your analysis on X"}
+data: {"from":"AgentB","parts":[{"type":"text","content":"Hello AgentA!"}]}
 ```
 
 ---
@@ -95,33 +95,33 @@ docker run -p 7801:7801 -p 7901:7901 \
 
 ---
 
-## 网络受限（沙箱 / K8s / 内网）？
+## Behind NAT / Firewall / Sandbox?
 
-ACP v1.4 内置三级自动连接策略，**用户零感知**：
+ACP v1.4 includes a three-level automatic connection strategy — **zero config required**:
 
 ```
-Level 1 — Direct connect       (has public IP / same LAN)
-   ↓ fail within 3s
-Level 2 — UDP hole punch        (both behind NAT — NEW in v1.4)
+Level 1 — Direct connect       (public IP or same LAN)
+   ↓ fails within 3s
+Level 2 — UDP hole punch       (both behind NAT — NEW in v1.4)
            DCUtR-style: STUN address discovery → relay signaling → simultaneous probes
-           ✅ Works with ~70% of real-world NAT types (full-cone, port-restricted)
-   ↓ fail
-Level 3 — Relay fallback        (symmetric NAT / CGNAT — ~30% of cases)
+           Works with ~70% of real-world NAT types (full-cone, port-restricted)
+   ↓ fails
+Level 3 — Relay fallback       (symmetric NAT / CGNAT — ~30% of cases)
            Cloudflare Worker relay, stateless, no message storage
 ```
 
-SSE 事件实时反映当前连接层级：`dcutr_started` → `dcutr_connected` / `relay_fallback`。
-`GET /status` 返回 `connection_type`: `p2p_direct` | `dcutr_direct` | `relay`。
+SSE events reflect the current connection level in real-time: `dcutr_started` → `dcutr_connected` / `relay_fallback`.  
+`GET /status` returns `connection_type`: `p2p_direct` | `dcutr_direct` | `relay`.
 
-如需显式走 Relay（如旧版本兼容），可加 `--relay` 参数启动，得到 `acp+wss://` 链接。
+To force relay mode (e.g., for backward compatibility), add `--relay` on startup to get an `acp+wss://` link.
 
-→ **详见 [NAT 穿透与网络接入指南](docs/nat-traversal.md)**
+→ **See [NAT Traversal Guide](docs/nat-traversal.md)**
 
 ---
 
-## 通信架构
+## Architecture
 
-### 握手流程（人只参与前两步）
+### Handshake (humans only do steps 1 and 2)
 
 ```
   Human
@@ -138,99 +138,81 @@ SSE 事件实时反映当前连接层级：`dcutr_started` → `dcutr_connected`
     │          ┌────────── WebSocket Handshake ──────────┐
     │          │  B → A : connect(tok_xxx)               │
     │          │  A → B : AgentCard exchange             │
-    │          │  A,B   : connected ✅                   │
+    │          │  A, B  : connected ✅                   │
     │          └──────────────────────────────────────────┘
     │
    done                ↕ P2P messages flow directly
 ```
 
----
-
-### P2P 直连模式（默认）
+### P2P Direct Mode (default)
 
 ```
   Machine A                                          Machine B
 ┌─────────────────────────────┐    ┌─────────────────────────────┐
-│                             │    │                             │
 │  ┌─────────────────────┐    │    │    ┌─────────────────────┐  │
 │  │    Host App A       │    │    │    │    Host App B       │  │
 │  │  (LLM / Script)     │    │    │    │  (LLM / Script)     │  │
 │  └──────────┬──────────┘    │    │    └──────────┬──────────┘  │
 │             │ HTTP          │    │               │ HTTP         │
-│             │ localhost     │    │               │ localhost    │
 │  ┌──────────▼──────────┐    │    │    ┌──────────▼──────────┐  │
 │  │   acp_relay.py      │    │    │    │   acp_relay.py      │  │
-│  │                     │    │    │    │                     │  │
-│  │  :7901  HTTP API ◄──┼────┼────┼────┼──── POST /message   │  │
-│  │         │           │    │    │    │          :send      │  │
-│  │         │ SSE push  │    │    │    │                     │  │
-│  │         ▼           │    │    │    │  GET /stream (SSE)  │  │
-│  │  GET /stream ───────┼────┼────┼────┼──────────────────►  │  │
-│  │  (real-time push    │    │    │    │  host app receives  │  │
-│  │   to host app)      │    │    │    │  messages instantly │  │
-│  │                     │    │    │    │                     │  │
-│  │  :7801  WebSocket ◄─┼────┼────┼────┼──────────────────── │  │
-│  └──────────────────── │    │    │    └────────────────────►│  │
-│                        │    │    │                          │  │
-│            WebSocket   │    │    │   WebSocket              │  │
-│            P2P Direct  │◄═══╪════╪═══►Direct               │  │
-│            (no broker) │    │    │   (no broker)            │  │
-└────────────────────────┘    │    └──────────────────────────┘  │
-                              │                                   │
-                         Internet / LAN
-                      (no relay server involved)
+│  │  :7901  HTTP API    │◄───┼────┼────┤  POST /message:send │  │
+│  │  :7901/stream (SSE) │────┼────┼───►│  GET /stream (SSE)  │  │
+│  │  :7801  WebSocket   │◄═══╪════╪═══►│  :7801  WebSocket   │  │
+│  └─────────────────────┘    │    │    └─────────────────────┘  │
+└─────────────────────────────┘    └─────────────────────────────┘
+                         Internet / LAN (no relay server)
 ```
 
-| 通道 | 端口 | 方向 | 用途 |
-|------|------|------|------|
-| **WebSocket** | `:7801` | Agent ↔ Agent | P2P 数据通道，消息直达对端，无中间节点 |
-| **HTTP API** | `:7901` | Host App → Agent | 发消息 (`POST /message:send`)、查状态、管理任务 |
-| **SSE** | `:7901/stream` | Agent → Host App | 实时推送收到的消息，长连接，无需轮询 |
+| Channel | Port | Direction | Purpose |
+|---------|------|-----------|---------|
+| **WebSocket** | `:7801` | Agent ↔ Agent | P2P data channel, direct peer-to-peer |
+| **HTTP API** | `:7901` | Host App → Agent | Send messages, manage tasks, query status |
+| **SSE** | `:7901/stream` | Agent → Host App | Real-time push of incoming messages |
 
-**宿主程序接入示例（3 行代码）：**
+**Host app integration (3 lines):**
 
 ```python
-# 发消息给对端 Agent
-requests.post("http://localhost:7901/message:send", json={"text": "Hello"})
+# Send a message to the remote agent
+requests.post("http://localhost:7901/message:send",
+              json={"role":"agent","parts":[{"type":"text","content":"Hello"}]})
 
-# 实时监听收到的消息（SSE 长连接，消息即达即收）
+# Listen for incoming messages in real-time (SSE long-poll)
 for event in sseclient.SSEClient("http://localhost:7901/stream"):
-    print(event.data)   # {"type":"message","text":"Hi back","from":"AgentB"}
+    print(event.data)   # {"type":"message","from":"AgentB",...}
 ```
 
----
-
-### 完整连接策略（v1.4，自动选择，用户零感知）
+### Full Connection Strategy (v1.4 — automatic, zero user config)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│              Three-Level Connection Strategy                    │
-│                                                                 │
-│  Level 1 ─ Direct Connect（最优）                               │
-│  ┌────────────┐                         ┌────────────┐          │
-│  │  Agent A   │◄══════ WS direct ══════►│  Agent B   │          │
-│  └────────────┘    (public IP / LAN)    └────────────┘          │
-│                                                                 │
-│  Level 2 ─ UDP Hole Punch ✅ v1.4 已实现（双方在 NAT 后面）        │
-│  ┌────────────┐   ┌────────────┐        ┌────────────┐          │
-│  │  Agent A   │──►│ Signaling  │◄───────│  Agent B   │          │
-│  │  (NAT)     │   │ (addr exch)│        │  (NAT)     │          │
-│  └────────────┘   └────────────┘        └────────────┘          │
-│        │           exits after                │                  │
-│        └──────────── WS direct ──────────────┘                  │
-│                   (打洞成功，真 P2P)                              │
-│                                                                 │
-│  Level 3 ─ Relay Fallback（最后降级，约 30% 对称 NAT 场景）      │
-│  ┌────────────┐   ┌─────────────┐       ┌────────────┐          │
-│  │  Agent A   │◄─►│ Relay       │◄─────►│  Agent B   │          │
-│  └────────────┘   │ (stateless) │       └────────────┘          │
-│                   └─────────────┘                               │
-│                   frames only, no storage                       │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│             Three-Level Connection Strategy                    │
+│                                                                │
+│  Level 1 — Direct Connect (best)                               │
+│  ┌──────────┐                          ┌──────────┐            │
+│  │  Agent A │◄═══════ WS direct ══════►│  Agent B │            │
+│  └──────────┘    (public IP / LAN)     └──────────┘            │
+│                                                                │
+│  Level 2 — UDP Hole Punch (v1.4, both behind NAT)              │
+│  ┌──────────┐   ┌─────────────┐        ┌──────────┐            │
+│  │  Agent A │──►│  Signaling  │◄───────│  Agent B │            │
+│  │  (NAT)   │   │ (addr exch) │        │  (NAT)   │            │
+│  └──────────┘   └─────────────┘        └──────────┘            │
+│       │          exits after                 │                  │
+│       └──────────── WS direct ──────────────┘                  │
+│                    (true P2P after punch)                       │
+│                                                                │
+│  Level 3 — Relay Fallback (~30% symmetric NAT cases)           │
+│  ┌──────────┐   ┌─────────────┐        ┌──────────┐            │
+│  │  Agent A │◄─►│    Relay    │◄──────►│  Agent B │            │
+│  └──────────┘   │ (stateless) │        └──────────┘            │
+│                 └─────────────┘                                │
+│                  frames only, no message storage               │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-> **Signaling Server** 只做一次性地址交换（TTL 30s），不转发任何消息帧，握手后立即退出。  
-> **Relay** 是真正的最后兜底，不是主路径——对称 NAT 等少数场景才会触发。
+> **Signaling server** does one-time address exchange only (TTL 30s), forwards zero message frames.  
+> **Relay** is the last resort, not the main path — only triggered by symmetric NAT / CGNAT.
 
 ---
 
@@ -246,87 +228,92 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Min dependencies** | Heavy SDK | **`pip install websockets`** |
 | **Identity** | OAuth tokens | **Ed25519 + did:acp: DID + CA hybrid (v1.5)** |
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
-| **Agent identity proof** | ❌ (open issue #1672, 43 comments, still discussion) | **✅ Hybrid: `did:acp:` self-sovereign + CA cert (v1.5)** |
+| **Agent identity proof** | ❌ (open issue #1672, 44 comments, still in discussion) | **✅ Hybrid: `did:acp:` self-sovereign + CA cert (v1.5)** |
 
-> A2A #1672 has 43 comments converging on "hybrid identity model". ACP v1.5 ships it today.
+> A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) is converging on a "hybrid identity model" after 44+ comments. ACP v1.5 ships it today.
 
 ### Numbers
 
 - **0.6ms** avg send latency · **2.8ms** P99
-- **1,930 req/s** sequential throughput
+- **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **19/19 test scenarios PASS** (error handling · reconnection · ring pipeline · concurrent)
-- **184 commits** · **3,300+ lines** · **zero known P0/P1 bugs**
+- **22/22 test scenarios PASS** (error handling · pressure test · NAT traversal · ring pipeline)
+- **184+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
 
-## API 速查
+## API Reference
 
-| 功能 | 方法 | 路径 |
-|------|------|------|
-| 获取本机链接 | GET | `/link` |
-| 主动连接对方 | POST | `/connect` `{"link":"acp://..."}` |
-| 发消息 | POST | `/message:send` `{"text":"..."}` |
-| 实时收消息 | GET | `/stream` (SSE) |
-| 查状态 | GET | `/status` |
-| 查已连接 Peer | GET | `/peers` |
+| Action | Method | Path |
+|--------|--------|------|
+| Get your link | GET | `/link` |
+| Connect to a peer | POST | `/peers/connect` `{"link":"acp://..."}` |
+| Send a message | POST | `/message:send` `{"role":"agent","parts":[...]}` |
+| Receive in real-time | GET | `/stream` (SSE) |
+| Poll inbox (offline) | GET | `/recv` |
+| Query status | GET | `/status` |
+| List peers | GET | `/peers` |
 | AgentCard | GET | `/.well-known/acp.json` |
+| Update availability | PATCH | `/.well-known/acp.json` |
+| Create task | POST | `/tasks` |
+| Update task | POST | `/tasks/{id}:update` |
+| Cancel task | POST | `/tasks/{id}:cancel` |
 
-HTTP 默认端口：`7901`（WS 端口：`7801`）
-
----
-
-## 可选特性
-
-| 特性 | 参数 | 说明 |
-|------|------|------|
-| 公共中继（网络受限时） | `--relay` | `acp+wss://` 格式链接 |
-| HMAC 消息签名 | `--secret <key>` | 两端共享密钥，无需额外依赖 |
-| Ed25519 身份 | `--identity` | 需 `pip install cryptography` |
-| mDNS 局域网发现 | `--advertise-mdns` | 无需 zeroconf 库 |
-| Docker | `docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay` | 多架构，含 GHCR CI |
+HTTP default port: `7901` · WebSocket port: `7801`
 
 ---
 
-## Task 状态机
+## Optional Features
 
-用于跨 Agent 协作追踪任务进度：
+| Feature | Flag | Notes |
+|---------|------|-------|
+| Public relay (NAT fallback) | `--relay` | Returns `acp+wss://` link |
+| HMAC message signing | `--secret <key>` | Shared secret, no extra deps |
+| Ed25519 identity | `--identity` | Requires `pip install cryptography` |
+| mDNS LAN discovery | `--advertise-mdns` | No zeroconf library needed |
+| Docker | `docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay` | Multi-arch, GHCR CI |
+
+---
+
+## Task State Machine
+
+Track cross-agent task progress:
 
 ```
 submitted → working → completed ✅
                     → failed    ❌
-                    → input_required → working（等待补充输入）
+                    → input_required → working (waiting for more input)
 ```
 
-API：`POST /tasks` 创建，`POST /tasks/{id}:update` 更新状态。
+API: `POST /tasks` to create · `POST /tasks/{id}:update` to update status.
 
 ---
 
 ## Heartbeat / Cron Agents
 
-ACP 原生支持**离线 Agent**（定时唤醒的 cron 型 Agent），无需长连接轮询。
+ACP natively supports **offline agents** (cron-style agents that wake up periodically), no persistent connection required.
 
-### 工作方式
+### How it works
 
 ```
-Cron Agent 每 5 分钟唤醒一次：
-1. 启动 acp_relay.py（得到 acp:// link）
-2. PATCH /.well-known/acp.json 更新可用性（告知对端什么时候能回消息）
-3. GET /recv 收取积压消息，批量处理
-4. POST /message:send 回复
-5. 退出（relay 自动关闭）
+Cron Agent wakes up every 5 minutes:
+1. Start acp_relay.py (get an acp:// link)
+2. PATCH /.well-known/acp.json to broadcast availability
+3. GET /recv to drain queued messages, process in batch
+4. POST /message:send to reply
+5. Exit (relay shuts down cleanly)
 ```
 
 ```python
-# Python — cron agent 模板
+# Python — cron agent template
 import subprocess, time, requests
 
 relay = subprocess.Popen(["python3", "relay/acp_relay.py", "--name", "MyCronAgent"])
-time.sleep(1)  # 等待启动
+time.sleep(1)   # wait for startup
 
 BASE = "http://localhost:7901"
 
-# 广播可用性
+# Broadcast availability
 requests.patch(f"{BASE}/.well-known/acp.json", json={
     "availability": {
         "mode": "cron",
@@ -336,42 +323,43 @@ requests.patch(f"{BASE}/.well-known/acp.json", json={
     }
 })
 
-# 收取并处理消息
+# Drain and process queued messages
 msgs = requests.get(f"{BASE}/recv?limit=100").json()["messages"]
 for m in msgs:
     text = m["parts"][0]["content"]
-    requests.post(f"{BASE}/message:send", json={"role":"agent","text":f"Processed: {text}"})
+    requests.post(f"{BASE}/message:send",
+                  json={"role":"agent","parts":[{"type":"text","content":f"Processed: {text}"}]})
 
 relay.terminate()
 ```
 
-> **Why it matters:** A2A [#1667](https://github.com/google-deepmind/a2a/issues/1667) 正在讨论 heartbeat agent 支持（仍是 proposal）——ACP `/recv` 天然解决，今天就能用。
+> **Why it matters:** A2A [#1667](https://github.com/a2aproject/A2A/issues/1667) is still discussing heartbeat agent support as a proposal. ACP `/recv` solves this natively — available today.
 
 ---
 
 ## Agent Identity (v1.5)
 
-ACP 支持**两种身份模型**，可单独使用或组合（混合模型）：
+ACP supports **two identity models**, usable standalone or combined (hybrid):
 
-| 模式 | 启动参数 | `capabilities.identity` | 说明 |
-|------|----------|--------------------------|------|
-| 无身份 | _(default)_ | `"none"` | 向后兼容 v0.7 |
-| 自主权身份 | `--identity` | `"ed25519"` | Ed25519 签名 + `did:acp:` DID |
-| **混合模型** | `--identity --ca-cert` | `"ed25519+ca"` | 自主权 + CA 签发证书 |
+| Mode | Flag | `capabilities.identity` | Notes |
+|------|------|--------------------------|-------|
+| None | _(default)_ | `"none"` | Backward-compatible with v0.7 |
+| Self-sovereign | `--identity` | `"ed25519"` | Ed25519 signing + `did:acp:` DID |
+| **Hybrid** | `--identity --ca-cert` | `"ed25519+ca"` | Self-sovereign + CA-issued certificate |
 
 ```bash
-# 自主权身份 (v0.8+)
+# Self-sovereign identity (v0.8+)
 python3 relay/acp_relay.py --name MyAgent --identity
 
-# 混合身份 (v1.5) — CA 证书文件
+# Hybrid identity (v1.5) — CA cert file
 python3 relay/acp_relay.py --name MyAgent --identity --ca-cert /path/to/agent.crt
 
-# 混合身份 (v1.5) — 内联 PEM
+# Hybrid identity (v1.5) — inline PEM
 python3 relay/acp_relay.py --name MyAgent --identity \
   --ca-cert "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
 ```
 
-**AgentCard 示例（混合模式）：**
+**AgentCard example (hybrid mode):**
 ```json
 {
   "identity": {
@@ -386,66 +374,67 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 }
 ```
 
-**验证策略**（验证方自选）：
+**Verification strategy** (verifier's choice):
+- Trust only `did:acp:` — verify Ed25519 signature, ignore `ca_cert`
+- Trust only CA — verify certificate chain, ignore DID
+- Require both — highest security
+- Accept either — highest interoperability
 
-- 仅信任 `did:acp:` — 验证 Ed25519 签名，忽略 `ca_cert`
-- 仅信任 CA — 验证证书链，忽略 DID
-- 两者都要 — 最高安全
-- 任一即可 — 最高互操作性
-
-> **Why it matters:** A2A [#1672](https://github.com/a2aproject/A2A/issues/1672)（43 条评论，仍在讨论）正收敛到同一「混合模型」结论——ACP v1.5 今天就能用。
-
----
-
-## SDK
-
-- **Python** — `sdk/python/` (`RelayClient`)
-- **Node.js** — `sdk/node/` (零外部依赖，含 TypeScript 类型)
-- **Go** — `sdk/go/` (零外部依赖，Go 1.21+)
-- **Rust** — `sdk/rust/` (v1.3)
-- **Java** — `sdk/java/` (零外部依赖，JDK 11+，含 Spring Boot 集成示例)
+> **Why it matters:** A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) (44 comments, still in discussion) is converging on the same hybrid model. ACP v1.5 ships it today.
 
 ---
 
-## 版本历史
+## SDKs
 
-| 版本 | 状态 | 重点 |
-|------|------|------|
-| v0.1–v0.5 | ✅ | P2P 核心、Task 状态机、消息幂等 |
-| v0.6 | ✅ | 多 Peer 注册、标准错误码 |
-| v0.7 | ✅ | HMAC 签名、mDNS 发现 |
-| v0.8–v0.9 | ✅ | Ed25519 身份、Node.js SDK、compat 测试套件 |
-| v1.0 | ✅ | 生产稳定、安全审计、Go SDK |
-| v1.1 | ✅ | HMAC replay-window、`failed_message_id` |
-| v1.2 | ✅ | 调度元数据 (`availability`)、Docker 镜像 |
-| v1.3 | ✅ | Rust SDK、DID 身份 (`did:acp:`)、Extension 机制、GHCR CI |
-| **v1.4** | ✅ **已实现** | **真 P2P NAT 穿透**：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级，Relay 退化为最后兜底 |
-| **v1.5** | ✅ **已实现** | **混合身份模型**：`--ca-cert` 在 `did:acp:` 自主权基础上叠加 CA 签发证书，`capabilities.identity: "ed25519+ca"` |
+| Language | Path | Notes |
+|----------|------|-------|
+| **Python** | `sdk/python/` | `RelayClient` class |
+| **Node.js** | `sdk/node/` | Zero external deps, TypeScript types included |
+| **Go** | `sdk/go/` | Zero external deps, Go 1.21+ |
+| **Rust** | `sdk/rust/` | v1.3, reqwest + serde |
+| **Java** | `sdk/java/` | Zero external deps, JDK 11+, Spring Boot example included |
 
 ---
 
-## 仓库结构
+## Changelog
+
+| Version | Status | Highlights |
+|---------|--------|------------|
+| v0.1–v0.5 | ✅ | P2P core, task state machine, message idempotency |
+| v0.6 | ✅ | Multi-peer registry, standard error codes |
+| v0.7 | ✅ | HMAC signing, mDNS discovery |
+| v0.8–v0.9 | ✅ | Ed25519 identity, Node.js SDK, compat test suite |
+| v1.0 | ✅ | Production-stable, security audit, Go SDK |
+| v1.1 | ✅ | HMAC replay-window, `failed_message_id` |
+| v1.2 | ✅ | Scheduling metadata (`availability`), Docker image |
+| v1.3 | ✅ | Rust SDK, DID identity (`did:acp:`), Extension mechanism, GHCR CI |
+| **v1.4** | ✅ | **True P2P NAT traversal**: UDP hole-punch (DCUtR-style) + signaling, three-level auto-fallback |
+| **v1.5** | ✅ | **Hybrid identity**: `--ca-cert` adds CA certificate on top of `did:acp:` self-sovereign identity |
+
+---
+
+## Repository Structure
 
 ```
 agent-communication-protocol/
-├── SKILL.md              ← 发这个 URL 给 Agent 即可接入
+├── SKILL.md              ← Send this URL to any agent to onboard
 ├── relay/
-│   └── acp_relay.py      ← 核心守护进程（单文件）
-├── spec/                 ← 协议规范文档
-├── sdk/                  ← Python / Node.js / Go / Rust / Java SDK
-├── tests/                ← compat + integration 测试套件
-├── docs/                 ← 中文文档、conformance 指南、博客草稿
-└── acp-research/         ← 竞品情报、ROADMAP
+│   └── acp_relay.py      ← Core daemon (single file, stdlib-first)
+├── spec/                 ← Protocol specification documents
+├── sdk/                  ← Python / Node.js / Go / Rust / Java SDKs
+├── tests/                ← Compatibility + integration test suites
+├── docs/                 ← Chinese docs, conformance guide, blog drafts
+└── acp-research/         ← Competitive intelligence, ROADMAP
 ```
 
 ---
 
 ## Contributing
 
-欢迎贡献！详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- Bug 报告 & 功能请求 → [GitHub Issues](https://github.com/Kickflip73/agent-communication-protocol/issues)
-- 协议设计讨论 → [GitHub Discussions](https://github.com/Kickflip73/agent-communication-protocol/discussions)
+- Bug reports & feature requests → [GitHub Issues](https://github.com/Kickflip73/agent-communication-protocol/issues)
+- Protocol design discussion → [GitHub Discussions](https://github.com/Kickflip73/agent-communication-protocol/discussions)
 
 ---
 
@@ -456,5 +445,5 @@ agent-communication-protocol/
 ---
 
 <div align="center">
-<sub>MCP 标准化 Agent↔Tool，ACP 标准化 Agent↔Agent。P2P · 零服务器 · curl 可接入。</sub>
+<sub>MCP standardizes Agent↔Tool. ACP standardizes Agent↔Agent. P2P · Zero server · curl-compatible.</sub>
 </div>
