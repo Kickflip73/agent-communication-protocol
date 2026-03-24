@@ -7,7 +7,15 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [1.5.1-dev] — 2026-03-24 (updated 20:00)
+## [1.5.1-dev] — 2026-03-24 (updated 20:33)
+
+### Fixed (20:33)
+
+- **BUG-016 (P1)**: `/peer/{id}/send` connection race — `ERR_PEER_CONNECTING` guard (commit `665f767`)
+  - Root cause: `_register_peer()` sets `connected=True, ws=None` immediately on `/peers/connect`; send handler only checked `connected`, not `ws`, causing a spurious "not connected" 503 during WS handshake
+  - Fix: added `ws is None` guard returning 503 `ERR_PEER_CONNECTING` with retry hint
+  - Test fix: `wait_peer_ready()` now uses probe-send success as readiness signal instead of peer list polling
+  - Verified: `test_scenario_fg.py` 19/19 ✅ (was 16/19 before fix)
 
 ### Fixed (20:00)
 
