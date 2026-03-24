@@ -352,3 +352,24 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 
 **當前狀態**：⚠️ 部分修復（relay 降級前清空 peers），核心問題（ping_timeout 前假成功窗口）保留
 **調整優先級**：P1 → P2（有明確技術原因，非簡單 bug，需架構決策）
+
+---
+
+### BUG-013 🟡 P1 — `/peers/connect` 对无效 link 格式不校验，返回 200
+
+**发现时间**: 2026-03-24 场景E测试 (E3/E7)
+**状态**: ✅ 已修复 (本轮 commit，待 push)
+
+**现象**:
+- `POST /peers/connect` body 含纯文本 link（如 "not-a-link"）→ 返回 200 + `{ok:true}`
+- `http://` 非 acp 协议 link → 返回 200 + `{ok:true}`
+- 缺少 token 的 link（如 `acp://1.2.3.4:9999`）→ 返回 200 + `{ok:true}`
+- 端口越界（如 port=99999）→ 返回 200 + `{ok:true}`
+- 不可达地址 → 返回 200（后台 goroutine 静默失败）
+
+**期望**: 格式无效的 link 应在接受请求前校验，返回 400 + ERR_INVALID_REQUEST
+
+**根因**: `parse_link()` 无格式校验；`/peers/connect` handler 直接启动后台连接不做前置验证
+
+**修复**: 在 `parse_link()` 添加校验逻辑（scheme/port/token 三项），`/peers/connect` 中
+调用 `parse_link()` 并 catch `ValueError` 返回 400

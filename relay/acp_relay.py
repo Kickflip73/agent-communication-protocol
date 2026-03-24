@@ -2016,6 +2016,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if not peer_link:
                     self._json({"error": "link required"}, 400)
                     return
+                # BUG-013 fix: validate link format before accepting the request
+                try:
+                    parse_link(peer_link)
+                except ValueError as ve:
+                    e_body, _ = _err(ERR_INVALID_REQUEST, str(ve))
+                    self._json(e_body, 400)
+                    return
                 # BUG-003 / BUG-003b fix: idempotent connect — if a peer with the same link
                 # already exists (regardless of connected state), return it instead of creating
                 # a duplicate. Previously only checked connected=True, which caused duplicates
@@ -2409,17 +2416,41 @@ def parse_link(link):
     应用层链接格式（传输层无关）：
       acp://IP:PORT/TOKEN       → 标准链接，底层自动选 P2P 或中继
       acp+wss://relay.host/acp/TOKEN  → 直接指定中继（向后兼容）
+
+    Raises ValueError for malformed links (BUG-013 fix).
     """
+    if not link or not isinstance(link, str):
+        raise ValueError("link must be a non-empty string")
+
     if link.startswith("acp+wss://") or link.startswith("acp+ws://"):
         scheme = "http_relay"
         parsed = urlparse(link.replace("acp+wss://", "https://", 1).replace("acp+ws://", "http://", 1))
         base_url = f"{'https' if link.startswith('acp+wss://') else 'http'}://{parsed.netloc}"
         token = parsed.path.strip("/").split("/")[-1]
+        if not token:
+            raise ValueError(f"acp+wss:// link missing token: {link!r}")
         return base_url, 0, token, scheme
+
+    # BUG-013 fix: reject non-acp:// schemes
+    if not link.startswith("acp://"):
+        raise ValueError(f"invalid link scheme (expected acp:// or acp+wss://): {link!r}")
+
     # 标准 acp:// 链接
     parsed = urlparse(link.replace("acp://", "http://", 1))
+    host  = parsed.hostname
+    port  = parsed.port
     token = parsed.path.strip("/")
-    return parsed.hostname or "localhost", parsed.port or 7801, token, "ws"
+
+    if not host:
+        raise ValueError(f"link missing host: {link!r}")
+    if port is None:
+        port = 7801
+    elif not (1 <= port <= 65535):
+        raise ValueError(f"link port out of range ({port}): {link!r}")
+    if not token:
+        raise ValueError(f"link missing token: {link!r}")
+
+    return host, port, token, "ws"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
