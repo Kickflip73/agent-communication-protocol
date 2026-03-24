@@ -49,6 +49,16 @@ def post(http_port, path, body, timeout=5):
 
 results = []
 
+def wait_peer_ready(http_port, peer_id, retries=16, interval=0.5):
+    """Wait until peer WS handshake completes (probe send succeeds)."""
+    for _ in range(retries):
+        r, _ = post(http_port, f"/peer/{peer_id}/send",
+                    {"parts": [{"type": "text", "content": "__probe__"}], "role": "agent"})
+        if r.get("ok"):
+            return True
+        time.sleep(interval)
+    return False
+
 def ok(name, passed, note=""):
     sym = "✅" if passed else "❌"
     results.append((name, passed, note))
@@ -96,13 +106,15 @@ try:
     r, c = post(7950, "/peers/connect", {"link": w1_link, "name": "Worker1"})
     ok("B1.1 Orch→W1 connect ok", r.get("ok") and c == 200)
     w1_peer_id = r.get("peer_id", "peer_001")
+    wait_peer_ready(7950, w1_peer_id)
 
     # B2: Orchestrator connects to Worker2
     r, c = post(7950, "/peers/connect", {"link": w2_link, "name": "Worker2"})
     ok("B2.1 Orch→W2 connect ok", r.get("ok") and c == 200)
     w2_peer_id = r.get("peer_id", "peer_002")
+    wait_peer_ready(7950, w2_peer_id)
 
-    time.sleep(3)
+    time.sleep(1)
 
     # B3: Verify both connections
     peers_orch, _ = get(7950, "/peers")
