@@ -336,13 +336,65 @@ This is informative guidance; strict verification is application-defined.
 
 ---
 
-## Appendix A: Version History (v1.1–v1.3)
+## §9 Task Query API (v1.5.1)
+
+### §9.1 `GET /tasks` — List Tasks
+
+Returns a paginated list of tasks for this relay instance.
+
+```
+GET /tasks
+```
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `state` | string | — | Filter by task status: `submitted` \| `working` \| `completed` \| `failed` \| `input_required` |
+| `peer_id` | string | — | Filter by originating peer ID |
+| `created_after` | ISO-8601 string | — | Return only tasks whose `created_at` is after this timestamp |
+| `updated_after` | ISO-8601 string | — | Return only tasks whose `updated_at` (or `created_at` if absent) is after this timestamp |
+| `limit` | integer | 50 | Max tasks per page (1–200) |
+| `cursor` | task ID | — | Exclusive keyset cursor: return tasks after this task's position |
+| `sort` | string | `created_desc` | Sort order: `created_asc` \| `created_desc` |
+
+#### Response
+
+```json
+{
+  "tasks":       [...],
+  "count":       5,
+  "total":       42,
+  "has_more":    true,
+  "next_cursor": "task_abc123"
+}
+```
+
+#### Notes
+
+- `created_after` and `updated_after` use ISO-8601 UTC format (`2026-03-24T08:00:00.000000Z`)
+- Future timestamps return empty `tasks` list (correct behavior, not an error)
+- Invalid timestamp strings do not cause 500; server MAY return 400 ERR_INVALID_REQUEST
+- `peer_id` filter matches against `payload.peer_id` in the stored task object
+- All query parameters are combinable (AND semantics)
+
+#### Example: Recent working tasks
+
+```
+GET /tasks?state=working&updated_after=2026-03-24T08:00:00Z&sort=created_asc
+```
+
+---
+
+## Appendix A: Version History (v1.1–v1.5.1)
 
 | Version | Date | Key Changes |
 |---------|------|-------------|
 | v1.1 | 2026-03-21/22 | `failed_message_id` on all errors; HMAC replay-window (`--hmac-window`) |
 | v1.2 | 2026-03-22 | AgentCard `availability` block; `PATCH /.well-known/acp.json`; Rust SDK |
 | v1.3 | 2026-03-22/23 | Extension mechanism (§7); `did:acp:` DID identity (§8); Docker GHCR CI; conformance guide |
+| v1.5 | 2026-03-24 | Hybrid identity model (`--ca-cert`); `identity.scheme: ed25519+ca`; Java SDK |
+| v1.5.1 | 2026-03-24 | `GET /tasks` time-window filters (`created_after`, `updated_after`); BUG-014 `peer_id` filter fix |
 
 ---
 

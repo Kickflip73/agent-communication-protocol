@@ -149,6 +149,12 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - _pubkey_to_did_acp()，AgentCard identity.did 字段，capabilities.did_identity 标志
   - GET /.well-known/did.json（W3C DID Document，Ed25519VerificationKey2020 + ACPRelay service）
   - 14 个新单元测试
+- ✅ **`GET /tasks` 时间窗口过滤器**（commit `a187471`，2026-03-24）
+  - `created_after=<ISO-8601>` + `updated_after=<ISO-8601>` 新查询参数
+  - 可与 state/peer_id/cursor/sort 组合使用
+  - 修复 BUG-014：`peer_id` 过滤失效（payload 嵌套层级问题）
+  - 灵感：A2A v1.0.0 `tasks/list` `last_updated_after`（scan #4）
+  - Tests: 6/6 PASS（tests/test_tasks_filtering.py）
 - [ ] HTTP/2 传输绑定
 - ✅ Rust SDK stub（sdk/rust/，commit pending，2026-03-22）
   - lib.rs：RelayClient, MessageRequest, AgentCard, AvailabilityPatch, RelayStatus + 10 structs/enums

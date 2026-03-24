@@ -7,6 +7,39 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.5.1-dev] — 2026-03-24
+### Added
+
+- **`GET /tasks` time-window filters** — `created_after` and `updated_after` (commit `a187471`)
+  - `created_after=<ISO-8601>` — return only tasks created after this timestamp
+  - `updated_after=<ISO-8601>` — return only tasks updated after this timestamp
+  - Combinable with existing `state` / `peer_id` / `cursor` / `sort` params
+  - Future timestamps → empty list (correct behavior, TF4)
+  - Invalid timestamp strings → 200/400, no 500 crash (TF5)
+  - Tests: **6/6 PASS** (`tests/test_tasks_filtering.py` — TF1–TF6)
+  - Inspired by A2A v1.0.0 `tasks/list` + `last_updated_after` (research scan #4)
+
+### Fixed
+
+- **BUG-014 (P2)**: `GET /tasks?peer_id=` filter was always returning empty list
+  - Root cause: `peer_id` is stored in `payload.peer_id`, not top-level `t["peer_id"]`
+  - Fix: filter now checks both `t.get("peer_id")` and `t.get("payload", {}).get("peer_id")`
+  - Previously silently broken with zero test coverage; discovered during TF6 regression test
+
+### Research
+
+- **A2A v1.0.0 released 2026-03-12** — competitive analysis scan #4 (commit `8f0c9b5`)
+  - A2A v0.3.0 → v1.0.0 with multiple BREAKING CHANGES (OAuth modernization, gRPC multi-tenancy,
+    `extendedAgentCard` restructure, `canceled` spelling standardization)
+  - ACP's P2P/zero-server positioning MORE differentiated vs. A2A enterprise trajectory
+  - A2A #1667 (heartbeat agent): ACP `availability` block already ships this natively
+  - A2A #1672 (agent identity): reference impl submitted (getagentid.dev, centralized CA);
+    ACP ed25519 self-sovereign model is superior (no third-party CA dependency)
+  - Action items: P2 — SDK compat version docs; P3 — highlight self-sovereign identity in README
+  - Full report: `acp-research/reports/2026-03-24-scan4.md`
+
+---
+
 ## [1.5.0-dev] — 2026-03-24
 ### Added
 
