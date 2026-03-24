@@ -81,10 +81,21 @@ A2A is great if you're building enterprise agent infrastructure. ACP is for:
 - Experiments where you don't want to run an auth server
 - Any scenario where `curl` should be enough
 
-A2A's Working Group is now converging on `getagentid.dev` as a reference identity CA
+A few things I've noticed while tracking A2A closely:
+
+**Identity**: A2A's Working Group is converging on `getagentid.dev` as a reference identity CA
 (issue #1672, 47 comments). That's a central registration service — an external dependency.
 ACP ships `did:acp:` today: self-generated from your Ed25519 pubkey, zero external resolver,
 zero registration, works offline. One flag: `--identity ed25519`.
+
+**Security**: A2A's `GetTaskPushNotificationConfig` API returns full credentials in the
+response by default — a security vulnerability filed as issue #1681 (still open). ACP has no
+Push Notification mechanism at all. Fewer features = smaller attack surface.
+
+**Simplicity**: ACP's cancel is synchronous and unambiguous: call `:cancel`, get back
+`{"status": "canceled"}`, done. A2A issue #1680 is an open question with no resolution:
+what should happen when a task can't cancel immediately? Two competing approaches, no
+community consensus yet.
 
 **What I want feedback on**:
 
@@ -104,6 +115,8 @@ zero registration, works offline. One flag: `--identity ed25519`.
 - **vs MCP**: MCP = Agent↔Tool. ACP = Agent↔Agent. Different layers, complementary.
 - **vs A2A**: A2A is enterprise. ACP is personal/small team. Like nginx vs Apache — both valid.
 - **on identity**: A2A is heading toward `getagentid.dev` (external CA). ACP uses `did:acp:` (self-sovereign, zero external service). If A2A's CA goes down, their identity story breaks. ACP works offline.
+- **on security**: A2A issue #1681 (open): `PushNotificationConfig` leaks credentials by default. ACP doesn't have Push Notifications — that's a feature, not a limitation.
+- **on cancel semantics**: A2A issue #1680 (open, no resolution): async cancel is complex. ACP cancel is synchronous and unambiguous.
 - **vs MQTT/WebSockets**: Those are transports. ACP is a semantic protocol (tasks, agent cards, identity).
 - **vs HTTP APIs**: Agents aren't servers. They come and go. ACP handles NAT, discovery, availability.
 - **Zero-server claim**: The Cloudflare Worker relay is a fallback, not required. P2P works without it if agents are on same LAN or have public IPs.
@@ -112,9 +125,10 @@ zero registration, works offline. One flag: `--identity ed25519`.
 
 - "Why not just use REST?" → REST assumes servers. Agents are peers.
 - "This is just WebSockets" → Transports are pluggable. The protocol is the semantic layer.
-- "Security concerns?" → HMAC signing + `did:acp:` self-sovereign identity (v1.5, ships today). E2E encryption on roadmap.
+- "Security concerns?" → HMAC signing + `did:acp:` self-sovereign identity (v1.5, ships today). E2E encryption on roadmap. Compare: A2A #1681 leaks credentials by default.
 - "Why not just use getagentid.dev?" → External CA = external dependency + registration + potential downtime. ACP `did:acp:` is derived from your key pair, works offline, no third party.
 - "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python.
+- "What about cancel edge cases?" → ACP cancel is synchronous: you get `canceled` back immediately. A2A is still debating this in issue #1680.
 
 ---
 

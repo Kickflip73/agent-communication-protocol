@@ -7,6 +7,24 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.5.2-dev] — 2026-03-25 05:55
+
+### Added
+
+- **spec §10 — Task Cancel Semantics** (`spec/core-v1.3.md`): explicit synchronous cancel contract
+  - Cancel is synchronous and immediate: `:cancel` returns final `canceled` state in the same HTTP response, no async/deferred mechanism
+  - Cancel is idempotent: calling `:cancel` on an already-canceled task returns 200 with existing state
+  - New error code: `ERR_TASK_NOT_CANCELABLE` (409) for tasks in terminal states (`completed`, `failed`)
+  - Design rationale documented: deliberate contrast with A2A issue #1680 (async cancel, unresolved)
+  - Agent-side cancel behavior guidance (best-effort signal, not a transaction rollback)
+- **Show HN draft updated** (`docs/show-hn-draft.md`): added A2A competitive comparison points
+  - A2A #1681 security bug: `PushNotificationConfig` leaks credentials by default; ACP has no Push Notification mechanism
+  - A2A #1680 cancel design gap: async cancel unresolved; ACP cancel is synchronous and unambiguous
+  - Updated anti-trolling prep with cancel and security talking points
+- **spec Appendix A**: version history updated to v1.5.2
+
+---
+
 ## [1.5.1-dev] — 2026-03-24 (updated 2026-03-25 05:25)
 
 ### Research (2026-03-25 05:25 — Competitive scan #7)

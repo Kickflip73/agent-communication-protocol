@@ -386,7 +386,59 @@ GET /tasks?state=working&updated_after=2026-03-24T08:00:00Z&sort=created_asc
 
 ---
 
-## Appendix A: Version History (v1.1–v1.5.1)
+## §10 Task Cancel Semantics (v1.5.2) — New Section
+
+**Stability:** stable
+
+### §10.1 Cancel is Synchronous and Immediate
+
+ACP task cancellation is **synchronous**: the relay MUST return the final `canceled` state
+in the same HTTP response. There is no deferred/async cancel mechanism.
+
+```
+POST /tasks/{task_id}:cancel
+```
+
+**Success response (HTTP 200):**
+
+```json
+{
+  "task": {
+    "id": "task_abc123",
+    "status": "canceled",
+    "canceled_at": "2026-03-25T05:55:00Z"
+  }
+}
+```
+
+**Error cases:**
+
+| Condition | HTTP | Error Code |
+|-----------|------|-----------|
+| Task not found | 404 | `ERR_INVALID_REQUEST` |
+| Task already in terminal state (`completed`, `failed`) | 409 | `ERR_TASK_NOT_CANCELABLE` |
+| Task already `canceled` | 200 | Returns existing task (idempotent) |
+
+### §10.2 Design Rationale
+
+ACP deliberately omits async cancel semantics. Rationale:
+
+1. **Simplicity**: Callers do not need to poll for cancel completion or register webhooks.
+2. **Predictability**: After `:cancel` returns 200, the task is guaranteed to be in `canceled` state — no intermediate states.
+3. **Contrast with A2A**: A2A's cancel semantics are debated (issue #1680, unresolved as of 2026-03-25). ACP takes a deliberate stance: if work cannot be interrupted immediately at the relay layer, the relay returns success and the downstream agent is responsible for honoring the `canceled` state on its next interaction.
+
+### §10.3 Agent-Side Cancel Behavior
+
+Agents receiving a `:cancel` request SHOULD:
+- Stop generating new output for the associated task
+- Not start new sub-tasks or side-effects for this task
+- Acknowledge via AgentCard `capabilities.input_required: false` if applicable
+
+Agents are NOT required to roll back or undo work already completed. Cancel is a best-effort signal, not a transaction.
+
+---
+
+## Appendix A: Version History (v1.1–v1.5.2)
 
 | Version | Date | Key Changes |
 |---------|------|-------------|
@@ -395,6 +447,7 @@ GET /tasks?state=working&updated_after=2026-03-24T08:00:00Z&sort=created_asc
 | v1.3 | 2026-03-22/23 | Extension mechanism (§7); `did:acp:` DID identity (§8); Docker GHCR CI; conformance guide |
 | v1.5 | 2026-03-24 | Hybrid identity model (`--ca-cert`); `identity.scheme: ed25519+ca`; Java SDK |
 | v1.5.1 | 2026-03-24 | `GET /tasks` time-window filters (`created_after`, `updated_after`); BUG-014 `peer_id` filter fix |
+| v1.5.2 | 2026-03-25 | §10 Task Cancel Semantics — explicit synchronous cancel contract; `ERR_TASK_NOT_CANCELABLE` error code |
 
 ---
 
