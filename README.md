@@ -302,6 +302,53 @@ API：`POST /tasks` 创建，`POST /tasks/{id}:update` 更新状态。
 
 ---
 
+## Heartbeat / Cron Agents
+
+ACP 原生支持**离线 Agent**（定时唤醒的 cron 型 Agent），无需长连接轮询。
+
+### 工作方式
+
+```
+Cron Agent 每 5 分钟唤醒一次：
+1. 启动 acp_relay.py（得到 acp:// link）
+2. PATCH /.well-known/acp.json 更新可用性（告知对端什么时候能回消息）
+3. GET /recv 收取积压消息，批量处理
+4. POST /message:send 回复
+5. 退出（relay 自动关闭）
+```
+
+```python
+# Python — cron agent 模板
+import subprocess, time, requests
+
+relay = subprocess.Popen(["python3", "relay/acp_relay.py", "--name", "MyCronAgent"])
+time.sleep(1)  # 等待启动
+
+BASE = "http://localhost:7901"
+
+# 广播可用性
+requests.patch(f"{BASE}/.well-known/acp.json", json={
+    "availability": {
+        "mode": "cron",
+        "last_active_at": "2026-03-24T10:00:00Z",
+        "next_active_at": "2026-03-24T10:05:00Z",
+        "task_latency_max_seconds": 300,
+    }
+})
+
+# 收取并处理消息
+msgs = requests.get(f"{BASE}/recv?limit=100").json()["messages"]
+for m in msgs:
+    text = m["parts"][0]["content"]
+    requests.post(f"{BASE}/message:send", json={"role":"agent","text":f"Processed: {text}"})
+
+relay.terminate()
+```
+
+> **Why it matters:** A2A [#1667](https://github.com/google-deepmind/a2a/issues/1667) 正在讨论 heartbeat agent 支持（仍是 proposal）——ACP `/recv` 天然解决，今天就能用。
+
+---
+
 ## SDK
 
 - **Python** — `sdk/python/` (`RelayClient`)
