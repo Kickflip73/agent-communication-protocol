@@ -171,19 +171,25 @@ Level 2: TCP 打洞 ★  — Signaling 交换公网地址 → 双方 SYN 打洞�
 Level 3: Relay 降级  — Cloudflare Worker 转发（兜底，约 30% 场景触发）
 ```
 
-- [ ] **TCP Hole Punching 实现**（`acp_relay.py`）
-  - `_get_public_addr()` — HTTP 反射获取公网 IP:Port
-  - `_signaling_announce()` / `_signaling_get_peer_addr()` — 地址交换
-  - `_tcp_hole_punch()` — 双向 SYN，asyncio + stdlib socket
-  - 全部 stdlib only，不增加新依赖
-- [ ] **Cloudflare Worker 改造**（约 50 行 JS）
-  - 新增 `/acp/announce`、`/acp/peer`、`/acp/myip` 三个轻量端点
-  - 地址记录 TTL 30s，握手后立即删除，不存储任何消息
+- [x] **Python 侧 HTTP 反射 + signaling helpers**（commit `8c162d4`，2026-03-24）
+  - ✅ `_relay_get_public_ip()` — HTTP 反射公网 IP（STUN 降级方案）
+  - ✅ `_relay_announce()` — 地址注册
+  - ✅ `_relay_get_peer_addr()` — 对方地址读取
+  - ✅ `tests/test_nat_signaling.py` — 22/22 PASS
+- [ ] **DCUtRPuncher 集成 HTTP 反射降级**（`acp_relay.py`）
+  - 当前：STUN 失败后直接进入 Level 3 Relay
+  - 目标：STUN 失败 → HTTP 反射 → 继续尝试打洞
+  - 利用已有 `_relay_announce()` / `_relay_get_peer_addr()` helper
+- [x] **Cloudflare Worker 改造** → Worker v2.1（commit `8c162d4`，2026-03-24）
+  - ✅ `GET /acp/myip`：反射公网 IP（CF-Connecting-IP header）
+  - ✅ `POST /acp/announce`：注册 {token,ip,port,nat_type}，TTL 30s，自动过期
+  - ✅ `GET /acp/peer?token=`：一次性读取+删除（防地址爬取）
 - [ ] **自动降级集成**：`_connect_with_nat_traversal()` 替换现有直连逻辑
 - [ ] **链接格式不变**：`acp://` 底层透明升级，向后完全兼容
 - [ ] **`--relay` 语义变更**：从「用户主动选择」→「自动最后降级」，用户无需手动指定
-- [ ] **测试**：`tests/unit/test_nat_traversal.py` + `tests/integration/test_p2p_behind_nat.py`
-- [ ] **规范文档**：`spec/nat-traversal-v1.4.md`（已创建，2026-03-23）
+- [x] **测试（signaling 层）**：`tests/test_nat_signaling.py` — 22/22 PASS（2026-03-24）
+- [ ] **测试（打洞集成）**：`tests/integration/test_p2p_behind_nat.py`（需要真实 NAT 环境）
+- [x] **规范文档**：`spec/nat-traversal-v1.4.md`（已创建 2026-03-23，signaling 层已更新 2026-03-24）
 
 **成功指标：**
 - 双 NAT 场景直连成功率 ≥70%（覆盖 Full Cone / Restricted Cone NAT）
