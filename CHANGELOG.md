@@ -7,7 +7,14 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [1.5.1-dev] — 2026-03-24 (updated 18:30)
+## [1.5.1-dev] — 2026-03-24 (updated 20:00)
+
+### Fixed (20:00)
+
+- **BUG-015 (P3)**: `test_scenario_fg.py` pytest incompatibility (commit `58dbb66`)
+  - Root cause: module-level `sys.exit()` triggered `INTERNALERROR: SystemExit` when mixed with other pytest suites
+  - Fix: refactored to `run_fg_tests()` + `test_scenario_fg()` pytest entry; `sys.exit()` moved to `if __name__ == "__main__":` guard
+  - Verified: 7 tests collected cleanly in mixed-suite run; standalone `python3` execution unchanged
 
 ### Research (scan #5 — 2026-03-24 18:00)
 
