@@ -286,6 +286,7 @@ def _hmac_verify(message_id: str, ts, sig: str) -> bool:
 _ed25519_private: "Ed25519PrivateKey | None" = None   # type: ignore
 _ed25519_public_b64: str = None   # base64url-encoded 32-byte public key
 _did_acp: str = None              # v1.3: did:acp:<base64url(pubkey)> — stable Agent identifier
+_ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certificate (hybrid identity)
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -688,15 +689,17 @@ def _make_agent_card(name, skills):
             "lan_discovery":      _mdns_running,               # v0.7: mDNS LAN peer discovery
             "context_id":         True,                        # v0.7: optional multi-turn context grouping
             "error_codes":        True,                        # v0.6: standard ACP error codes
-            "identity":           "ed25519" if _ed25519_private else "none",  # v0.8: optional identity
+            "identity":           ("ed25519+ca" if (_ed25519_private and _ca_cert_pem)
+                                  else "ed25519" if _ed25519_private else "none"),  # v0.8/v1.5: optional identity
             "did_identity":       bool(_did_acp),              # v1.3: did:acp: stable identifier + DID Document
             "availability":       bool(_availability),         # v1.2: heartbeat/cron availability metadata
             "extensions":         bool(_extensions),           # v1.3: Extension mechanism (URI-identified)
         },
         "identity": ({
-            "scheme":     "ed25519",
+            "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
             "public_key": _ed25519_public_b64,
             "did":        _did_acp,            # v1.3: stable did:acp: identifier
+            **( {"ca_cert": _ca_cert_pem} if _ca_cert_pem else {} ),  # v1.5: CA-signed cert (hybrid model)
         } if _ed25519_private else None),
         "trust": {
             "scheme":  "hmac-sha256" if _hmac_secret else "none",
@@ -2560,6 +2563,11 @@ Examples:
     parser.add_argument("--advertise-mdns", action="store_true",
                         help="(v0.7) Advertise on LAN via UDP multicast. "
                              "Enables GET /discover. No extra packages required.")
+    parser.add_argument("--ca-cert",      default=None, metavar="PATH_OR_PEM",
+                        help="(v1.5) Path to a PEM-encoded CA-signed certificate file, or a raw PEM string. "
+                             "When provided alongside --identity, adds a 'ca_cert' field to AgentCard "
+                             "and sets identity.scheme='ed25519+ca' (hybrid self-sovereign + CA model). "
+                             "Without --identity this flag is ignored.")
     parser.add_argument("--identity",     default=None,
                         help="(v0.8) Path to Ed25519 keypair JSON (auto-generated if absent). "
                              "Omit path to use ~/.acp/identity.json. "
@@ -2646,6 +2654,23 @@ Examples:
     # Ed25519 optional identity (v0.8)
     if identity_path is not None:
         _ed25519_load_or_create(identity_path if identity_path else None)
+
+    # v1.5: CA-signed certificate — hybrid identity model (self-sovereign + CA)
+    global _ca_cert_pem
+    ca_cert_arg = _get(getattr(args, "ca_cert", None), "ca-cert", None)
+    if ca_cert_arg and _ed25519_private:
+        import pathlib as _pl
+        p = _pl.Path(ca_cert_arg)
+        if p.exists():
+            _ca_cert_pem = p.read_text().strip()
+            log.info(f"📜 CA certificate loaded from {p} (hybrid identity: ed25519+ca)")
+        elif ca_cert_arg.strip().startswith("-----BEGIN"):
+            _ca_cert_pem = ca_cert_arg.strip()
+            log.info("📜 CA certificate loaded from inline PEM (hybrid identity: ed25519+ca)")
+        else:
+            log.warning(f"--ca-cert: path '{ca_cert_arg}' not found and doesn't look like PEM; ignoring")
+    elif ca_cert_arg and not _ed25519_private:
+        log.warning("--ca-cert ignored: requires --identity to be set first")
 
     # Availability metadata (v1.2) — opt-in AgentCard block for heartbeat/cron agents
     global _availability
