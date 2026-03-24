@@ -7,7 +7,7 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [1.5.1-dev] — 2026-03-24 (updated 20:33)
+## [1.5.1-dev] — 2026-03-24 (updated 21:37)
 
 ### Fixed (20:33)
 
@@ -23,6 +23,19 @@ Dates: Asia/Shanghai (UTC+8)
   - Root cause: module-level `sys.exit()` triggered `INTERNALERROR: SystemExit` when mixed with other pytest suites
   - Fix: refactored to `run_fg_tests()` + `test_scenario_fg()` pytest entry; `sys.exit()` moved to `if __name__ == "__main__":` guard
   - Verified: 7 tests collected cleanly in mixed-suite run; standalone `python3` execution unchanged
+
+### Research (scan #6 — 2026-03-24 21:37)
+
+- **A2A PR #1678 (NEW ⭐)**: Python SDK tutorial updated to `v1.0.0-alpha.0`
+  - `AgentCard.url` renamed to `icon_url` (breaking); new `supported_interfaces` + `extended_agent_card` fields
+  - Signal: A2A AgentCard still churning; ACP's minimal, stable AgentCard format is a differentiation point
+  - `supported_interfaces` adds protocol negotiation complexity — ACP's "one link, zero config" narrative strengthened
+- **A2A code layer**: 9 consecutive days without spec/code merge (last: 2026-03-16)
+  - Window remains open for ACP v1.4 + v2.0 launch before A2A stabilizes
+- **A2A #1676**: `PushNotificationConfig` missing (still unresolved) — ACP `/recv` polling unaffected
+- **A2A #1672**: `getagentid.dev` identity CA discussion still open, no resolution
+- **ANP**: archived, no new activity (dropped from tracking)
+- Full report: `acp-research/reports/2026-03-24-scan-2.md`
 
 ### Research (scan #5 — 2026-03-24 18:00)
 
