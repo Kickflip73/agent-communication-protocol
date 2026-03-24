@@ -3079,6 +3079,79 @@ class STUNClient:
 # DCUtRPuncher — UDP hole punching state machine
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Signaling helpers — HTTP Reflection via Cloudflare Worker (v2.1 / ACP v1.4)
+#
+# These complement STUNClient: when STUN fails (corporate firewall blocks UDP
+# to external STUN servers), we fall back to HTTP reflection via the Worker.
+#
+# Endpoints (added in Worker v2.1):
+#   GET  /acp/myip           → reflect public IP
+#   POST /acp/announce       → register {token, ip, port} with 30s TTL
+#   GET  /acp/peer?token=<t> → fetch + delete peer announce record (one-time)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _relay_get_public_ip(relay_base_url: str, timeout: float = 3.0) -> str | None:
+    """
+    Reflect public IP via Worker /acp/myip endpoint.
+    Returns IP string or None on failure.
+    stdlib-only: urllib.
+    """
+    import urllib.request
+    try:
+        url = relay_base_url.rstrip("/") + "/acp/myip"
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            data = json.loads(r.read())
+            return data.get("ip")
+    except Exception as e:
+        log.debug(f"[NAT/HTTP] /acp/myip failed: {e}")
+        return None
+
+
+def _relay_announce(relay_base_url: str, token: str, ip: str, port: int,
+                    nat_type: str = "unknown", timeout: float = 3.0) -> bool:
+    """
+    Register public address for a token via Worker /acp/announce.
+    Record expires in 30s automatically.
+    Returns True on success.
+    """
+    import urllib.request
+    try:
+        url = relay_base_url.rstrip("/") + "/acp/announce"
+        body = json.dumps({"token": token, "ip": ip, "port": port,
+                           "nat_type": nat_type}).encode()
+        req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read())
+            return bool(data.get("ok"))
+    except Exception as e:
+        log.debug(f"[NAT/HTTP] /acp/announce failed: {e}")
+        return False
+
+
+def _relay_get_peer_addr(relay_base_url: str, token: str,
+                         timeout: float = 3.0) -> dict | None:
+    """
+    Fetch peer's announced address via Worker /acp/peer?token=<t>.
+    One-time fetch: Worker deletes record after first read.
+    Returns dict {ip, port, nat_type, ts} or None on failure/not-found.
+    """
+    import urllib.request
+    import urllib.parse
+    try:
+        params = urllib.parse.urlencode({"token": token})
+        url = relay_base_url.rstrip("/") + "/acp/peer?" + params
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            data = json.loads(r.read())
+            if data.get("ok"):
+                return {"ip": data["ip"], "port": data["port"],
+                        "nat_type": data.get("nat_type", "unknown")}
+            return None
+    except Exception as e:
+        log.debug(f"[NAT/HTTP] /acp/peer failed: {e}")
+        return None
+
+
 class DCUtRPuncher:
     """
     DCUtR-style UDP hole punching.

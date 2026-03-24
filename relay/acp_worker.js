@@ -1,5 +1,12 @@
 /**
- * ACP Public Relay — Cloudflare Worker v2.0
+ * ACP Public Relay — Cloudflare Worker v2.1
+ *
+ * v2.1 changes (2026-03-24):
+ *   - NAT traversal signaling endpoints (v1.4 support):
+ *     GET  /acp/myip                   — reflect caller's public IP:port
+ *     POST /acp/announce               — register public addr for a token (TTL 30s)
+ *     GET  /acp/peer?token=<t>         — fetch peer's announced address
+ *   - Announce records are ephemeral: TTL=30s, deleted after first peer fetch
  *
  * v2.0 changes (2026-03-20):
  *   - Multi-room list: GET /acp/rooms (active sessions index via KV meta key)
@@ -13,10 +20,12 @@
  * v1.0 (2026-03-19): initial HTTP relay, KV-backed message queue
  */
 
-const MSG_LIMIT  = 200;      // max messages per session
+const MSG_LIMIT   = 200;     // max messages per session
 const SESSION_TTL = 3600;    // seconds, sliding
 const MAX_ROOMS   = 500;     // max concurrent active sessions
 const ROOMS_KEY   = "__rooms_index__";  // KV key for rooms index
+const ANNOUNCE_TTL = 30;     // seconds — ephemeral NAT signaling records
+const ANNOUNCE_PREFIX = "__nat_";  // KV key prefix for announce records
 
 function jsonResp(data, status) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -97,6 +106,59 @@ async function handleRequest(request, env, ctx) {
         "Access-Control-Allow-Headers": "Content-Type",
       },
     });
+  }
+
+  // ── NAT Traversal Signaling (v2.1 / ACP v1.4) ────────────────────────────
+
+  // GET /acp/myip — reflect caller's public IP and approximate port
+  // Clients use this to discover their public address for hole-punching.
+  if (method === "GET" && path === "/acp/myip") {
+    const ip = request.headers.get("CF-Connecting-IP") ||
+               request.headers.get("X-Forwarded-For")?.split(",")[0].trim() ||
+               "unknown";
+    return jsonResp({ ip, ts: nowMs() });
+  }
+
+  // POST /acp/announce — register public addr for NAT hole-punching
+  // Body: { token: "tok_xxx", ip: "1.2.3.4", port: 7801, nat_type: "full_cone" }
+  // Stores record under ANNOUNCE_PREFIX+token with 30s TTL.
+  // Privacy: no message content stored, record auto-expires in 30s.
+  if (method === "POST" && path === "/acp/announce") {
+    let data = {};
+    try { data = await request.json(); } catch(e) {}
+    const { token, ip, port, nat_type } = data;
+    if (!token || !ip || !port) {
+      return jsonResp({ error: "token, ip, port are required" }, 400);
+    }
+    if (!/^[a-zA-Z0-9_-]{4,64}$/.test(token)) {
+      return jsonResp({ error: "invalid token format" }, 400);
+    }
+    const record = {
+      ip:       String(ip).slice(0, 64),
+      port:     Number(port),
+      nat_type: String(nat_type || "unknown").slice(0, 32),
+      ts:       nowMs(),
+    };
+    const kvKey = ANNOUNCE_PREFIX + token;
+    await kv.put(kvKey, JSON.stringify(record), { expirationTtl: ANNOUNCE_TTL });
+    return jsonResp({ ok: true, token, expires_in: ANNOUNCE_TTL });
+  }
+
+  // GET /acp/peer?token=<t> — fetch peer's announced address for hole-punching
+  // Returns the address registered via /acp/announce, then deletes the record
+  // (one-time fetch semantics — prevents address harvesting).
+  if (method === "GET" && path === "/acp/peer") {
+    const token = url.searchParams.get("token");
+    if (!token) return jsonResp({ error: "token query param required" }, 400);
+    const kvKey = ANNOUNCE_PREFIX + token;
+    const raw = await kv.get(kvKey);
+    if (!raw) {
+      return jsonResp({ error: "peer not found or announcement expired", token }, 404);
+    }
+    const record = JSON.parse(raw);
+    // Delete after first fetch (one-time semantics for security)
+    await kv.delete(kvKey);
+    return jsonResp({ ok: true, token, ...record, fetched_at: nowMs() });
   }
 
   // ── GET /acp/rooms — list active sessions (v2.0) ────────────────────────
