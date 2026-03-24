@@ -51,6 +51,16 @@ def get_link(http_port, retries=8, interval=0.8):
         time.sleep(interval)
     return None
 
+def wait_peer_ready(http_port, peer_id, retries=16, interval=0.5):
+    """Wait until peer's WS handshake completes and a probe message succeeds."""
+    for _ in range(retries):
+        probe, code = post(f"http://127.0.0.1:{http_port}/peer/{peer_id}/send",
+                           {"parts": [{"type": "text", "content": "__probe__"}], "role": "agent"})
+        if probe.get("ok"):
+            return True  # WS is live and message delivered
+        time.sleep(interval)
+    return False
+
 
 def run_fg_tests():
     """Run scenario F+G tests. Returns (passed, total, failed_labels)."""
@@ -142,7 +152,7 @@ def run_fg_tests():
                       {"link": beta_link, "name":"AlphaAgent","role":"agent"})
     peer_id = resp.get("peer_id","")
     r("G1-1 連接成功", resp.get("ok") and bool(peer_id), f"peer_id={peer_id}")
-    time.sleep(1.5)
+    wait_peer_ready(ALPHA_HTTP, peer_id)
 
     print("\n[G2] 發消息確認連接正常")
     resp, code = post(f"http://127.0.0.1:{ALPHA_HTTP}/peer/{peer_id}/send",
@@ -177,7 +187,7 @@ def run_fg_tests():
                       {"link": new_beta_link, "name":"AlphaAgent","role":"agent"})
     new_peer_id = resp.get("peer_id","")
     r("G6-1 重連成功", resp.get("ok") and bool(new_peer_id), f"new_peer_id={new_peer_id}")
-    time.sleep(1.5)
+    wait_peer_ready(ALPHA_HTTP, new_peer_id)
 
     print("\n[G7] 重連後正常發消息")
     resp, code = post(f"http://127.0.0.1:{ALPHA_HTTP}/peer/{new_peer_id}/send",

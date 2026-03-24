@@ -1933,6 +1933,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if not peer_info.get("connected"):
                     self._json({"error": f"peer '{peer_id}' is not connected"}, 503)
                     return
+                if peer_info.get("ws") is None:
+                    # Peer registered but WS handshake not yet complete (connecting race)
+                    self._json({"ok": False, "error_code": "ERR_PEER_CONNECTING",
+                                "error": f"peer '{peer_id}' is connecting, retry shortly"}, 503)
+                    return
 
                 parts = body.get("parts")
                 if not parts:

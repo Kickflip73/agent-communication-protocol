@@ -410,3 +410,26 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 **修复方向**: 将 `sys.exit()` 移入 `if __name__ == "__main__":` 块，或重构为标准 pytest 测试函数
 
 **影响**: CI 中不能混合运行此文件与 pytest 风格测试；需单独运行
+
+---
+
+### BUG-016 ✅ P1 — `/peer/{id}/send` 在 WS 握手未完成时返回假失败（连接竞态）
+
+**发现时间**: 2026-03-24 测试轮（20:33）
+**状态**: ✅ 已修复 (2026-03-24 20:33, commit `pending`)
+
+**现象**:
+- `/peers/connect` 返回 `ok:true + peer_id` 后立即调用 `/peer/{id}/send`
+- 返回 `{"error": "peer 'peer_001' is not connected"}` 503
+- 实际上 peer 已注册，但 WS 握手尚未完成（P2P 失败 → 降级 Relay 需 1-3s）
+
+**根因**:
+- `_register_peer()` 在 `/peers/connect` 时设 `connected=True, ws=None`
+- `/peer/{id}/send` 只检查 `connected` 字段，未检查 `ws is None`
+- 导致 `connected=True` 但 `ws=None` 时通过检查却无法实际发送
+
+**修复**:
+1. `relay/acp_relay.py`：`/peer/{id}/send` 增加 `ws is None` 检查，返回 503 `ERR_PEER_CONNECTING`
+2. `tests/test_scenario_fg.py`：`wait_peer_ready()` 改为 probe 发送成功才认为连接就绪
+
+**影响范围**: 高并发或慢网络下 `/peers/connect` 后立即发消息必现
