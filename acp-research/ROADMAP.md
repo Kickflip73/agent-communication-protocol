@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-24 14:53（文档轮：v2.0 兼容性认证完成，Show HN 草稿，ROADMAP 同步）
+> 最后更新：2026-03-25 06:25（文档轮：v1.5.2 cancel 语义，竞品 scan #7，ROADMAP 同步）
 
 ---
 
@@ -155,6 +155,21 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - 修复 BUG-014：`peer_id` 过滤失效（payload 嵌套层级问题）
   - 灵感：A2A v1.0.0 `tasks/list` `last_updated_after`（scan #4）
   - Tests: 6/6 PASS（tests/test_tasks_filtering.py）
+- ✅ **v1.4 NAT traversal signaling layer**（commit `8c162d4`，2026-03-24）
+  - Cloudflare Worker v2.1：`GET /acp/myip`、`POST /acp/announce`、`GET /acp/peer?token=`
+  - Python signaling helpers（stdlib-only）：`_relay_get_public_ip` / `_relay_announce` / `_relay_get_peer_addr`
+  - Privacy-first：ephemeral 30s 记录，one-time-read 自删除，无持久地址存储
+  - 22/22 tests PASS（test_nat_signaling.py）
+- ✅ **v1.5 hybrid identity**（2026-03-24）
+  - `--ca-cert` 选项：`identity.scheme: ed25519+ca`，CA 证书混合信任
+  - Java SDK（commit `28813ed`）
+  - 6/6 tests PASS（test_v15_hybrid_identity.py 直接运行）
+- ✅ **v1.5.2 cancel 语义明确化**（commit `0d19a11`，2026-03-25）
+  - `spec/core-v1.3.md` §10：Task Cancel Semantics 新章节
+  - cancel 同步即时：一次调用返回 `canceled`，无 async/deferred 机制
+  - cancel 幂等：已取消任务再次 `:cancel` 返回 200
+  - 新错误码：`ERR_TASK_NOT_CANCELABLE` (409) 用于 terminal 状态任务
+  - 差异化文档：与 A2A #1680（async cancel 无结论）形成鲜明对比
 - [ ] HTTP/2 传输绑定
 - ✅ Rust SDK stub（sdk/rust/，commit pending，2026-03-22）
   - lib.rs：RelayClient, MessageRequest, AgentCard, AvailabilityPatch, RelayStatus + 10 structs/enums
@@ -191,6 +206,11 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - ✅ 兼容性认证流程（commit `a333f35`，2026-03-24）
   - `spec/compatibility-certification.md`：Level 1/2 完整认证规范
   - `tests/cert/test_level1.py`：24/24 PASS，参考 relay ✅ CERTIFIED
+- ✅ **Show HN 草稿强化**（commit `0d19a11`，2026-03-25）
+  - 加入 A2A #1681（PushNotification 凭证泄露安全漏洞）对比分析
+  - 加入 A2A #1680（cancel 设计空白）对比分析
+  - Key Talking Points + Anti-trolling prep 各新增 2 条
+  - 状态：`docs/show-hn-draft.md`，待 Stark 先生确认发布
 
 ---
 
