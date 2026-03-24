@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-23 07:53（开发轮：conformance.md 兼容性认证指南；v2.0 Backlog 状态同步）
+> 最后更新：2026-03-24 18:30（研究轮 #5：A2A #1676 + getagentid.dev vs did:acp:；ANP 降为已归档）
 
 ---
 
@@ -24,7 +24,7 @@
 | 协议 | Stars | 活跃度 | 定位 | 态度 |
 |------|-------|--------|------|------|
 | **A2A** (Google) | 22,643 | ⚡ 极高 | 企业级 Agent 总线 | 借鉴概念，不复制复杂度 |
-| **ANP** (社区) | 1,240 | 🟡 中 | 去中心化身份 | 借鉴 DID 思路（长期） |
+| **ANP** (社区) | 1,240 | 🔴 已归档 | 去中心化身份 | 停更（最后活跃 2026-03-05），不再追踪 |
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | 参考即可 |
 | **MCP** (Anthropic) | - | ✅ 稳定 | 工具调用 | 不同赛道，可互补 |
 
@@ -148,6 +148,11 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - `.github/workflows/docker-publish.yml`：多平台（amd64/arm64）build + push + smoke test
   - `docker-compose.yml`：新增 v1.3 DID + Extension 演示注释块；`volumes.acp-identity` 声明
 - [ ] HTTP/2 传输绑定（可选，长期）
+- [ ] **`GET /tasks` 列表查询 + 分页**（参考 A2A v1.0 `tasks/list`）
+  - 灵感：A2A 1.0.0 发布（2026-03-12）新增 tasks/list，含过滤和分页
+  - 参数：`?status=working&limit=20&offset=0`
+  - 响应：`{"tasks":[...], "total": N, "has_more": bool}`
+  - 当前 ACP 只有 `GET /tasks/{id}`，缺少列表视图
 
 ---
 

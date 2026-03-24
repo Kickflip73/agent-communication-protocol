@@ -1,0 +1,24 @@
+{
+  "universities": [
+    {"name": "清华大学", "cs_dept": "交叉信息研究院/计算机系", "official_url": "https://www.tsinghua.edu.cn", "reexam_url": "https://yz.tsinghua.edu.cn", "keywords": ["清华", "清华大学计算机", "清华计算机复试"]},
+    {"name": "北京大学", "cs_dept": "信息科学技术学院", "official_url": "https://www.pku.edu.cn", "reexam_url": "https://admission.pku.edu.cn/yjszs/", "keywords": ["北大", "北京大学计算机", "北大计算机复试"]},
+    {"name": "中国人民大学", "cs_dept": "信息学院", "official_url": "https://www.ruc.edu.cn", "reexam_url": "http://gs.ruc.edu.cn", "keywords": ["人大", "人民大学计算机", "人大计算机复试"]},
+    {"name": "北京航空航天大学", "cs_dept": "计算机学院/软件学院", "official_url": "https://www.buaa.edu.cn", "reexam_url": "https://gs.buaa.edu.cn", "keywords": ["北航", "北航计算机", "北航计算机复试"]},
+    {"name": "北京理工大学", "cs_dept": "计算机学院", "official_url": "https://www.bit.edu.cn", "reexam_url": "https://gs.bit.edu.cn", "keywords": ["北理工", "北理工计算机", "北理工复试"]},
+    {"name": "北京师范大学", "cs_dept": "人工智能学院/系统科学学院", "official_url": "https://www.bnu.edu.cn", "reexam_url": "https://yjsy.bnu.edu.cn", "keywords": ["北师大", "北师大计算机", "北师大复试"]},
+    {"name": "中国农业大学", "cs_dept": "信息与电气工程学院", "official_url": "https://www.cau.edu.cn", "reexam_url": "https://graduate.cau.edu.cn", "keywords": ["农大", "中国农业大学计算机", "农大复试"]},
+    {"name": "中央民族大学", "cs_dept": "信息工程学院", "official_url": "https://www.muc.edu.cn", "reexam_url": "https://graduate.muc.edu.cn", "keywords": ["民大", "中央民族大学计算机", "民大复试"]},
+    {"name": "北京邮电大学", "cs_dept": "计算机学院/人工智能学院", "official_url": "https://www.bupt.edu.cn", "reexam_url": "https://yz.bupt.edu.cn", "keywords": ["北邮", "北邮计算机", "北邮复试线"]},
+    {"name": "北京交通大学", "cs_dept": "计算机与信息技术学院", "official_url": "https://www.bjtu.edu.cn", "reexam_url": "https://gs.bjtu.edu.cn", "keywords": ["北交大", "北京交通大学计算机", "北交大复试"]},
+    {"name": "北京科技大学", "cs_dept": "计算机与通信工程学院", "official_url": "https://www.ustb.edu.cn", "reexam_url": "https://yjsy.ustb.edu.cn", "keywords": ["北科大", "北京科技大学计算机", "北科大复试"]},
+    {"name": "北京化工大学", "cs_dept": "信息科学与技术学院", "official_url": "https://www.buct.edu.cn", "reexam_url": "https://gs.buct.edu.cn", "keywords": ["北化工", "北京化工大学计算机", "北化工复试"]},
+    {"name": "北京林业大学", "cs_dept": "信息学院", "official_url": "https://www.bjfu.edu.cn", "reexam_url": "https://graduate.bjfu.edu.cn", "keywords": ["北林", "北京林业大学计算机", "北林复试"]},
+    {"name": "中国传媒大学", "cs_dept": "计算机与网络空间安全学院", "official_url": "https://www.cuc.edu.cn", "reexam_url": "https://graduate.cuc.edu.cn", "keywords": ["传媒大学", "中国传媒大学计算机", "传媒大学复试"]},
+    {"name": "华北电力大学", "cs_dept": "控制与计算机工程学院", "official_url": "https://www.ncepu.edu.cn", "reexam_url": "https://yjs.ncepu.edu.cn", "keywords": ["华北电力", "华电计算机", "华北电力复试"]},
+    {"name": "中国石油大学(北京)", "cs_dept": "信息科学与工程学院", "official_url": "https://www.cup.edu.cn", "reexam_url": "https://gs.cup.edu.cn", "keywords": ["石油大学", "中石大计算机", "石大复试"]},
+    {"name": "中国地质大学(北京)", "cs_dept": "信息工程学院", "official_url": "https://www.cugb.edu.cn", "reexam_url": "https://yjs.cugb.edu.cn", "keywords": ["地质大学", "地大计算机", "地大复试"]},
+    {"name": "中央财经大学", "cs_dept": "信息学院", "official_url": "https://www.cufe.edu.cn", "reexam_url": "https://yz.cufe.edu.cn", "keywords": ["央财", "中央财经计算机", "央财复试"]},
+    {"name": "对外经济贸易大学", "cs_dept": "信息学院", "official_url": "https://www.uibe.edu.cn", "reexam_url": "https://gs.uibe.edu.cn", "keywords": ["对外经贸", "贸大计算机", "对外经贸复试"]},
+    {"name": "北京外国语大学", "cs_dept": "人工智能学院", "official_url": "https://www.bfsu.edu.cn", "reexam_url": "https://graduate.bfsu.edu.cn", "keywords": ["北外", "北外计算机", "北外复试"]}
+  ]
+}
