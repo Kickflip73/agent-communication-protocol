@@ -7,6 +7,30 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.5.0-dev] — 2026-03-24
+### Added
+
+- **Hybrid Identity Model** (`--ca-cert`) — v1.5 (commit `7aaa2cb`)
+  - New CLI flag: `--ca-cert <PATH_OR_PEM>`
+  - When used alongside `--identity`: AgentCard gains `identity.ca_cert` (PEM string)
+  - `identity.scheme` upgraded from `"ed25519"` → `"ed25519+ca"` in hybrid mode
+  - `capabilities.identity`: `"none"` | `"ed25519"` | `"ed25519+ca"` (new enum)
+  - All `did:acp:` / `public_key` fields preserved — fully backward compatible
+  - New spec: `spec/identity-v1.5.md` (hybrid trust model, 4 verification strategies)
+  - Tests: **6/6 PASS** (`tests/test_v15_hybrid_identity.py`)
+  - **Motivation**: A2A #1672 (43 comments) converging toward same "hybrid" conclusion;
+    ACP ships this today vs. A2A still in discussion
+
+### Research
+
+- A2A code layer: 8 consecutive days without a merge (last commit 2026-03-16)
+- A2A #1672 hybrid identity: self-sovereign + CA model — ACP v1.5 preemptively ships this
+- A2A #1628 trust.signals[]: enterprise blockchain-level trust, out of ACP scope
+- A2A #1606 data handling declarations: compliance metadata, v2.0 extensions candidate
+- Reports: `acp-research/reports/2026-03-24-scan.md`, `2026-03-24-scan2.md`
+
+---
+
 ## [1.4.0-dev] — 2026-03-24
 ### Added
 

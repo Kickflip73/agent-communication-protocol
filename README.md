@@ -244,11 +244,11 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **NAT / firewall** | You figure it out | **Auto: direct → hole-punch → relay** |
 | **Message latency** | Depends on your infra | **0.6ms avg (P99 2.8ms)** |
 | **Min dependencies** | Heavy SDK | **`pip install websockets`** |
-| **Identity** | OAuth tokens | **Ed25519 + did:acp: DID** |
+| **Identity** | OAuth tokens | **Ed25519 + did:acp: DID + CA hybrid (v1.5)** |
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
-| **Agent identity proof** | ❌ (open issue #1672) | **✅ `did:acp:` self-sovereign DID (v1.3)** |
+| **Agent identity proof** | ❌ (open issue #1672, 43 comments, still discussion) | **✅ Hybrid: `did:acp:` self-sovereign + CA cert (v1.5)** |
 
-> ACP ships solutions to problems A2A is still filing GitHub issues about.
+> A2A #1672 has 43 comments converging on "hybrid identity model". ACP v1.5 ships it today.
 
 ### Numbers
 
@@ -349,6 +349,54 @@ relay.terminate()
 
 ---
 
+## Agent Identity (v1.5)
+
+ACP 支持**两种身份模型**，可单独使用或组合（混合模型）：
+
+| 模式 | 启动参数 | `capabilities.identity` | 说明 |
+|------|----------|--------------------------|------|
+| 无身份 | _(default)_ | `"none"` | 向后兼容 v0.7 |
+| 自主权身份 | `--identity` | `"ed25519"` | Ed25519 签名 + `did:acp:` DID |
+| **混合模型** | `--identity --ca-cert` | `"ed25519+ca"` | 自主权 + CA 签发证书 |
+
+```bash
+# 自主权身份 (v0.8+)
+python3 relay/acp_relay.py --name MyAgent --identity
+
+# 混合身份 (v1.5) — CA 证书文件
+python3 relay/acp_relay.py --name MyAgent --identity --ca-cert /path/to/agent.crt
+
+# 混合身份 (v1.5) — 内联 PEM
+python3 relay/acp_relay.py --name MyAgent --identity \
+  --ca-cert "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+```
+
+**AgentCard 示例（混合模式）：**
+```json
+{
+  "identity": {
+    "scheme":     "ed25519+ca",
+    "public_key": "<base64url-encoded Ed25519 public key>",
+    "did":        "did:acp:<base64url(pubkey)>",
+    "ca_cert":    "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+  },
+  "capabilities": {
+    "identity": "ed25519+ca"
+  }
+}
+```
+
+**验证策略**（验证方自选）：
+
+- 仅信任 `did:acp:` — 验证 Ed25519 签名，忽略 `ca_cert`
+- 仅信任 CA — 验证证书链，忽略 DID
+- 两者都要 — 最高安全
+- 任一即可 — 最高互操作性
+
+> **Why it matters:** A2A [#1672](https://github.com/a2aproject/A2A/issues/1672)（43 条评论，仍在讨论）正收敛到同一「混合模型」结论——ACP v1.5 今天就能用。
+
+---
+
 ## SDK
 
 - **Python** — `sdk/python/` (`RelayClient`)
@@ -372,6 +420,7 @@ relay.terminate()
 | v1.2 | ✅ | 调度元数据 (`availability`)、Docker 镜像 |
 | v1.3 | ✅ | Rust SDK、DID 身份 (`did:acp:`)、Extension 机制、GHCR CI |
 | **v1.4** | ✅ **已实现** | **真 P2P NAT 穿透**：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级，Relay 退化为最后兜底 |
+| **v1.5** | ✅ **已实现** | **混合身份模型**：`--ca-cert` 在 `did:acp:` 自主权基础上叠加 CA 签发证书，`capabilities.identity: "ed25519+ca"` |
 
 ---
 
