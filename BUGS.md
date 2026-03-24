@@ -433,3 +433,23 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 2. `tests/test_scenario_fg.py`：`wait_peer_ready()` 改为 probe 发送成功才认为连接就绪
 
 **影响范围**: 高并发或慢网络下 `/peers/connect` 后立即发消息必现
+
+---
+
+### BUG-017 ✅ P2 — test_scenario_bc.py + test_three_level_connection.py pytest INTERNALERROR（同 BUG-015）
+
+**发现时间**: 2026-03-25 06:56（测试轮第二循环）
+**状态**: ✅ 已修复 (2026-03-25 06:56, commit pending)
+
+**现象**:
+- `python3 -m pytest tests/test_scenario_bc.py` 报 `INTERNALERROR: SystemExit: 0`
+- `test_three_level_connection.py` collect 阶段超时（模块顶层有 `asyncio.run()` + `sys.exit()`）
+- 与 BUG-015（test_scenario_fg.py）完全相同的根因
+
+**根因**: 模块顶层直接执行 `sys.exit()` / `asyncio.run()`，pytest 在 collect 时 import 触发立即执行
+
+**修复**:
+1. `tests/test_scenario_bc.py`：重构为 `run_bc_tests()` 函数 + `test_scenario_bc()` pytest 入口 + `if __name__` 守护
+2. `tests/test_three_level_connection.py`：重构为 `run_three_level_tests()` 函数 + `test_three_level_connection()` pytest 入口 + `if __name__` 守护
+
+**遗留**: `test_dcutr.py`（原始单体文件，701行）同样有此问题，但已被 t1-t6 分拆文件取代，标记为 P3（低优先，不影响 CI）
