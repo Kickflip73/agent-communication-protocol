@@ -7,6 +7,24 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.5.1-dev] — 2026-03-24 (updated 18:30)
+
+### Research (scan #5 — 2026-03-24 18:00)
+
+- **A2A #1676 (NEW)**: `PushNotificationConfig` definition missing from A2A spec (bug)
+  - ACP is unaffected; `/recv` polling design avoids push config complexity entirely
+- **A2A #1672 (47 comments)**: `getagentid.dev` emerging as de-facto A2A identity CA
+  - Centralized registration service; external dependency; single point of failure
+  - **ACP `did:acp:` advantage**: self-sovereign, derived from Ed25519 pubkey, zero external resolver,
+    zero registration, works fully offline — already shipping in v1.5
+- **A2A code layer**: 8 consecutive days with no merges (last: 2026-03-16, CODEOWNERS update)
+  - TSC governance mode confirmed; fast-iteration window remains open for ACP
+- **ANP**: confirmed archived (last update 2026-03-05), dropped from active tracking
+- Show HN draft updated with `getagentid.dev` vs `did:acp:` talking points (commit `e39ac4f`)
+- Full report: `acp-research/reports/2026-03-24-scan.md`
+
+---
+
 ## [1.5.1-dev] — 2026-03-24
 ### Added
 
