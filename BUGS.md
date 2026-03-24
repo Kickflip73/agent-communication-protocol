@@ -393,10 +393,10 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 
 ---
 
-### BUG-015 🟢 P3 — `test_scenario_fg.py` 使用 `sys.exit()` 导致与 pytest 不兼容
+### BUG-015 ✅ P3 — `test_scenario_fg.py` 使用 `sys.exit()` 导致与 pytest 不兼容
 
 **发现时间**: 2026-03-24 测试轮（17:30）
-**状态**: 🔴 待修复（低优先级，不影响核心功能）
+**状态**: ✅ 已修复 (2026-03-24 20:00)
 
 **现象**:
 - `python3 -m pytest tests/test_scenario_fg.py tests/test_tasks_filtering.py` 时
