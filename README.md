@@ -308,6 +308,7 @@ API：`POST /tasks` 创建，`POST /tasks/{id}:update` 更新状态。
 - **Node.js** — `sdk/node/` (零外部依赖，含 TypeScript 类型)
 - **Go** — `sdk/go/` (零外部依赖，Go 1.21+)
 - **Rust** — `sdk/rust/` (v1.3)
+- **Java** — `sdk/java/` (零外部依赖，JDK 11+，含 Spring Boot 集成示例)
 
 ---
 
@@ -335,7 +336,7 @@ agent-communication-protocol/
 ├── relay/
 │   └── acp_relay.py      ← 核心守护进程（单文件）
 ├── spec/                 ← 协议规范文档
-├── sdk/                  ← Python / Node.js / Go / Rust SDK
+├── sdk/                  ← Python / Node.js / Go / Rust / Java SDK
 ├── tests/                ← compat + integration 测试套件
 ├── docs/                 ← 中文文档、conformance 指南、博客草稿
 └── acp-research/         ← 竞品情报、ROADMAP

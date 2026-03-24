@@ -63,7 +63,7 @@ ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native,
 | **DID identifier** | ✅ `did:acp:` key-based (v1.3) — no registry | ✅ `did:wba:` domain-based — requires DNS | ❌ |
 | **DID Document** | ✅ `GET /.well-known/did.json` (W3C compatible) | ✅ via well-known URL | ❌ |
 | **LAN discovery (mDNS)** | ✅ `--advertise-mdns` | ❌ | ❌ |
-| **Multi-language SDKs** | ✅ Python / Go / Node.js / Rust | ✅ Python / JS / Java | ⚠️ Python / JS only |
+| **Multi-language SDKs** | ✅ Python / Go / Node.js / Rust / **Java** | ✅ Python / JS / Java | ⚠️ Python / JS only |
 | **Setup complexity** | `pip install websockets` | OAuth + agent registry | MCP server + config |
 | **Target audience** | Personal/small team | Enterprise | Tool integration |
 
