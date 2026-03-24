@@ -7,6 +7,40 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.4.0-dev] — 2026-03-24
+### Added
+
+- **Java SDK** (`sdk/java/`) — zero external dependencies, JDK 11+ (commit `28813ed`)
+  - `RelayClient.of(url)` — ping, send, recv, connectPeer, sendToPeer, stream (SSE), patchAvailability
+  - Full model classes: `Part`, `Message`, `Task`, `SendRequest`, `SendResponse`, `SseEvent`
+  - Zero-dependency JSON serializer/parser (`Json.java`, hand-written recursive descent)
+  - Maven `pom.xml`; zero runtime dependencies (JDK 11 `java.net.http` only)
+  - Spring Boot `@Bean` integration example in README
+  - Tests: **41/41 ✅** (21 `JsonTest` unit + 10 `RelayClientTest` unit + 10 integration)
+- **Scenario H test** — multi-agent concurrent routing validation (commit `06f6fac`)
+  - H1: Hub simultaneous dual-peer connect (2/2 peers)
+  - H2: Hub→WA + Hub→WB parallel 10-msg each; zero cross-routing errors ✅
+  - H3: WA↔WB bidirectional concurrent exchange ✅
+  - H4: Idempotency ID isolation across peers ✅
+  - **6/6 PASS** — completes all 8 scenario coverage (A–H)
+- README: new `## Heartbeat / Cron Agents` section with Python template (commit `06f6fac`)
+- Research: ANP downgraded to archived in ROADMAP (last updated 2026-03-05)
+
+### Test Coverage (cumulative)
+
+| Scenario | Status | File |
+|----------|--------|------|
+| A — P2P dual agent | ✅ | test_three_level_connection.py |
+| B — Orchestrator→Workers | ✅ | test_scenario_bc.py |
+| C — Pipeline A→B→C→A | ✅ | test_scenario_bc.py |
+| D — Stress (100 msgs, concurrent) | ✅ | test_scenario_d_stress.py |
+| E — NAT 3-level fallback (real) | ⏳ needs real NAT environment | — |
+| F — Error handling | ✅ | test_scenario_fg.py |
+| G — Disconnect/reconnect | ✅ | test_scenario_fg.py |
+| H — Multi-agent concurrent routing | ✅ | (ad-hoc, 2026-03-24) |
+
+---
+
 ## [1.3.0-dev] — 2026-03-22/23
 ### Added (v1.4-dev)
 - **Three-level connection strategy fully integrated** in `guest_mode`:

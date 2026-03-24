@@ -180,7 +180,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - AgentCard extensions[] 数组、--extension CLI flag
   - POST /extensions/register（upsert）/ /extensions/unregister
   - GET /extensions 列表查询、capabilities.extensions 能力标志
-- [ ] 多语言 SDK 完整矩阵（Python/Node/Go/Rust）
+- ✅ 多语言 SDK 完整矩阵（Python / Node.js / Go / Rust / **Java**）（Java commit `28813ed`，2026-03-24）
 - [ ] 兼容性认证流程（「如何认证你的实现」文档）
 
 ---
