@@ -7,7 +7,21 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [1.5.1-dev] — 2026-03-24 (updated 21:37)
+## [1.5.1-dev] — 2026-03-24 (updated 22:47)
+
+### Added (22:47 — v1.4 NAT traversal signaling layer)
+
+- **Cloudflare Worker v2.1**: NAT traversal signaling endpoints (commit `8c162d4`)
+  - `GET /acp/myip` — reflect caller's public IP via `CF-Connecting-IP` header; used by agents to discover their public address when STUN UDP is blocked
+  - `POST /acp/announce` — register `{token, ip, port, nat_type}` with 30s TTL; auto-expires, no message content stored
+  - `GET /acp/peer?token=` — one-time fetch + delete of peer announce record (prevents address harvesting)
+  - Privacy design: signaling records are ephemeral (30s) and one-time-read, no persistent storage of agent addresses
+- **Python signaling helpers** (`acp_relay.py`) — stdlib-only (`urllib`), no new deps
+  - `_relay_get_public_ip(relay_base_url)` — HTTP reflection fallback for when STUN UDP is firewalled
+  - `_relay_announce(relay_base_url, token, ip, port, nat_type)` — register address via Worker
+  - `_relay_get_peer_addr(relay_base_url, token)` — fetch peer address (one-time, auto-deletes)
+  - These complement `STUNClient`: STUN → primary; HTTP reflection → corporate firewall fallback
+- **`tests/test_nat_signaling.py`**: 22/22 PASS — covers all helpers, error paths, edge cases, full roundtrip; uses local mock server, no network required
 
 ### Fixed (20:33)
 

@@ -1,10 +1,32 @@
 # ACP NAT Traversal Specification — v1.4
 
-> Status: **Initial Implementation Complete** (v1.4 feature, shipping in `acp_relay.py`)  
+> Status: **Signaling Layer Complete** (v1.4 in progress — Worker v2.1 + Python helpers shipped; DCUtR integration pending)  
 > Author: J.A.R.V.I.S. / Stark  
-> Last updated: 2026-03-23  
-> Implementation: `relay/acp_relay.py` — classes `STUNClient`, `DCUtRPuncher`; function `connect_with_holepunch()`  
-> Constraint: **stdlib only** — `asyncio`, `socket`, `struct`, `os`, `time`, `uuid` — no third-party deps
+> Last updated: 2026-03-24  
+> Implementation: `relay/acp_relay.py` — classes `STUNClient`, `DCUtRPuncher`; helpers `_relay_get_public_ip()`, `_relay_announce()`, `_relay_get_peer_addr()`; function `connect_with_holepunch()`  
+> Worker: `relay/acp_worker.js` v2.1 — endpoints `/acp/myip`, `/acp/announce`, `/acp/peer`  
+> Constraint: **stdlib only** — `asyncio`, `socket`, `struct`, `os`, `time`, `uuid`, `urllib` — no third-party deps
+
+## Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-03-23 | Initial spec + STUNClient + DCUtRPuncher + connect_with_holepunch() |
+| 2026-03-24 | Worker v2.1: `/acp/myip`, `/acp/announce`, `/acp/peer` (ephemeral, one-time-read) |
+| 2026-03-24 | Python helpers: `_relay_get_public_ip()`, `_relay_announce()`, `_relay_get_peer_addr()` |
+| 2026-03-24 | Tests: `test_nat_signaling.py` — 22/22 PASS |
+
+## Implementation Status
+
+| Component | Status | Commit |
+|-----------|--------|--------|
+| `STUNClient` (UDP STUN RFC 5389) | ✅ | 2026-03-23 |
+| `DCUtRPuncher` (UDP hole punch state machine) | ✅ | 2026-03-23 |
+| `connect_with_holepunch()` (3-level API) | ✅ | 2026-03-23 |
+| Worker v2.1 signaling endpoints | ✅ | `8c162d4` |
+| Python HTTP reflection helpers | ✅ | `8c162d4` |
+| DCUtRPuncher: integrate HTTP reflection fallback | ⏳ | — |
+| Integration test (real NAT environment) | ⏳ | — |
 
 ---
 
