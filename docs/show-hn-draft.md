@@ -94,9 +94,9 @@ response by default — a security vulnerability filed as issue #1681 (still ope
 Push Notification mechanism at all. Fewer features = smaller attack surface.
 
 **Simplicity**: ACP's cancel is synchronous and unambiguous: call `:cancel`, get back
-`{"status": "canceled"}`, done. A2A issue #1680 is an open question with no resolution:
-what should happen when a task can't cancel immediately? Two competing approaches, no
-community consensus yet.
+`{"status": "canceled"}`, done. A2A has had this open since issue #1680 (March 2026) —
+and as of today, issue #1684 reveals they still haven't agreed on what `CancelTaskRequest`
+even *looks like*. ACP spec §10 has had a complete, tested cancel contract for two weeks.
 
 **What I want feedback on**:
 
