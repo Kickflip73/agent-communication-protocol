@@ -442,6 +442,7 @@ _status: dict = {
     "agent_name":        None,
     "agent_card":        None,
     "peer_card":         None,
+    "peer_card_verification": None,       # v1.9: auto-verification result for peer AgentCard
     "ws_port":           7801,
     "http_port":         7901,
     "messages_sent":     0,
@@ -706,6 +707,7 @@ def _make_agent_card(name, skills):
             "extensions":         bool(_extensions),           # v1.3: Extension mechanism (URI-identified)
             "http2":              _http2_enabled,              # v1.6: HTTP/2 transport binding
             "card_sig":           bool(_ed25519_private),      # v1.8: AgentCard self-signature
+            "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -731,6 +733,7 @@ def _make_agent_card(name, skills):
             "discover":     "/discover",               # v0.7 mDNS LAN discovery
             "extensions":   "/extensions",             # v1.3: list/register extensions
             "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
+            "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -1042,9 +1045,26 @@ def _on_message(raw):
                 log.debug(f"✅ Ed25519 verified: {message_id} from {pub_key_b64[:16]}...")
 
     if msg_type == "acp.agent_card":
-        _status["peer_card"] = msg.get("card")
-        peer = msg.get("card", {})
-        log.info(f"AgentCard from: {peer.get('name')} | acp={peer.get('acp_version')}")
+        card = msg.get("card") or {}
+        _status["peer_card"] = card
+        peer_name = card.get("name", "?")
+        # v1.9: Auto-verify peer AgentCard self-signature on receipt
+        if card.get("identity") and card["identity"].get("card_sig"):
+            vr = _verify_agent_card(card)
+            _status["peer_card_verification"] = vr
+            if vr.get("valid"):
+                log.info(f"✅ AgentCard verified: {peer_name} | did={vr.get('did', '?')[:28]}...")
+            else:
+                log.warning(f"⚠️  AgentCard sig INVALID: {peer_name} | {vr.get('error')}")
+        else:
+            _status["peer_card_verification"] = {
+                "valid": None,
+                "error": "peer card has no card_sig (unsigned — peer may not support v1.8+)",
+                "did": card.get("identity", {}).get("did") if card.get("identity") else None,
+                "public_key": card.get("identity", {}).get("public_key") if card.get("identity") else None,
+                "scheme": (card.get("identity") or {}).get("scheme", "none"),
+            }
+            log.info(f"AgentCard from: {peer_name} (unsigned) | acp={card.get('acp_version')}")
         return
 
     if msg_type == "acp.reply":
@@ -1171,8 +1191,11 @@ def _ws_send_sync(msg, peer_id=None):
     asyncio.run_coroutine_threadsafe(_ws_send(msg, peer_id=peer_id), _loop).result(timeout=10)
 
 async def _send_agent_card(ws):
+    # v1.9: send signed AgentCard so peer can auto-verify upon receipt
+    card = _status["agent_card"] or {}
+    signed = _sign_agent_card(card)
     await ws.send(json.dumps({"type": "acp.agent_card", "message_id": _make_id("card"),
-                               "ts": _now(), "card": _status["agent_card"]}))
+                               "ts": _now(), "card": signed}))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1226,6 +1249,7 @@ async def host_mode(token, ws_port, http_port):
             _peer_ws = None
             _status["connected"] = False
             _status["peer_card"] = None
+            _status["peer_card_verification"] = None   # v1.9: clear on disconnect
             _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
             _broadcast_sse_event("peer", {"event": "disconnected", "peer_id": peer_id})
 
@@ -1365,6 +1389,7 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
             _peer_ws = None
             _status["connected"] = False
             _status["peer_card"] = None
+            _status["peer_card_verification"] = None   # v1.9: clear on disconnect
             _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
             _broadcast_sse_event("peer", {"event": "disconnected"})
 
@@ -1609,6 +1634,40 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json({
                 "extensions": list(_extensions),
                 "count":      len(_extensions),
+            })
+
+        # ── GET /peer/verify — peer AgentCard auto-verification result (v1.9) ──
+        elif p == "/peer/verify":
+            """
+            Return the auto-verification result for the currently connected peer's AgentCard.
+
+            Result is computed on receipt of acp.agent_card during handshake (v1.9).
+            Returns 404 when no peer is connected.
+
+            Fields:
+              - verified (bool): True if peer's card_sig is cryptographically valid
+              - valid (bool|None): raw result from _verify_agent_card
+              - did (str|None): peer's did:acp: identifier
+              - did_consistent (bool|None): did matches public_key
+              - public_key (str|None): peer's Ed25519 public key (base64url)
+              - scheme (str): peer's identity scheme
+              - error (str|None): reason if invalid or unsigned
+              - peer_name (str|None): peer's agent name
+            """
+            if not _status.get("connected") or _status.get("peer_card") is None:
+                self._json({"error": "no peer connected"}, 404)
+                return
+            vr = _status.get("peer_card_verification") or {}
+            peer_card = _status.get("peer_card") or {}
+            self._json({
+                "peer_name":    peer_card.get("name"),
+                "peer_did":     vr.get("did"),
+                "verified":     vr.get("valid") is True,
+                "valid":        vr.get("valid"),
+                "did_consistent": vr.get("did_consistent"),
+                "public_key":   vr.get("public_key"),
+                "scheme":       vr.get("scheme"),
+                "error":        vr.get("error"),
             })
 
         # ── GET /verify/card — return self-verification result (v1.8) ─────────

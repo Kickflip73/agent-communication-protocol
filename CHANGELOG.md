@@ -7,6 +7,58 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [Unreleased] — post-v1.9
+
+---
+
+## [1.9.0] — 2026-03-26 07:45
+
+### Added — Peer AgentCard Auto-Verification (v1.9)
+
+- **`acp.agent_card` handler now auto-verifies peer card on receipt**
+  - When peer sends AgentCard with `identity.card_sig`, immediately calls `_verify_agent_card()`
+  - Result stored in `_status["peer_card_verification"]`
+  - Logs `✅ AgentCard verified: <name> | did=<did>...` on success
+  - Logs `⚠️ AgentCard sig INVALID: <name> | <reason>` on failure
+  - Gracefully handles unsigned peers (valid=None, descriptive error)
+
+- **`_send_agent_card()` now sends signed card** (v1.9 integration with v1.8)
+  - Calls `_sign_agent_card(card)` before sending during handshake
+  - Peer receives a verifiable card from the first message
+
+- **`GET /peer/verify`** — peer card verification result endpoint
+  - Returns `{peer_name, peer_did, verified, valid, did_consistent, public_key, scheme, error}`
+  - `verified`: convenience boolean (True iff valid is True)
+  - 404 when no peer is connected
+  - Cleared automatically on disconnect
+
+- **`_status["peer_card_verification"]`** initialized to `None`; cleared on disconnect
+  (both host-mode and guest-mode disconnect paths)
+
+- **`capabilities.auto_card_verify: true`** — always advertised (all relays)
+- **`endpoints.peer_verify: "/peer/verify"`** — advertised in AgentCard endpoints block
+
+### Tests (PV1–PV8, `tests/test_peer_card_verify.py`)
+
+- PV1: capabilities.auto_card_verify=True on both relays
+- PV2: GET /peer/verify → 404 when no peer connected
+- PV3: endpoints.peer_verify = "/peer/verify" in AgentCard
+- PV4: /.well-known/acp.json returns signed card when --identity enabled
+- PV5: auto-verify after peer connect → verified=True *(skipped: sandbox no public IP)*
+- PV6: unsigned peer card → valid=False + descriptive error
+- PV7: /peer/verify response has all required fields (valid, did, public_key, scheme, error)
+- PV8: peer_card_verification=None when no peer connected
+
+Results: **7 passed, 1 skipped** — full regression: **226 passed, 4 skipped, 0 failed**
+
+### Motivation
+
+- Completes the identity story: v1.8 lets you sign your card; v1.9 auto-verifies the peer's card
+- Together: when two ACP agents connect, **both sides automatically know if the other's identity is cryptographically verified** — zero extra API calls needed
+- Show HN talking point: "Connect two agents → identity mutual verification happens at handshake"
+
+---
+
 ## [Unreleased] — post-v1.8
 
 ---
