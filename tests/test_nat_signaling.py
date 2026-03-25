@@ -118,6 +118,10 @@ BASE_URL = f"http://{MOCK_HOST}:{MOCK_PORT}"
 
 def run_tests():
     _MOCK_STORE.clear()
+    # Clear sandbox HTTP proxy so urllib.request reaches localhost mock server directly.
+    for _var in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY",
+                 "all_proxy", "ALL_PROXY"):
+        os.environ.pop(_var, None)
     print("=" * 55)
     print("ACP NAT Signaling Helper Tests (v1.4)")
     print("=" * 55)
@@ -219,6 +223,10 @@ def run_tests():
 
 def test_nat_signaling():
     """pytest entry point."""
+    # Clear sandbox HTTP proxy before calling urllib.request to localhost.
+    for _var in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY",
+                 "all_proxy", "ALL_PROXY"):
+        os.environ.pop(_var, None)
     server = start_mock_server()
     time.sleep(0.1)
     try:

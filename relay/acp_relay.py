@@ -3329,7 +3329,9 @@ def _relay_get_public_ip(relay_base_url: str, timeout: float = 3.0) -> str | Non
     import urllib.request
     try:
         url = relay_base_url.rstrip("/") + "/acp/myip"
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        # Use no-proxy opener so localhost mock servers work in sandboxed envs.
+        _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with _opener.open(url, timeout=timeout) as r:
             data = json.loads(r.read())
             return data.get("ip")
     except Exception as e:
@@ -3346,11 +3348,15 @@ def _relay_announce(relay_base_url: str, token: str, ip: str, port: int,
     """
     import urllib.request
     try:
+        if not token:
+            return False
         url = relay_base_url.rstrip("/") + "/acp/announce"
         body = json.dumps({"token": token, "ip": ip, "port": port,
                            "nat_type": nat_type}).encode()
         req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        # Use a no-proxy opener so localhost mock servers work in sandboxed envs.
+        _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with _opener.open(req, timeout=timeout) as r:
             data = json.loads(r.read())
             return bool(data.get("ok"))
     except Exception as e:
@@ -3370,7 +3376,9 @@ def _relay_get_peer_addr(relay_base_url: str, token: str,
     try:
         params = urllib.parse.urlencode({"token": token})
         url = relay_base_url.rstrip("/") + "/acp/peer?" + params
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        # Use no-proxy opener so localhost mock servers work in sandboxed envs.
+        _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with _opener.open(url, timeout=timeout) as r:
             data = json.loads(r.read())
             if data.get("ok"):
                 return {"ip": data["ip"], "port": data["port"],
