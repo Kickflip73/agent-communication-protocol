@@ -1155,6 +1155,7 @@ async def host_mode(token, ws_port, http_port):
     # 同时在后台持续监听 relay（对方走中继时能收到消息）
     if relay_link:
         relay_base = DEFAULT_RELAY
+        _status["relay_base_url"] = relay_base  # expose for DCUtR HTTP reflection (v1.4)
         asyncio.ensure_future(_http_relay_guest(relay_base, relay_token, http_port))
 
     async with websockets.serve(on_guest, "0.0.0.0", ws_port):
@@ -3047,6 +3048,7 @@ Examples:
             # ── 通过公共中继创建新会话 ────────────────────────────────────
             import subprocess as _sp2
             relay_base = args.relay_url.rstrip("/")
+            _status["relay_base_url"] = relay_base  # expose for DCUtR HTTP reflection (v1.4)
             r2 = _sp2.run(
                 ["curl", "-s", "--max-time", "10", "-X", "POST", f"{relay_base}/acp/new",
                  "-H", "Content-Type: application/json", "-d", "{}"],
@@ -3423,9 +3425,33 @@ class DCUtRPuncher:
         addresses = []
         if stun_addr:
             addresses.append(f"{stun_addr[0]}:{stun_addr[1]}")
-            log.info(f"[DCUtR] public address: {stun_addr[0]}:{stun_addr[1]}")
+            log.info(f"[DCUtR] public address via STUN: {stun_addr[0]}:{stun_addr[1]}")
         else:
-            log.debug("[DCUtR] STUN failed, using local address only")
+            log.debug("[DCUtR] STUN failed; trying HTTP reflection fallback (v1.4)")
+            # ── HTTP reflection fallback (v1.4) ─────────────────────────────
+            # When STUN is blocked (corporate firewall / UDP filtered), fall back
+            # to Cloudflare Worker GET /acp/myip which returns the public IP via
+            # CF-Connecting-IP header.  Port is unknown from HTTP reflection
+            # (TCP source port ≠ UDP hole-punch port), so we use local_port as
+            # the candidate — good enough for Full Cone / Restricted Cone NAT.
+            relay_base = _status.get("relay_base_url") or ""
+            if relay_base:
+                http_ip = _relay_get_public_ip(relay_base, timeout=3.0)
+                if http_ip:
+                    addresses.append(f"{http_ip}:{local_port}")
+                    log.info(
+                        f"[DCUtR] public address via HTTP reflection: "
+                        f"{http_ip}:{local_port} (port is local estimate)"
+                    )
+                    _broadcast_sse_event("peer", {
+                        "event": "dcutr_http_reflect",
+                        "public_ip": http_ip,
+                        "local_port": local_port,
+                    })
+                else:
+                    log.debug("[DCUtR] HTTP reflection also failed; continuing with local only")
+            else:
+                log.debug("[DCUtR] no relay_base_url configured; skipping HTTP reflection")
 
         # Always include local address as fallback (same-LAN case)
         try:
