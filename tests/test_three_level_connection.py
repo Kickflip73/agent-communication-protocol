@@ -27,7 +27,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 

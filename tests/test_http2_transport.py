@@ -15,7 +15,7 @@ Scenarios:
 
 import sys, os, time, subprocess, signal, json, socket, requests, threading
 import pytest
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
 PORT_H1 = 7851   # HTTP/1.1 instance (ws=7851, http=7951)

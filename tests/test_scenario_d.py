@@ -14,7 +14,7 @@ ACP 场景D测试 — 压力测试
 
 import sys, os, time, json, threading, subprocess, signal, requests
 import pytest
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")

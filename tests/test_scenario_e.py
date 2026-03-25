@@ -18,7 +18,7 @@ ACP 场景E测试 — NAT穿透三级降级（可验证子集）
 
 import sys, os, time, json, threading, subprocess, signal, socket, requests
 import pytest
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
 HTTP_E1 = "http://localhost:7981"   # instance 1 (ws=7881)

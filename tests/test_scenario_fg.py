@@ -5,7 +5,7 @@ Run: python3 tests/test_scenario_fg.py
      pytest tests/test_scenario_fg.py  (also works)
 """
 import subprocess, time, json, urllib.request, urllib.error, sys, os, signal, re as _re
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 import pytest
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

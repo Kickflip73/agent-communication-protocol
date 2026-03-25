@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.asyncio
 #!/usr/bin/env python3
 """T1: STUNClient 基础测试"""
 import asyncio

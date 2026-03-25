@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.asyncio
 #!/usr/bin/env python3
 """T2: DCUtR 消息格式验证（静态分析 + 模拟）"""
 import asyncio

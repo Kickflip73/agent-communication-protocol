@@ -18,7 +18,7 @@ import time
 import threading
 import urllib.error
 import urllib.request
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 
 RELAY_PY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py"))
 _procs = []

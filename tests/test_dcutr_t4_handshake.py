@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.asyncio
 #!/usr/bin/env python3
 """T4: DCUtR 握手流程集成测试 — 通过真实 Relay WebSocket 交换 dcutr 消息"""
 import asyncio

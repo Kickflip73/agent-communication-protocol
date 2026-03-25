@@ -19,7 +19,7 @@ import threading
 import sys
 import os
 import pytest
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

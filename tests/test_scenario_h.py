@@ -16,7 +16,7 @@ a network-dependent integration test (see tests/test_p2p_cross_connect.py).
 import sys, os, subprocess, signal, time, threading
 import requests
 import pytest
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
 PORT_HUB = 7861

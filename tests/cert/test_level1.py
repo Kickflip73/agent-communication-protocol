@@ -22,7 +22,8 @@ RELAY_PROC  = None
 
 def start_reference_relay():
     global RELAY_PROC, TARGET_URL
-    TARGET_URL = f"http://localhost:{RELAY_PORT}"
+    http_port = RELAY_PORT + 100
+    TARGET_URL = f"http://localhost:{http_port}"
     RELAY_PROC = subprocess.Popen(
         [sys.executable, RELAY_PATH, "--port", str(RELAY_PORT), "--name", "CertRelay"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -30,7 +31,7 @@ def start_reference_relay():
     # Poll until ready
     for _ in range(30):
         try:
-            if requests.get(f"{TARGET_URL}/ping", timeout=0.5).status_code == 200:
+            if requests.get(f"{TARGET_URL}/status", timeout=0.5).status_code == 200:
                 return
         except Exception:
             pass
@@ -58,6 +59,17 @@ def get(path, **kw):
 def post(path, body=None, **kw):
     return requests.post(f"{TARGET_URL}{path}", json=body, timeout=5, **kw)
 
+# ── pytest session-level fixture ──────────────────────────────────────────────
+import pytest
+
+def setup_module(module):
+    """Auto-start reference relay when ACP_TARGET_URL is not set."""
+    if not os.environ.get("ACP_TARGET_URL"):
+        start_reference_relay()
+
+def teardown_module(module):
+    stop_reference_relay()
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 def test_c1_01_status():
@@ -77,7 +89,10 @@ def test_c1_02_agent_card():
     # ACP relay returns {self: {...}, peer: {...}}; extract 'self' as the AgentCard
     return body.get("self", body)
 
-def test_c1_03_agent_card_fields(card):
+def test_c1_03_agent_card_fields():
+    r = get("/.well-known/acp.json")
+    body = r.json() if r.status_code == 200 else {}
+    card = body.get("self", body)
     required = ["name", "version", "acp_version", "capabilities"]
     for field in required:
         check(f"C1-03  AgentCard has '{field}'", field in card, str(list(card.keys())))
@@ -124,7 +139,7 @@ def test_c1_05_recv():
     body = r.json() if r.status_code == 200 else {}
     check("C1-05  response has messages array", isinstance(body.get("messages"), list), str(body))
 
-def test_c1_06_idempotency(msg_id):
+def test_c1_06_idempotency():
     """Idempotency: relay must not create duplicate when same message_id replayed."""
     # In host mode without peer, we verify error response includes failed_message_id
     payload = {"role": "user", "parts": [{"type":"text","content":"idem"}],

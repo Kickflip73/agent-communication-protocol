@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.asyncio
 #!/usr/bin/env python3
 """T3: connect_with_holepunch() 三级降级路径测试"""
 import asyncio

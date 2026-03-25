@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 # ── Import helpers from relay ──────────────────────────────────────────────
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from relay.acp_relay import _relay_get_public_ip, _relay_announce, _relay_get_peer_addr
-from conftest import clean_subprocess_env
+from helpers import clean_subprocess_env
 
 # ── Shared announce store for mock server ─────────────────────────────────
 _MOCK_STORE: dict = {}  # token → {ip, port, nat_type, ts}
