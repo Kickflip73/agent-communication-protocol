@@ -705,6 +705,7 @@ def _make_agent_card(name, skills):
             "availability":       bool(_availability),         # v1.2: heartbeat/cron availability metadata
             "extensions":         bool(_extensions),           # v1.3: Extension mechanism (URI-identified)
             "http2":              _http2_enabled,              # v1.6: HTTP/2 transport binding
+            "card_sig":           bool(_ed25519_private),      # v1.8: AgentCard self-signature
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -729,6 +730,7 @@ def _make_agent_card(name, skills):
             "peers_connect": "/peers/connect",         # v0.6
             "discover":     "/discover",               # v0.7 mDNS LAN discovery
             "extensions":   "/extensions",             # v1.3: list/register extensions
+            "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -749,6 +751,108 @@ def _make_agent_card(name, skills):
         card["extensions"] = list(_extensions)  # shallow copy
 
     return card
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AgentCard Signature (v1.8)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _sign_agent_card(card: dict) -> dict:
+    """
+    Sign AgentCard with this Agent's Ed25519 private key (v1.8).
+
+    The signature covers the canonical JSON of the card with the 'identity.card_sig'
+    field excluded (to avoid circular reference). The resulting signature is stored
+    in card['identity']['card_sig'] as a base64url string.
+
+    Requires --identity flag.  No-op (returns card unchanged) when identity is disabled.
+
+    Signed payload: json.dumps(card_without_card_sig, sort_keys=True, separators=(',',':')).
+    This is deterministic and transport-independent.
+    """
+    if not _ed25519_private:
+        return card
+
+    # Build signable form: deep-copy card, remove card_sig from identity block
+    import copy
+    signable = copy.deepcopy(card)
+    if "identity" in signable and signable["identity"]:
+        signable["identity"].pop("card_sig", None)
+
+    payload = json.dumps(signable, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload)
+    sig_b64 = _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+    # Attach signature to identity block
+    signed = copy.deepcopy(card)
+    if signed.get("identity") is None:
+        signed["identity"] = {}
+    signed["identity"]["card_sig"] = sig_b64
+    return signed
+
+
+def _verify_agent_card(card: dict) -> dict:
+    """
+    Verify an AgentCard's Ed25519 self-signature (v1.8).
+
+    Returns a dict with keys:
+      - valid (bool): True if signature checks out
+      - did (str|None): the signer's did:acp: (from card.identity.did)
+      - public_key (str|None): base64url public key used to verify
+      - error (str|None): human-readable reason if invalid
+      - scheme (str): identity scheme from card.identity.scheme
+    """
+    if not _ED25519_AVAILABLE:
+        return {"valid": None, "error": "Ed25519 library not available", "did": None,
+                "public_key": None, "scheme": "unknown"}
+
+    identity = card.get("identity") or {}
+    pub_key_b64 = identity.get("public_key")
+    sig_b64     = identity.get("card_sig")
+    did         = identity.get("did")
+    scheme      = identity.get("scheme", "none")
+
+    if not pub_key_b64:
+        return {"valid": False, "error": "identity.public_key missing", "did": did,
+                "public_key": None, "scheme": scheme}
+    if not sig_b64:
+        return {"valid": False, "error": "identity.card_sig missing (unsigned card)", "did": did,
+                "public_key": pub_key_b64, "scheme": scheme}
+
+    try:
+        import copy
+        # Reconstruct the signable form (same as _sign_agent_card)
+        signable = copy.deepcopy(card)
+        if "identity" in signable and signable["identity"]:
+            signable["identity"].pop("card_sig", None)
+
+        payload = json.dumps(signable, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+
+        pub_raw = _base64.urlsafe_b64decode(pub_key_b64 + "==")
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        sig_bytes = _base64.urlsafe_b64decode(sig_b64 + "==")
+        pub_key.verify(sig_bytes, payload)
+
+        # Optionally verify did:acp: matches public_key
+        did_consistent = None
+        if did and did.startswith("did:acp:"):
+            expected_did = "did:acp:" + _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+            did_consistent = (did == expected_did)
+
+        return {
+            "valid": True,
+            "did": did,
+            "did_consistent": did_consistent,
+            "public_key": pub_key_b64,
+            "scheme": scheme,
+            "error": None,
+        }
+    except _Ed25519InvalidSignature:
+        return {"valid": False, "error": "signature verification failed", "did": did,
+                "public_key": pub_key_b64, "scheme": scheme}
+    except Exception as exc:
+        return {"valid": False, "error": f"verification error: {exc}", "did": did,
+                "public_key": pub_key_b64, "scheme": scheme}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1424,6 +1528,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
             # Rebuild dynamically so capabilities like lan_discovery reflect runtime state
             skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
             live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
+            # v1.8: attach Ed25519 self-signature when identity is enabled
+            live_card = _sign_agent_card(live_card)
             self._json({"self": live_card, "peer": _status.get("peer_card")})
 
         # ── GET /.well-known/did.json — W3C DID Document (v1.3) ───────────────
@@ -1504,6 +1610,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "extensions": list(_extensions),
                 "count":      len(_extensions),
             })
+
+        # ── GET /verify/card — return self-verification result (v1.8) ─────────
+        elif p == "/verify/card":
+            skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
+            live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
+            signed_card = _sign_agent_card(live_card)
+            result = _verify_agent_card(signed_card)
+            self._json({"self_verification": result, "card_signed": bool(_ed25519_private)})
 
         # ── GET /peers/{id} — single peer info (v0.6) ─────────────────────────
         elif p.startswith("/peers/") and not p.endswith("/send"):
@@ -2334,6 +2448,45 @@ class LocalHTTP(BaseHTTPRequestHandler):
             removed = before - len(_extensions)
             log.info(f"🔌 Extension unregistered: {uri} (found={removed > 0})")
             self._json({"ok": True, "removed": removed, "extensions": list(_extensions)})
+
+        # ── POST /verify/card — verify any AgentCard's Ed25519 self-signature (v1.8) ──
+        elif p == "/verify/card":
+            """
+            Verify an AgentCard's Ed25519 self-signature (v1.8).
+
+            Body: any ACP AgentCard JSON (the 'self' field from /.well-known/acp.json).
+
+            Returns:
+              {
+                "valid": true/false/null,   # null = cannot verify (lib missing)
+                "did": "did:acp:...",       # signer's stable identifier
+                "did_consistent": true,     # did:acp: matches public_key
+                "public_key": "...",        # base64url Ed25519 public key
+                "scheme": "ed25519",        # identity scheme
+                "error": null              # human-readable reason if invalid
+              }
+
+            Works for any ACP relay's AgentCard — not just this agent's.
+            Verifies that the card was signed by the private key matching
+            the public_key in card.identity.public_key.
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            # Accept either the raw card or the wrapped form {"self": card, ...}
+            if "self" in body and isinstance(body["self"], dict):
+                card = body["self"]
+            elif "name" in body or "identity" in body:
+                card = body
+            else:
+                self._json({"error": "expected AgentCard JSON or {\"self\": card}"}, 400)
+                return
+
+            result = _verify_agent_card(card)
+            self._json(result)
 
         else:
             self._json({"error": "not found"}, 404)

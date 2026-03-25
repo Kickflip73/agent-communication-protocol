@@ -7,6 +7,65 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [Unreleased] — post-v1.8
+
+---
+
+## [1.8.0] — 2026-03-26 05:15
+
+### Added — AgentCard Self-Signature (card_sig)
+
+- **`_sign_agent_card(card)`** (commit TBD, v1.8)
+  - Signs AgentCard with Ed25519 private key at serve time
+  - Signature covers canonical JSON (sorted keys, separators `','`/`':'`) with `identity.card_sig` excluded to avoid circular reference
+  - Result stored at `card.identity.card_sig` (base64url, no padding)
+  - No-op when `--identity` not enabled (zero-breaking backward compat)
+
+- **`_verify_agent_card(card)`**
+  - Verifies any ACP AgentCard's Ed25519 self-signature
+  - Returns `{valid, did, did_consistent, public_key, scheme, error}`
+  - `did_consistent`: cross-checks `did:acp:` matches `identity.public_key`
+  - Works for any relay's card — not just the local agent's
+
+- **`GET /.well-known/acp.json`** now returns signed card when `--identity` enabled
+  - `identity.card_sig` field added to response
+
+- **`GET /verify/card`** — self-verification endpoint
+  - Returns `{self_verification, card_signed}` for the local agent's own card
+
+- **`POST /verify/card`** — arbitrary card verification endpoint
+  - Body: raw AgentCard JSON or wrapped `{self: card}` form
+  - Returns full verification result
+  - Invalid JSON body → 400
+
+- **`capabilities.card_sig`**: `true` when `--identity` enabled, `false` otherwise
+
+- **`endpoints.verify_card`**: `"/verify/card"` advertised in AgentCard endpoints block
+
+### Tests (CS1–CS10, `tests/test_card_signature.py`)
+
+- CS1: card_sig present in GET /.well-known/acp.json when --identity enabled
+- CS2: GET /verify/card self-verification → valid=True
+- CS3: POST /verify/card valid signed card → valid=True
+- CS4: POST /verify/card tampered card → valid=False
+- CS5: POST /verify/card unsigned card → valid=False + "card_sig missing"
+- CS6: capabilities.card_sig=True with --identity
+- CS7: POST /verify/card accepts wrapped {self: card} form
+- CS8: POST /verify/card invalid JSON → 400
+- CS9: did_consistent=True when did:acp: matches public_key
+- CS10: card_sig absent without --identity; capabilities.card_sig=False
+
+Results: **11/11 PASS** — full regression: **219 passed, 3 skipped, 0 failed**
+
+### Motivation
+
+- Directly addresses A2A issue #1672 (Agent Identity Verification — no protocol-level mechanism)
+- ACP ships cryptographic AgentCard verification today; A2A has no timeline
+- Any ACP peer can now verify "this card was signed by the owner of this did:acp:" identity
+  without any external CA or registration service
+
+---
+
 ## [Unreleased] — post-v1.7 docs
 
 ### Updated (spec + README)
