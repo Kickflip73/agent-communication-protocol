@@ -453,3 +453,26 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 2. `tests/test_three_level_connection.py`：重构为 `run_three_level_tests()` 函数 + `test_three_level_connection()` pytest 入口 + `if __name__` 守护
 
 **遗留**: `test_dcutr.py`（原始单体文件，701行）同样有此问题，但已被 t1-t6 分拆文件取代，标记为 P3（低优先，不影响 CI）
+
+---
+
+### BUG-018 ✅ P2 — test_scenario_e.py pytest 2 failures（ConnectionError，无 relay fixture）
+
+**发现时间**: 2026-03-25 10:06（测试轮第三循环）
+**状态**: ✅ 已修复 (2026-03-25 10:06)
+
+**现象**:
+- `python3 -m pytest tests/test_scenario_e.py -v` 报 2 FAILED:
+  - `test_e1_connection_type_field`: ConnectionError localhost:7981 Connection refused
+  - `test_e2_sse_stream`: ConnectionError localhost:7981 Connection refused
+- `python3 tests/test_scenario_e.py` 直接运行则全部通过
+
+**根因**: 与 BUG-015/017 相同模式——`test_e1`~`test_e7` 作为独立 pytest 函数被收集，但 relay 实例只在 `main()` 中启动，pytest 单独调用时无 relay 运行
+
+**修复**:
+1. 加入 `@pytest.fixture(scope="module", autouse=True)` 的 `relay_instances()` fixture，模块级启动两个 relay 实例，测试结束后自动清理
+2. 将 `test_e1`~`test_e7` 重命名为 `_run_e1`~`_run_e7`（私有，不被 pytest 单独收集）
+3. 新增 `test_scenario_e()` pytest 入口，通过 fixture 保证 relay 就绪后依次调用所有 `_run_e*`
+
+**验证**: `python3 -m pytest tests/test_scenario_e.py -v` → **1/1 PASS**
+**回归**: 全套 11 测试 **11/11 PASS**（57.99s）

@@ -17,6 +17,7 @@ ACP 场景E测试 — NAT穿透三级降级（可验证子集）
 """
 
 import sys, os, time, json, threading, subprocess, signal, socket, requests
+import pytest
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
 HTTP_E1 = "http://localhost:7981"   # instance 1 (ws=7881)
@@ -57,9 +58,33 @@ def check(name, cond, detail=""):
     print(f"  {status} {name}{detail_str}")
     return cond
 
+# ── pytest module-scoped fixture ────────────────────────────────────────────────
+
+@pytest.fixture(scope="module", autouse=True)
+def relay_instances():
+    """Start two relay instances for the duration of this test module."""
+    start_relay(PORT_E1, name="RelayE-Alpha")
+    start_relay(PORT_E2, name="RelayE-Beta")
+    yield
+    stop_all()
+
+# ── pytest entry point ──────────────────────────────────────────────────────────
+
+def test_scenario_e():
+    """Pytest entry point: run all E scenarios end-to-end."""
+    _run_e1_connection_type_field()
+    _run_e2_sse_stream()
+    _run_e3_invalid_link_formats()
+    _run_e4_p2p_max_retries()
+    _run_e5_dcutr_puncher()
+    _run_e6_dual_instance_isolation()
+    _run_e7_guest_invalid_host_timeout()
+    failed = [r for r in results if not r[1]]
+    assert not failed, f"Scenario E failures: {[r[0] for r in failed]}"
+
 # ── Test cases ──────────────────────────────────────────────────────────────────
 
-def test_e1_connection_type_field():
+def _run_e1_connection_type_field():
     """E1: host mode /status 含 connection_type 或 connected 字段"""
     print("\n[E1] /status connection_type 字段...")
     r = requests.get(f"{HTTP_E1}/status", timeout=5)
@@ -75,7 +100,7 @@ def test_e1_connection_type_field():
               body["connection_type"] in ("host", "guest", "p2p", "relay", "dcutr_direct", "none"),
               body["connection_type"])
 
-def test_e2_sse_stream():
+def _run_e2_sse_stream():
     """E2: /stream SSE 端点可建立连接并返回 text/event-stream"""
     print("\n[E2] SSE /stream 端点订阅...")
     try:
@@ -97,7 +122,7 @@ def test_e2_sse_stream():
     except requests.exceptions.Timeout:
         check("E2  /stream 保持连接（超时=正常）", True, "timeout ok")
 
-def test_e3_invalid_link_formats():
+def _run_e3_invalid_link_formats():
     """E3: POST /peers/connect 各种非法格式返回 4xx"""
     print("\n[E3] 非法 link 格式处理...")
     invalid_links = [
@@ -116,7 +141,7 @@ def test_e3_invalid_link_formats():
         except Exception as e:
             check(f"E3  {label} → error", False, str(e))
 
-def test_e4_p2p_max_retries():
+def _run_e4_p2p_max_retries():
     """E4: P2P_MAX_RETRIES 常量可读，且 > 0"""
     print("\n[E4] P2P_MAX_RETRIES 配置...")
     try:
@@ -138,7 +163,7 @@ def test_e4_p2p_max_retries():
     except Exception as e:
         check("E4  P2P_MAX_RETRIES 读取",            False, str(e))
 
-def test_e5_dcutr_puncher():
+def _run_e5_dcutr_puncher():
     """E5: DCUtRPuncher 类存在且可实例化"""
     print("\n[E5] DCUtRPuncher 类检查...")
     try:
@@ -156,7 +181,7 @@ def test_e5_dcutr_puncher():
     except Exception as e:
         check("E5  DCUtRPuncher 检查",         False, str(e))
 
-def test_e6_dual_instance_isolation():
+def _run_e6_dual_instance_isolation():
     """E6: 两个独立 relay 实例状态互不干扰"""
     print("\n[E6] 双实例隔离测试...")
     try:
@@ -181,7 +206,7 @@ def test_e6_dual_instance_isolation():
     except Exception as e:
         check("E6  双实例隔离",                False, str(e))
 
-def test_e7_guest_invalid_host_timeout():
+def _run_e7_guest_invalid_host_timeout():
     """E7: /peers/connect 指向不可达地址 → 立即接受（异步 connect），不挂起"""
     print("\n[E7] 不可达地址异步连接测试...")
     # Use a non-routable IP (TEST-NET-1 RFC5737)
@@ -217,13 +242,13 @@ def main():
     print(f"Alpha: {HTTP_E1}  Beta: {HTTP_E2}\n")
 
     try:
-        test_e1_connection_type_field()
-        test_e2_sse_stream()
-        test_e3_invalid_link_formats()
-        test_e4_p2p_max_retries()
-        test_e5_dcutr_puncher()
-        test_e6_dual_instance_isolation()
-        test_e7_guest_invalid_host_timeout()
+        _run_e1_connection_type_field()
+        _run_e2_sse_stream()
+        _run_e3_invalid_link_formats()
+        _run_e4_p2p_max_retries()
+        _run_e5_dcutr_puncher()
+        _run_e6_dual_instance_isolation()
+        _run_e7_guest_invalid_host_timeout()
     finally:
         stop_all()
 
