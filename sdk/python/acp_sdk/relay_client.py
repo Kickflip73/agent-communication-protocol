@@ -115,6 +115,49 @@ class RelayClient:
         data = _http_get(f"{self.base_url}/link", self.timeout)
         return data.get("link", "")
 
+    def capabilities(self) -> dict:
+        """
+        Return the relay's declared capabilities block from AgentCard (v1.6+).
+
+        Includes fields such as:
+          - http2 (bool): HTTP/2 h2c transport enabled
+          - did_identity (bool): DID self-sovereign identity enabled
+          - hmac_signing (bool): HMAC-SHA256 message signing enabled
+          - mdns (bool): mDNS LAN discovery enabled
+
+        Returns:
+            dict of capability name → value, or empty dict if unavailable.
+        """
+        try:
+            card = self.card()
+            return card.get("capabilities", {})
+        except Exception:
+            return {}
+
+    def identity(self) -> dict:
+        """
+        Return this node's identity block (v1.3+, did:acp:).
+
+        Returns:
+            dict with keys: did, public_key_b64, scheme
+            Example: {"did": "did:acp:abc123...", "public_key_b64": "...", "scheme": "ed25519"}
+        """
+        card = self.card()
+        return card.get("identity", {})
+
+    def did_document(self) -> dict:
+        """
+        Fetch the W3C DID Document for this node (v1.3+).
+
+        Endpoint: GET /.well-known/did.json
+        Returns a W3C DID Document with Ed25519VerificationKey2020
+        and ACPRelay service endpoint.
+
+        Returns:
+            W3C DID Document dict.
+        """
+        return _http_get(f"{self.base_url}/.well-known/did.json", self.timeout)
+
     # ── Peer management (v0.6 multi-session) ─────────────────────────────
 
     def peers(self) -> list[dict]:
@@ -261,11 +304,49 @@ class RelayClient:
 
     # ── Tasks ─────────────────────────────────────────────────────────────
 
-    def tasks(self, status: str = None) -> list[dict]:
-        """List tasks, optionally filtered by status."""
-        url = f"{self.base_url}/tasks"
+    def tasks(
+        self,
+        status: str = None,
+        peer_id: str = None,
+        created_after: str = None,
+        updated_after: str = None,
+        sort: str = None,
+        cursor: str = None,
+        limit: int = None,
+    ) -> list[dict]:
+        """
+        List tasks with optional filters (v1.4+).
+
+        Args:
+            status:         Filter by task state (submitted/working/completed/failed/input_required/canceled).
+            peer_id:        Filter by peer agent id.
+            created_after:  ISO-8601 timestamp; return only tasks created after this time.
+            updated_after:  ISO-8601 timestamp; return only tasks updated after this time.
+            sort:           Sort order: "asc" or "desc" (default "desc").
+            cursor:         Pagination cursor from previous response.
+            limit:          Max number of tasks to return.
+
+        Returns:
+            List of task dicts.
+        """
+        params: list[str] = []
         if status:
-            url += f"?status={status}"
+            params.append(f"status={status}")
+        if peer_id:
+            params.append(f"peer_id={peer_id}")
+        if created_after:
+            params.append(f"created_after={created_after}")
+        if updated_after:
+            params.append(f"updated_after={updated_after}")
+        if sort:
+            params.append(f"sort={sort}")
+        if cursor:
+            params.append(f"cursor={cursor}")
+        if limit is not None:
+            params.append(f"limit={limit}")
+        url = f"{self.base_url}/tasks"
+        if params:
+            url += "?" + "&".join(params)
         data = _http_get(url, self.timeout)
         return data.get("tasks", [])
 
@@ -294,9 +375,33 @@ class RelayClient:
             self.timeout,
         )
 
-    def cancel_task(self, task_id: str) -> dict:
-        """Cancel a task."""
-        return _http_post(f"{self.base_url}/tasks/{task_id}:cancel", {}, self.timeout)
+    def cancel_task(self, task_id: str, raise_on_terminal: bool = False) -> dict:
+        """
+        Cancel a task (v1.5.2, spec §10).
+
+        Cancel semantics are synchronous and idempotent:
+        - Canceling an active task returns {"state": "canceled"}.
+        - Canceling an already-canceled task returns 200 (idempotent, no error).
+        - Canceling a completed/failed task returns ERR_TASK_NOT_CANCELABLE (409).
+
+        Args:
+            task_id:           Task id to cancel.
+            raise_on_terminal: If True, raise ValueError when task is in terminal
+                               state (completed/failed). Default False (match server
+                               idempotent behavior — return the error dict).
+
+        Returns:
+            Server response dict, e.g. {"state": "canceled"} or error dict.
+        """
+        result = _http_post(f"{self.base_url}/tasks/{task_id}:cancel", {}, self.timeout)
+        # _http_post swallows HTTPError and returns the error body as a dict.
+        # Detect ERR_TASK_NOT_CANCELABLE (409) by checking the error field.
+        if raise_on_terminal and isinstance(result, dict) and result.get("error") == "ERR_TASK_NOT_CANCELABLE":
+            raise ValueError(
+                f"Task {task_id!r} is in a terminal state and cannot be canceled. "
+                f"Server: {result}"
+            )
+        return result
 
     # ── Skills / QuerySkill ───────────────────────────────────────────────
 
@@ -666,11 +771,46 @@ class AsyncRelayClient:
 
     # ── Tasks ───────────────────────────────────────────────────────────
 
-    async def tasks(self, status: str = None) -> list[dict]:
-        """List tasks, optionally filtered by status."""
-        path = "/tasks"
+    async def tasks(
+        self,
+        status: str = None,
+        peer_id: str = None,
+        created_after: str = None,
+        updated_after: str = None,
+        sort: str = None,
+        cursor: str = None,
+        limit: int = None,
+    ) -> list[dict]:
+        """
+        List tasks with optional filters (v1.4+).
+
+        Args:
+            status:         Filter by task state.
+            peer_id:        Filter by peer agent id.
+            created_after:  ISO-8601 timestamp.
+            updated_after:  ISO-8601 timestamp.
+            sort:           "asc" or "desc".
+            cursor:         Pagination cursor.
+            limit:          Max results.
+        """
+        params: list[str] = []
         if status:
-            path += f"?status={status}"
+            params.append(f"status={status}")
+        if peer_id:
+            params.append(f"peer_id={peer_id}")
+        if created_after:
+            params.append(f"created_after={created_after}")
+        if updated_after:
+            params.append(f"updated_after={updated_after}")
+        if sort:
+            params.append(f"sort={sort}")
+        if cursor:
+            params.append(f"cursor={cursor}")
+        if limit is not None:
+            params.append(f"limit={limit}")
+        path = "/tasks"
+        if params:
+            path += "?" + "&".join(params)
         data = await self._get(path)
         return data.get("tasks", [])
 
@@ -728,9 +868,45 @@ class AsyncRelayClient:
             body["text"] = text
         return await self._post(f"/tasks/{task_id}/continue", body)
 
-    async def cancel_task(self, task_id: str) -> dict:
-        """Cancel a task."""
-        return await self._post(f"/tasks/{task_id}:cancel", {})
+    async def capabilities(self) -> dict:
+        """
+        Return the relay's declared capabilities block (v1.6+).
+        Includes: http2, did_identity, hmac_signing, mdns, etc.
+        """
+        try:
+            card = await self._get("/.well-known/acp.json")
+            return card.get("capabilities", {})
+        except Exception:
+            return {}
+
+    async def identity(self) -> dict:
+        """Return this node's identity block (v1.3+, did:acp:)."""
+        card = await self._get("/.well-known/acp.json")
+        return card.get("identity", {})
+
+    async def did_document(self) -> dict:
+        """Fetch the W3C DID Document for this node (v1.3+)."""
+        return await self._get("/.well-known/did.json")
+
+    async def cancel_task(self, task_id: str, raise_on_terminal: bool = False) -> dict:
+        """
+        Cancel a task (v1.5.2, spec §10 — synchronous + idempotent).
+
+        Args:
+            task_id:           Task id to cancel.
+            raise_on_terminal: If True, raise ValueError on 409 (terminal state).
+        """
+        try:
+            return await self._post(f"/tasks/{task_id}:cancel", {})
+        except Exception as e:
+            # Handle 409 ERR_TASK_NOT_CANCELABLE
+            if hasattr(e, "status") and e.status == 409:  # type: ignore[attr-defined]
+                if raise_on_terminal:
+                    raise ValueError(
+                        f"Task {task_id!r} is in a terminal state and cannot be canceled."
+                    ) from e
+                return {"error": "ERR_TASK_NOT_CANCELABLE", "task_id": task_id}
+            raise
 
     async def wait_for_task(
         self,
