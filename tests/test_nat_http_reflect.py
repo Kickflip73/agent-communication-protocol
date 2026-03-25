@@ -47,7 +47,10 @@ class TestHTTPReflectionFallback:
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        with patch.object(urllib.request, "urlopen", return_value=mock_resp):
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+
+        with patch.object(urllib.request, "build_opener", return_value=mock_opener):
             result = acp_relay._relay_get_public_ip("https://relay.example.com", timeout=1.0)
 
         assert result == "1.2.3.4", f"Expected '1.2.3.4', got {result!r}"
@@ -55,9 +58,12 @@ class TestHTTPReflectionFallback:
     def test_relay_get_public_ip_timeout(self):
         """_relay_get_public_ip returns None on network timeout."""
         import acp_relay
-        import urllib.error
+        import urllib.request
 
-        with patch("urllib.request.urlopen", side_effect=Exception("timeout")):
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = Exception("timeout")
+
+        with patch.object(urllib.request, "build_opener", return_value=mock_opener):
             result = acp_relay._relay_get_public_ip("https://relay.example.com", timeout=0.1)
 
         assert result is None
@@ -72,7 +78,10 @@ class TestHTTPReflectionFallback:
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        with patch.object(urllib.request, "urlopen", return_value=mock_resp):
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+
+        with patch.object(urllib.request, "build_opener", return_value=mock_opener):
             result = acp_relay._relay_get_public_ip("https://relay.example.com", timeout=1.0)
 
         assert result is None

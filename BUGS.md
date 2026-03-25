@@ -511,3 +511,31 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 5. E6: None 安全判断 + fallback to agent_name
 
 **验证**: 15 passed, 3 skipped (P2P), 0 failed, 0 errors（28.76s）
+
+---
+
+## Round 6 — 测试轮：全套回归 (2026-03-26 04:xx)
+
+### BUG-025 🟢 P2 — test_nat_http_reflect.py mock 目标错误：urlopen vs build_opener
+
+**发现时间**: 2026-03-26 04:15 全套回归测试
+**状态**: ✅ 已修复 (2026-03-26)
+
+**现象**:
+- 全套 pytest 跑出 2 个 FAILED：
+  - `TestHTTPReflectionFallback::test_relay_get_public_ip_success`
+  - `test_r1_relay_get_public_ip_success`
+- 错误：`AssertionError: Expected '1.2.3.4', got None`
+
+**根因**:
+- `_relay_get_public_ip()` 使用 `urllib.request.build_opener(ProxyHandler({}))` 创建自定义 opener，再调用 `_opener.open(url, timeout=timeout)`
+- 测试 mock 的是 `urllib.request.urlopen`，但实际代码走的是 `_opener.open()`
+- mock 完全不命中，函数尝试真实网络连接并因沙箱代理失败，返回 None
+
+**修复**:
+- `tests/test_nat_http_reflect.py`：将 3 个测试方法的 mock 目标从 `urlopen` 改为 `build_opener`，返回含 `.open()` mock 的 opener 对象
+- 同步修复 `test_relay_get_public_ip_timeout`（侧重 opener.open.side_effect 而非 urlopen）
+
+**验证**: `pytest tests/test_nat_http_reflect.py` → **12/12 PASS** (0.12s)
+
+*最后更新：2026-03-26 by J.A.R.V.I.S.*
