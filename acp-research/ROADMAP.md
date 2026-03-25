@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-25 09:06（文档轮：scan #8，docs/whats-new.md，Show HN 发布就绪）
+> 最后更新：2026-03-25 12:40（文档轮：v1.6 HTTP/2 h2c，scan #9，全套 12/12 ✅）
 
 ---
 
@@ -170,7 +170,14 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - cancel 幂等：已取消任务再次 `:cancel` 返回 200
   - 新错误码：`ERR_TASK_NOT_CANCELABLE` (409) 用于 terminal 状态任务
   - 差异化文档：与 A2A #1680（async cancel 无结论）形成鲜明对比
-- [ ] HTTP/2 传输绑定
+- ✅ **v1.6 HTTP/2 传输绑定**（commit `cf578e3`，2026-03-25）
+  - `--http2` CLI 标志：启用 h2c（HTTP/2 cleartext，无需 TLS）
+  - 实现：`_ThreadingH2Server` + `_H2Handler`（纯 `h2` 状态机，独立于 main thread）
+  - `capabilities.http2: true/false` 广播给对端 AgentCard
+  - 全桥接：h2 frames ↔ HTTP/1.1 wire format ↔ LocalHTTP 路由逻辑（零路由改动）
+  - Graceful fallback：`h2` 库缺失时自动降级 HTTP/1.1 + warning log
+  - 新测试：`tests/test_http2_transport.py`（6 场景 H1-H6，原始 h2c socket 验证）
+  - 全套回归：**12/12 ✅**（含新 HTTP/2 测试）
 - ✅ Rust SDK stub（sdk/rust/，commit pending，2026-03-22）
   - lib.rs：RelayClient, MessageRequest, AgentCard, AvailabilityPatch, RelayStatus + 10 structs/enums
   - 全部 API：send_message / agent_card / patch_availability / status / link / ping
