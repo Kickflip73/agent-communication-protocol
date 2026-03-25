@@ -269,6 +269,23 @@ Key commits: `00e4a09`（Python SDK）, `b91f642`（SSE context_id + README）, 
 
 ---
 
+### 🔄 v1.7.x — post-v1.7 持续改进（2026-03-25 22:45）
+**主题：规范性文档 + vs-A2A 安全差异化**
+
+- ✅ **spec/error-codes.md Content-Type 明确化**（commit `81ffd30`）
+  - 显式文档化 `application/json; charset=utf-8`（全部响应，含错误）
+  - 明确拒绝 `application/problem+json`，引用 A2A #1685 对比
+- ✅ **README vs-A2A 新增 2 行安全差异化**（commit `81ffd30`）
+  - "Error response Content-Type"：ACP 统一 vs A2A #1685 模糊
+  - "Webhook security"：ACP URL-only vs A2A #1681 凭证泄露
+  - vs-A2A 对比表累计 12 行差异化优势
+- ✅ **scan #14**（commit `0f84785`）：A2A Content-Type + 凭证泄露安全漏洞，ACP 设计免疫
+- ✅ **全套：141 passed, 0 failed**（第八循环 Round 1 测试轮）
+
+Key commits: `81ffd30`（spec + README）, `0f84785`（scan #14）
+
+---
+
 ### 🔮 v2.0（目标：2026-Q3，待 v1.4 完成后）
 **主题：联邦化与生态扩展**
 
