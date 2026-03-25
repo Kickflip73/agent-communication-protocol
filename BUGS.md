@@ -282,10 +282,16 @@ P2: BUG-006 task_id 语义讨论
 
 ---
 
-### BUG-012 🟡 P1 — 斷線後 relay 降級導致假成功：發送者收到 ok=true 但接收者已離線
+### BUG-012 ✅ P1 — 斷線後 relay 降級導致假成功：發送者收到 ok=true 但接收者已離線
 
 **發現時間**: 2026-03-23 場景G測試 (G4)
-**狀態**: 🔴 待修復
+**狀態**: ✅ 已修復（代碼已修復，BUGS.md 狀態補標記 2026-03-25）
+
+**修復方案（雙重防護）**：
+1. **relay fallback 時清除 peer registry**（`acp_relay.py` L1258）：`guest_mode()` 降級到 Cloudflare Worker 前，強制將所有 P2P peer 標記為 disconnected，避免 `/peer/{id}/send` 對已斷線 peer 返回假 `ok=true`
+2. **ws.send 異常捕獲**（`acp_relay.py` L1989）：`future.result(timeout=5)` 捕獲 WebSocket 發送錯誤，失敗時調用 `_unregister_peer()` 並返回 `503 ERR_NOT_CONNECTED`
+
+**驗證**：Scenario G 測試在 `--with-p2p` 環境下驗證；沙箱環境 P2P 不可用，跳過（`pytest.mark.p2p`）
 
 **現象**: 
 - Alpha 連接 Beta（P2P）
