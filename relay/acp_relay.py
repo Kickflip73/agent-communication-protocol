@@ -67,6 +67,15 @@ import urllib.request
 import urllib.error
 import datetime
 
+# Optional HTTP/2 support via hypercorn + h2 (not required; graceful fallback to HTTP/1.1)
+try:
+    import asyncio as _asyncio_h2
+    import hypercorn.asyncio as _hypercorn_asyncio
+    import hypercorn.config as _hypercorn_config
+    _HTTP2_AVAILABLE = True
+except ImportError:
+    _HTTP2_AVAILABLE = False
+
 try:
     import websockets
     import websockets.exceptions
@@ -665,6 +674,7 @@ def _validate_parts(parts):
 #   task_latency_max_seconds: int # worst-case task processing latency
 _availability: dict  = {}         # empty = persistent (default behaviour)
 _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension list (opt-in)
+_http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
 
 
 def _make_agent_card(name, skills):
@@ -694,6 +704,7 @@ def _make_agent_card(name, skills):
             "did_identity":       bool(_did_acp),              # v1.3: did:acp: stable identifier + DID Document
             "availability":       bool(_availability),         # v1.2: heartbeat/cron availability metadata
             "extensions":         bool(_extensions),           # v1.3: Extension mechanism (URI-identified)
+            "http2":              _http2_enabled,              # v1.6: HTTP/2 transport binding
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -2389,13 +2400,210 @@ class LocalHTTP(BaseHTTPRequestHandler):
         self._json({"ok": True, "availability": live_card.get("availability", {})})
 
 
-def run_http(port, host="127.0.0.1"):
+def run_http(port, host="127.0.0.1", http2=False):
     # BUG-001 root-cause fix (2026-03-23): use ThreadingHTTPServer so that
     # /stream (blocking SSE loop) does not prevent /message:send from being served.
     # The original HTTPServer was single-threaded; any open /stream connection
     # would block ALL subsequent HTTP requests, making SSE effectively useless.
     # host defaults to 127.0.0.1 (local-only); pass "0.0.0.0" for Docker/container use.
+
+    # v1.6: Optional HTTP/2 transport binding via hypercorn (graceful fallback to HTTP/1.1)
+    if http2:
+        if not _HTTP2_AVAILABLE:
+            log.warning("⚠️  --http2 requested but hypercorn/h2 not installed; "
+                        "falling back to HTTP/1.1 (pip install hypercorn h2)")
+        else:
+            log.info(f"🚀 HTTP/2 transport enabled via hypercorn on {host}:{port}")
+            _run_http2_hypercorn(host, port)
+            return  # hypercorn blocks until shutdown
+
+    # Default: HTTP/1.1 via stdlib ThreadingHTTPServer
     ThreadingHTTPServer((host, port), LocalHTTP).serve_forever()
+
+
+def _run_http2_hypercorn(host: str, port: int):
+    """Run the HTTP server with HTTP/2 (h2c cleartext) support.
+
+    Uses the `h2` state machine directly over a raw TCP socket server.
+    This avoids hypercorn's signal handler registration issue in non-main
+    threads, while still providing true HTTP/2 multiplexing via the h2 library.
+
+    Architecture:
+        ThreadingTCPServer → _H2Handler per connection
+        → h2.Connection state machine processes frames
+        → LocalHTTP dispatch logic called for each complete request
+        → Response serialised back as DATA frames
+    """
+    import io
+    import h2.connection
+    import h2.config
+    import h2.events
+    import socketserver
+
+    class _H2Handler(socketserver.BaseRequestHandler):
+        """Handle a single TCP connection using HTTP/2 h2c (cleartext)."""
+
+        MAX_BODY = 4 * 1024 * 1024  # 4 MB request body limit
+
+        def handle(self):
+            conn = h2.connection.H2Connection(
+                config=h2.config.H2Configuration(client_side=False,
+                                                  header_encoding="utf-8")
+            )
+            conn.initiate_connection()
+            self.request.sendall(conn.data_to_send(65535))
+
+            # Per-stream state: {stream_id: {"headers": [...], "body": bytes}}
+            streams: dict = {}
+
+            try:
+                while True:
+                    try:
+                        data = self.request.recv(65535)
+                    except Exception:
+                        break
+                    if not data:
+                        break
+
+                    events = conn.receive_data(data)
+                    for event in events:
+                        if isinstance(event, h2.events.RequestReceived):
+                            streams[event.stream_id] = {
+                                "headers": event.headers,
+                                "body": b"",
+                            }
+                        elif isinstance(event, h2.events.DataReceived):
+                            sid = event.stream_id
+                            if sid in streams:
+                                streams[sid]["body"] += event.data
+                                if len(streams[sid]["body"]) > self.MAX_BODY:
+                                    conn.reset_stream(sid, error_code=3)
+                            conn.acknowledge_received_data(event.flow_controlled_length, sid)
+                        elif isinstance(event, h2.events.StreamEnded):
+                            sid = event.stream_id
+                            if sid in streams:
+                                self._dispatch(conn, sid, streams.pop(sid))
+                        elif isinstance(event, h2.events.WindowUpdated):
+                            pass  # flow control — nothing to do
+                        elif isinstance(event, h2.events.ConnectionTerminated):
+                            return
+
+                    out = conn.data_to_send(65535)
+                    if out:
+                        self.request.sendall(out)
+            except Exception as exc:
+                log.debug(f"H2 connection error: {exc}")
+
+        def _dispatch(self, conn, stream_id, stream_data):
+            """Dispatch one HTTP/2 request to LocalHTTP and send h2 response."""
+            import io
+            import email
+
+            headers_dict = {k: v for k, v in stream_data["headers"]}
+            method  = headers_dict.get(":method", "GET")
+            path    = headers_dict.get(":path", "/")
+            body    = stream_data["body"]
+
+            # Build the fake HTTP/1.1 request lines (header section only, no body).
+            # content-length is set authoritatively to the actual body byte length.
+            # h2 pseudo-headers (:method, :path, etc.) are stripped; duplicate
+            # content-length headers from the client are also stripped to avoid
+            # BaseHTTPRequestHandler reading the wrong byte count.
+            header_lines = []
+            for k, v in stream_data["headers"]:
+                if k.startswith(":"):
+                    continue
+                if k.lower() == "content-length":
+                    continue
+                header_lines.append(f"{k}: {v}")
+            header_lines.append(f"content-length: {len(body)}")
+
+            # Full HTTP/1.1 wire bytes: request line + headers + blank line + body
+            req_line    = f"{method} {path} HTTP/1.1\r\n".encode()
+            header_blob = ("\r\n".join(header_lines) + "\r\n\r\n").encode()
+            raw_req     = req_line + header_blob + body
+
+            resp_buf = io.BytesIO()
+
+            class _FakeSock:
+                def makefile(self, mode, **kw):
+                    # rfile (read) must start right after the request line
+                    # so that parse_headers() finds the header section.
+                    if "r" in mode:
+                        f = io.BytesIO(header_blob + body)
+                        return io.BufferedReader(f)
+                    return resp_buf
+                def sendall(self, d): resp_buf.write(d)
+                def send(self, d, flags=0): resp_buf.write(d); return len(d)
+                def close(self): pass
+                def getpeername(self):
+                    try: return self.client_address
+                    except Exception: return ("127.0.0.1", 0)
+
+            fake_sock = _FakeSock()
+            fake_sock.client_address = self.client_address
+
+            try:
+                handler = LocalHTTP.__new__(LocalHTTP)
+                handler.server = type("_S", (), {"server_address": (host, port)})()
+                handler.client_address = self.client_address
+                handler.request    = fake_sock
+                handler.connection = fake_sock
+                # rfile: after request line, pointing at headers+body
+                handler.rfile  = fake_sock.makefile("rb")
+                handler.wfile  = resp_buf
+                handler.raw_requestline = req_line
+                # parse_request reads the request line, then parse_headers reads rfile
+                handler.parse_request()
+                meth_fn = getattr(handler, f"do_{method}", None)
+                if meth_fn:
+                    meth_fn()
+                else:
+                    handler.send_error(405, f"Method {method} not allowed")
+            except Exception as exc:
+                log.debug(f"H2 dispatch error: {exc}")
+                conn.send_headers(stream_id, [
+                    (":status", "500"),
+                    ("content-type", "text/plain"),
+                ])
+                conn.send_data(stream_id, b"Internal Server Error", end_stream=True)
+                return
+
+            # Parse HTTP/1.1 response from buffer → h2 frames
+            resp_buf.seek(0)
+            raw_resp = resp_buf.read()
+            try:
+                sep = raw_resp.index(b"\r\n\r\n")
+                header_bytes = raw_resp[:sep]
+                resp_body    = raw_resp[sep + 4:]
+                lines = header_bytes.decode(errors="replace").split("\r\n")
+                status_code  = int(lines[0].split()[1]) if lines else 200
+                resp_headers = [(":status", str(status_code))]
+                for line in lines[1:]:
+                    if ":" in line:
+                        k, _, v = line.partition(":")
+                        resp_headers.append((k.strip().lower(), v.strip()))
+            except Exception:
+                status_code = 200
+                resp_headers = [(":status", "200"), ("content-type", "text/plain")]
+                resp_body = raw_resp
+
+            try:
+                conn.send_headers(stream_id, resp_headers)
+                if resp_body:
+                    conn.send_data(stream_id, resp_body, end_stream=True)
+                else:
+                    conn.send_data(stream_id, b"", end_stream=True)
+            except Exception as exc:
+                log.debug(f"H2 send_headers/data error: {exc}")
+
+    class _ThreadingH2Server(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+    server = _ThreadingH2Server((host, port), _H2Handler)
+    log.info(f"HTTP/2 h2c server listening on {host}:{port}")
+    server.serve_forever()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2638,6 +2846,11 @@ Examples:
     parser.add_argument("--http-host", default="127.0.0.1", metavar="HOST",
                         help="Host/IP the HTTP interface binds to (default: 127.0.0.1). "
                              "Use 0.0.0.0 for Docker/container deployments so port mapping works.")
+    parser.add_argument("--http2", action="store_true",
+                        help="Enable HTTP/2 transport (h2c cleartext) via hypercorn. "
+                             "Requires: pip install hypercorn h2. "
+                             "Falls back to HTTP/1.1 if dependencies are missing. "
+                             "Enables multiplexed streams and reduced head-of-line blocking.")
 
     args = parser.parse_args()
 
@@ -2786,8 +2999,22 @@ Examples:
     log.info(f"Message persistence: {_inbox_path}")
 
     http_host = getattr(args, "http_host", "127.0.0.1")
-    threading.Thread(target=run_http, args=(http_port, http_host), daemon=True).start()
-    log.info(f"HTTP interface: http://{http_host}:{http_port}")
+
+    # v1.6: HTTP/2 transport binding
+    global _http2_enabled
+    _use_http2 = getattr(args, "http2", False)
+    if _use_http2 and not _HTTP2_AVAILABLE:
+        log.warning("⚠️  --http2 requested but hypercorn/h2 not installed — "
+                    "falling back to HTTP/1.1 (pip install hypercorn h2)")
+        _use_http2 = False
+    _http2_enabled = _use_http2
+    if _http2_enabled:
+        # Rebuild agent card to reflect http2=True capability
+        _status["agent_card"] = _make_agent_card(args.name, skills)
+        log.info(f"🚀 HTTP/2 (h2c) transport enabled via hypercorn on {http_host}:{http_port}")
+
+    threading.Thread(target=run_http, args=(http_port, http_host), kwargs={"http2": _http2_enabled}, daemon=True).start()
+    log.info(f"HTTP interface: {'h2c' if _http2_enabled else 'http'}//{http_host}:{http_port}")
 
     # ── mDNS LAN discovery (v0.7) ─────────────────────────────────────────────
     if args.advertise_mdns:
