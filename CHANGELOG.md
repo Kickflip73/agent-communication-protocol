@@ -7,6 +7,18 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [Unreleased] — post-v1.7 docs
+
+### Updated (spec + README)
+
+- **spec/error-codes.md**: explicitly documents `Content-Type: application/json; charset=utf-8` for all responses including errors; rejects `application/problem+json` (RFC 9457) by design; references A2A [#1685](https://github.com/a2aproject/A2A/issues/1685) as motivation (commit `81ffd30`)
+- **README vs-A2A table** (commit `81ffd30`):
+  - New row: "Error response Content-Type" — ACP uniform vs A2A #1685 ambiguous
+  - New row: "Webhook security" — ACP URL-only vs A2A #1681 credentials leaked in plaintext
+  - New callout paragraph referencing A2A #1681 + #1685
+
+---
+
 ## [1.7.0] — 2026-03-25 20:30
 
 ### Added (Python SDK)
