@@ -2,7 +2,8 @@
 
 > **Status**: Draft, pending review  
 > **Target**: Hacker News — Show HN  
-> **Date**: 2026-03-24
+> **Date**: 2026-03-24 (last updated: 2026-03-25)
+> **Timing note**: A2A has been quiet for 10+ days post-v1.0 (last merge: 2026-03-16). Window is open.
 
 ---
 
@@ -127,8 +128,9 @@ community consensus yet.
 - "This is just WebSockets" → Transports are pluggable. The protocol is the semantic layer.
 - "Security concerns?" → HMAC signing + `did:acp:` self-sovereign identity (v1.5, ships today). E2E encryption on roadmap. Compare: A2A #1681 leaks credentials by default.
 - "Why not just use getagentid.dev?" → External CA = external dependency + registration + potential downtime. ACP `did:acp:` is derived from your key pair, works offline, no third party.
-- "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python.
+- "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python. Also: A2A hasn't merged code in 10+ days post-v1.0.
 - "What about cancel edge cases?" → ACP cancel is synchronous: you get `canceled` back immediately. A2A is still debating this in issue #1680.
+- "Is this actively maintained?" → Yes. 3 commits this week alone. Check the GitHub pulse.
 
 ---
 
