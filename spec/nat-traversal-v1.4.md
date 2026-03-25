@@ -25,7 +25,7 @@
 | `connect_with_holepunch()` (3-level API) | ✅ | 2026-03-23 |
 | Worker v2.1 signaling endpoints | ✅ | `8c162d4` |
 | Python HTTP reflection helpers | ✅ | `8c162d4` |
-| DCUtRPuncher: integrate HTTP reflection fallback | ⏳ | — |
+| DCUtRPuncher: integrate HTTP reflection fallback | ✅ | `b3da914` (2026-03-25) |
 | Integration test (real NAT environment) | ⏳ | — |
 
 ---
@@ -233,7 +233,7 @@ ACK     (bytes): b"ACP-DCUtR-ACK"     (13 bytes)
   ┌──────┐   start    ┌─────────────┐   STUN ok   ┌───────────┐
   │ IDLE │ ─────────► │ DISCOVERING │ ──────────► │ SIGNALING │
   └──────┘            └─────────────┘             └─────┬─────┘
-                       STUN fails ──────────────────────┘ (use local addr only)
+                       STUN fails ──► HTTP reflect ──────► (use http_ip:local_port)
                                                           │
                                                send/recv dcutr_connect/sync
                                                           │
@@ -249,6 +249,15 @@ ACK     (bytes): b"ACP-DCUtR-ACK"     (13 bytes)
                                     └───────────┘                  └────────────┘
                                   (return direct addr)          (return None → Level 3)
 ```
+
+**地址发现策略（v1.4，2026-03-25 更新）**：
+
+1. **STUN 优先**：向 `stun.l.google.com:19302` 发 Binding Request，获取反射地址 `{public_ip}:{public_port}`
+2. **HTTP 反射降级**（`b3da914`）：若 STUN 超时或被 UDP 防火墙过滤，调用 `GET {relay_base_url}/acp/myip` 获取公网 IP，以 `{http_ip}:{local_port}` 作为候选地址（port 估计值；适用于 Full Cone / Restricted Cone NAT）
+3. **本地 IP 兜底**：始终追加 `{local_ip}:{local_port}` 用于 LAN 直连场景
+
+> ⚠️ HTTP 反射方案的局限性：HTTP 源端口 ≠ UDP 打洞端口，端口候选值为本地估计。
+> 对称型 NAT（Symmetric NAT）无法依赖此方案打洞，这类场景最终回落到 Level 3 Relay。
 
 **时序（正常流程）：**
 

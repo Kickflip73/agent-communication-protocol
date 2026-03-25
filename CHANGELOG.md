@@ -7,6 +7,31 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.4.1-dev] — 2026-03-25 14:40
+
+### Added
+
+- **DCUtR HTTP reflection fallback** (`relay/acp_relay.py`, commit `b3da914`)
+  - `DCUtRPuncher.attempt()`: when STUN fails (UDP blocked by corporate firewall), falls back to HTTP reflection via `_relay_get_public_ip()` to discover public IP
+  - Appends `{http_ip}:{local_port}` to candidate address list; Level 2 hole punch continues
+  - `_status["relay_base_url"]` now populated at both relay startup paths (`--relay` CLI flag and P2P `guest_mode` fallback)
+  - SSE event `dcutr_http_reflect` emitted for observability
+  - Graceful no-op when `relay_base_url` is unset
+
+### Tests
+
+- **`tests/test_nat_http_reflect.py`**: 12 unit tests, 12/12 PASS (mock-based, no network required)
+  - R1–R3: `_relay_get_public_ip` success / timeout / invalid JSON
+  - R4: `_status["relay_base_url"]` round-trip
+  - R5: DCUtR triggers HTTP reflection when STUN fails + relay_base set
+  - R6: DCUtR skips HTTP reflection when `relay_base_url` is None
+
+### Fixed
+
+- **BUGS.md**: BUG-012 status label corrected to ✅ (code fix was already present in prior commits; status record was missed)
+
+---
+
 ## [1.6.0] — 2026-03-25 13:50
 
 ### Added
