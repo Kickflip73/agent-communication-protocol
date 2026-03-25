@@ -7,6 +7,43 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.7.0-dev] — 2026-03-25 18:36
+
+### Added (Python SDK)
+
+- **`RelayClient.tasks()` v1.4 time-window filters** (commit `00e4a09`)
+  - New params: `created_after`, `updated_after`, `peer_id`, `sort`, `cursor`, `limit`
+  - Aligns sync and async clients with full relay `/tasks` endpoint query surface
+
+- **`RelayClient.cancel_task()` v1.5.2 §10 idempotent semantics**
+  - Default: returns error dict on 409 `ERR_TASK_NOT_CANCELABLE` (no exception)
+  - `raise_on_terminal=True`: raises `ValueError` for terminal-state tasks
+  - Async client (`AsyncRelayClient.cancel_task()`) upgraded identically
+
+- **`RelayClient.capabilities()`** — new method
+  - Extracts `capabilities` block from AgentCard (http2 / did_identity / hmac_signing / mdns)
+  - Returns `{}` gracefully when relay unreachable
+
+- **`RelayClient.identity()`** — new method
+  - Returns `identity` block with `did:acp:` DID field (v1.3+)
+
+- **`RelayClient.did_document()`** — new method
+  - Fetches `/.well-known/did.json` W3C DID Document (v1.3+)
+
+- **`AsyncRelayClient`**: all above methods added to async client as well
+
+### Tests
+
+- **`sdk/python/tests/test_relay_client_v17.py`**: 10 tests, 10/10 PASS
+  - T1–T3: `tasks()` time-window + combined filter query string construction
+  - T4–T6: `cancel_task()` success / 409 no-raise / 409 raise
+  - T7: `capabilities()` http2 + did_identity flags
+  - T8: `identity()` did:acp: field
+  - T9: `did_document()` W3C DID Document structure
+  - T10: `capabilities()` fallback on unreachable server
+
+---
+
 ## [1.4.1-dev] — 2026-03-25 14:40
 
 ### Added

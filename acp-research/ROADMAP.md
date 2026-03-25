@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-25 12:40（文档轮：v1.6 HTTP/2 h2c，scan #9，全套 12/12 ✅）
+> 最后更新：2026-03-25 18:45（文档轮：v1.7 Python SDK RelayClient 升级，scan #12 A2A SSRF PR #895）
 
 ---
 
@@ -170,6 +170,12 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - cancel 幂等：已取消任务再次 `:cancel` 返回 200
   - 新错误码：`ERR_TASK_NOT_CANCELABLE` (409) 用于 terminal 状态任务
   - 差异化文档：与 A2A #1680（async cancel 无结论）形成鲜明对比
+- ✅ **v1.7 Python SDK RelayClient 升级**（commit `00e4a09`，2026-03-25 18:36）
+  - `tasks()` v1.4 时间窗口过滤（created_after/updated_after/peer_id/sort/cursor/limit）
+  - `cancel_task()` v1.5.2 §10 幂等语义（raise_on_terminal 选项）
+  - 新方法：`capabilities()` / `identity()` / `did_document()`
+  - AsyncRelayClient 同步升级
+  - 新测试：`test_relay_client_v17.py` 10/10 PASS
 - ✅ **v1.6 HTTP/2 传输绑定**（commit `cf578e3`，2026-03-25）
   - `--http2` CLI 标志：启用 h2c（HTTP/2 cleartext，无需 TLS）
   - 实现：`_ThreadingH2Server` + `_H2Handler`（纯 `h2` 状态机，独立于 main thread）
