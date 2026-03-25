@@ -7,6 +7,31 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.6.0] — 2026-03-25 13:50
+
+### Added
+
+- **HTTP/2 cleartext (h2c) transport binding** (`relay/acp_relay.py`)
+  - Optional dependency: `hypercorn` + `h2` (graceful fallback to HTTP/1.1 if unavailable)
+  - Implementation: raw `h2` state machine over `socketserver.ThreadingTCPServer`
+  - `--http2` CLI flag; `capabilities.http2: true` in AgentCard
+  - `_H2Handler._dispatch()`: bridges h2c frames to existing `LocalHTTP` handler via fake socket
+  - Supports all endpoints: `/status`, `/.well-known/acp.json`, `/tasks`, SSE streams
+
+### Tests
+
+- **`tests/test_http2_transport.py`**: 6 scenarios (H1–H6) all PASS
+  - H1 server startup, H2 AgentCard, H3 SSE, H4 POST /tasks, H5 /status, H6 discovery
+- **Test infrastructure overhaul** (commit `21e3e7d`)
+  - `tests/conftest.py`: global http_proxy strip + `clean_subprocess_env()` for relay subprocesses
+  - `pytest.mark.p2p`: skip P2P-dependent tests in sandbox (`--with-p2p` to enable)
+  - `test_scenario_h`: rewritten as HTTP-only concurrent isolation test
+  - **Full suite: 15 passed, 3 skipped (P2P), 0 failed, 0 errors**
+
+Key commits: `3f06b24`, `e8974b2`, `cf578e3`, `394b71c` (HTTP/2), `21e3e7d` (test infra), `0ac2215` (BUG-019 docs)
+
+---
+
 ## [1.5.2-dev] — 2026-03-25 05:55
 
 ### Added
