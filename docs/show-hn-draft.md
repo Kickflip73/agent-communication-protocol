@@ -126,7 +126,7 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 
 - "Why not just use REST?" → REST assumes servers. Agents are peers.
 - "This is just WebSockets" → Transports are pluggable. The protocol is the semantic layer.
-- "Security concerns?" → HMAC signing + `did:acp:` self-sovereign identity (v1.5, ships today). E2E encryption on roadmap. Compare: A2A #1681 leaks credentials by default.
+- "Security concerns?" → HMAC signing + `did:acp:` self-sovereign identity (v1.5, ships today). E2E encryption on roadmap. Compare: A2A #1681 leaks credentials by default; A2A #895 (SSRF + Context ID Injection, 2026-03-25) shows attack surface from complex AgentCard URL parsing. ACP P2P has no such surface.
 - "Why not just use getagentid.dev?" → External CA = external dependency + registration + potential downtime. ACP `did:acp:` is derived from your key pair, works offline, no third party.
 - "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python. Also: A2A hasn't merged code in 10+ days post-v1.0.
 - "What about cancel edge cases?" → ACP cancel is synchronous: you get `canceled` back immediately. A2A is still debating this in issue #1680.
