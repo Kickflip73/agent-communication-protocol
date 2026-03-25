@@ -98,6 +98,8 @@ Push Notification mechanism at all. Fewer features = smaller attack surface.
 and as of today, issue #1684 reveals they still haven't agreed on what `CancelTaskRequest`
 even *looks like*. ACP spec §10 has had a complete, tested cancel contract for two weeks.
 
+**Spec consistency**: A2A issue #1683 (March 2026): their spec says `contextId` is *mandatory* in SSE events (§4.2.2), but the SSE streaming example in §6.2 omits it entirely — the spec contradicts itself. ACP v1.7 explicitly propagates `context_id` through every SSE event; doc and code are identical.
+
 **What I want feedback on**:
 
 1. Is the `acp://` link-sharing UX intuitive? (inspired by how you share a Tailscale node)
@@ -131,6 +133,7 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 - "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python. Also: A2A hasn't merged code in 10+ days post-v1.0.
 - "What about cancel edge cases?" → ACP cancel is synchronous: you get `canceled` back immediately. A2A is still debating this in issue #1680.
 - "Is this actively maintained?" → Yes. 3 commits this week alone. Check the GitHub pulse.
+- "A2A spec is more thorough?" → A2A issue #1683: their spec contradicts itself on SSE contextId (mandatory per §4.2.2, absent in §6.2 example). ACP spec = code; we ship tests alongside every spec change.
 
 ---
 
