@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-25 18:45（文档轮：v1.7 Python SDK RelayClient 升级，scan #12 A2A SSRF PR #895）
+> 最后更新：2026-03-26 05:45（文档轮：v1.8 AgentCard 自签名，scan #13 A2A #1672/#1683 身份/SSE 空白）
 
 ---
 
@@ -177,6 +177,15 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - AsyncRelayClient 同步升级
   - 新测试：`test_relay_client_v17.py` 10/10 PASS
 - ✅ **v1.6 HTTP/2 传输绑定**（commit `cf578e3`，2026-03-25）
+- ✅ **v1.8 AgentCard 自签名**（commit `fe80ea4`，2026-03-26）
+  - `_sign_agent_card()`: Ed25519 私钥在 serve time 签名整张 AgentCard，result → `identity.card_sig`
+  - `_verify_agent_card()`: 验证任意 AgentCard，返回 `{valid, did, did_consistent, error}`
+  - `GET /.well-known/acp.json`: 启用 `--identity` 时自动附加 `card_sig`
+  - `GET /verify/card`: 本地自验端点
+  - `POST /verify/card`: 验证任意外部 AgentCard（raw 或 wrapped 形式）
+  - `capabilities.card_sig` + `endpoints.verify_card` 字段
+  - CS1-CS10: 11/11 PASS；全回归 219 passed, 3 skipped, 0 failed
+  - **动机**：A2A issue #1672（47 评论无结论）——ACP 直接补齐，无 CA，无注册服务
   - `--http2` CLI 标志：启用 h2c（HTTP/2 cleartext，无需 TLS）
   - 实现：`_ThreadingH2Server` + `_H2Handler`（纯 `h2` 状态机，独立于 main thread）
   - `capabilities.http2: true/false` 广播给对端 AgentCard

@@ -84,10 +84,9 @@ A2A is great if you're building enterprise agent infrastructure. ACP is for:
 
 A few things I've noticed while tracking A2A closely:
 
-**Identity**: A2A's Working Group is converging on `getagentid.dev` as a reference identity CA
-(issue #1672, 47 comments). That's a central registration service — an external dependency.
-ACP ships `did:acp:` today: self-generated from your Ed25519 pubkey, zero external resolver,
-zero registration, works offline. One flag: `--identity ed25519`.
+**Identity & Verification**: A2A's Working Group is converging on `getagentid.dev` as a reference identity CA (issue #1672, 47 comments). That's a central registration service — an external dependency. ACP ships `did:acp:` today: self-generated from your Ed25519 pubkey, zero external resolver, zero registration, works offline. One flag: `--identity ~/.acp/identity.json`.
+
+And as of v1.8 (today): ACP agents **sign their own AgentCard** with their Ed25519 key. Any peer can call `POST /verify/card` to cryptographically verify "this card was signed by the owner of this `did:acp:`" — no CA, no internet required. A2A issue #1672 has 47 comments and still no protocol-level solution.
 
 **Security**: A2A's `GetTaskPushNotificationConfig` API returns full credentials in the
 response by default — a security vulnerability filed as issue #1681 (still open). ACP has no
@@ -117,7 +116,7 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 
 - **vs MCP**: MCP = Agent↔Tool. ACP = Agent↔Agent. Different layers, complementary.
 - **vs A2A**: A2A is enterprise. ACP is personal/small team. Like nginx vs Apache — both valid.
-- **on identity**: A2A is heading toward `getagentid.dev` (external CA). ACP uses `did:acp:` (self-sovereign, zero external service). If A2A's CA goes down, their identity story breaks. ACP works offline.
+- **on identity**: A2A is heading toward `getagentid.dev` (external CA). ACP uses `did:acp:` (self-sovereign, zero external service). If A2A's CA goes down, their identity story breaks. ACP works offline. And v1.8 adds AgentCard self-signatures: `POST /verify/card` gives cryptographic proof of card authenticity — no CA involved.
 - **on security**: A2A issue #1681 (open): `PushNotificationConfig` leaks credentials by default. ACP doesn't have Push Notifications — that's a feature, not a limitation.
 - **on cancel semantics**: A2A issue #1680 (open, no resolution): async cancel is complex. ACP cancel is synchronous and unambiguous.
 - **vs MQTT/WebSockets**: Those are transports. ACP is a semantic protocol (tasks, agent cards, identity).

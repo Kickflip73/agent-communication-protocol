@@ -1,7 +1,44 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-03-25
+> Last updated: 2026-03-26
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## 2026-03-26
+
+### AgentCard Self-Signature — Cryptographic Identity Verification (v1.8)
+
+ACP agents can now **cryptographically sign their own AgentCard** and any peer can verify it.
+
+```bash
+# Start with identity (auto-generates Ed25519 keypair)
+acp-relay --name Alice --identity ~/.acp/identity.json
+
+# Alice's AgentCard now includes a self-signature:
+# GET /.well-known/acp.json →
+# { "self": { ..., "identity": { "card_sig": "base64url...", "did": "did:acp:..." } } }
+```
+
+```bash
+# Anyone can verify Alice's card — no CA, no registration:
+curl -X POST http://alice.local:7901/verify/card \
+  -d '{"name": "Alice", "identity": {"card_sig": "...", "public_key": "..."}, ...}'
+# → {"valid": true, "did": "did:acp:...", "did_consistent": true}
+```
+
+How it works:
+- AgentCard is signed with the agent's Ed25519 private key at serve time
+- Signature covers canonical JSON (sorted keys, `card_sig` field excluded)
+- Any receiver can verify using the `public_key` in `identity` — zero external service
+- `did_consistent` cross-checks that `did:acp:` was derived from the same key
+
+**Why it matters**: [A2A issue #1672](https://github.com/a2aproject/A2A/issues/1672) (47 comments, still open): A2A has no protocol-level agent identity verification — they rely on transport-layer trust (OAuth/HTTPS). ACP v1.8 ships verifiable agent identity today.
+
+New endpoints:
+- `GET /verify/card` — verify local agent's own card
+- `POST /verify/card` — verify any external AgentCard
+- `capabilities.card_sig: true` — discoverable via AgentCard
 
 ---
 
@@ -114,13 +151,16 @@ Previously: HMAC-SHA256 signing was optional but replay attacks were possible. N
 
 ---
 
-## Protocol Comparison Snapshot (as of 2026-03-25)
+## Protocol Comparison Snapshot (as of 2026-03-26)
 
 | Feature | ACP | A2A |
 |---------|-----|-----|
-| Cancel semantics | ✅ Defined (§10) | ❓ Open issue #1680 |
+| Cancel semantics | ✅ Defined (§10), synchronous | ❓ Open issues #1680 + #1684 |
 | Credential security | ✅ No push creds | ⚠️ Open issue #1681 |
-| Identity | ✅ Self-sovereign `did:acp:` | 🔄 Heading toward `getagentid.dev` |
+| **AgentCard verification** | ✅ **Ed25519 self-sig (v1.8)** | ❌ Open issue #1672 (no protocol-level solution) |
+| SSE context propagation | ✅ context_id in all events | ⚠️ Spec contradiction (§4.2.2 vs §6.2, issue #1683) |
+| Identity | ✅ Self-sovereign `did:acp:` | 🔄 Heading toward `getagentid.dev` (external CA) |
+| Error Content-Type | ✅ `application/json` (explicit) | ⚠️ Ambiguous (open issue #1685) |
 | Setup | `curl` + 2 steps | OAuth 2.0 + infra |
 | Task states | 5 (simple) | 8 (complex) |
 | Last code activity | Today | 10 days ago |

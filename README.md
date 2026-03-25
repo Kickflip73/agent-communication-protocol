@@ -228,12 +228,12 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Min dependencies** | Heavy SDK | **`pip install websockets`** |
 | **Identity** | OAuth tokens | **Ed25519 + did:acp: DID + CA hybrid (v1.5)** |
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
-| **Agent identity proof** | ❌ (open issue #1672, 44 comments, still in discussion) | **✅ Hybrid: `did:acp:` self-sovereign + CA cert (v1.5)** |
+| **Agent identity proof** | ❌ (open issue #1672, 47 comments, no protocol-level solution) | **✅ `did:acp:` + Ed25519 AgentCard self-signature (v1.8): `POST /verify/card` proves card authenticity, no CA needed** |
 | **Cancel task semantics** | ❌ Undefined — `CancelTaskRequest` missing, async cancel state disputed (#1680, #1684) | **✅ Synchronous + idempotent: 200 on success, 409 `ERR_TASK_NOT_CANCELABLE` on terminal state (v1.5.2 §10)** |
 | **Error response Content-Type** | ❌ Undefined — `application/json` vs `application/problem+json` contradicted within spec (#1685) | **✅ Always `application/json; charset=utf-8` — one content type for all responses, zero ambiguity** |
 | **Webhook security** | ❌ Push notification config API returns credentials in plaintext (#1681, security bug) | **✅ Webhooks store URL only — no credentials, no leakage surface** |
 
-> A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) is converging on a "hybrid identity model" after 44+ comments. ACP v1.5 ships it today.
+> A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) has 47 comments and still no protocol-level agent identity verification — they rely on transport-layer trust (OAuth/HTTPS). ACP v1.8 ships cryptographic AgentCard self-signatures today: start with `--identity`, and any peer can call `POST /verify/card` to verify your card without any CA or external service.
 
 > A2A [#1680](https://github.com/a2aproject/A2A/issues/1680) & [#1684](https://github.com/a2aproject/A2A/issues/1684) — community debate: when cancel can't complete immediately, return `WORKING` or new `CANCELING` state? `CancelTaskRequest` schema is missing from spec. ACP v1.5.2 resolves all of this with synchronous, idempotent cancel semantics.
 
