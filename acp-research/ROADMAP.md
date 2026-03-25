@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-24 18:30（研究轮 #5：A2A #1676 + getagentid.dev vs did:acp:；ANP 降为已归档）
+> 最后更新：2026-03-25 15:40（文档轮；v1.4 DCUtR HTTP 反射降级 commit `b3da914`；所有 P0/P1 bug 已修复）
 
 ---
 
@@ -176,10 +176,12 @@ Level 3: Relay 降级  — Cloudflare Worker 转发（兜底，约 30% 场景触
   - ✅ `_relay_announce()` — 地址注册
   - ✅ `_relay_get_peer_addr()` — 对方地址读取
   - ✅ `tests/test_nat_signaling.py` — 22/22 PASS
-- [ ] **DCUtRPuncher 集成 HTTP 反射降级**（`acp_relay.py`）
-  - 当前：STUN 失败后直接进入 Level 3 Relay
-  - 目标：STUN 失败 → HTTP 反射 → 继续尝试打洞
-  - 利用已有 `_relay_announce()` / `_relay_get_peer_addr()` helper
+- [x] **DCUtRPuncher 集成 HTTP 反射降级**（commit `b3da914`，2026-03-25）
+  - STUN 失败后调用 `_relay_get_public_ip(_status["relay_base_url"])` 获取公网 IP
+  - 将 `{http_ip}:{local_port}` 加入候选地址列表，继续尝试 Level 2 打洞
+  - `_status["relay_base_url"]` 在两个 relay 启动路径（`--relay` flag + P2P guest_mode fallback）写入
+  - SSE 事件 `dcutr_http_reflect` 可观测
+  - `tests/test_nat_http_reflect.py`：12/12 PASS（R1-R6，全 mock，无需网络）
 - [x] **Cloudflare Worker 改造** → Worker v2.1（commit `8c162d4`，2026-03-24）
   - ✅ `GET /acp/myip`：反射公网 IP（CF-Connecting-IP header）
   - ✅ `POST /acp/announce`：注册 {token,ip,port,nat_type}，TTL 30s，自动过期
@@ -198,6 +200,44 @@ Level 3: Relay 降级  — Cloudflare Worker 转发（兜底，约 30% 场景触
 - `--relay` 用户操作：从必须手动指定 → 零感知自动降级
 
 **参考规范**：`spec/nat-traversal-v1.4.md`
+
+---
+
+### ✅ v1.5.2-dev（完成，2026-03-25）
+**主题：取消语义规范化 + 测试基础设施**
+
+- ✅ **spec §10 Cancel 语义**（commit `0d19a11`）
+  - 三种取消场景：立即取消、无法立即取消（`input_required`）、已完成任务取消（幂等）
+  - 与 A2A issue #1680 同期：A2A 社区仍在讨论，ACP 已有明确方案，差异化优势
+  - `cancel_semantics` AgentCard 能力声明
+- ✅ **Show HN 草稿更新**（`docs/show-hn-draft.md`）
+  - 补充 v1.5 特性：DID、Docker、conformance
+  - 发布窗口：A2A 无大版本冲击，可在近期发布
+
+Key commit: `0d19a11`
+
+---
+
+### ✅ v1.6（完成，2026-03-25）
+**主题：HTTP/2 传输绑定（h2c）**
+
+- ✅ **可选 HTTP/2 cleartext (h2c) 支持**
+  - 依赖：`hypercorn` + `h2`（可选，graceful fallback 到 HTTP/1.1）
+  - 实现：原生 `h2` 状态机 over `socketserver.ThreadingTCPServer`（避免 hypercorn signal handler 限制）
+  - `_HTTP2_AVAILABLE` 全局标志，`--http2` CLI flag
+  - `capabilities.http2: true` 在 AgentCard 声明
+  - `_H2Handler._dispatch()`：h2c 请求桥接到 `LocalHTTP` handler（fake socket pattern）
+- ✅ **测试套件**：`tests/test_http2_transport.py`（H1–H6，全部 PASS）
+  - H1: HTTP/2 server 启动，H2: AgentCard via h2c, H3: SSE over h2c
+  - H4: POST /tasks via h2c, H5: /status endpoint, H6: /.well-known/acp.json
+- ✅ **全套测试**：**15 passed, 3 skipped (P2P), 0 failed**（commit `21e3e7d`）
+
+Key commits: `3f06b24`, `e8974b2`, `cf578e3`, `394b71c`（HTTP/2 实现）, `21e3e7d`（测试基础设施）
+
+**测试基础设施改进（同期）**：
+- `tests/conftest.py`：全局 http_proxy 清除 + `clean_subprocess_env()` 工具函数
+- `pytest.mark.p2p`：P2P 依赖测试沙箱 skip 标记（`--with-p2p` 启用）
+- `test_scenario_h`：重写为 HTTP-only 并发隔离测试（无需 P2P）
 
 ---
 
