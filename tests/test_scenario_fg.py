@@ -5,6 +5,8 @@ Run: python3 tests/test_scenario_fg.py
      pytest tests/test_scenario_fg.py  (also works)
 """
 import subprocess, time, json, urllib.request, urllib.error, sys, os, signal, re as _re
+from conftest import clean_subprocess_env
+import pytest
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELAY = os.path.join(BASE, "relay", "acp_relay.py")
@@ -36,7 +38,8 @@ def post(url, body, timeout=5):
 def start_agent(name, ws_port):
     p = subprocess.Popen(
         [sys.executable, RELAY, "--name", name, "--port", str(ws_port), "--http-host", "127.0.0.1"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env=clean_subprocess_env(),
     )
     time.sleep(1.8)
     return p
@@ -162,7 +165,10 @@ def run_fg_tests():
     time.sleep(0.5)
     print("\n[G3] 殺死 Beta（模擬斷線）")
     beta.terminate()
-    beta.wait(timeout=3)
+    try:
+        beta.wait(timeout=8)
+    except Exception:
+        beta.kill()
     time.sleep(2)
     r("G3-1 Beta 進程終止", beta.poll() is not None, f"returncode={beta.poll()}")
 
@@ -201,8 +207,12 @@ def run_fg_tests():
     r("G8-1 Beta 收到消息統計 >= 1", recv_count >= 1, f"messages_received={recv_count}")
 
     # ── Cleanup ───────────────────────────────────────────────────────────
-    alpha.terminate(); beta2.terminate()
-    alpha.wait(timeout=3); beta2.wait(timeout=3)
+    for proc in (alpha, beta2):
+        try:
+            proc.terminate()
+            proc.wait(timeout=8)
+        except Exception:
+            proc.kill()
 
     # ── Summary ──────────────────────────────────────────────────────────
     passed = sum(1 for _, ok in results if ok)
@@ -220,6 +230,7 @@ def run_fg_tests():
 
 # ── pytest-compatible test function ──────────────────────────────────────────
 
+@pytest.mark.p2p
 def test_scenario_fg():
     """pytest entry point — runs all F+G scenarios."""
     passed, total, failed_labels = run_fg_tests()

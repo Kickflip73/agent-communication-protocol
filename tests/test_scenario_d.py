@@ -13,6 +13,8 @@ ACP 场景D测试 — 压力测试
 """
 
 import sys, os, time, json, threading, subprocess, signal, requests
+import pytest
+from conftest import clean_subprocess_env
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
@@ -27,6 +29,7 @@ def start_relay():
     RELAY_PROC = subprocess.Popen(
         [sys.executable, RELAY_PATH, "--port", str(RELAY_PORT), "--name", "StressRelay"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env=clean_subprocess_env(),
     )
     for _ in range(40):
         try:
@@ -40,7 +43,10 @@ def start_relay():
 def stop_relay():
     if RELAY_PROC:
         RELAY_PROC.send_signal(signal.SIGTERM)
-        RELAY_PROC.wait(timeout=3)
+        try:
+            RELAY_PROC.wait(timeout=8)
+        except Exception:
+            RELAY_PROC.kill()
 
 def send_msg(content, msg_id=None, role="agent"):
     payload = {"role": role, "parts": [{"type": "text", "content": content}]}
@@ -68,6 +74,15 @@ def check(name, cond, detail=""):
     detail_str = f"  ({detail})" if detail else ""
     print(f"  {status} {name}{detail_str}")
     return cond
+
+# ── pytest module-scoped fixture ───────────────────────────────────────────────
+
+@pytest.fixture(scope="module", autouse=True)
+def relay_instance():
+    """Start a single relay instance for the stress test suite."""
+    start_relay()
+    yield
+    stop_relay()
 
 # ── Test cases ─────────────────────────────────────────────────────────────────
 

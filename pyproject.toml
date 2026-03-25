@@ -83,6 +83,9 @@ where = ["relay"]
 [tool.pytest.ini_options]
 testpaths    = ["tests", "sdk/python/tests"]
 asyncio_mode = "auto"
+markers = [
+    "p2p: requires P2P WebSocket connectivity with a public IP (skipped in sandbox by default; pass --with-p2p to enable)",
+]
 
 # ── Ruff (linting, optional) ───────────────────────────────────────────────────
 [tool.ruff]

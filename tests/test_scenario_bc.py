@@ -10,6 +10,7 @@ Run: python3 tests/test_scenario_bc.py
 """
 
 import json
+import pytest
 import os
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import time
 import threading
 import urllib.error
 import urllib.request
+from conftest import clean_subprocess_env
 
 RELAY_PY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py"))
 _procs = []
@@ -26,7 +28,8 @@ results = []
 def start_agent(name, port):
     p = subprocess.Popen(
         [sys.executable, RELAY_PY, "--name", name, "--port", str(port), "--http-host", "127.0.0.1"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env=clean_subprocess_env(),
     )
     _procs.append(p)
     return p
@@ -333,6 +336,7 @@ def run_bc_tests():
 
 # ── pytest-compatible test function ──────────────────────────────────────────
 
+@pytest.mark.p2p
 def test_scenario_bc():
     """pytest entry point — runs all B+C scenarios."""
     passed, total, failed_labels = run_bc_tests()

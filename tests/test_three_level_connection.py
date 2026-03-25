@@ -20,12 +20,14 @@ Usage:
 
 import asyncio
 import json
+import pytest
 import os
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from conftest import clean_subprocess_env
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +41,9 @@ def _start(name, port, extra_args=None):
             "--port", str(port), "--http-host", "127.0.0.1"]
     if extra_args:
         args += extra_args
-    p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env=clean_subprocess_env(),
+    )
     _procs.append(p)
     return p
 
@@ -294,6 +298,7 @@ def run_three_level_tests():
 
 # ── pytest-compatible test function ──────────────────────────────────────────
 
+@pytest.mark.p2p
 def test_three_level_connection():
     """pytest entry point — runs all three-level connection tests."""
     passed, total, failed_labels = run_three_level_tests()

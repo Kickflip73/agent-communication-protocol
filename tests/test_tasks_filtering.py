@@ -18,6 +18,8 @@ import subprocess
 import threading
 import sys
 import os
+import pytest
+from conftest import clean_subprocess_env
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -33,7 +35,8 @@ def setup_module(module):
     global _proc
     _proc = subprocess.Popen(
         [sys.executable, RELAY_BIN, "--port", str(RELAY_WS_PORT)],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=clean_subprocess_env(),
     )
     # 等待启动（HTTP port = ws + 100）
     for _ in range(40):
@@ -51,7 +54,7 @@ def setup_module(module):
 def teardown_module(module):
     if _proc:
         _proc.terminate()
-        _proc.wait(timeout=5)
+        _proc.kill()
 
 
 def _create_task(peer_id="peer-tf", role="agent", content="test"):
