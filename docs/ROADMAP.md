@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-20 21:43（文档轮：v0.8 兼容性测试套件 ✅，剩余 Ed25519）
+> 最后更新：2026-03-25 16:52（文档轮：补全 v1.0–v1.6 全部版本记录，当前版本 v1.6）
 
 ---
 
@@ -187,12 +187,150 @@ curl http://localhost:7901/discover
 
 ---
 
-### 🔮 v1.0（目标：2026-06）
-**主题：生产可用**
+### ✅ v1.0（已完成，2026-03-22）
+**主题：任务过滤 + 兼容性合规**
 
-- [ ] Python + Node 参考实现（可作为 Agent 框架标准插件）
-- [ ] DID 身份（可选，`did:acp:` 格式，向 ANP 靠拢）
-- [ ] Extension 机制（URI 标识，向 A2A 靠拢）
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| `/tasks` 列表过滤（status/role/since/limit） | ✅ | — |
+| `tasks/list` 对齐 A2A v1.0 `last_updated_after` 语义 | ✅ | — |
+| 兼容性测试套件扩展 | ✅ | — |
+| Level 3 中继降级稳定化 | ✅ | — |
+
+---
+
+### ✅ v1.1（已完成，2026-03-22）
+**主题：Level 3 完整 Relay 降级**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| P2P → Relay 自动降级（`--relay` flag） | ✅ | — |
+| Relay session 复用（token 双用） | ✅ | — |
+| Relay 状态暴露至 `/status` | ✅ | — |
+
+---
+
+### ✅ v1.2（已完成，2026-03-22）
+**主题：标准化端点 + 错误码扩展**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| 标准化端点命名（`:cancel`、`:continue`、`:update`） | ✅ | `a7f08a8` |
+| 端点命名风格统一（: 前缀对齐 A2A） | ✅ | — |
+| 错误码扩展（`ERR_PEER_CONNECTING` 等） | ✅ | — |
+
+---
+
+### ✅ v1.3（已完成，2026-03-23）
+**主题：自主权身份 — `did:acp:`**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| `did:acp:` 自主权 DID（由 Ed25519 公钥派生） | ✅ | `6595e39` |
+| `GET /.well-known/did.json`（W3C DID Document） | ✅ | `6595e39` |
+| `verificationMethod[]` + `publicKeyMultibase` | ✅ | `6595e39` |
+| AgentCard `identity.did` 字段 | ✅ | `6595e39` |
+| 无外部注册表，离线可用，零依赖 | ✅ | — |
+
+**设计亮点：** DID = 公钥本身，无需中心注册，比 A2A #1672 提案提前实现。
+
+---
+
+### ✅ v1.4（已完成，2026-03-23/24）
+**主题：三级 NAT 穿透（DCUtR 风格 UDP 打洞）**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| `DCUtRPuncher` 类（~200 行，UDP 打洞状态机） | ✅ | `8c162d4` |
+| Level 1: P2P 直连（3 次重试） | ✅ | — |
+| Level 2: DCUtR UDP 打洞（STUN + 信令 WS） | ✅ | `8c162d4` |
+| Level 3: Cloudflare Worker 中继兜底 | ✅ | `8c162d4` |
+| Cloudflare Worker v2.1（NAT 信令端点） | ✅ | `8c162d4` |
+| HTTP reflection 备用 IP 发现（STUN 失败时） | ✅ | `b3da914` |
+| `spec/nat-traversal-v1.4.md` + `docs/nat-traversal.md` | ✅ | — |
+| 测试：17 项全绿（STUN/消息/降级/握手） | ✅ | — |
+
+**三级降级架构（对应用层完全透明）：**
+```
+Level 1: 真 P2P WebSocket 直连
+    ↓ 失败 3 次
+Level 2: DCUtR UDP 打洞（同时探测，TTL 递增）
+    ↓ 打洞失败（对称 NAT / CGNAT，约 25% 场景）
+Level 3: Cloudflare Worker 中继（100% 成功率兜底）
+```
+
+---
+
+### ✅ v1.5（已完成，2026-03-24）
+**主题：混合身份模型（自主权 + CA 双轨）**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| `--ca-cert` CA 签名证书扩展（混合身份） | ✅ | `7aaa2cb` |
+| `identity.scheme` 升级为 `"ed25519+ca"` | ✅ | `7aaa2cb` |
+| 4 种信任验证策略（spec/identity-v1.5.md） | ✅ | — |
+| 测试：6/6 PASS | ✅ | — |
+
+**动机：** A2A #1672（43 条评论）正在讨论混合信任模型，ACP v1.5 提前实现并成为差异化点。
+
+---
+
+### ✅ v1.5.2-dev（已完成，2026-03-25）
+**主题：Cancel 语义正式化（spec §10）**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| `spec §10` — Task Cancel 完整合约 | ✅ | `0d19a11` |
+| Cancel 同步即时：`:cancel` 返回最终 `canceled` 状态 | ✅ | `0d19a11` |
+| Cancel 幂等：重复调用返回 200 + 现有状态 | ✅ | `0d19a11` |
+| `input_required` 状态也可取消 | ✅ | `0d19a11` |
+| Show HN 草稿更新（A2A #1680/#1684 对比要点） | ✅ | `0d19a11` |
+
+**差异化亮点：** A2A issue #1680、#1684 至今未能明确 cancel 语义（`CancelTaskRequest` 定义都缺失），ACP cancel 已完整定义并测试通过。
+
+---
+
+### ✅ v1.6（已完成，2026-03-25）
+**主题：HTTP/2 cleartext (h2c) 传输绑定**
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| `_H2Handler` — raw `h2` 状态机 over `ThreadingTCPServer` | ✅ | `cf578e3` |
+| `--http2` 启动标志（可选，优雅降级到 HTTP/1.1） | ✅ | `cf578e3` |
+| AgentCard `capabilities.http2: true` | ✅ | `cf578e3` |
+| h2c prior knowledge upgrade（RFC 7540 §3.2） | ✅ | `cf578e3` |
+| `spec/transports.md §4.3`（HTTP/2 绑定说明） | ✅ | — |
+| 测试套件：12 项 h2c 专项全绿 | ✅ | `394b71c` |
+
+**实现选择：** raw `h2` 状态机（非 hypercorn ASGI），避免在非主线程中注册 signal handler 的限制；`h2`/`hypercorn` 为可选依赖，未安装时自动 fallback 并打印警告。
+
+**测试基础设施修复（同期，commit `5ce0ed3`）：**
+- `tests/helpers.py`（新）：抽取 `clean_subprocess_env()`，解决 conftest 命名空间冲突
+- 9 个测试文件：`from conftest import` → `from helpers import`
+- `test_dcutr_t1~t4`：补 `pytestmark = pytest.mark.asyncio`
+- `tests/cert/test_level1.py`：修复 setup_module、port 计算、健康检查路径、fixture 依赖
+- **最终结果：163 passed, 3 skipped (P2P), 0 failed ✅**
+
+---
+
+### 🔮 v1.7（计划中，目标：2026-04）
+**主题：Python acp-client SDK + 文档站**
+
+| 特性 | 优先级 | 状态 |
+|------|--------|------|
+| `acp-client` Python 包（pip 可安装，类型注解完整） | P0 | ⏳ 待开发 |
+| Node.js `@acp/client` npm 包 | P1 | ⏳ 待开发 |
+| 文档站（`docs/` → GitHub Pages） | P1 | ⏳ 待开发 |
+| Show HN 发布 | P0 | ⏳ 待发布 |
+
+---
+
+### 🔮 v2.0（目标：2026-06）
+**主题：生产可用 + 生态**
+
+- [ ] `acp-client` 作为 Agent 框架标准插件（LangChain / AutoGen 集成）
+- [ ] Extension 机制（URI 标识扩展点，向 A2A 靠拢）
+- [ ] 完整 DID 文档站 + 合规认证工具公开
 
 ---
 
