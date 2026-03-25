@@ -7,7 +7,7 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [1.7.0-dev] — 2026-03-25 18:36
+## [1.7.0] — 2026-03-25 20:30
 
 ### Added (Python SDK)
 
@@ -32,6 +32,22 @@ Dates: Asia/Shanghai (UTC+8)
 
 - **`AsyncRelayClient`**: all above methods added to async client as well
 
+### Added (relay server)
+
+- **SSE `context_id` propagation** (commit `b91f642`)
+  - `_create_task()`: stores `context_id` on task object; includes it in initial `status` SSE event
+  - `_update_task()`: propagates `task.context_id` to all subsequent `status` and `artifact` SSE events
+  - `/tasks/create` endpoint and `/send` inline task creation both pass `context_id` through
+  - Tasks without `context_id`: events cleanly omit the field (no null pollution)
+  - Closes parity gap with A2A Issue #1683 (contextId missing from SSE events)
+
+### Updated (README)
+
+- **vs-A2A comparison table**: new row "Cancel task semantics"
+  - ACP v1.5.2 §10: synchronous + idempotent (200 / 409 `ERR_TASK_NOT_CANCELABLE`)
+  - A2A: `CancelTaskRequest` schema missing (#1684), async cancel state disputed (#1680)
+- New callout referencing A2A issues #1680 and #1684
+
 ### Tests
 
 - **`sdk/python/tests/test_relay_client_v17.py`**: 10 tests, 10/10 PASS
@@ -41,6 +57,9 @@ Dates: Asia/Shanghai (UTC+8)
   - T8: `identity()` did:acp: field
   - T9: `did_document()` W3C DID Document structure
   - T10: `capabilities()` fallback on unreachable server
+- **`tests/test_context_id_sse.py`**: 17/17 PASS (C1–C8, context_id SSE propagation)
+
+**Full suite: 140 passed, 0 failed ✅**
 
 ---
 
