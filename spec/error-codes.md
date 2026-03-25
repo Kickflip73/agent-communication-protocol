@@ -1,11 +1,17 @@
 # ACP Error Codes — v0.6
 
 > Status: **Stable** (implemented in `relay/acp_relay.py`, commit `c816cb5`)
-> Last updated: 2026-03-20
+> Last updated: 2026-03-25
 
 ---
 
 ## Overview
+
+All ACP error responses use **`Content-Type: application/json; charset=utf-8`**.
+
+ACP deliberately does not use `application/problem+json` (RFC 9457) — all responses,
+including errors, share a single content type for simplicity and consistency.
+This avoids the ambiguity observed in A2A Issue [#1685](https://github.com/a2aproject/A2A/issues/1685).
 
 All ACP error responses follow a consistent JSON envelope:
 

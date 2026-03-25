@@ -230,10 +230,14 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
 | **Agent identity proof** | ❌ (open issue #1672, 44 comments, still in discussion) | **✅ Hybrid: `did:acp:` self-sovereign + CA cert (v1.5)** |
 | **Cancel task semantics** | ❌ Undefined — `CancelTaskRequest` missing, async cancel state disputed (#1680, #1684) | **✅ Synchronous + idempotent: 200 on success, 409 `ERR_TASK_NOT_CANCELABLE` on terminal state (v1.5.2 §10)** |
+| **Error response Content-Type** | ❌ Undefined — `application/json` vs `application/problem+json` contradicted within spec (#1685) | **✅ Always `application/json; charset=utf-8` — one content type for all responses, zero ambiguity** |
+| **Webhook security** | ❌ Push notification config API returns credentials in plaintext (#1681, security bug) | **✅ Webhooks store URL only — no credentials, no leakage surface** |
 
 > A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) is converging on a "hybrid identity model" after 44+ comments. ACP v1.5 ships it today.
 
 > A2A [#1680](https://github.com/a2aproject/A2A/issues/1680) & [#1684](https://github.com/a2aproject/A2A/issues/1684) — community debate: when cancel can't complete immediately, return `WORKING` or new `CANCELING` state? `CancelTaskRequest` schema is missing from spec. ACP v1.5.2 resolves all of this with synchronous, idempotent cancel semantics.
+
+> A2A [#1685](https://github.com/a2aproject/A2A/issues/1685) — error response Content-Type undefined in spec (PR #1600 removed `application/problem+json` without replacing it). A2A [#1681](https://github.com/a2aproject/A2A/issues/1681) — push notification config API exposes credentials in plaintext. ACP avoids both by design: uniform `application/json` + URL-only webhooks.
 
 ### Numbers
 
