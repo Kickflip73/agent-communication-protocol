@@ -476,3 +476,32 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 
 **验证**: `python3 -m pytest tests/test_scenario_e.py -v` → **1/1 PASS**
 **回归**: 全套 11 测试 **11/11 PASS**（57.99s）
+
+---
+
+### BUG-019 ✅ P1 — 全套测试在沙箱环境大规模失败
+
+**发现时间**: 2026-03-25 13:14（测试轮第四循环）
+**状态**: ✅ 已修复 (2026-03-25 13:41, commit `21e3e7d`)
+
+**现象**:
+- `pytest` 跑全套：多个测试 FAILED/ERROR
+  - `test_scenario_h`: RuntimeError "did not produce a link within 15s"
+  - `test_scenario_bc/fg/three_level`: P2P connect 失败（19/19 项失败）
+  - teardown ERROR: subprocess.TimeoutExpired
+  - `test_scenario_e` E6: NoneType[:8] TypeError
+
+**根因（多个）**:
+1. **http_proxy 干扰**: 沙箱设置 `http_proxy=127.0.0.1:8118`，relay 子进程继承后公网 IP 探测被代理拦截，`/link` 永远为 None
+2. **P2P 无公网 IP**: 沙箱无法建立 WebSocket P2P 连接，依赖 P2P 的测试（BC/FG/3level）在此环境必然失败
+3. **teardown timeout**: `p.wait(timeout=3/8)` 太短，relay SIGTERM 后慢退出
+4. **E6 NoneType**: session_id 在无 P2P 时为 None，`None[:8]` TypeError
+
+**修复**:
+1. `conftest.py`: `bypass_http_proxy` session fixture 清除代理；`clean_subprocess_env()` 工具函数供子进程使用
+2. `pytest.mark.p2p`: 标记 P2P 依赖测试，沙箱默认 skip（`--with-p2p` 启用）
+3. `test_scenario_h`: 完全重写为 HTTP-only 并发隔离测试（无需 P2P）
+4. teardown: SIGTERM + wait(8) + kill() 降级模式
+5. E6: None 安全判断 + fallback to agent_name
+
+**验证**: 15 passed, 3 skipped (P2P), 0 failed, 0 errors（28.76s）
