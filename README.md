@@ -229,8 +229,11 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Identity** | OAuth tokens | **Ed25519 + did:acp: DID + CA hybrid (v1.5)** |
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
 | **Agent identity proof** | ❌ (open issue #1672, 44 comments, still in discussion) | **✅ Hybrid: `did:acp:` self-sovereign + CA cert (v1.5)** |
+| **Cancel task semantics** | ❌ Undefined — `CancelTaskRequest` missing, async cancel state disputed (#1680, #1684) | **✅ Synchronous + idempotent: 200 on success, 409 `ERR_TASK_NOT_CANCELABLE` on terminal state (v1.5.2 §10)** |
 
 > A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) is converging on a "hybrid identity model" after 44+ comments. ACP v1.5 ships it today.
+
+> A2A [#1680](https://github.com/a2aproject/A2A/issues/1680) & [#1684](https://github.com/a2aproject/A2A/issues/1684) — community debate: when cancel can't complete immediately, return `WORKING` or new `CANCELING` state? `CancelTaskRequest` schema is missing from spec. ACP v1.5.2 resolves all of this with synchronous, idempotent cancel semantics.
 
 ### Numbers
 

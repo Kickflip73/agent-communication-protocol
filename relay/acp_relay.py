@@ -816,7 +816,7 @@ def _deliver_push(url, body):
 # Task helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _create_task(payload, message_id=None, task_id=None):
+def _create_task(payload, message_id=None, task_id=None, context_id=None):
     # BUG-006 fix: honour client-supplied task_id (idempotent — return existing if already known)
     if task_id and task_id in _tasks:
         return _tasks[task_id]
@@ -832,9 +832,14 @@ def _create_task(payload, message_id=None, task_id=None):
     }
     if message_id:
         task["origin_message_id"] = message_id
+    if context_id:
+        task["context_id"] = context_id
     _tasks[task_id] = task
     _status["tasks_created"] += 1
-    _broadcast_sse_event("status", {"task_id": task_id, "state": TASK_SUBMITTED})
+    evt: dict = {"task_id": task_id, "state": TASK_SUBMITTED}
+    if context_id:
+        evt["context_id"] = context_id
+    _broadcast_sse_event("status", evt)
     return task
 
 def _update_task(task_id, state, artifact=None, error=None, message=None):
@@ -856,10 +861,17 @@ def _update_task(task_id, state, artifact=None, error=None, message=None):
     if message:
         task["history"].append(message)
 
+    ctx = task.get("context_id")
     if state != old_state:
-        _broadcast_sse_event("status", {"task_id": task_id, "state": state, "error": error})
+        evt: dict = {"task_id": task_id, "state": state, "error": error}
+        if ctx:
+            evt["context_id"] = ctx
+        _broadcast_sse_event("status", evt)
     if artifact:
-        _broadcast_sse_event("artifact", {"task_id": task_id, "artifact": artifact})
+        aevt: dict = {"task_id": task_id, "artifact": artifact}
+        if ctx:
+            aevt["context_id"] = ctx
+        _broadcast_sse_event("artifact", aevt)
 
     return task
 
@@ -1825,7 +1837,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 # Create task if requested
                 task = None
                 if body.get("create_task", False):
-                    task = _create_task({"parts": parts}, message_id=message_id)
+                    task = _create_task({"parts": parts}, message_id=message_id,
+                                        context_id=body.get("context_id"))  # v1.7: propagate context_id
                     msg["task_id"] = task["id"]
                     if task:
                         _update_task(task["id"], TASK_WORKING)
@@ -2101,7 +2114,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     return
                 task = _create_task(payload,
                                     message_id=body.get("message_id"),
-                                    task_id=body.get("task_id"))  # BUG-006 fix: pass client task_id
+                                    task_id=body.get("task_id"),       # BUG-006 fix: pass client task_id
+                                    context_id=body.get("context_id")) # v1.7: propagate context_id to SSE events
                 if body.get("delegate", False):
                     _ws_send_sync({"type": "task.delegate", "message_id": _make_id(), "ts": _now(),
                                    "from": _status.get("agent_name"), "task_id": task["id"],
