@@ -241,6 +241,34 @@ Key commits: `3f06b24`, `e8974b2`, `cf578e3`, `394b71c`（HTTP/2 实现）, `21e
 
 ---
 
+### ✅ v1.7（完成，2026-03-25 20:30）
+**主题：Python SDK 升级 + SSE context_id 传播 + vs-A2A 差异化文档**
+
+- ✅ **Python SDK `RelayClient` v1.7**（commit `00e4a09`）
+  - `tasks()`: `created_after`/`updated_after` 时间窗口过滤 + `peer_id`/`sort`/`cursor`/`limit` 全参数
+  - `cancel_task()`: 幂等语义 + 409 `ERR_TASK_NOT_CANCELABLE` 优雅处理（`raise_on_terminal` 参数）
+  - `capabilities()`: 从 AgentCard 提取 http2/did_identity/hmac_signing/mdns 能力标志
+  - `identity()`: 返回 `did:acp:` DID 字段（v1.3+）
+  - `did_document()`: 获取 `/.well-known/did.json` W3C DID Document
+  - `AsyncRelayClient`: 以上所有方法同步更新
+  - 测试：10/10 PASS（`sdk/python/tests/test_relay_client_v17.py`）
+- ✅ **SSE context_id 完整传播**（commit `b91f642`）
+  - `_create_task()`: 存储 `context_id`，initial status 事件携带它
+  - `_update_task()`: 所有后续 status/artifact SSE 事件传播 `context_id`
+  - `/tasks/create` + `/send` 端点均透传 `context_id`
+  - 无 `context_id` 的任务：事件干净不含该字段（无 null 污染）
+  - 修复 A2A Issue #1683 同类问题（A2A spec §4.2.2 vs §6.2 矛盾）
+  - 测试：17/17 PASS（`tests/test_context_id_sse.py`）
+- ✅ **README vs-A2A 差异化**（commit `b91f642`）
+  - 新增对比行："Cancel task semantics" — ACP §10 已解决，A2A #1680/#1684 仍争议
+  - 新增 callout 段落引用 A2A Issues，清晰展示 ACP 领先优势
+- ✅ **全套：140 passed, 0 failed**
+- ✅ **scan #13**（commit `21362a4`）：A2A cancel 语义争议情报，验证 ACP 优势
+
+Key commits: `00e4a09`（Python SDK）, `b91f642`（SSE context_id + README）, `21362a4`（scan #13）
+
+---
+
 ### 🔮 v2.0（目标：2026-Q3，待 v1.4 完成后）
 **主题：联邦化与生态扩展**
 
