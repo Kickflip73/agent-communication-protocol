@@ -203,7 +203,7 @@ P2: BUG-006 task_id 语义讨论
 
 ## Round 4 — DCUtR 功能测试 (2026-03-23, 16:xx)
 
-### BUG-010 🟡 P1 — `/tasks` POST 缺少 `role` 字段时无校验，返回 201
+### BUG-010 ✅ P1 — `/tasks` POST 缺少 `role` 字段时无校验，返回 201
 
 **发现时间**: 2026-03-23 T7-2 边界测试
 **状态**: ✅ 已修复 (本轮 commit，待 push)
@@ -270,7 +270,7 @@ P2: BUG-006 task_id 语义讨论
 
 ## Round 5 — 場景F+G 錯誤處理與斷線重連測試 (2026-03-23 17:xx)
 
-### BUG-011 🟡 P1 — 非法 JSON body 返回 HTTP 500，應為 400
+### BUG-011 ✅ P1 — 非法 JSON body 返回 HTTP 500，應為 400
 
 **發現時間**: 2026-03-23 場景F測試 (F3)
 **狀態**: ✅ 已修復 (2026-03-23)
@@ -361,7 +361,7 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 
 ---
 
-### BUG-013 🟡 P1 — `/peers/connect` 对无效 link 格式不校验，返回 200
+### BUG-013 ✅ P1 — `/peers/connect` 对无效 link 格式不校验，返回 200
 
 **发现时间**: 2026-03-24 场景E测试 (E3/E7)
 **状态**: ✅ 已修复 (本轮 commit，待 push)
@@ -516,7 +516,7 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 
 ## Round 6 — 测试轮：全套回归 (2026-03-26 04:xx)
 
-### BUG-025 🟢 P2 — test_nat_http_reflect.py mock 目标错误：urlopen vs build_opener
+### BUG-025 ✅ P2 — test_nat_http_reflect.py mock 目标错误：urlopen vs build_opener
 
 **发现时间**: 2026-03-26 04:15 全套回归测试
 **状态**: ✅ 已修复 (2026-03-26)
