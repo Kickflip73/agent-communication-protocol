@@ -86,7 +86,9 @@ A few things I've noticed while tracking A2A closely:
 
 **Identity & Verification**: A2A's Working Group is converging on `getagentid.dev` as a reference identity CA (issue #1672, 47 comments). That's a central registration service — an external dependency. ACP ships `did:acp:` today: self-generated from your Ed25519 pubkey, zero external resolver, zero registration, works offline. One flag: `--identity ~/.acp/identity.json`.
 
-And as of v1.8 (today): ACP agents **sign their own AgentCard** with their Ed25519 key. Any peer can call `POST /verify/card` to cryptographically verify "this card was signed by the owner of this `did:acp:`" — no CA, no internet required. A2A issue #1672 has 47 comments and still no protocol-level solution.
+And as of v1.8 (today): ACP agents **sign their own AgentCard** with their Ed25519 key. Any peer can call `POST /verify/card` to cryptographically verify "this card was signed by the owner of this `did:acp:`" — no CA, no internet required. A2A issue #1672 has 62 comments and counting, with three competing implementations (AgentID, APS, qntm) proving interoperability in the issue thread — but nothing merged into spec yet.
+
+Meanwhile, A2A PR#1079 proposes adding a random UUID as the agent's unique identifier. ACP uses `did:acp:<base58url(pubkey)>` — not a name tag, but a cryptographic fingerprint. You can't claim someone else's `did:acp:` without their private key.
 
 **Security**: A2A's `GetTaskPushNotificationConfig` API returns full credentials in the
 response by default — a security vulnerability filed as issue #1681 (still open). ACP has no
