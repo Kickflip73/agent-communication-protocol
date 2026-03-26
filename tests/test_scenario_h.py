@@ -19,9 +19,24 @@ import pytest
 from helpers import clean_subprocess_env
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
-PORT_HUB = 7861
-PORT_WA  = 7862
-PORT_WB  = 7863
+def _free_port():
+    """Return an OS-assigned free port where port AND port+100 are both free."""
+    import socket
+    for _ in range(200):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            ws = s.getsockname()[1]
+        try:
+            with socket.socket() as s2:
+                s2.bind(("127.0.0.1", ws + 100))
+                return ws
+        except OSError:
+            continue
+    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+
+PORT_HUB = _free_port()
+PORT_WA  = _free_port()
+PORT_WB  = _free_port()
 HUB = f"http://localhost:{PORT_HUB + 100}"
 WA  = f"http://localhost:{PORT_WA  + 100}"
 WB  = f"http://localhost:{PORT_WB  + 100}"

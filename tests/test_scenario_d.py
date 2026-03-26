@@ -18,8 +18,26 @@ from helpers import clean_subprocess_env
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
-HTTP_BASE  = "http://localhost:7971"   # ws_port=7871, http_port=7971
-RELAY_PORT = 7871
+
+
+def _free_port():
+    """Return an OS-assigned free port where port AND port+100 are both free."""
+    import socket
+    for _ in range(200):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            ws = s.getsockname()[1]
+        try:
+            with socket.socket() as s2:
+                s2.bind(("127.0.0.1", ws + 100))
+                return ws
+        except OSError:
+            continue
+    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+
+
+RELAY_PORT = _free_port()
+HTTP_BASE  = f"http://localhost:{RELAY_PORT + 100}"
 RELAY_PROC = None
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

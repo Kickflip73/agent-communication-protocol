@@ -11,8 +11,23 @@ import pytest
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELAY = os.path.join(BASE, "relay", "acp_relay.py")
 
-ALPHA_WS = 7910; ALPHA_HTTP = 8010
-BETA_WS  = 7920; BETA_HTTP  = 8020
+def _free_port():
+    """Return an OS-assigned free port where port AND port+100 are both free."""
+    import socket
+    for _ in range(200):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            ws = s.getsockname()[1]
+        try:
+            with socket.socket() as s2:
+                s2.bind(("127.0.0.1", ws + 100))
+                return ws
+        except OSError:
+            continue
+    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+
+ALPHA_WS   = _free_port(); ALPHA_HTTP = ALPHA_WS + 100
+BETA_WS    = _free_port(); BETA_HTTP  = BETA_WS  + 100
 
 
 def get(url, timeout=5):

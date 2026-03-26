@@ -27,7 +27,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py")
 
-WS_PORT   = 7886
+def _free_port():
+    """Return an OS-assigned free port where port AND port+100 are both free."""
+    import socket
+    for _ in range(200):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            ws = s.getsockname()[1]
+        try:
+            with socket.socket() as s2:
+                s2.bind(("127.0.0.1", ws + 100))
+                return ws
+        except OSError:
+            continue
+    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+
+WS_PORT   = _free_port()
 HTTP_PORT = WS_PORT + 100
 
 _proc = None

@@ -27,10 +27,25 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-RELAY_WS_PORT  = 7888   # WebSocket port
+def _free_port():
+    """Return an OS-assigned free port where port AND port+100 are both free."""
+    import socket
+    for _ in range(200):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            ws = s.getsockname()[1]
+        try:
+            with socket.socket() as s2:
+                s2.bind(("127.0.0.1", ws + 100))
+                return ws
+        except OSError:
+            continue
+    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+
+RELAY_WS_PORT   = _free_port()
 RELAY_HTTP_PORT = RELAY_WS_PORT + 100  # HTTP API = ws_port + 100 (acp_relay convention)
-RELAY_PORT = RELAY_WS_PORT  # kept for compat
-RELAY_BASE = f"http://localhost:{RELAY_HTTP_PORT}"
+RELAY_PORT      = RELAY_WS_PORT        # kept for compat
+RELAY_BASE      = f"http://localhost:{RELAY_HTTP_PORT}"
 
 _relay_proc = None
 

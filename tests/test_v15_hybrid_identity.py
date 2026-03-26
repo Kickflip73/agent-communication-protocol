@@ -4,8 +4,23 @@ Uses /status endpoint (reliable agent_card access)
 """
 import subprocess, time, requests, tempfile, os
 
-BASE_PORT = 7885
-HTTP_PORT = 7985
+def _free_port():
+    """Return an OS-assigned free port where port AND port+100 are both free."""
+    import socket
+    for _ in range(200):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            ws = s.getsockname()[1]
+        try:
+            with socket.socket() as s2:
+                s2.bind(("127.0.0.1", ws + 100))
+                return ws
+        except OSError:
+            continue
+    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+
+BASE_PORT = _free_port()
+HTTP_PORT = BASE_PORT + 100
 
 SAMPLE_PEM = """\
 -----BEGIN CERTIFICATE-----

@@ -565,3 +565,28 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 - 或在 pyproject.toml 中将 peer_card_verify 测试隔离为串行执行
 
 *最后更新：2026-03-26 by J.A.R.V.I.S.*
+
+---
+
+### BUG-027 🟢 P2 — 全套并发 pytest 偶发端口竞争导致 errors（非 FAILED）
+
+**发现时间**: 2026-03-26 19:00 测试轮
+**状态**: ✅ 已修复 (2026-03-26 commit pending)
+
+**现象**:
+- `pytest tests/` 全套并发跑偶发 11 errors（AssertionError: Beta link not available after 15s）
+- 重跑立即恢复正常：246 passed, 4 skipped, 0 errors
+- 单独跑出错的 `tests/test_scenario_d_stress.py` → **10/10 PASS**（无问题）
+
+**根因**:
+- 全套并发执行时多个测试文件竞争相同的本地端口段（7801、7901 等固定端口）
+- `test_scenario_d_stress.py` 中 Beta relay 启动时端口被其他并发测试占用
+- `_wait_ready()` 超时 15s，relay 启动失败 → AssertionError
+
+**影响**: P2（间歇性，CI 全套偶发；单文件/重跑均通过；不影响功能正确性）
+
+**修复方向**:
+- 所有测试文件统一改用 `_free_port()` 动态分配端口（消除固定端口冲突根因）
+- 或在 `pyproject.toml` 中配置 `addopts = "-p no:randomly"` + `--forked` 隔离进程
+
+*最后更新：2026-03-26 by J.A.R.V.I.S.*

@@ -8,6 +8,7 @@ import http.client as _http_client
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -17,12 +18,29 @@ import uuid
 import pytest
 from helpers import clean_subprocess_env
 
-# relay: --port N → ws_port=N, http_port=N+100
-ALPHA_WS   = 7950
-ALPHA_PORT = 7950 + 100   # 8050
-BETA_WS    = 7960
-BETA_PORT  = 7960 + 100   # 8060
 RELAY_PATH = os.path.join(os.path.dirname(__file__), '..', 'relay', 'acp_relay.py')
+
+
+def _free_port():
+    """Return an OS-assigned free port where port AND port+100 are both free."""
+    for _ in range(200):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            ws = s.getsockname()[1]
+        try:
+            with socket.socket() as s2:
+                s2.bind(("127.0.0.1", ws + 100))
+                return ws
+        except OSError:
+            continue
+    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+
+
+# Dynamic ports — assigned at module import to avoid cross-file collisions
+ALPHA_WS   = _free_port()
+ALPHA_PORT = ALPHA_WS + 100
+BETA_WS    = _free_port()
+BETA_PORT  = BETA_WS + 100
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -46,7 +64,7 @@ def post(port, path, b=None):    return http_req("POST", port, path, b)
 
 # ── Relay management ──────────────────────────────────────────────────────────
 
-def _start_relay(ws_port, name):
+def _start_relay(ws_port, name, wait_link=False):
     http_port = ws_port + 100
     proc = subprocess.Popen(
         [sys.executable, RELAY_PATH, "--port", str(ws_port), "--name", name,
@@ -54,7 +72,7 @@ def _start_relay(ws_port, name):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         env=clean_subprocess_env(),
     )
-    deadline = time.time() + 20
+    deadline = time.time() + 30
     while time.time() < deadline:
         try:
             conn = _http_client.HTTPConnection("127.0.0.1", http_port, timeout=1)
@@ -62,7 +80,16 @@ def _start_relay(ws_port, name):
             resp = conn.getresponse()
             raw  = resp.read()
             if resp.status == 200:
-                return proc
+                if not wait_link:
+                    return proc
+                # Also wait for the P2P link (public IP detection) to be ready
+                import json as _json
+                try:
+                    data = _json.loads(raw)
+                    if data.get("link"):
+                        return proc
+                except Exception:
+                    pass
         except Exception:
             pass
         time.sleep(0.3)
@@ -95,19 +122,13 @@ def relay_pair():
                 pass
 
     proc_a = _start_relay(ALPHA_WS, "StressAlpha")
-    proc_b = _start_relay(BETA_WS,  "StressBeta")
+    proc_b = _start_relay(BETA_WS,  "StressBeta", wait_link=True)
     _PROCS.extend([proc_a, proc_b])
 
-    # Wait for Beta's P2P link to be ready (IP detection may take a few seconds)
-    beta_link = None
-    deadline_link = time.time() + 15
-    while time.time() < deadline_link:
-        s, r = get(BETA_PORT, "/status")
-        beta_link = r.get("link") if isinstance(r, dict) else None
-        if beta_link:
-            break
-        time.sleep(0.5)
-    assert beta_link, f"Beta link not available after 15s: status={s}"
+    # Beta link is guaranteed ready by wait_link=True in _start_relay
+    s, r = get(BETA_PORT, "/status")
+    beta_link = r.get("link") if isinstance(r, dict) else None
+    assert beta_link, f"Beta link not available after relay startup: status={s}"
 
     s2, r2 = post(ALPHA_PORT, "/peers/connect", {"link": beta_link, "role": "agent"})
     assert s2 == 200 and r2.get("ok"), f"P2P connect failed: {s2} {r2}"
@@ -292,7 +313,7 @@ if __name__ == "__main__":
             except OSError: pass
 
     proc_a = _start_relay(ALPHA_WS, "StressAlpha")
-    proc_b = _start_relay(BETA_WS,  "StressBeta")
+    proc_b = _start_relay(BETA_WS,  "StressBeta", wait_link=True)
     try:
         s, r  = get(BETA_PORT, "/status")
         beta_link = r.get("link") if isinstance(r, dict) else None
