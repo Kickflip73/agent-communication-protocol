@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-26 10:47（文档轮：v2.0-alpha Offline Delivery Queue，README/whats-new/show-hn 全同步）
+> 最后更新：2026-03-26 13:54（文档轮：v2.1-alpha LAN Port-Scan Discovery，README/whats-new/show-hn 全同步）
 
 ---
 
@@ -226,6 +226,15 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 ### 🚧 v2.0（进行中，目标：2026-Q3）
 **主题：联邦化与生态扩展**
 
+- ✅ **v2.1-alpha.1 LAN Port-Scan Discovery**（commit `d9a6b76`，2026-03-26）
+  - `_lan_port_scan()` — 64 线程 TCP probe + `/.well-known/acp.json` 指纹验证
+  - `_tcp_open()` / `_probe_acp()` / `_get_lan_ip()` — 底层工具函数
+  - `GET /peers/discover` — HTTP 端点，支持 ?subnet ?ports ?workers 参数
+  - 合并 mDNS 缓存，按 host 去重，skip_self_port 避免自发现
+  - `capabilities.lan_port_scan=true` + `endpoints.peers_discover` 声明
+  - 扫描速度：~1-3s（/24 子网，64 线程）
+  - LD1-LD10：10/10 PASS；全回归 246 passed, 4 skipped, 0 failed
+  - **对比 A2A**：A2A spec 无 LAN 发现机制；ACP 无需 mDNS opt-in，发现任意 relay
 - ✅ **v2.0-alpha.1 Offline Delivery Queue**（commit `8a58041`，2026-03-26）
   - `_offline_enqueue(msg, peer_id)` — peer 断连时自动缓存消息（per-peer deque maxlen=100）
   - `_offline_flush(ws, peer_id)` — peer 重连时 FIFO 自动交付（host+guest 双路径）

@@ -92,6 +92,8 @@ Meanwhile, A2A PR#1079 proposes adding a random UUID as the agent's unique ident
 
 And v1.9 (also today) closes the loop: **mutual identity verification at handshake**. When two ACP agents connect, each side automatically verifies the other's AgentCard signature. `GET /peer/verify` gives you the result — `verified: true/false`, the peer's `did:acp:`, and whether the DID is consistent with the public key. Zero extra API calls. The whole identity story is: connect → verify → done.
 
+**Discovery**: How do two agents find each other on a LAN? A2A has no spec-level answer. ACP v2.1-alpha ships `GET /peers/discover`: hit that endpoint and it scans your entire /24 subnet in 1–3 seconds using a 64-thread TCP probe. Any host with an open ACP port gets a `GET /.well-known/acp.json` fingerprint check. You get back a list of `acp://` links ready to paste into `/peers/connect`. No mDNS setup on the other side. No configuration. Just: find → connect.
+
 **Reliability**: What happens if you send a message while the peer agent is restarting? In A2A, it's just gone — there's no offline delivery in the spec. ACP v2.0-alpha adds an **offline delivery queue**: when your peer is offline, the message is buffered locally (up to 100 per peer). The moment they reconnect, the queue auto-flushes in FIFO order. The API is unchanged — you still get `503 ERR_NOT_CONNECTED` (so existing callers aren't surprised), but your message is queued, not dropped. `GET /offline-queue` lets you see what's waiting. Short disconnects become invisible to the application layer.
 
 **Security**: A2A's `GetTaskPushNotificationConfig` API returns full credentials in the
@@ -123,6 +125,7 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 - **vs MCP**: MCP = Agent↔Tool. ACP = Agent↔Agent. Different layers, complementary.
 - **vs A2A**: A2A is enterprise. ACP is personal/small team. Like nginx vs Apache — both valid.
 - **on identity**: A2A is heading toward `getagentid.dev` (external CA). ACP uses `did:acp:` (self-sovereign, zero external service). If A2A's CA goes down, their identity story breaks. ACP works offline. And v1.8 adds AgentCard self-signatures: `POST /verify/card` gives cryptographic proof of card authenticity — no CA involved.
+- **on discovery**: A2A has no LAN discovery mechanism. ACP `GET /peers/discover` scans your /24 in 1–3s — TCP probe + AgentCard fingerprint, no mDNS opt-in required from the target.
 - **on reliability**: A2A drops messages silently when peer is offline — no spec-level buffering. ACP v2.0-alpha offline queue: message survives the disconnect, auto-delivered on reconnect, zero caller changes required.
 - **on security**: A2A issue #1681 (open): `PushNotificationConfig` leaks credentials by default. ACP doesn't have Push Notifications — that's a feature, not a limitation.
 - **on cancel semantics**: A2A issue #1680 (open, no resolution): async cancel is complex. ACP cancel is synchronous and unambiguous.

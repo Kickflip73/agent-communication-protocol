@@ -7,6 +7,51 @@
 
 ## 2026-03-26
 
+### LAN Port-Scan Discovery — Find ACP Agents Without mDNS (v2.1-alpha)
+
+ACP agents can now **automatically discover other ACP relays on the same LAN** by scanning common ports — no `--advertise-mdns` flag required on either side.
+
+```bash
+# Discover all ACP agents on your local network:
+curl http://localhost:7901/peers/discover
+# → {
+#     "found": [
+#       {
+#         "host": "192.168.1.42",
+#         "http_port": 7901,
+#         "name": "Agent-Alice",
+#         "link": "acp://192.168.1.42:7801/tok_abc123",
+#         "latency_ms": 3.2
+#       }
+#     ],
+#     "scanned_hosts": 253,
+#     "scanned_ports": 1518,
+#     "subnet": "192.168.1",
+#     "duration_ms": 1340,
+#     "total_found": 1
+#   }
+
+# Optional: narrow the scan
+curl "http://localhost:7901/peers/discover?subnet=10.0.1&ports=7901,7902&workers=32"
+```
+
+How it works:
+- Auto-detects local /24 subnet from the machine's primary LAN IP
+- 64-thread TCP connect probe across all hosts on common ACP ports (7901–7931)
+- Open port → immediate `GET /.well-known/acp.json` fingerprint to confirm ACP relay
+- Merges mDNS cache (from `--advertise-mdns`) automatically — deduped by host
+- Skips self to avoid self-discovery; per-host dedup across multiple ports
+- Typical scan time: **1–3 seconds** for a /24 subnet
+
+New endpoints/fields:
+- `GET /peers/discover` — returns scan results with `acp://` links ready to connect
+- `capabilities.lan_port_scan: true` — advertised in AgentCard
+- `endpoints.peers_discover: "/peers/discover"` — discoverable via AgentCard
+
+**Why it matters**: mDNS (`--advertise-mdns`) requires opt-in from every agent. Port-scan discovery works against *any* ACP relay regardless of its startup flags — including agents that were started before you, or agents you don't control. Find them first, connect second.
+
+---
+
 ### Offline Delivery Queue — Messages Survive Disconnects (v2.0-alpha)
 
 ACP agents now **buffer outbound messages when the peer is offline, and auto-deliver them the moment the peer reconnects** — zero extra code by the caller.
@@ -228,6 +273,7 @@ Previously: HMAC-SHA256 signing was optional but replay attacks were possible. N
 
 | Feature | ACP | A2A |
 |---------|-----|-----|
+| **LAN discovery** | ✅ **TCP port-scan `/peers/discover` — no mDNS required, finds any relay (v2.1-alpha)** | ❌ No LAN discovery mechanism in spec |
 | **Offline delivery** | ✅ **Auto-queue on disconnect, auto-flush on reconnect (v2.0-alpha)** | ❌ No offline delivery — messages lost if peer is offline |
 | Cancel semantics | ✅ Defined (§10), synchronous | ❓ Open issues #1680 + #1684 |
 | Credential security | ✅ No push creds | ⚠️ Open issue #1681 |
