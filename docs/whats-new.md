@@ -1,7 +1,76 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-03-26
+> Last updated: 2026-03-27
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## 2026-03-27
+
+### Task List Queries — `GET /tasks` with Filtering + Pagination (v2.2-dev)
+
+ACP agents can now **query all tasks** with rich filtering and offset-based pagination — no more fetching all tasks and filtering client-side.
+
+```bash
+# List all tasks (newest first, page 1)
+curl "http://localhost:7901/tasks?offset=0&limit=20"
+
+# Filter by status
+curl "http://localhost:7901/tasks?status=working"
+
+# Filter by peer (works for both top-level and payload.peer_id)
+curl "http://localhost:7901/tasks?peer_id=peer_001"
+
+# Date-range filter (tasks created in the last hour)
+curl "http://localhost:7901/tasks?created_after=2026-03-27T04:00:00"
+
+# Pagination — fetch page 2
+curl "http://localhost:7901/tasks?limit=10&offset=10"
+
+# Sort oldest-first
+curl "http://localhost:7901/tasks?sort=asc"
+```
+
+**Response shape:**
+
+```json
+{
+  "tasks": [
+    {
+      "id": "task_abc123",
+      "status": "working",
+      "peer_id": "peer_001",
+      "created_at": "2026-03-27T05:10:00",
+      "updated_at": "2026-03-27T05:11:00"
+    }
+  ],
+  "total": 42,
+  "has_more": true,
+  "next_offset": 20
+}
+```
+
+**All query parameters:**
+
+| Parameter | Default | Max | Description |
+|---|---|---|---|
+| `status` | — | — | Filter: `submitted`/`working`/`completed`/`failed`/`canceled`/`input_required` |
+| `peer_id` | — | — | Filter by peer (checks `task.peer_id` and `task.payload.peer_id`) |
+| `created_after` | — | — | ISO 8601 timestamp lower bound |
+| `updated_after` | — | — | ISO 8601 timestamp lower bound (updated_at) |
+| `sort` | `desc` | — | `asc` (oldest first) or `desc` (newest first) |
+| `limit` | `20` | `100` | Page size |
+| `offset` | `0` | — | Page start (activates offset mode) |
+
+**Backward compatibility:**
+- `?state=<s>` still accepted (legacy alias for `status`)
+- `?cursor=<task_id>` keyset pagination still works when `offset` param is absent
+- Legacy `?sort=created_asc` / `created_desc` still accepted
+
+**Error handling:**
+- Unknown `status` value → `400 ERR_INVALID_REQUEST` with valid values listed
+
+---
 
 ---
 

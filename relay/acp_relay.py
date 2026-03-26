@@ -110,7 +110,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.1.0"
+VERSION = "2.1.0"  # v2.2-dev: GET /tasks offset pagination + status filter + sort=asc|desc
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2090,61 +2090,123 @@ class LocalHTTP(BaseHTTPRequestHandler):
             msgs  = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
             self._json({"messages": msgs, "count": len(msgs), "remaining": len(_recv_queue)})
 
-        elif p == "/tasks":  # [stable] task CRUD — supports pagination (v1.1)
+        elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2)
             # Query params:
-            #   state=<status>         filter by status
-            #   limit=<n>              max tasks to return (default 50, max 200)
-            #   cursor=<task_id>       exclusive cursor: return tasks after this id
+            #   status=<status>        filter by status (v2.2 alias; state= still accepted)
+            #   state=<status>         legacy alias for status
+            #   limit=<n>              page size (default 20, max 100; legacy default 50, max 200)
+            #   offset=<n>             offset-based page start (v2.2, default 0)
+            #   cursor=<task_id>       legacy keyset cursor (exclusive; used when offset absent)
             #   peer_id=<peer_id>      filter by originating peer
-            #   sort=created_asc|created_desc  (default: created_desc, newest first)
+            #   sort=asc|desc          sort order shorthand (v2.2); created_asc/created_desc also accepted
             #   created_after=<iso>    filter tasks created after this ISO-8601 timestamp
             #   updated_after=<iso>    filter tasks updated after this ISO-8601 timestamp
-            state_filter    = qs.get("state",          [None])[0]
-            peer_filter     = qs.get("peer_id",        [None])[0]
-            created_after   = qs.get("created_after",  [None])[0]
-            updated_after   = qs.get("updated_after",  [None])[0]
-            limit           = min(int(qs.get("limit",  ["50"])[0]),  200)
-            cursor        = qs.get("cursor", [None])[0]
-            sort_order    = qs.get("sort",   ["created_desc"])[0]
 
+            VALID_STATUSES = {
+                TASK_SUBMITTED, TASK_WORKING, TASK_COMPLETED,
+                TASK_FAILED, TASK_CANCELED, TASK_INPUT_REQUIRED,
+            }
+
+            # ── Parameter parsing ──────────────────────────────────────────────
+            # status= takes precedence over legacy state=
+            status_raw   = qs.get("status", qs.get("state", [None]))[0]
+            peer_filter  = qs.get("peer_id",       [None])[0]
+            created_after = qs.get("created_after", [None])[0]
+            updated_after = qs.get("updated_after", [None])[0]
+            cursor        = qs.get("cursor", [None])[0]
+
+            # sort: accept "asc"/"desc" (v2.2) and "created_asc"/"created_desc" (legacy)
+            sort_raw   = qs.get("sort", ["desc"])[0]
+            sort_order = "created_asc" if sort_raw in ("asc", "created_asc") else "created_desc"
+
+            # offset-based pagination (v2.2): limit default 20, max 100
+            # legacy cursor mode: limit default 50, max 200
+            use_offset = "offset" in qs
+            if use_offset:
+                try:
+                    offset = max(0, int(qs.get("offset", ["0"])[0]))
+                except ValueError:
+                    offset = 0
+                try:
+                    limit = min(max(1, int(qs.get("limit", ["20"])[0])), 100)
+                except ValueError:
+                    limit = 20
+            else:
+                offset = 0
+                try:
+                    limit = min(max(1, int(qs.get("limit", ["50"])[0])), 200)
+                except ValueError:
+                    limit = 50
+
+            # Validate status value
+            if status_raw and status_raw not in VALID_STATUSES:
+                body, status_code = _err(
+                    ERR_INVALID_REQUEST,
+                    f"Invalid status '{status_raw}'. "
+                    f"Valid values: {', '.join(sorted(VALID_STATUSES))}",
+                    400,
+                )
+                self._json(body, status_code)
+                return
+
+            # ── Build + filter task list ───────────────────────────────────────
             tasks = list(_tasks.values())
 
-            # Filter
-            if state_filter:
-                tasks = [t for t in tasks if t.get("status") == state_filter]
+            if status_raw:
+                tasks = [t for t in tasks if t.get("status") == status_raw]
             if peer_filter:
+                # BUG-014: peer_id may live at top-level or inside payload
                 tasks = [t for t in tasks if
                          t.get("peer_id") == peer_filter or
                          t.get("payload", {}).get("peer_id") == peer_filter]
             if created_after:
                 tasks = [t for t in tasks if t.get("created_at", "") > created_after]
             if updated_after:
-                tasks = [t for t in tasks if t.get("updated_at", t.get("created_at", "")) > updated_after]
+                tasks = [t for t in tasks if
+                         t.get("updated_at", t.get("created_at", "")) > updated_after]
 
-            # Sort by creation time (task_id contains timestamp prefix for natural sort)
+            # ── Sort ──────────────────────────────────────────────────────────
             reverse = (sort_order != "created_asc")
             tasks.sort(key=lambda t: t.get("created_at", ""), reverse=reverse)
 
-            # Cursor pagination (keyset-based, exclusive)
-            if cursor and cursor in _tasks:
-                try:
-                    cursor_idx = next(i for i, t in enumerate(tasks) if t["id"] == cursor)
-                    tasks = tasks[cursor_idx + 1:]
-                except StopIteration:
-                    tasks = []
+            # ── Pagination ────────────────────────────────────────────────────
+            total = len(tasks)   # total matching (pre-page)
 
-            # Limit + next_cursor
-            has_more    = len(tasks) > limit
-            page        = tasks[:limit]
-            next_cursor = page[-1]["id"] if has_more and page else None
+            if use_offset:
+                # Offset-based (v2.2)
+                sliced   = tasks[offset:]
+                has_more = len(sliced) > limit
+                page     = sliced[:limit]
+                next_offset = offset + limit if has_more else None
 
-            self._json({
-                "tasks":       page,
-                "count":       len(page),
-                "total":       len(_tasks),
-                "has_more":    has_more,
-                "next_cursor": next_cursor,
-            })
+                resp = {
+                    "tasks":       page,
+                    "total":       total,
+                    "has_more":    has_more,
+                }
+                if next_offset is not None:
+                    resp["next_offset"] = next_offset
+            else:
+                # Legacy keyset cursor
+                if cursor and cursor in _tasks:
+                    try:
+                        cursor_idx = next(i for i, t in enumerate(tasks) if t["id"] == cursor)
+                        tasks = tasks[cursor_idx + 1:]
+                    except StopIteration:
+                        tasks = []
+                has_more    = len(tasks) > limit
+                page        = tasks[:limit]
+                next_cursor = page[-1]["id"] if has_more and page else None
+
+                resp = {
+                    "tasks":       page,
+                    "count":       len(page),
+                    "total":       total,
+                    "has_more":    has_more,
+                    "next_cursor": next_cursor,
+                }
+
+            self._json(resp)
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # BUG-008 fix: support both /wait and :wait styles

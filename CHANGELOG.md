@@ -11,6 +11,52 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.2.0-dev] — 2026-03-27 (GET /tasks List Endpoint with Filtering + Pagination)
+
+### Added — `GET /tasks` List Queries (v2.2 milestone)
+
+- **`GET /tasks` — full list + filtering + dual pagination**
+  - `?status=<s>` — filter by task status (submitted/working/completed/failed/canceled/input_required)
+    - Returns `400 ERR_INVALID_REQUEST` for unknown status values
+    - Backwards-compatible: legacy `?state=` parameter still accepted (`status` takes precedence)
+  - `?peer_id=<id>` — filter by peer; checks both `task.peer_id` (top-level) and
+    `task.payload.peer_id` (BUG-014 dual-layer lookup)
+  - `?created_after=<ISO 8601>` — return only tasks created after given timestamp
+  - `?updated_after=<ISO 8601>` — return only tasks updated after given timestamp
+  - `?sort=asc|desc` — sort by `created_at`; default `desc` (newest first)
+    - Legacy `created_asc` / `created_desc` values also accepted
+  - `?limit=<n>` — page size; default 20, max 100 in offset mode; legacy default 50, max 200
+  - `?offset=<n>` — offset-based pagination (v2.2 new); triggers offset mode
+  - Response shape (offset mode):
+    ```json
+    {
+      "tasks": [...],
+      "total": N,
+      "has_more": true,
+      "next_offset": 20
+    }
+    ```
+  - `total` reflects **filtered count** (not raw `len(_tasks)`)
+  - `next_offset` only present when `has_more=true`
+  - Legacy keyset cursor mode (`?cursor=<task_id>`) preserved when `offset` param absent
+
+### Tests (TL1–TL10, `tests/test_tasks_list.py`)
+
+- TL1: No params → returns all tasks with required fields
+- TL2: `?status=working` filters correctly; only matching tasks returned
+- TL3: `?peer_id=` matches both top-level and `payload.peer_id` (BUG-014)
+- TL4: `?limit=2&offset=0` — first page
+- TL5: `?limit=2&offset=2` — second page; no overlap with first
+- TL6: `has_more=true` when items remain; `next_offset` present only when `has_more=true`
+- TL7: `?sort=asc` returns oldest task first
+- TL8: `?created_after=<ISO>` filters out older tasks
+- TL9: Impossible filter → `{"tasks": [], "total": 0, "has_more": false}`
+- TL10: `?status=bogus` → `400 ERR_INVALID_REQUEST`
+
+Results: **10/10 passed** — full regression: **256 passed, 4 skipped, 0 failed**
+
+---
+
 ## [2.0.0-alpha.1] — 2026-03-26 10:17 (Offline Delivery Queue)
 
 ### Added — Offline Message Delivery Queue (v2.0 milestone)
