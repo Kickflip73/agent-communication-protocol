@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v0.7-dev
-======================
+ACP P2P Relay v0.7-dev (engine v2.1-alpha)
+==========================================
 Zero-server, zero-code-change P2P Agent communication.
+
+v2.1-alpha changes (2026-03-26):
+  - LAN port-scan discovery: GET /peers/discover
+    TCP connect probe + /.well-known/acp.json fingerprint, no mDNS required
+    Scans local /24 subnet in ~1-3s using 64-thread pool
+    Optional params: ?subnet=192.168.1 ?ports=7901,7902 ?workers=32
+    Merges mDNS cache automatically; deduplicates by host
+    capabilities.lan_port_scan=true + endpoints.peers_discover advertised
+    Works against any ACP relay regardless of --advertise-mdns flag
 
 v0.7 changes (2026-03-20):
   - Optional HMAC-SHA256 message signing: --secret <shared_key>
@@ -621,6 +630,172 @@ def _mdns_peer_list() -> list:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# LAN port-scan discovery (v2.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Default ACP HTTP ports to probe (each host)
+_ACP_SCAN_PORTS = [7901, 7902, 7903, 7911, 7921, 7931]
+# TCP connect timeout in seconds (keep short — scanning ~254 hosts × N ports)
+_SCAN_CONNECT_TIMEOUT = 0.15
+# HTTP probe timeout (slightly longer — we already know port is open)
+_SCAN_HTTP_TIMEOUT = 1.0
+
+
+def _get_lan_ip() -> str | None:
+    """Return the primary LAN IPv4 address of this machine."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
+def _tcp_open(host: str, port: int, timeout: float) -> bool:
+    """Return True if a TCP connection can be established."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _probe_acp(host: str, port: int, timeout: float) -> dict | None:
+    """
+    Probe http://host:port/.well-known/acp.json.
+    Returns parsed card dict on success, None otherwise.
+    """
+    url = f"http://{host}:{port}/.well-known/acp.json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ACP-Scanner/2.1"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read(65536))
+                return data
+    except Exception:
+        return None
+    return None
+
+
+def _lan_port_scan(
+    subnet: str | None = None,
+    ports: list[int] | None = None,
+    max_workers: int = 64,
+    skip_self_port: int | None = None,
+) -> dict:
+    """
+    Scan the local /24 subnet for ACP relays via TCP port probe +
+    /.well-known/acp.json verification.
+
+    Args:
+        subnet:        e.g. "192.168.1"  (auto-detected when None)
+        ports:         HTTP ports to try per host (default: _ACP_SCAN_PORTS)
+        max_workers:   thread pool size
+        skip_self_port: HTTP port of this relay (skip self to avoid self-discovery)
+
+    Returns dict:
+        {
+          "found": [ {host, port, name, link, agent_card, latency_ms}, ... ],
+          "scanned_hosts": N,
+          "scanned_ports": M,
+          "subnet": "x.x.x",
+          "duration_ms": D,
+          "error": str | null,
+        }
+    """
+    import concurrent.futures
+
+    if ports is None:
+        ports = _ACP_SCAN_PORTS
+
+    t0 = time.monotonic()
+    lan_ip = _get_lan_ip()
+
+    if subnet is None:
+        if lan_ip is None:
+            return {
+                "found": [], "scanned_hosts": 0, "scanned_ports": 0,
+                "subnet": None, "duration_ms": 0,
+                "error": "Cannot determine LAN IP",
+            }
+        parts = lan_ip.split(".")
+        if len(parts) != 4:
+            return {
+                "found": [], "scanned_hosts": 0, "scanned_ports": 0,
+                "subnet": None, "duration_ms": 0,
+                "error": f"Unexpected IP format: {lan_ip}",
+            }
+        subnet = ".".join(parts[:3])  # e.g. "192.168.1"
+
+    # Build host list (skip .0 and .255; skip self)
+    hosts = [f"{subnet}.{i}" for i in range(1, 255) if f"{subnet}.{i}" != lan_ip]
+
+    found = []
+    scanned_ports = 0
+
+    def _check_host_port(host_port):
+        host, port = host_port
+        # Skip self
+        if skip_self_port and host == lan_ip and port == skip_self_port:
+            return None
+        if not _tcp_open(host, port, _SCAN_CONNECT_TIMEOUT):
+            return None
+        # Port is open — probe for ACP
+        t_probe = time.monotonic()
+        card = _probe_acp(host, port, _SCAN_HTTP_TIMEOUT)
+        if card is None:
+            return None
+        latency_ms = round((time.monotonic() - t_probe) * 1000, 1)
+        # Extract identity info from AgentCard
+        self_card = card.get("self", card)  # support wrapped {self:{...}} or flat
+        name = self_card.get("name", f"acp-relay@{host}:{port}")
+        # Reconstruct acp:// link from card if available
+        link = None
+        endpoints = self_card.get("endpoints", {})
+        ws_host = self_card.get("host", host)
+        ws_port_val = self_card.get("ws_port") or self_card.get("port")
+        token = self_card.get("token")
+        if ws_port_val and token:
+            link = f"acp://{ws_host}:{ws_port_val}/{token}"
+        return {
+            "host": host,
+            "http_port": port,
+            "name": name,
+            "link": link,
+            "agent_card": self_card,
+            "latency_ms": latency_ms,
+        }
+
+    tasks = [(h, p) for h in hosts for p in ports]
+    scanned_ports = len(tasks)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as exe:
+        for result in exe.map(_check_host_port, tasks):
+            if result is not None:
+                found.append(result)
+
+    # De-duplicate by host (keep first port that responded)
+    seen_hosts = set()
+    deduped = []
+    for r in found:
+        if r["host"] not in seen_hosts:
+            seen_hosts.add(r["host"])
+            deduped.append(r)
+
+    duration_ms = round((time.monotonic() - t0) * 1000)
+    return {
+        "found": deduped,
+        "scanned_hosts": len(hosts),
+        "scanned_ports": scanned_ports,
+        "subnet": subnet,
+        "duration_ms": duration_ms,
+        "error": None,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Part model (v0.5)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -715,6 +890,7 @@ def _make_agent_card(name, skills):
             "card_sig":           bool(_ed25519_private),      # v1.8: AgentCard self-signature
             "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
             "offline_queue":      True,                        # v2.0: buffer messages when peer offline, flush on reconnect
+            "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -742,6 +918,7 @@ def _make_agent_card(name, skills):
             "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
+            "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -1699,6 +1876,83 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 })
             active = sum(1 for p2 in _peers.values() if p2["connected"])
             self._json({"peers": peer_list, "count": len(peer_list), "active": active})
+
+        # ── GET /peers/discover — LAN port-scan discovery (v2.1) ─────────────
+        elif p == "/peers/discover":
+            """
+            Scan the local /24 subnet for ACP relays via TCP port probe +
+            /.well-known/acp.json fingerprinting.
+
+            Does NOT require --advertise-mdns; works against any ACP relay
+            on the same LAN regardless of whether it broadcasts mDNS.
+
+            Optional query params:
+              ?subnet=192.168.1   override the /24 prefix to scan
+              ?ports=7901,7902    comma-separated list of HTTP ports to probe
+              ?workers=32         thread pool size (default 64)
+
+            Response:
+              {
+                "found": [
+                  {
+                    "host": "192.168.1.42",
+                    "http_port": 7901,
+                    "name": "Agent-Alice",
+                    "link": "acp://192.168.1.42:7801/tok_xxx",
+                    "agent_card": { ... },
+                    "latency_ms": 3.2
+                  }
+                ],
+                "scanned_hosts": 253,
+                "scanned_ports": 1518,
+                "subnet": "192.168.1",
+                "duration_ms": 1240,
+                "mdns_peers": [ ... ],   # mDNS cache merged in (deduped by host)
+                "error": null
+              }
+
+            Typically completes in 1-3 seconds on a /24 LAN with default settings.
+            """
+            qs = parse_qs(urlparse(self.path).query)
+            scan_subnet = qs.get("subnet", [None])[0]
+            raw_ports   = qs.get("ports",  [None])[0]
+            raw_workers = qs.get("workers",["64"])[0]
+            scan_ports  = (
+                [int(p.strip()) for p in raw_ports.split(",") if p.strip().isdigit()]
+                if raw_ports else None
+            )
+            try:
+                workers = max(1, min(256, int(raw_workers)))
+            except ValueError:
+                workers = 64
+
+            my_http_port = _status.get("http_port")
+            result = _lan_port_scan(
+                subnet=scan_subnet,
+                ports=scan_ports,
+                max_workers=workers,
+                skip_self_port=my_http_port,
+            )
+
+            # Merge mDNS cache — add entries not already found by port scan
+            mdns_peers = _mdns_peer_list()
+            scan_hosts = {r["host"] for r in result["found"]}
+            for mp in mdns_peers:
+                mp_host = mp.get("host") or mp.get("ip")
+                if mp_host and mp_host not in scan_hosts:
+                    result["found"].append({
+                        "host": mp_host,
+                        "http_port": mp.get("http_port"),
+                        "name": mp.get("name"),
+                        "link": mp.get("link"),
+                        "agent_card": None,
+                        "latency_ms": None,
+                        "source": "mdns",
+                    })
+
+            result["mdns_peers"] = mdns_peers
+            result["total_found"] = len(result["found"])
+            self._json(result)
 
         # ── GET /discover — LAN peers via mDNS (v0.7)  [experimental] ──────────
         elif p == "/discover":
