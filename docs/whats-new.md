@@ -7,7 +7,7 @@
 
 ## 2026-03-27
 
-### Task List Queries — `GET /tasks` with Filtering + Pagination (v2.2-dev)
+### Task List Queries — `GET /tasks` with Filtering + Pagination (v2.2.0)
 
 ACP agents can now **query all tasks** with rich filtering and offset-based pagination — no more fetching all tasks and filtering client-side.
 

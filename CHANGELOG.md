@@ -11,7 +11,7 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## [2.2.0-dev] — 2026-03-27 (GET /tasks List Endpoint with Filtering + Pagination)
+## [2.2.0] — 2026-03-27 (GET /tasks List Endpoint with Filtering + Pagination)
 
 ### Added — `GET /tasks` List Queries (v2.2 milestone)
 
