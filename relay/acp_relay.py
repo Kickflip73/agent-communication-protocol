@@ -223,6 +223,12 @@ _peer_ws    = None
 _loop       = None
 _inbox_path = None
 
+# v2.0: Offline delivery queue — buffers messages when peer is disconnected,
+#        auto-flushes on reconnect.
+OFFLINE_QUEUE_MAXLEN = 100          # per-peer max buffered messages
+_offline_queue: dict  = {}          # { peer_id|"default": deque([msg, ...]) }
+_offline_lock         = threading.Lock()
+
 _tasks: dict         = {}
 _sync_pending: dict  = {}
 _sse_subscribers     = []
@@ -708,6 +714,7 @@ def _make_agent_card(name, skills):
             "http2":              _http2_enabled,              # v1.6: HTTP/2 transport binding
             "card_sig":           bool(_ed25519_private),      # v1.8: AgentCard self-signature
             "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
+            "offline_queue":      True,                        # v2.0: buffer messages when peer offline, flush on reconnect
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -734,6 +741,7 @@ def _make_agent_card(name, skills):
             "extensions":   "/extensions",             # v1.3: list/register extensions
             "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
+            "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -1168,22 +1176,81 @@ def _attach_sig(msg: dict) -> dict:
     return msg
 
 
+def _offline_enqueue(msg: dict, peer_id: str = "default") -> None:
+    """Buffer a message for offline delivery. Called when peer is disconnected. (v2.0)"""
+    with _offline_lock:
+        if peer_id not in _offline_queue:
+            _offline_queue[peer_id] = deque(maxlen=OFFLINE_QUEUE_MAXLEN)
+        _offline_queue[peer_id].append({
+            **msg,
+            "_queued_at": _now(),
+            "_offline_for_peer": peer_id,
+        })
+    log.debug(f"📥 offline_queue[{peer_id}] depth={len(_offline_queue[peer_id])}")
+
+
+async def _offline_flush(ws, peer_id: str = "default") -> int:
+    """
+    Flush buffered offline messages to a newly (re)connected peer WebSocket. (v2.0)
+    Returns the number of messages delivered.
+    """
+    with _offline_lock:
+        q = _offline_queue.pop(peer_id, deque())
+    if not q:
+        return 0
+    count = 0
+    for msg in q:
+        try:
+            # Strip internal bookkeeping fields before delivery
+            clean = {k: v for k, v in msg.items()
+                     if not k.startswith("_offline_") and k != "_queued_at"}
+            clean.setdefault("_was_queued", True)   # signal to receiver this was buffered
+            await ws.send(json.dumps(clean, ensure_ascii=False))
+            _status["messages_sent"] += 1
+            count += 1
+        except Exception as e:
+            log.warning(f"offline_flush error on msg {msg.get('id','?')}: {e}")
+            break
+    log.info(f"📤 offline_flush: delivered {count} queued message(s) to peer '{peer_id}'")
+    return count
+
+
+def _offline_queue_snapshot() -> dict:
+    """Return serializable snapshot of the offline queue for GET /offline-queue. (v2.0)"""
+    with _offline_lock:
+        return {
+            peer_id: {
+                "depth": len(q),
+                "messages": [
+                    {"id": m.get("id"), "type": m.get("type"), "queued_at": m.get("_queued_at")}
+                    for m in q
+                ],
+            }
+            for peer_id, q in _offline_queue.items()
+        }
+
+
 async def _ws_send(msg, peer_id=None):
     """Send msg over WebSocket.
     If peer_id is provided, route to that specific peer's WS connection.
     Falls back to legacy _peer_ws for single-peer / backward-compat.
+    On ConnectionError: buffers to offline queue (v2.0).
     """
     ws = None
     if peer_id and peer_id in _peers:
         ws = _peers[peer_id].get("ws")
         if ws is None:
-            raise ConnectionError(f"Peer '{peer_id}' has no active WebSocket")
+            # v2.0: peer known but offline — buffer for later delivery
+            _offline_enqueue(msg, peer_id=peer_id)
+            raise ConnectionError(f"Peer '{peer_id}' offline — message queued for delivery on reconnect")
         # Update per-peer counter
         _peers[peer_id]["messages_sent"] = _peers[peer_id].get("messages_sent", 0) + 1
     else:
         ws = _peer_ws
     if ws is None:
-        raise ConnectionError("No P2P connection")
+        # v2.0: no peer at all — buffer under "default" key
+        _offline_enqueue(msg, peer_id=peer_id or "default")
+        raise ConnectionError("No P2P connection — message queued for delivery on reconnect")
     await ws.send(json.dumps(_attach_sig(msg), ensure_ascii=False))
     _status["messages_sent"] += 1
 
@@ -1227,6 +1294,13 @@ async def host_mode(token, ws_port, http_port):
         # v0.6: register in multi-session peer registry
         peer_id = _register_peer(ws=websocket)
         _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+
+        # v2.0: flush offline queue for this peer (and "default" bucket) on reconnect
+        flushed = await _offline_flush(websocket, peer_id=peer_id)
+        if flushed == 0:
+            flushed = await _offline_flush(websocket, peer_id="default")
+        if flushed:
+            log.info(f"📤 Flushed {flushed} offline message(s) to peer '{peer_id}' on connect")
 
         print(f"\n{'='*55}")
         print(f"ACP P2P v{VERSION} - peer connected [id={peer_id}]")
@@ -1357,6 +1431,13 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
                 else:
                     peer_id = _register_peer(link=peer_link, ws=ws)
                 _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+
+                # v2.0: flush offline queue on (re)connect
+                flushed = await _offline_flush(ws, peer_id=peer_id)
+                if flushed == 0:
+                    flushed = await _offline_flush(ws, peer_id="default")
+                if flushed:
+                    log.info(f"📤 Flushed {flushed} offline message(s) to host '{peer_id}' on connect")
 
                 print(f"\n{'='*55}")
                 print(f"ACP P2P v{VERSION} - {'reconnected' if retry else 'connected'} [P2P] [id={peer_id}]")
@@ -1634,6 +1715,28 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json({
                 "extensions": list(_extensions),
                 "count":      len(_extensions),
+            })
+
+        # ── GET /offline-queue — inspect offline delivery buffer (v2.0) ─────────
+        elif p == "/offline-queue":
+            """
+            Return a snapshot of the offline delivery queue.
+
+            Messages are buffered here when POST /message:send (or /send) is called
+            while no peer is connected. On peer reconnect, the queue is automatically
+            flushed in FIFO order.
+
+            Response fields:
+              - total_queued (int): total messages across all peer buckets
+              - queue (dict): {peer_id: {depth, messages: [{id, type, queued_at}]}}
+              - max_per_peer (int): per-peer queue capacity (OFFLINE_QUEUE_MAXLEN)
+            """
+            snap = _offline_queue_snapshot()
+            total = sum(v["depth"] for v in snap.values())
+            self._json({
+                "total_queued": total,
+                "max_per_peer": OFFLINE_QUEUE_MAXLEN,
+                "queue": snap,
             })
 
         # ── GET /peer/verify — peer AgentCard auto-verification result (v1.9) ──

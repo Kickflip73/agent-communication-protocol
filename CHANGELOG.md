@@ -7,6 +7,68 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [Unreleased] — post-v2.0-offline
+
+---
+
+## [2.0.0-alpha.1] — 2026-03-26 10:17 (Offline Delivery Queue)
+
+### Added — Offline Message Delivery Queue (v2.0 milestone)
+
+- **`_offline_enqueue(msg, peer_id)`** — buffers messages when peer is disconnected (v2.0)
+  - Called automatically from `_ws_send()` on `ConnectionError`
+  - Per-peer keyed queue (`peer_id` or `"default"` for legacy single-peer sends)
+  - `deque(maxlen=100)` per bucket — oldest messages dropped when full (never blocks)
+  - Stores metadata: `_queued_at`, `_offline_for_peer`
+
+- **`_offline_flush(ws, peer_id)`** — delivers buffered messages on reconnect (v2.0)
+  - Called automatically in `host_mode` and `guest_mode` after peer connects / reconnects
+  - Flushes in FIFO order; strips internal bookkeeping fields; adds `_was_queued: True` marker
+  - Tries peer-specific bucket first, then falls back to `"default"` bucket
+  - Logs delivery count: `📤 Flushed N offline message(s) to peer '<id>' on connect`
+
+- **`_offline_queue_snapshot()`** — serializable view of all queue buckets
+
+- **`GET /offline-queue`** — inspect offline delivery buffer
+  - Returns `{total_queued, max_per_peer, queue: {peer_id: {depth, messages: [{type, queued_at}]}}}`
+
+- **`capabilities.offline_queue: true`** — advertised in AgentCard
+- **`endpoints.offline_queue: "/offline-queue"`** — advertised in AgentCard endpoints block
+
+### Behaviour change
+
+- `POST /message:send` and `POST /send` no longer immediately fail with `503` and drop the message.
+  They still return `503 ERR_NOT_CONNECTED` (API contract unchanged), but the message is now
+  silently buffered for delivery the moment a peer reconnects.
+- Callers who want guaranteed delivery can poll `GET /offline-queue` to confirm the message
+  is buffered.
+
+### Tests (OQ1–OQ10, `tests/test_offline_queue.py`)
+
+- OQ1: capabilities.offline_queue=True advertised
+- OQ2: endpoints.offline_queue="/offline-queue" in AgentCard
+- OQ3: GET /offline-queue → empty queue on fresh relay
+- OQ4: Required structure fields (total_queued, max_per_peer, queue)
+- OQ5: POST /message:send → 503 + message buffered
+- OQ6: Queue depth increments with each failed send
+- OQ7: Queue snapshot metadata has type, queued_at per message
+- OQ8: Legacy POST /send also buffers to offline queue
+- OQ9: Queue bounded by OFFLINE_QUEUE_MAXLEN=100 (oldest dropped)
+- OQ10: Relay /status healthy after offline queue activity
+
+Results: **10/10 passed** — full regression: **236 passed, 4 skipped, 0 failed**
+
+### Motivation
+
+- A2A has no offline delivery mechanism — if a task message is sent while the
+  receiving agent is offline, the message is simply lost.
+- ACP v2.0 offline queue: "send and forget safely" — messages survive short
+  disconnects, auto-delivered on reconnect without any extra code by the caller.
+- Show HN talking point: "If your peer is offline when you send, ACP queues it
+  and delivers it the moment they reconnect. A2A drops it silently."
+
+---
+
 ## [Unreleased] — post-v1.9
 
 ---
