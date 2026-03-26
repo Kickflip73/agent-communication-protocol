@@ -331,7 +331,7 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
 | 特性 | 状态 | Commit |
 |------|------|--------|
 | [x] GET /tasks 列表查询 + 分页 (2026-03-27，commit fac2a31) | ✅ | `fac2a31` |
-| [ ] failed_msg_id 错误回传 | ⏳ 待开发 | — |
+| [x] failed_msg_id 错误回传（2026-03-27，commit 4f2b548） | ✅ | `4f2b548` |
 
 ---
 
