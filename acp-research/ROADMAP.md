@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-25 15:40（文档轮；v1.4 DCUtR HTTP 反射降级 commit `b3da914`；所有 P0/P1 bug 已修复）
+> 最后更新：2026-03-26 15:54（开发轮；VERSION 1.3.0→2.1.0；补充 v1.8/v1.9/v2.0/v2.1 历史记录；新增 v2.2/v3.0 规划）
 
 ---
 
@@ -286,11 +286,83 @@ Key commits: `81ffd30`（spec + README）, `0f84785`（scan #14）
 
 ---
 
-### 🔮 v2.0（目标：2026-Q3，待 v1.4 完成后）
-**主题：联邦化与生态扩展**
+### ✅ v1.8（完成，2026-03-26）
+**主题：AgentCard 自签名（Ed25519 身份完整体）**
+
+- ✅ `_sign_agent_card()`：Ed25519 对 AgentCard 自身做 canonical JSON 签名
+- ✅ `_verify_agent_card()`：验证 AgentCard 签名（摘除 `card_sig` 后重建 payload）
+- ✅ `POST /verify/card`：提交任意 AgentCard 验证端点
+- ✅ `identity.card_sig` 字段（base64url，`--identity` 模式下自动附加）
+- ✅ AgentCard `capabilities.card_sig: true`
+- ✅ 测试：`tests/test_card_signature.py`（全部 PASS）
+
+Key commit: `fe80ea4`, `bd07033`（docs）
+
+---
+
+### ✅ v1.9（完成，2026-03-26）
+**主题：Peer AgentCard 握手自动验证**
+
+- ✅ `GET /peer/verify`：获取当前已连接 peer 的 AgentCard 验证结果
+- ✅ 握手时自动触发 `_send_agent_card()` + 自动执行 `_verify_agent_card()`
+- ✅ 验证结果存入 `_status["peer_card"]`，零额外 API 调用
+- ✅ `capabilities.auto_card_verify: True`（无论是否启用 `--identity`）
+- ✅ `endpoints.peer_verify: "/peer/verify"` 在 AgentCard 声明
+- ✅ 测试：`tests/test_peer_card_verify.py`（PV1–PV8，7p/1s）
+- ✅ 文档：`docs/whats-new.md` + `docs/show-hn-draft.md`
+
+Key commit: `97b6128`
+
+---
+
+### ✅ v2.0-alpha（完成，2026-03-26）
+**主题：离线消息队列**
+
+- ✅ **Offline Delivery Queue**：peer 离线时缓冲消息，重连后自动 flush
+- ✅ `GET /queue`：查看离线队列内容（含 depth、messages[]、peer_id）
+- ✅ `capabilities.offline_queue: True`
+- ✅ 队列有界（`maxlen=100`），防无限堆积
+- ✅ `/message:send` 和 `/send`（legacy）均自动入队
+- ✅ 测试：`tests/test_offline_queue.py`（OQ1–OQ10，10/10 PASS）
+- ✅ 文档：`docs/whats-new.md` + `docs/show-hn-draft.md` + README
+
+Key commit: `8a58041`
+
+---
+
+### ✅ v2.1-alpha（完成，2026-03-26）
+**主题：LAN 端口扫描发现（无 mDNS）**
+
+- ✅ **`GET /peers/discover`**：TCP 端口扫描 LAN 段发现 ACP relay
+  - 扫描当前机器所有网卡 → 提取 /24 段 → 并发 TCP SYN 探测默认端口 (7801/7901)
+  - 返回 `{"found": [{"host": "192.168.1.x", "port": 7901, "acp_version": "...", "name": "..."}]}`
+- ✅ `capabilities.lan_port_scan: True`
+- ✅ 无需 mDNS（`--advertise-mdns`），无需组播权限，纯 TCP
+- ✅ 测试：`tests/test_lan_discovery.py`（LD1–LD10，10/10 PASS）
+- ✅ 文档：`docs/whats-new.md` + `docs/show-hn-draft.md` + README + ROADMAP
+
+Key commit: `d9a6b76`, `5bd7382`（docs）
+
+---
+
+### 🔮 v2.2（规划中，2026-Q2）
+**主题：任务列表 + 错误追踪增强**
+
+- [ ] **`GET /tasks` 列表查询 + 分页**（参考 A2A v1.0 tasks/list）
+  - 参数：`?status=working&limit=20&offset=0`，响应：`{"tasks":[...], "total": N, "has_more": bool}`
+- ✅ **`failed_msg_id` 错误回传**（参考 ANP 2026-03-05 commit，2026-03-27 完成）
+  - `/message:send` 所有错误码已覆盖（commit `e281790`，2026-03-21）
+  - `/peer/{id}/send` 所有错误路径补充完整，9 个错误路径全覆盖（本轮完成）
+  - 新增集成测试 `TestPeerSendFailedMessageId`（4 个测试用例）
+- [ ] **VERSION 字符串持续同步**（当前 `2.1.0`）
+
+---
+
+### 🔮 v3.0（目标：2026-Q3，真 P2P 完成后）
+**主题：公开发布 + 联邦化**
 
 - [ ] 公开发布（博客文章 + GitHub README + Hacker News）
-  - ⚠️ 延后至 v1.4 完成后：真 P2P 是核心卖点，先做到再发布
+  - ⚠️ 延后至真 P2P 完成后：P2P 是核心卖点，先做到再发布
 - ✅ Extension 机制（URI 标识扩展，v1.3，commit `88d00fc`）
 - ✅ 多语言 SDK 完整矩阵（Python/Node/Go/Rust，v1.2 完成）
 - ✅ 兼容性认证流程（`docs/conformance.md`，2026-03-23，v1.3 开发轮）
