@@ -110,7 +110,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.1.0"  # v2.2-dev: GET /tasks offset pagination + status filter + sort=asc|desc
+VERSION = "2.2.0"  # v2.2: GET /tasks offset pagination + status filter + sort=asc|desc (tested 2026-03-27)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

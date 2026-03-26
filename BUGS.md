@@ -589,4 +589,45 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 - 所有测试文件统一改用 `_free_port()` 动态分配端口（消除固定端口冲突根因）
 - 或在 `pyproject.toml` 中配置 `addopts = "-p no:randomly"` + `--forked` 隔离进程
 
-*最后更新：2026-03-26 by J.A.R.V.I.S.*
+*最后更新：2026-03-27 by J.A.R.V.I.S.*
+
+---
+
+## Round 7 — v2.2 测试轮：GET /tasks 列表查询 + 全套回归 (2026-03-27 05:xx)
+
+### 版本升级
+- `relay/acp_relay.py` VERSION: `2.1.0` → `2.2.0`（v2.2 功能已完整实现并通过测试）
+
+### 新端点验证：`GET /tasks`（TL1-TL10，全部通过 ✅）
+
+| 测试 | 场景 | 结果 |
+|------|------|------|
+| TL1 | 无参数返回所有 tasks（含 tasks/total/has_more 字段） | ✅ |
+| TL2 | `?status=working` 过滤 | ✅ |
+| TL3 | `?peer_id=` 双层过滤（top-level + payload.peer_id） | ✅ |
+| TL4 | `?limit=2&offset=0` 第一页分页 | ✅ |
+| TL5 | `?limit=2&offset=2` 第二页不重叠 | ✅ |
+| TL6 | `has_more=true/false` 语义 + `next_offset` 字段 | ✅ |
+| TL7 | `?sort=asc` 升序排列 | ✅ |
+| TL8 | `?created_after=<ISO>` 时间过滤 | ✅ |
+| TL9 | 空结果返回 `{"tasks": [], "total": 0, "has_more": false}` | ✅ |
+| TL10 | 非法 `status` 参数返回 400 ERR_INVALID_REQUEST | ✅ |
+
+**`test_tasks_list.py`: 10/10 PASS（6.39s）**
+
+### 场景 D 回归（压力测试并发）
+
+**`test_scenario_d_stress.py`: 10/10 PASS（单跑 31.93s）**
+
+> ⚠️ 注：全套并发执行时偶发 D3/D4/D10 失败（BUG-027 端口竞争，已知 P2），
+> 单独运行或重跑立即恢复。第二轮全套连续通过（256 passed, 4 skipped, 0 failed）。
+
+### 全套回归结果
+
+**第一轮**: 253 passed, 4 skipped, 3 failed（BUG-027 端口竞争，偶发）
+**第二轮**: **256 passed, 4 skipped, 0 failed, 0 errors（145.92s）** ✅
+
+### 新发现 Bug
+无新 bug 发现。
+
+*最后更新：2026-03-27 by J.A.R.V.I.S.*
