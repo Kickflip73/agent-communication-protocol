@@ -110,7 +110,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.2.0"  # v2.2: GET /tasks offset pagination + status filter + sort=asc|desc (tested 2026-03-27)
+VERSION = "2.2.0"  # v2.2: GET /tasks offset pagination + status filter + sort=asc|desc + supported_transports AgentCard field
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -891,6 +891,9 @@ def _make_agent_card(name, skills):
             "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
             "offline_queue":      True,                        # v2.0: buffer messages when peer offline, flush on reconnect
             "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
+            "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
+                ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
+            ),
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
