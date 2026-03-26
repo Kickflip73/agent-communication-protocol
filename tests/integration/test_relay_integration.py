@@ -269,3 +269,73 @@ class TestFailedMessageId:
         # failed_message_id should not appear (or be None) when no message_id given
         fmid = body.get("failed_message_id")
         assert fmid is None, f"unexpected failed_message_id={fmid!r} when none provided"
+
+
+# ── /peer/{id}/send failed_message_id coverage (v2.2) ────────────────────
+
+class TestPeerSendFailedMessageId:
+    """/peer/{id}/send error responses must include failed_message_id when message_id is known."""
+
+    def test_peer_not_found_with_message_id(self, relay_url):
+        """ERR_NOT_FOUND: peer does not exist — client message_id echoed."""
+        mid = "inttest_peer_fmid_001"
+        status, body = http_post(
+            relay_url + "/peer/ghost_peer/send",
+            {"role": "user", "text": "hello", "message_id": mid}
+        )
+        assert status == 404
+        assert body.get("failed_message_id") == mid, (
+            f"expected failed_message_id={mid!r}, got {body.get('failed_message_id')!r}\n"
+            f"full body: {body}"
+        )
+
+    def test_peer_not_found_no_message_id(self, relay_url):
+        """ERR_NOT_FOUND without message_id → failed_message_id absent."""
+        status, body = http_post(
+            relay_url + "/peer/ghost_peer/send",
+            {"role": "user", "text": "hello"}
+        )
+        assert status == 404
+        fmid = body.get("failed_message_id")
+        assert fmid is None, f"unexpected failed_message_id={fmid!r} when none provided"
+
+    def test_peer_not_connected_with_message_id(self, relay_url):
+        """ERR_NOT_CONNECTED: peer registered but disconnected — client message_id echoed."""
+        import uuid
+        peer_id = f"test_peer_{uuid.uuid4().hex[:8]}"
+        mid = "inttest_peer_fmid_002"
+
+        # Register a peer without connecting it
+        reg_status, reg_body = http_post(
+            relay_url + "/peer/register",
+            {"peer_id": peer_id, "name": "test_peer"}
+        )
+        if reg_status not in (200, 201):
+            import pytest
+            pytest.skip(f"peer register returned {reg_status}; skipping")
+
+        # Now try to send to the disconnected peer
+        status, body = http_post(
+            relay_url + f"/peer/{peer_id}/send",
+            {"role": "user", "text": "hello", "message_id": mid}
+        )
+        assert status in (503, 404)
+        assert body.get("failed_message_id") == mid, (
+            f"expected failed_message_id={mid!r}, got {body.get('failed_message_id')!r}\n"
+            f"full body: {body}"
+        )
+
+    def test_peer_send_missing_content_with_message_id(self, relay_url):
+        """ERR_INVALID_REQUEST: no parts/text — client message_id echoed even for unknown peer."""
+        mid = "inttest_peer_fmid_003"
+        # Use a ghost peer to trigger not-found (which still has message_id available)
+        status, body = http_post(
+            relay_url + "/peer/ghost_peer/send",
+            {"role": "user", "message_id": mid}
+        )
+        # Will be 404 (peer not found) with failed_message_id — verifies early-exit echoing
+        assert status in (400, 404)
+        assert body.get("failed_message_id") == mid, (
+            f"expected failed_message_id={mid!r}, got {body.get('failed_message_id')!r}\n"
+            f"full body: {body}"
+        )

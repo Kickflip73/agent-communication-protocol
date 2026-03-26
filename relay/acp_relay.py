@@ -2543,17 +2543,27 @@ class LocalHTTP(BaseHTTPRequestHandler):
             peer_id = p[len("/peer/"):-len("/send")]
             try:
                 body = self._read_body()
+                # Pre-extract client-supplied message_id for failed_message_id in errors
+                _client_msg_id = body.get("message_id")  # may be None; used in error envelopes
                 peer_info = _peers.get(peer_id)
                 if not peer_info:
-                    self._json({"error": f"peer '{peer_id}' not found"}, 404)
+                    e_body, e_code = _err("ERR_NOT_FOUND",
+                                          f"peer '{peer_id}' not found", 404,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
                     return
                 if not peer_info.get("connected"):
-                    self._json({"error": f"peer '{peer_id}' is not connected"}, 503)
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' is not connected", 503,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
                     return
                 if peer_info.get("ws") is None:
                     # Peer registered but WS handshake not yet complete (connecting race)
-                    self._json({"ok": False, "error_code": "ERR_PEER_CONNECTING",
-                                "error": f"peer '{peer_id}' is connecting, retry shortly"}, 503)
+                    e_body, e_code = _err("ERR_PEER_CONNECTING",
+                                          f"peer '{peer_id}' is connecting, retry shortly", 503,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
                     return
 
                 parts = body.get("parts")
@@ -2561,7 +2571,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     text = body.get("text") or body.get("content") or ""
                     parts = [_make_text_part(str(text))] if text else []
                     if not parts:
-                        self._json({"ok": False, "error": "provide 'parts' or 'text'"}, 400)
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "provide 'parts' or 'text'", 400,
+                                              failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
                         return
 
                 message_id = body.get("message_id") or _make_id("msg")
@@ -2580,7 +2593,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
                 serialized = json.dumps(msg, ensure_ascii=False)
                 if len(serialized.encode()) > MAX_MSG_BYTES:
-                    self._json({"ok": False, "error": f"message too large"}, 413)
+                    e_body, e_code = _err(ERR_MSG_TOO_LARGE,
+                                          f"message too large (max {MAX_MSG_BYTES} bytes)", 413,
+                                          failed_message_id=message_id)
+                    self._json(e_body, e_code)
                     return
 
                 # Send via peer's WebSocket
@@ -2600,14 +2616,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         # ws is closed or broken; unregister the peer
                         _unregister_peer(peer_id)
                         _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
-                        self._json({"ok": False,
-                                    "error_code": "ERR_NOT_CONNECTED",
-                                    "error": f"peer '{peer_id}' connection lost: {ws_err}"}, 503)
+                        e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                              f"peer '{peer_id}' connection lost: {ws_err}", 503,
+                                              failed_message_id=message_id)
+                        self._json(e_body, e_code)
                         return
                 else:
-                    self._json({"ok": False,
-                                "error_code": "ERR_NOT_CONNECTED",
-                                "error": f"peer '{peer_id}' WebSocket is not active; P2P connection lost"}, 503)
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' WebSocket is not active; P2P connection lost", 503,
+                                          failed_message_id=message_id)
+                    self._json(e_body, e_code)
                     return
 
                 peer_info["messages_sent"] = peer_info.get("messages_sent", 0) + 1
@@ -2615,9 +2633,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": True, "message_id": message_id, "peer_id": peer_id})
 
             except ConnectionError as e:
-                self._json({"ok": False, "error": str(e)}, 503)
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_NOT_CONNECTED, str(e), 503,
+                                      failed_message_id=_fmid)
+                self._json(e_body, e_code)
             except Exception as e:
-                self._json({"ok": False, "error": str(e)}, 500)
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
+                                      failed_message_id=_fmid)
+                self._json(e_body, e_code)
 
         # ── POST /peer/{id}/rename — rename a peer for readability (v0.6) ────
         elif p.startswith("/peer/") and p.endswith("/rename"):
