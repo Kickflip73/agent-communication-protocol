@@ -16,6 +16,7 @@ import json
 import pytest
 import subprocess
 import time
+import socket
 import urllib.request
 import urllib.error
 import sys
@@ -26,11 +27,37 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py")
 
-# Ports: WS=7880, HTTP=7980 (host); WS=7882, HTTP=7982 (guest with identity)
-HOST_WS   = 7880
-HOST_HTTP = HOST_WS + 100
-GUEST_WS  = 7882
-GUEST_HTTP = GUEST_WS + 100
+
+def _free_port_pair() -> tuple[int, int]:
+    """
+    Return a (ws_port, http_port) pair where http_port = ws_port + 100,
+    and both are currently available.  Retries until a valid pair is found.
+    BUG-026 fix: avoids fixed-port collisions across concurrent test files.
+    """
+    import random
+    for _ in range(50):
+        # Pick a WS candidate in a test-specific range (8200–8700)
+        ws = random.randint(8200, 8700)
+        http = ws + 100
+        # Check both ports are free
+        ok = True
+        for p in (ws, http):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind(("127.0.0.1", p))
+            except OSError:
+                ok = False
+                break
+        if ok:
+            return ws, http
+    # Fallback — original fixed ports (unlikely to reach here)
+    return 7880, 7980
+
+
+# Dynamic ports — allocated at module import to avoid cross-test collisions (BUG-026 fix)
+HOST_WS, HOST_HTTP   = _free_port_pair()
+GUEST_WS, GUEST_HTTP = _free_port_pair()
 
 _host_proc  = None
 _guest_proc = None
@@ -71,11 +98,12 @@ def two_relays():
     global _host_proc, _guest_proc
 
     env = _make_env()
+    # Use a port-specific identity path to avoid cross-run collisions
     identity_path = f"/tmp/acp_pv_identity_{GUEST_WS}.json"
 
     _host_proc = subprocess.Popen(
-        [sys.executable, RELAY_PATH, "--port", str(HOST_WS), "--name", "PVHost",
-         "--relay"],  # relay mode so guest can connect
+        [sys.executable, RELAY_PATH,
+         "--port", str(HOST_WS), "--name", "PVHost", "--relay"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
     )
     if not _wait_ready(HOST_HTTP):
@@ -83,8 +111,8 @@ def two_relays():
         pytest.fail(f"Host relay (HTTP:{HOST_HTTP}) did not start in time")
 
     _guest_proc = subprocess.Popen(
-        [sys.executable, RELAY_PATH, "--port", str(GUEST_WS), "--name", "PVGuest",
-         "--identity", identity_path],
+        [sys.executable, RELAY_PATH,
+         "--port", str(GUEST_WS), "--name", "PVGuest", "--identity", identity_path],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
     )
     if not _wait_ready(GUEST_HTTP):

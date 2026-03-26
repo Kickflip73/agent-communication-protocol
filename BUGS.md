@@ -539,3 +539,29 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 **验证**: `pytest tests/test_nat_http_reflect.py` → **12/12 PASS** (0.12s)
 
 *最后更新：2026-03-26 by J.A.R.V.I.S.*
+
+---
+
+### BUG-026 🟡 P2 — test_peer_card_verify.py PV4/PV7 间歇性失败（固定端口冲突）
+
+**发现时间**: 2026-03-26 测试轮回归
+**状态**: ✅ 已修复 (2026-03-26 commit pending)
+
+**现象**:
+- 全套 `pytest tests/` 时 PV4 和 PV7 FAILED
+- 单独跑 `pytest tests/test_peer_card_verify.py::test_pv4... tests/test_peer_card_verify.py::test_pv7...` → **2/2 PASS**
+- 失败信息：`identity: {}` 且 `card_sig` 缺失
+
+**根因**:
+- `test_peer_card_verify.py` 的 `two_relays` fixture 使用固定端口 WS=7880/7882, HTTP=7980/7982
+- 全套并行执行时，其他测试文件（如 test_scenario_fg.py、test_three_level_connection.py 等）可能同时占用这些端口
+- guest relay（port=7882，--identity 模式）启动竞争失败：端口被占 → _wait_ready 超时 → guest relay 进程异常
+- 主进程继续跑但 guest relay 实为 host relay（无 --identity）→ `identity: {}`
+
+**影响**: P2（间歇性，单跑无问题，仅影响 CI 全套跑）
+
+**修复方向**:
+- `test_peer_card_verify.py` 改用 `_free_port()` 动态分配端口（同 test_lan_discovery.py 已采用的模式）
+- 或在 pyproject.toml 中将 peer_card_verify 测试隔离为串行执行
+
+*最后更新：2026-03-26 by J.A.R.V.I.S.*
