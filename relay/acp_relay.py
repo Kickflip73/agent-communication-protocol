@@ -110,7 +110,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "1.3.0"
+VERSION = "2.1.0"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

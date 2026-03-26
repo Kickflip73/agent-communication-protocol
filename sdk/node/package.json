@@ -1,6 +1,6 @@
 {
   "name": "acp-relay-client",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "Node.js client for the Agent Communication Protocol (ACP) P2P relay — zero dependencies, ESM + CJS",
   "main": "src/index.js",
   "module": "src/index.mjs",
