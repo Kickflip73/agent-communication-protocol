@@ -84,10 +84,11 @@ def test_c1_02_agent_card():
     r = get("/.well-known/acp.json")
     check("C1-02  GET /.well-known/acp.json → 200", r.status_code == 200, f"got {r.status_code}")
     if r.status_code != 200:
-        return {}
+        return
     body = r.json()
-    # ACP relay returns {self: {...}, peer: {...}}; extract 'self' as the AgentCard
-    return body.get("self", body)
+    # ACP relay returns {self: {...}, peer: {...}}; verify 'self' is present
+    card = body.get("self", body)
+    check("C1-02  AgentCard body is a dict", isinstance(card, dict), str(type(card)))
 
 def test_c1_03_agent_card_fields():
     r = get("/.well-known/acp.json")
@@ -118,7 +119,7 @@ def test_c1_04_send_message():
     if r.status_code == 200:
         check("C1-04  POST /message:send → 200", True)
         check("C1-04  response has message_id", "message_id" in body, str(body))
-        return body.get("message_id")
+        # note: message_id returned but not propagated (test functions must return None)
     elif r.status_code in (400, 503):
         # 503 = host-mode no peer (relay not yet connected to anyone)
         # Both are acceptable "no peer" responses
@@ -127,11 +128,9 @@ def test_c1_04_send_message():
         # failed_message_id may or may not be present (503 may return empty body)
         check("C1-04  response is JSON",
               isinstance(body, dict), str(type(body)))
-        return None
     else:
         check("C1-04  POST /message:send → unexpected status",
               False, f"got {r.status_code}")
-        return None
 
 def test_c1_05_recv():
     r = get("/recv")
