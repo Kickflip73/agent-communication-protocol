@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-26 05:45（文档轮：v1.8 AgentCard 自签名，scan #13 A2A #1672/#1683 身份/SSE 空白）
+> 最后更新：2026-03-26 08:15（文档轮：v1.9 Peer AgentCard 自动验证，scan #14 A2A #1672 生态赛马，PR#1079 UUID vs did:acp:）
 
 ---
 
@@ -185,7 +185,15 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - `POST /verify/card`: 验证任意外部 AgentCard（raw 或 wrapped 形式）
   - `capabilities.card_sig` + `endpoints.verify_card` 字段
   - CS1-CS10: 11/11 PASS；全回归 219 passed, 3 skipped, 0 failed
-  - **动机**：A2A issue #1672（47 评论无结论）——ACP 直接补齐，无 CA，无注册服务
+  - **动机**：A2A issue #1672（62 评论，3 个第三方实现竞争，无合并）——ACP 直接补齐，无 CA，无注册服务
+- ✅ **v1.9 Peer AgentCard 自动验证**（commit `97b6128`，2026-03-26）
+  - `acp.agent_card` 收到即自动调用 `_verify_agent_card()`，结果写 `_status["peer_card_verification"]`
+  - `_send_agent_card()` 整合 v1.8：发送前签名，peer 收到即可验证
+  - `GET /peer/verify`：返回 `{peer_name, peer_did, verified, did_consistent, scheme, error}`；无 peer 时 404
+  - `capabilities.auto_card_verify: true` + `endpoints.peer_verify: "/peer/verify"` 声明
+  - 断连时清理 `peer_card_verification`（host+guest 两路径都覆盖）
+  - PV1–PV8：7/8 PASS（PV5 sandbox-skip）；全回归 226 passed, 4 skipped, 0 failed
+  - **完整身份故事**：v1.8 签自己的 card + v1.9 连接时自动验对方 card = 握手即完成双向身份验证，零额外调用
   - `--http2` CLI 标志：启用 h2c（HTTP/2 cleartext，无需 TLS）
   - 实现：`_ThreadingH2Server` + `_H2Handler`（纯 `h2` 状态机，独立于 main thread）
   - `capabilities.http2: true/false` 广播给对端 AgentCard

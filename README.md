@@ -228,12 +228,14 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Min dependencies** | Heavy SDK | **`pip install websockets`** |
 | **Identity** | OAuth tokens | **Ed25519 + did:acp: DID + CA hybrid (v1.5)** |
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
-| **Agent identity proof** | ❌ (open issue #1672, 47 comments, no protocol-level solution) | **✅ `did:acp:` + Ed25519 AgentCard self-signature (v1.8): `POST /verify/card` proves card authenticity, no CA needed** |
+| **Agent identity proof** | ❌ (open issue #1672, 62 comments, 3 competing 3rd-party implementations in thread, nothing merged) | **✅ `did:acp:` + Ed25519 AgentCard self-sig (v1.8) + mutual auto-verify at handshake (v1.9): `GET /peer/verify` gives result immediately** |
+| **Mutual identity at handshake** | ❌ No protocol-level concept | **✅ Auto-verified on connect — both sides confirmed in one round-trip (v1.9)** |
+| **Agent unique identifier** | 🔄 PR#1079: random UUID (unverifiable ownership) | **✅ `did:acp:<base58url(pubkey)>` — cryptographic fingerprint, ownership provable** |
 | **Cancel task semantics** | ❌ Undefined — `CancelTaskRequest` missing, async cancel state disputed (#1680, #1684) | **✅ Synchronous + idempotent: 200 on success, 409 `ERR_TASK_NOT_CANCELABLE` on terminal state (v1.5.2 §10)** |
 | **Error response Content-Type** | ❌ Undefined — `application/json` vs `application/problem+json` contradicted within spec (#1685) | **✅ Always `application/json; charset=utf-8` — one content type for all responses, zero ambiguity** |
 | **Webhook security** | ❌ Push notification config API returns credentials in plaintext (#1681, security bug) | **✅ Webhooks store URL only — no credentials, no leakage surface** |
 
-> A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) has 47 comments and still no protocol-level agent identity verification — they rely on transport-layer trust (OAuth/HTTPS). ACP v1.8 ships cryptographic AgentCard self-signatures today: start with `--identity`, and any peer can call `POST /verify/card` to verify your card without any CA or external service.
+> A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) has 62 comments and three competing third-party implementations (AgentID, APS, qntm) racing to fill the gap — still nothing merged into A2A spec. ACP v1.8+v1.9 ships the complete identity story today: agents sign their own card (v1.8), and when two agents connect, each side **automatically** verifies the other's card at handshake (v1.9). `GET /peer/verify` → `{verified: true}`. No CA. No registration. No extra calls.
 
 > A2A [#1680](https://github.com/a2aproject/A2A/issues/1680) & [#1684](https://github.com/a2aproject/A2A/issues/1684) — community debate: when cancel can't complete immediately, return `WORKING` or new `CANCELING` state? `CancelTaskRequest` schema is missing from spec. ACP v1.5.2 resolves all of this with synchronous, idempotent cancel semantics.
 

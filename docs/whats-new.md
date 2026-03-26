@@ -7,6 +7,41 @@
 
 ## 2026-03-26
 
+### Peer AgentCard Auto-Verification at Handshake (v1.9)
+
+ACP agents now **automatically verify each other's identity the moment they connect** — no extra API calls needed.
+
+```bash
+# Start both agents with identity
+acp-relay --name Alice --identity ~/.acp/alice.json  # host mode
+acp-relay --name Bob   --identity ~/.acp/bob.json    # connect to Alice
+
+# After connection, immediately check peer identity:
+curl http://localhost:7982/peer/verify
+# → {
+#     "peer_name": "Alice",
+#     "peer_did": "did:acp:FmXk7...",
+#     "verified": true,
+#     "did_consistent": true,
+#     "scheme": "ed25519",
+#     "error": null
+#   }
+```
+
+How it works:
+- On connect, each side sends a **signed AgentCard** (via `_send_agent_card`)
+- On receipt, `_verify_agent_card()` runs immediately — result stored in memory
+- `GET /peer/verify` returns the cached result instantly
+- If peer is unsigned (older relay), `verified: false` with descriptive `error` field
+- State is cleared automatically on disconnect
+
+New endpoints/fields:
+- `GET /peer/verify` — peer's verification result; 404 if no peer connected
+- `capabilities.auto_card_verify: true` — advertised in AgentCard
+- `endpoints.peer_verify: "/peer/verify"` — discoverable via AgentCard
+
+---
+
 ### AgentCard Self-Signature — Cryptographic Identity Verification (v1.8)
 
 ACP agents can now **cryptographically sign their own AgentCard** and any peer can verify it.
@@ -33,7 +68,7 @@ How it works:
 - Any receiver can verify using the `public_key` in `identity` — zero external service
 - `did_consistent` cross-checks that `did:acp:` was derived from the same key
 
-**Why it matters**: [A2A issue #1672](https://github.com/a2aproject/A2A/issues/1672) (47 comments, still open): A2A has no protocol-level agent identity verification — they rely on transport-layer trust (OAuth/HTTPS). ACP v1.8 ships verifiable agent identity today.
+**Why it matters**: [A2A issue #1672](https://github.com/a2aproject/A2A/issues/1672) (62 comments, still open — three competing 3rd-party implementations in the thread but nothing merged into A2A spec). ACP v1.8+v1.9 ships the complete identity story today: sign your card, verify your peer's card, mutual verification at handshake.
 
 New endpoints:
 - `GET /verify/card` — verify local agent's own card
@@ -157,7 +192,9 @@ Previously: HMAC-SHA256 signing was optional but replay attacks were possible. N
 |---------|-----|-----|
 | Cancel semantics | ✅ Defined (§10), synchronous | ❓ Open issues #1680 + #1684 |
 | Credential security | ✅ No push creds | ⚠️ Open issue #1681 |
-| **AgentCard verification** | ✅ **Ed25519 self-sig (v1.8)** | ❌ Open issue #1672 (no protocol-level solution) |
+| **AgentCard verification** | ✅ **Ed25519 self-sig + auto mutual verify (v1.8+v1.9)** | ❌ Open issue #1672 (62 comments, 3 competing impls, nothing merged) |
+| **Mutual identity at handshake** | ✅ **Auto-verified on connect, `GET /peer/verify` (v1.9)** | ❌ No protocol-level handshake identity |
+| Agent identifier | ✅ `did:acp:` (cryptographic, ownership-provable) | 🔄 PR#1079: random UUID (unverifiable) |
 | SSE context propagation | ✅ context_id in all events | ⚠️ Spec contradiction (§4.2.2 vs §6.2, issue #1683) |
 | Identity | ✅ Self-sovereign `did:acp:` | 🔄 Heading toward `getagentid.dev` (external CA) |
 | Error Content-Type | ✅ `application/json` (explicit) | ⚠️ Ambiguous (open issue #1685) |

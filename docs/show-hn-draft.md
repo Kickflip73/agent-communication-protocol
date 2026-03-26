@@ -90,6 +90,8 @@ And as of v1.8 (today): ACP agents **sign their own AgentCard** with their Ed255
 
 Meanwhile, A2A PR#1079 proposes adding a random UUID as the agent's unique identifier. ACP uses `did:acp:<base58url(pubkey)>` — not a name tag, but a cryptographic fingerprint. You can't claim someone else's `did:acp:` without their private key.
 
+And v1.9 (also today) closes the loop: **mutual identity verification at handshake**. When two ACP agents connect, each side automatically verifies the other's AgentCard signature. `GET /peer/verify` gives you the result — `verified: true/false`, the peer's `did:acp:`, and whether the DID is consistent with the public key. Zero extra API calls. The whole identity story is: connect → verify → done.
+
 **Security**: A2A's `GetTaskPushNotificationConfig` API returns full credentials in the
 response by default — a security vulnerability filed as issue #1681 (still open). ACP has no
 Push Notification mechanism at all. Fewer features = smaller attack surface.
