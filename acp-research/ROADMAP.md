@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-26 08:15（文档轮：v1.9 Peer AgentCard 自动验证，scan #14 A2A #1672 生态赛马，PR#1079 UUID vs did:acp:）
+> 最后更新：2026-03-26 10:47（文档轮：v2.0-alpha Offline Delivery Queue，README/whats-new/show-hn 全同步）
 
 ---
 
@@ -223,9 +223,17 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 🔮 v2.0（目标：2026-Q3）
+### 🚧 v2.0（进行中，目标：2026-Q3）
 **主题：联邦化与生态扩展**
 
+- ✅ **v2.0-alpha.1 Offline Delivery Queue**（commit `8a58041`，2026-03-26）
+  - `_offline_enqueue(msg, peer_id)` — peer 断连时自动缓存消息（per-peer deque maxlen=100）
+  - `_offline_flush(ws, peer_id)` — peer 重连时 FIFO 自动交付（host+guest 双路径）
+  - `GET /offline-queue` — 检查缓冲区 `{total_queued, max_per_peer, queue}`
+  - `capabilities.offline_queue=true` + `endpoints.offline_queue` 声明
+  - API 合同不变（503 ERR_NOT_CONNECTED 仍返回）
+  - OQ1-OQ10：10/10 PASS；全回归 236 passed, 4 skipped, 0 failed
+  - **对比 A2A**：A2A 无离线投递机制，peer 离线时消息直接丢失
 - [ ] 公开发布（博客文章 + GitHub README + Hacker News）
   - Show HN 草稿：`docs/show-hn-draft.md`（2026-03-24，待 Stark 先生确认）
 - ✅ Extension 机制（URI 标识扩展，向 A2A 靠拢）（commit pending，2026-03-22）

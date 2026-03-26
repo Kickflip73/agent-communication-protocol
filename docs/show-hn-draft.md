@@ -92,6 +92,8 @@ Meanwhile, A2A PR#1079 proposes adding a random UUID as the agent's unique ident
 
 And v1.9 (also today) closes the loop: **mutual identity verification at handshake**. When two ACP agents connect, each side automatically verifies the other's AgentCard signature. `GET /peer/verify` gives you the result — `verified: true/false`, the peer's `did:acp:`, and whether the DID is consistent with the public key. Zero extra API calls. The whole identity story is: connect → verify → done.
 
+**Reliability**: What happens if you send a message while the peer agent is restarting? In A2A, it's just gone — there's no offline delivery in the spec. ACP v2.0-alpha adds an **offline delivery queue**: when your peer is offline, the message is buffered locally (up to 100 per peer). The moment they reconnect, the queue auto-flushes in FIFO order. The API is unchanged — you still get `503 ERR_NOT_CONNECTED` (so existing callers aren't surprised), but your message is queued, not dropped. `GET /offline-queue` lets you see what's waiting. Short disconnects become invisible to the application layer.
+
 **Security**: A2A's `GetTaskPushNotificationConfig` API returns full credentials in the
 response by default — a security vulnerability filed as issue #1681 (still open). ACP has no
 Push Notification mechanism at all. Fewer features = smaller attack surface.
@@ -121,6 +123,7 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 - **vs MCP**: MCP = Agent↔Tool. ACP = Agent↔Agent. Different layers, complementary.
 - **vs A2A**: A2A is enterprise. ACP is personal/small team. Like nginx vs Apache — both valid.
 - **on identity**: A2A is heading toward `getagentid.dev` (external CA). ACP uses `did:acp:` (self-sovereign, zero external service). If A2A's CA goes down, their identity story breaks. ACP works offline. And v1.8 adds AgentCard self-signatures: `POST /verify/card` gives cryptographic proof of card authenticity — no CA involved.
+- **on reliability**: A2A drops messages silently when peer is offline — no spec-level buffering. ACP v2.0-alpha offline queue: message survives the disconnect, auto-delivered on reconnect, zero caller changes required.
 - **on security**: A2A issue #1681 (open): `PushNotificationConfig` leaks credentials by default. ACP doesn't have Push Notifications — that's a feature, not a limitation.
 - **on cancel semantics**: A2A issue #1680 (open, no resolution): async cancel is complex. ACP cancel is synchronous and unambiguous.
 - **vs MQTT/WebSockets**: Those are transports. ACP is a semantic protocol (tasks, agent cards, identity).

@@ -7,6 +7,44 @@
 
 ## 2026-03-26
 
+### Offline Delivery Queue — Messages Survive Disconnects (v2.0-alpha)
+
+ACP agents now **buffer outbound messages when the peer is offline, and auto-deliver them the moment the peer reconnects** — zero extra code by the caller.
+
+```bash
+# Agent A sends a message — peer (Agent B) is NOT connected yet:
+curl -s -X POST http://localhost:7901/message:send \
+  -H "Content-Type: application/json" \
+  -d '{"role":"user","parts":[{"type":"text","content":"hello, are you there?"}]}'
+# → {"ok": false, "error_code": "ERR_NOT_CONNECTED",
+#    "error": "No P2P connection — message queued for delivery on reconnect"}
+
+# Inspect the queue:
+curl http://localhost:7901/offline-queue
+# → {"total_queued": 1, "max_per_peer": 100,
+#    "queue": {"default": {"depth": 1,
+#      "messages": [{"type": "acp.message", "queued_at": "2026-03-26T10:17Z"}]}}}
+
+# Agent B connects. Queue auto-flushes immediately on handshake:
+# 📤 Flushed 1 offline message(s) to peer 'peer_a1b2' on connect
+```
+
+How it works:
+- `_ws_send()` catches `ConnectionError` → calls `_offline_enqueue(msg, peer_id)`
+- Messages stored in per-peer `deque(maxlen=100)` — oldest dropped when full, never blocks
+- On peer connect/reconnect, `_offline_flush()` runs automatically in FIFO order
+- `_was_queued: true` marker in delivered messages lets the receiver know they arrived buffered
+- API contract unchanged — callers still get `503 ERR_NOT_CONNECTED` (drop-in safe)
+
+New endpoints/fields:
+- `GET /offline-queue` — inspect buffer `{total_queued, max_per_peer, queue}`
+- `capabilities.offline_queue: true` — advertised in AgentCard
+- `endpoints.offline_queue: "/offline-queue"` — discoverable via AgentCard
+
+**Why it matters**: A2A has no offline delivery mechanism — if you send a task message while the peer agent is restarting or temporarily offline, the message is simply lost. ACP's offline queue delivers it automatically on reconnect, making short disconnects transparent to the application layer.
+
+---
+
 ### Peer AgentCard Auto-Verification at Handshake (v1.9)
 
 ACP agents now **automatically verify each other's identity the moment they connect** — no extra API calls needed.
@@ -190,6 +228,7 @@ Previously: HMAC-SHA256 signing was optional but replay attacks were possible. N
 
 | Feature | ACP | A2A |
 |---------|-----|-----|
+| **Offline delivery** | ✅ **Auto-queue on disconnect, auto-flush on reconnect (v2.0-alpha)** | ❌ No offline delivery — messages lost if peer is offline |
 | Cancel semantics | ✅ Defined (§10), synchronous | ❓ Open issues #1680 + #1684 |
 | Credential security | ✅ No push creds | ⚠️ Open issue #1681 |
 | **AgentCard verification** | ✅ **Ed25519 self-sig + auto mutual verify (v1.8+v1.9)** | ❌ Open issue #1672 (62 comments, 3 competing impls, nothing merged) |
