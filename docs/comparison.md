@@ -46,9 +46,9 @@ FIPA-ACL (1997) was ahead of its time but:
 
 ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native, minimal, and modern.
 
-## Feature Comparison: ACP v1.2 vs A2A v1.0 vs MCP
+## Feature Comparison: ACP v2.1 vs A2A v1.0 vs MCP
 
-| Feature | ACP v1.3 | A2A v1.0 | MCP |
+| Feature | ACP v2.1 | A2A v1.0 | MCP |
 |---------|----------|----------|-----|
 | **P2P / zero-server** | ✅ Built-in | ❌ Server required | ❌ Server required |
 | **Single-file deploy** | ✅ One `.py` file | ❌ Full service stack | ❌ Server + client SDK |
@@ -58,16 +58,19 @@ ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native,
 | **Extension mechanism** | ✅ URI-identified, runtime register/unregister (v1.3) | ⚠️ Proposed (no impl yet) | ❌ |
 | **HMAC replay-window** | ✅ `--hmac-window` (v1.1) | ⚠️ OAuth only | ⚠️ OAuth only |
 | **Task state machine** | ✅ 5 states (v0.5+) | ✅ 8 states | ❌ |
-| **Agent Card identity verify** | ✅ `did:acp:` cryptographic self-cert (v1.3) | ❌ Open issue #1672, no impl yet | ❌ |
-| **Ed25519 identity** | ✅ `--identity` flag | ✅ DID-based | ❌ |
+| **AgentCard self-signature** | ✅ Ed25519 `card_sig` — `POST /verify/card` (v1.8) | ❌ Proposal only (issue #1672) | ❌ |
+| **Peer identity auto-verify** | ✅ Mutual at handshake — `GET /peer/verify`, zero extra calls (v1.9) | ❌ Not implemented | ❌ |
+| **Ed25519 identity** | ✅ `--identity` flag (v0.8+) | ✅ DID-based | ❌ |
 | **DID identifier** | ✅ `did:acp:` key-based (v1.3) — no registry | ✅ `did:wba:` domain-based — requires DNS | ❌ |
 | **DID Document** | ✅ `GET /.well-known/did.json` (W3C compatible) | ✅ via well-known URL | ❌ |
 | **LAN discovery (mDNS)** | ✅ `--advertise-mdns` | ❌ | ❌ |
-| **Multi-language SDKs** | ✅ Python / Go / Node.js / Rust / **Java** | ✅ Python / JS / Java | ⚠️ Python / JS only |
+| **LAN discovery (port scan)** | ✅ `GET /peers/discover` — no mDNS/multicast needed (v2.1) | ❌ | ❌ |
+| **Offline message queue** | ✅ Auto-buffer on disconnect, flush on reconnect — `GET /queue` (v2.0) | ❌ | ❌ |
+| **Multi-language SDKs** | ✅ Python / Go / Node.js / Rust | ✅ Python / JS / Java | ⚠️ Python / JS only |
 | **Setup complexity** | `pip install websockets` | OAuth + agent registry | MCP server + config |
 | **Target audience** | Personal/small team | Enterprise | Tool integration |
 
-## ACP v1.2 Unique Differentiators
+## ACP v2.1 Unique Differentiators
 
 ### 1. Scheduling Metadata (Heartbeat/Cron Agents)
 
@@ -127,3 +130,60 @@ Agent B:  python3 acp_relay.py --name Bob --join acp://relay.acp.dev/<id>
 ```
 
 This is intentionally designed as **"WhatsApp for Agents"** — simple enough for individuals, powerful enough for teams.
+
+---
+
+## ACP v2.x Unique Differentiators
+
+### 5. Mutual Identity Verification at Handshake (v1.8 + v1.9)
+
+ACP v1.8 introduced **AgentCard self-signatures**: every AgentCard can carry an Ed25519 `card_sig` field — a cryptographic proof that the card's content was signed by the agent's own private key:
+
+```json
+{
+  "name": "Alice",
+  "did": "did:acp:z6Mk...",
+  "identity": {
+    "card_sig": "base64url-encoded-ed25519-signature..."
+  }
+}
+```
+
+ACP v1.9 goes further: when two agents connect, they **automatically exchange and verify each other's AgentCard at handshake** — zero extra API calls required. The result is available immediately:
+
+```bash
+curl http://localhost:7801/peer/verify
+# → {"verified": true, "peer_did": "did:acp:z6Mk...", "peer_name": "Bob", "card_sig_valid": true}
+```
+
+**A2A status**: AgentCard identity verification is an open proposal (issue #1672, filed 2026-03-10). No implementation exists in v1.0. The ACP solution is shipping and tested.
+
+### 6. Offline Message Queue (v2.0)
+
+When a peer disconnects, ACP automatically buffers outgoing messages and flushes them upon reconnect — no lost messages, no retry logic required in application code:
+
+```bash
+# Peer goes offline — messages are queued transparently
+curl -X POST http://localhost:7801/message:send \
+  -d '{"peer_id": "bob", "content": {"type": "text", "text": "hello"}}'
+# → {"status": "queued", "queue_depth": 1}
+
+# Inspect queue
+curl http://localhost:7801/queue
+# → {"peer_id": "bob", "depth": 1, "messages": [...]}
+
+# When Bob reconnects — queue flushes automatically
+```
+
+A2A has no offline queue concept. Callers must implement their own retry/persistence layer.
+
+### 7. LAN Discovery without mDNS (v2.1)
+
+ACP v2.1 adds `GET /peers/discover` — a TCP port-scan based LAN discovery that requires no multicast, no mDNS daemon, and no elevated network permissions:
+
+```bash
+curl http://localhost:7801/peers/discover
+# → {"found": [{"host": "192.168.1.42", "port": 7901, "acp_version": "2.1.0", "name": "Bob"}]}
+```
+
+This complements the existing `--advertise-mdns` option (v0.7) with a fallback that works in environments where multicast UDP is blocked (Docker networks, VPNs, corporate Wi-Fi).
