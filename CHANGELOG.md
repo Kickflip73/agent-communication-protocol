@@ -155,10 +155,6 @@ Results: **10/10 passed** — full regression: **236 passed, 4 skipped, 0 failed
 
 ---
 
-## [Unreleased] — post-v1.9
-
----
-
 ## [1.9.0] — 2026-03-26 07:45
 
 ### Added — Peer AgentCard Auto-Verification (v1.9)
@@ -204,10 +200,6 @@ Results: **7 passed, 1 skipped** — full regression: **226 passed, 4 skipped, 0
 - Completes the identity story: v1.8 lets you sign your card; v1.9 auto-verifies the peer's card
 - Together: when two ACP agents connect, **both sides automatically know if the other's identity is cryptographically verified** — zero extra API calls needed
 - Show HN talking point: "Connect two agents → identity mutual verification happens at handshake"
-
----
-
-## [Unreleased] — post-v1.8
 
 ---
 
@@ -266,19 +258,15 @@ Results: **11/11 PASS** — full regression: **219 passed, 3 skipped, 0 failed**
 
 ---
 
-## [Unreleased] — post-v1.7 docs
+## [1.7.0] — 2026-03-25 20:30
 
-### Updated (spec + README)
+### Updated (spec + README — post-release patch)
 
 - **spec/error-codes.md**: explicitly documents `Content-Type: application/json; charset=utf-8` for all responses including errors; rejects `application/problem+json` (RFC 9457) by design; references A2A [#1685](https://github.com/a2aproject/A2A/issues/1685) as motivation (commit `81ffd30`)
 - **README vs-A2A table** (commit `81ffd30`):
   - New row: "Error response Content-Type" — ACP uniform vs A2A #1685 ambiguous
   - New row: "Webhook security" — ACP URL-only vs A2A #1681 credentials leaked in plaintext
   - New callout paragraph referencing A2A #1681 + #1685
-
----
-
-## [1.7.0] — 2026-03-25 20:30
 
 ### Added (Python SDK)
 
@@ -402,9 +390,7 @@ Key commits: `3f06b24`, `e8974b2`, `cf578e3`, `394b71c` (HTTP/2), `21e3e7d` (tes
 
 ---
 
-## [1.5.1-dev] — 2026-03-24 (updated 2026-03-25 05:25)
-
-### Research (2026-03-25 05:25 — Competitive scan #7)
+### Research (2026-03-25 05:25 — Competitive scan #7, post-1.5.1-dev update)
 
 - **A2A 9-day code freeze continues** (last merge 2026-03-16, TSC governance mode)
 - **A2A #1681 (security bug)**: `GetTaskPushNotificationConfig` leaks full credentials in response — ACP has no PushNotification mechanism, zero exposure to this class of vulnerability; strong differentiation point for Show HN
@@ -414,7 +400,7 @@ Key commits: `3f06b24`, `e8974b2`, `cf578e3`, `394b71c` (HTTP/2), `21e3e7d` (tes
 
 ---
 
-## [1.5.1-dev] — 2026-03-24 (updated 22:47)
+## [1.5.0-dev] — 2026-03-24 (pre-1.5.1, NAT signaling layer)
 
 ### Added (22:47 — v1.4 NAT traversal signaling layer)
 
@@ -475,6 +461,7 @@ Key commits: `3f06b24`, `e8974b2`, `cf578e3`, `394b71c` (HTTP/2), `21e3e7d` (tes
 ---
 
 ## [1.5.1-dev] — 2026-03-24
+
 ### Added
 
 - **`GET /tasks` time-window filters** — `created_after` and `updated_after` (commit `a187471`)
@@ -507,7 +494,8 @@ Key commits: `3f06b24`, `e8974b2`, `cf578e3`, `394b71c` (HTTP/2), `21e3e7d` (tes
 
 ---
 
-## [1.5.0-dev] — 2026-03-24
+## [1.5.0-dev] — 2026-03-24 (hybrid identity)
+
 ### Added
 
 - **Hybrid Identity Model** (`--ca-cert`) — v1.5 (commit `7aaa2cb`)
