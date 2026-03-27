@@ -134,17 +134,21 @@ def relay_pair():
     assert s2 == 200 and r2.get("ok"), f"P2P connect failed: {s2} {r2}"
     _PEER_ID[0] = r2.get("peer_id")
 
-    # Wait for WS to fully establish
+    # Wait for WS to fully establish — check connected=True AND ws is ready (BUG-030 fix)
+    # connected=True is set immediately by _register_peer(), but ws handshake may still be
+    # in progress. Probe-send a test message to confirm the channel is truly ready.
     deadline = time.time() + 10
+    peer_ready = False
     while time.time() < deadline:
-        ps, pr = get(ALPHA_PORT, "/peers")
-        peers_list = (pr.get("peers", []) if isinstance(pr, dict) else
-                      pr if isinstance(pr, list) else [])
-        p = next((p for p in peers_list
-                  if p.get("id") == _PEER_ID[0] or p.get("peer_id") == _PEER_ID[0]), None)
-        if p and p.get("connected"):
+        ps, pr = post(ALPHA_PORT, f"/peer/{_PEER_ID[0]}/send", {
+            "role": "agent",
+            "parts": [{"kind": "text", "text": "__probe__"}],
+        })
+        if ps == 200 and isinstance(pr, dict) and pr.get("ok"):
+            peer_ready = True
             break
         time.sleep(0.3)
+    assert peer_ready, f"Peer {_PEER_ID[0]} not ready within 10s (last: {ps} {pr})"
 
     yield
 

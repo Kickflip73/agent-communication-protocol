@@ -655,3 +655,50 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 **修复方案**：将断言改为 `assert client_version >= "0.6.0"` 或直接更新为 `0.8.0`。
 **状态**：✅ 已修复（commit 57fa596）— 将 `test_relay_client.py::test_import` 中的版本断言从 `"0.6.0"` 更新为 `"0.8.0"`。
 
+---
+
+## Round 8 — 测试轮 EFGH：场景 E/F/G/H + 全套回归 (2026-03-27 13:xx)
+
+### 场景测试结果
+
+| 场景 | 测试文件 | 结果 |
+|------|---------|------|
+| E — NAT 穿透三级降级 | `test_scenario_e.py` | **1/1 PASS** (9.47s) |
+| F — 错误处理 | `test_scenario_fg.py` | **1 SKIPPED** (P2P，沙箱正常) |
+| G — 断线重连 | `test_scenario_fg.py` | **1 SKIPPED** (P2P，沙箱正常) |
+| H — 并发压力 | `test_scenario_h.py` | **1/1 PASS** (9.72s) |
+
+### 全套回归结果
+
+**第一轮**: 277 passed, 5 skipped, 2 failed (BUG-030，D3/D4 各失败 1 次)
+**修复后 SDK 回归**: 85/85 PASS (1.61s) ✅
+
+### BUG-030 ✅ P2 — test_scenario_d_stress relay_pair fixture 误用 `connected=True` 检测 WS 就绪
+
+**发现时间**: 2026-03-27 本轮测试
+**状态**: ✅ 已修复（本轮 commit，待 push）
+
+**现象**:
+- `pytest tests/test_scenario_d_stress.py::test_d3_100_sequential_messages` 单独运行时 2~6 条消息 ERR_PEER_CONNECTING (503)
+- 全套跑时 D3/D4 偶发 FAILED（96~98/100）
+- 完整文件运行 `pytest tests/test_scenario_d_stress.py` 始终 10/10 PASS
+
+**根因**:
+- `relay_pair` fixture 等待条件是 `p.get("connected") == True`
+- `connected=True` 由 `_register_peer()` 在 `/peers/connect` 返回时立即设置，此时 WebSocket 握手仍在后台进行
+- `_register_peer()` 设置 `ws=None`；WS 就绪需等 `guest_mode()` coroutine 完成 P2P 握手（通常需额外 1-2s）
+- D3 立即发送 100 条消息，前几条命中 `ERR_PEER_CONNECTING`（ws is None 守卫，BUG-016 修复的逻辑）
+
+**与 BUG-027 的区别**:
+- BUG-027：全套并发端口冲突导致 relay 启动失败（已知 P2）
+- BUG-030：连接就绪检测不完整，即使端口不冲突也会在测试隔离运行时触发
+
+**修复方案**:
+- `tests/test_scenario_d_stress.py` `relay_pair` fixture：将 `/peers` poll 改为 probe-send
+- 发送探针消息至 `peer_id/send`，收到 `ok=true`（HTTP 200）才认为连接就绪
+- 此模式与 `test_scenario_fg.py` 的 `wait_peer_ready()` 一致
+
+**影响范围**: 仅测试 fixture，不影响 relay 运行逻辑
+
+*最后更新：2026-03-27 by J.A.R.V.I.S.*
+
