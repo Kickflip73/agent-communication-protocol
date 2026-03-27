@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-27 12:20（文档轮：填入 v2.4 commit cf16664，新增 v2.5 里程碑规划，README 版本同步至 v2.4.0）
+> 最后更新：2026-03-27（v2.5 开发轮：Task 事件序列规范完成，commit a76ede6；relay v2.5.0 上线）
 
 ---
 
@@ -354,21 +354,22 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
 
 ---
 
-### 🔮 v2.5（计划中，目标：2026-04）
+### ✅ v2.5（已完成，2026-03-27，commit `a76ede6`）
 **主题：Task 事件序列规范 + SSE 字段完整性**
 
-| 特性 | 优先级 | 状态 |
-|------|--------|------|
-| **Task 事件序列规范**（spec §8）— 定义 submitted→working→completed 的 SSE 事件发送顺序及必填字段 | P0 | ⏳ 待开发 |
-| SSE 示例字段完整性审查 — 检查 spec 中所有 SSE 示例是否包含 `task_id`、`server_seq`、`ts` 等必要字段 | P0 | ⏳ 待开发 |
-| `task_id` 在 SSE 事件中的必填语义正式化（目前为 optional，但实际上 Task 流中为 required） | P1 | ⏳ 待开发 |
-| spec/core-v1.0.md §6（SSE Events）与 §7（Task lifecycle）一致性审查 | P1 | ⏳ 待开发 |
-| `tests/test_task_event_sequence.py` — Task 事件序列集成测试 | P1 | ⏳ 待开发 |
+| 特性 | 优先级 | 状态 | Commit |
+|------|--------|------|--------|
+| **Task 事件序列规范**（spec §8）— 定义 submitted→working→completed 的 SSE 事件发送顺序及必填字段 | P0 | ✅ 已完成 | `a76ede6` |
+| SSE 示例字段完整性审查 — 检查 spec 中所有 SSE 示例是否包含 `task_id`、`seq`、`ts` 等必要字段 | P0 | ✅ 已完成 | `a76ede6` |
+| `task_id` 在 SSE 事件中的必填语义正式化（status/artifact 事件中为 MUST） | P1 | ✅ 已完成 | `a76ede6` |
+| spec/core-v1.0.md §8.7 Conformance Requirements（7 MUST + 2 SHOULD + 3 MAY） | P1 | ✅ 已完成 | `a76ede6` |
+| `tests/test_task_event_sequence.py` — Task 事件序列集成测试（10 用例，9 通过，1 skip） | P1 | ✅ 已完成 | `a76ede6` |
+| relay v2.5.0 — SSE 全局 seq、命名 event 行、AgentCard supported_interfaces | P1 | ✅ 已完成 | `a76ede6` |
 
-**背景：**
-- 2026-03-27 研究轮识别：spec 中 SSE 事件示例存在部分字段缺失（如某些 `task_update` 示例缺少 `server_seq`）
-- Task 事件序列顺序在 spec 中未明确约束，可能导致不同实现行为不一致
-- 与 A2A 的差异化机会：A2A 至今未定义完整的 task 生命周期 SSE 事件序列规范
+**完成摘要：**
+- spec §8 Task 事件序列规范：§8.1 Envelope 字段表、§8.2 生命周期顺序图、§8.3-§8.5 各类型 Schema + 完整 JSON 示例、§8.6 Wire Format 全流示例、§8.7 Conformance
+- relay v2.5.0：每条 SSE 事件携带全局单调递增 `seq`；task 相关事件发送 named `event:` 行（`acp.task.status` / `acp.task.artifact`）
+- 测试覆盖：TES1（完整生命周期）TES2（必填字段）TES3（seq 单调性）TES4（状态顺序）TES5（failed.error）TES6（artifact.parts）TES7（message 字段）TES8（同 task seq 递增）TES9（终态后无新事件）TES10（首事件为 submitted）
 
 ---
 
