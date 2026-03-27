@@ -341,8 +341,8 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
 
 | 特性 | 优先级 | 状态 | Commit |
 |------|--------|------|--------|
-| `supported_transports` 补充到 spec/core-v1.0.md（文档对齐） | P0 | ⏳ 待开发 | — |
-| Python SDK `auto_stream` 参数（`send(msg, auto_stream=True)` 自动选择 SSE） | P1 | ⏳ 待开发 | — |
+| `supported_transports` 补充到 spec/core-v1.0.md（文档对齐） | P0 | ✅ 已完成（2026-03-27，commit 0a3af37） | `0a3af37` |
+| Python SDK `auto_stream` 参数（`send(msg, auto_stream=True)` 自动选择 SSE） | P1 | ✅ 已完成（2026-03-27，commit 0a3af37） | `0a3af37` |
 | `GET /tasks` cursor 分页（`?cursor=` 参数，对标 A2A page_token） | P2 | ✅ 已完成 | `fac2a31` |
 
 **设计目标：**
