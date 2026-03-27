@@ -119,6 +119,41 @@ To force relay mode (e.g., for backward compatibility), add `--relay` on startup
 
 ---
 
+## Routing Topology Declaration (`transport_modes`, v2.4)
+
+Agents declare which routing topologies they support via the `transport_modes` top-level AgentCard field:
+
+| Value | Meaning |
+|-------|---------|
+| `"p2p"` | Agent supports direct peer-to-peer WebSocket connections |
+| `"relay"` | Agent supports relay-mediated delivery (HTTP relay fallback) |
+
+Default: `["p2p", "relay"]` — both topologies supported; absent means the same.
+
+```bash
+# Sandbox / NAT-only agent (relay only)
+python3 relay/acp_relay.py --name SandboxAgent --transport-modes relay
+
+# Edge agent with public IP (P2P only, no relay dependency)
+python3 relay/acp_relay.py --name EdgeAgent --transport-modes p2p
+```
+
+**AgentCard snippet:**
+```json
+{
+  "transport_modes": ["p2p", "relay"],
+  "capabilities": {
+    "supported_transports": ["http", "ws"]
+  }
+}
+```
+
+> **Distinction:** `transport_modes` declares *routing topology* (which path data takes).
+> `capabilities.supported_transports` declares *protocol bindings* (how bytes are framed).
+> They are orthogonal — see [spec §5.4](spec/core-v1.0.md).
+
+---
+
 ## Architecture
 
 ### Handshake (humans only do steps 1 and 2)
@@ -252,7 +287,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **22/22 test scenarios PASS** (error handling · pressure test · NAT traversal · ring pipeline)
+- **279/279 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes)
 - **184+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
@@ -275,6 +310,21 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | Cancel task | POST | `/tasks/{id}:cancel` |
 
 HTTP default port: `7901` · WebSocket port: `7801`
+
+**AgentCard response example** (`GET /.well-known/acp.json`):
+```json
+{
+  "name": "MyAgent",
+  "acp_version": "2.4.0",
+  "transport_modes": ["p2p", "relay"],
+  "capabilities": {
+    "streaming": true,
+    "supported_transports": ["http", "ws"]
+  }
+}
+```
+
+> `transport_modes` (v2.4+): declares routing topology — `"p2p"` (direct) and/or `"relay"` (relay-mediated). Default: `["p2p", "relay"]`. Distinct from `capabilities.supported_transports` which declares *protocol bindings*.
 
 ---
 

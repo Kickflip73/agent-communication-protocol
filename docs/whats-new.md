@@ -7,6 +7,40 @@
 
 ## 2026-03-27
 
+### `transport_modes` Routing Topology Declaration (v2.4.0)
+
+ACP agents can now **declare their routing topology** in the AgentCard via the new top-level `transport_modes` field.
+
+**Key distinction:** `transport_modes` (routing topology) is orthogonal to `capabilities.supported_transports` (protocol bindings):
+- `supported_transports`: declares *protocol bindings* — HTTP/1.1, WebSocket, HTTP/2
+- `transport_modes`: declares *routing topology* — direct P2P, relay-mediated
+
+```bash
+# Relay-only sandbox agent
+python3 acp_relay.py --name "SandboxAgent" --transport-modes relay
+
+# P2P-only edge agent (public IP)
+python3 acp_relay.py --name "EdgeAgent" --transport-modes p2p
+```
+
+**AgentCard response** (`GET /.well-known/acp.json`):
+```json
+{
+  "name": "SandboxAgent",
+  "acp_version": "2.4.0",
+  "transport_modes": ["relay"],
+  "capabilities": {
+    "supported_transports": ["http", "ws"]
+  }
+}
+```
+
+Default is `["p2p", "relay"]` — both topologies available, peer's choice. Absent means the same. Receivers MUST treat the field as advisory; unknown values MUST be ignored.
+
+→ See **spec §5.4** and `--transport-modes` in [CLI Reference](cli-reference.md)
+
+---
+
 ### Task List Queries — `GET /tasks` with Filtering + Pagination (v2.2.0)
 
 ACP agents can now **query all tasks** with rich filtering and offset-based pagination — no more fetching all tasks and filtering client-side.

@@ -1,4 +1,4 @@
-# ACP CLI Reference — v1.2
+# ACP CLI Reference — v2.4
 
 `acp_relay.py` is both the reference implementation and the command-line interface.
 This document covers every flag, common usage patterns, and environment variables.
@@ -59,6 +59,24 @@ python3 acp_relay.py [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--advertise-mdns` | `false` | Broadcast presence on LAN via UDP multicast (`224.0.0.251:5354`). Enables `GET /discover` endpoint. No external library required. |
+
+### Routing Topology — `transport_modes` (v2.4)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--transport-modes <modes>` | `p2p,relay` | Comma-separated list of routing topologies this node supports. Valid values: `p2p` (direct peer-to-peer WebSocket) and/or `relay` (HTTP relay-mediated). Sets the top-level `transport_modes` field in the AgentCard (`/.well-known/acp.json`). Distinct from `--relay` (which forces relay transport) — this field declares *capability*, not preference. Invalid values are warned and silently ignored. |
+
+**Examples:**
+```bash
+# Relay-only (sandbox / NAT-only environment)
+python3 acp_relay.py --name "SandboxAgent" --transport-modes relay
+
+# P2P-only (public IP, no relay needed)
+python3 acp_relay.py --name "EdgeAgent" --transport-modes p2p
+
+# Default (both, peer's choice)
+python3 acp_relay.py --name "MyAgent" --transport-modes p2p,relay
+```
 
 ### Availability Metadata — Heartbeat/Cron Support (v1.2)
 

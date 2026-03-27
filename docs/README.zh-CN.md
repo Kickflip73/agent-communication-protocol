@@ -6,7 +6,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/版本-v1.4.0--dev-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/版本-v2.4.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="../LICENSE">
     <img src="https://img.shields.io/badge/协议-Apache_2.0-green?style=flat-square" alt="License">
@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square">
   <img src="https://img.shields.io/badge/依赖-仅_websockets-orange?style=flat-square">
   <img src="https://img.shields.io/badge/延迟-0.6ms_avg-brightgreen?style=flat-square">
-  <img src="https://img.shields.io/badge/测试-22%2F22_PASS-success?style=flat-square">
+  <img src="https://img.shields.io/badge/测试-279%2F279_PASS-success?style=flat-square">
 </p>
 
 <p>
@@ -236,7 +236,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** 均值发送延迟 · **2.8ms** P99
 - **1,100+ req/s** 顺序吞吐 · **1,200+ req/s** 并发（10 线程）
 - **< 50ms** SSE 推送延迟（threading.Event，非轮询）
-- **22/22 测试场景通过**（错误处理 · 压力测试 · NAT 穿透 · 环形流水线）
+- **279/279 单元 + 集成测试通过**（错误处理 · 压力测试 · NAT 穿透 · 环形流水线 · transport_modes）
 - **184+ commits** · **3,300+ 行** · **零已知 P0/P1 Bug**
 
 ---
@@ -270,6 +270,7 @@ HTTP 默认端口：`7901` · WebSocket 端口：`7801`
 | HMAC 消息签名 | `--secret <key>` | 两端共享密钥，无需额外依赖 |
 | Ed25519 身份 | `--identity` | 需 `pip install cryptography` |
 | mDNS 局域网发现 | `--advertise-mdns` | 无需 zeroconf 库 |
+| **路由拓扑声明（v2.4）** | `--transport-modes p2p,relay` | AgentCard 顶层 `transport_modes` 字段；声明本节点支持的路由模式（`p2p` 直连 / `relay` 中继）；缺省为 `["p2p", "relay"]` |
 | Docker | `docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay` | 多架构，含 GHCR CI |
 
 ---
@@ -409,6 +410,11 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | v1.3 | ✅ | Rust SDK、DID 身份（`did:acp:`）、Extension 机制、GHCR CI |
 | **v1.4** | ✅ **已实现** | **真 P2P NAT 穿透**：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级 |
 | **v1.5** | ✅ **已实现** | **混合身份模型**：`--ca-cert` 在 `did:acp:` 自主权基础上叠加 CA 证书 |
+| v1.6–v1.9 | ✅ | HTTP/2 传输（h2c）、AgentCard 自签名（v1.8）、握手时双向自动验证（v1.9） |
+| v2.0–v2.1 | ✅ | 离线消息队列、LAN 发现（`GET /peers/discover`） |
+| v2.2 | ✅ | `GET /tasks` 列表查询 + 游标分页 |
+| v2.3 | ✅ | Python SDK `auto_stream` 参数（自动选 SSE 接收）、`supported_transports` 能力声明 |
+| **v2.4** | ✅ **当前版本** | **`transport_modes` 顶层字段**：路由拓扑声明（`p2p`/`relay`）；`--transport-modes` CLI 标志；spec §5.4 |
 
 ---
 
