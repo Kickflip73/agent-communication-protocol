@@ -826,3 +826,49 @@ def stop_reference_relay():
 **影响**: P2（沙箱环境中稳定复现；历史测试通过原因是当时 IP 探测 <30s）
 
 *最后更新：2026-03-27 by J.A.R.V.I.S.*
+
+---
+
+### BUG-035 🟡 P2 — `test_scenario_bc.py` `wait_link_ready` 串行等待导致前几个 relay 超时（BUG-032 修复不完整）
+
+**发现时间**: 2026-03-27 本轮测试（场景 A/B 测试轮）
+**状态**: 🔧 待修复
+
+**现象**:
+```
+Orchestrator: None
+Worker1:      None
+Worker2:      acp://33.229.113.196:7852/tok_...  ← 仅最后一个有 link
+```
+- B1.1 Orch→W1 connect ok ❌（link=None 无法连接）
+- B3.1 Orch has 2 connected peers ❌
+- B7.1 Worker1 replies to Orch ❌
+- C1.1/C1.3/C2.1/C3.1/C5.1 等一系列 C 场景失败
+- Scenario B+C: 21/33 PASS
+
+**根因**:
+- BUG-032 修复引入了 `wait_link_ready(retries=30, interval=0.5)` = 最多等 **15s**
+- 但 BUG-034 已确认本沙箱公网 IP 探测耗时约 **31s**
+- `run_bc_tests()` 串行调用：`wait_link_ready(7950)` → `wait_link_ready(7951)` → `wait_link_ready(7952)`
+  - Orch (7950) 启动后仅等 0~15s → None（未超过 31s）
+  - W1  (7951) 启动后仅等 0~15s → None（未超过 31s）
+  - W2  (7952) 第三个：前两次各等 15s，累计 ~30s 已过，IP 检测完成 → 成功获得 link
+- BUG-032 修复方案未考虑串行等待的累积时间问题
+
+**修复方案**:
+选项 A（推荐）：并行等待所有 relay，总时间 = max(各自等待时间)
+```python
+import concurrent.futures
+
+def wait_all_links(ports, timeout=60):
+    with concurrent.futures.ThreadPoolExecutor() as ex:
+        futures = {port: ex.submit(wait_link_ready, port, retries=120, interval=0.5) for port in ports}
+    return {port: fut.result() for port, fut in futures.items()}
+```
+
+选项 B（简单）：`wait_link_ready` 默认重试次数改为 `retries=120`（最多等 60s），
+但串行调用时总等待仍可达 3×60=180s（慢但可靠）
+
+**影响**: `test_scenario_bc.py` 场景 B 和场景 C 中所有依赖 `link` 的连接测试
+
+*最后更新：2026-03-27 by J.A.R.V.I.S.*

@@ -86,6 +86,21 @@ def wait_link_ready(http_port, retries=30, interval=0.5):
     return None
 
 
+def wait_all_links_parallel(port_map, retries=120, interval=0.5):
+    """Wait for multiple relay ports to get links IN PARALLEL.
+    BUG-035 fix: serial wait_link_ready() calls accumulate to retries*interval each,
+    meaning early ports may timeout before the IP detection (~31s) completes.
+    Parallel waiting means total wait = max(individual waits) instead of sum.
+    """
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(port_map)) as ex:
+        futures = {
+            name: ex.submit(wait_link_ready, port, retries, interval)
+            for name, port in port_map.items()
+        }
+    return {name: fut.result() for name, fut in futures.items()}
+
+
 def ok(name, passed, note=""):
     sym = "✅" if passed else "❌"
     results.append((name, passed, note))
@@ -126,10 +141,11 @@ def run_bc_tests():
     start_agent("Worker2",      7852)
 
     try:
-        # BUG-032 fix: wait_link_ready() instead of time.sleep(5) to handle slow IP detection
-        orch_link = wait_link_ready(7950)
-        w1_link   = wait_link_ready(7951)
-        w2_link   = wait_link_ready(7952)
+        # BUG-032/BUG-035 fix: wait ALL links in parallel (serial was timing out early ports)
+        links_b = wait_all_links_parallel({"Orchestrator": 7950, "Worker1": 7951, "Worker2": 7952})
+        orch_link = links_b["Orchestrator"]
+        w1_link   = links_b["Worker1"]
+        w2_link   = links_b["Worker2"]
         print(f"  Orchestrator: {orch_link}")
         print(f"  Worker1:      {w1_link}")
         print(f"  Worker2:      {w2_link}")
@@ -230,10 +246,11 @@ def run_bc_tests():
     start_agent("PipeC", 7855)
 
     try:
-        # BUG-032 fix: wait_link_ready() to handle slow IP detection in sandbox
-        link_a = wait_link_ready(7953)
-        link_b = wait_link_ready(7954)
-        link_c = wait_link_ready(7955)
+        # BUG-032/BUG-035 fix: wait ALL links in parallel (serial was timing out early ports)
+        links_c = wait_all_links_parallel({"PipeA": 7953, "PipeB": 7954, "PipeC": 7955})
+        link_a = links_c["PipeA"]
+        link_b = links_c["PipeB"]
+        link_c = links_c["PipeC"]
         print(f"  PipeA: {link_a}")
         print(f"  PipeB: {link_b}")
         print(f"  PipeC: {link_c}")
