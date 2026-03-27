@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-27（v2.6 开发轮：Task `cancelling` 中间状态完成；relay v2.6.0 上线）
+> 最后更新：2026-03-28（v2.7 文档轮：AgentCard `limitations` 字段完成；三元能力边界声明；relay v2.7.0 上线）
 
 ---
 
@@ -351,6 +351,28 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
   - `supported_transports`: `["http", "ws", "h2c"]` — *如何传输字节*（协议层）
   - `transport_modes`: `["p2p", "relay"]` — *数据走哪条路径*（拓扑层）
 - 默认 `["p2p", "relay"]`，沙箱环境可声明 `["relay"]`，公网节点可声明 `["p2p"]`
+
+---
+
+### ✅ v2.7（已完成，2026-03-28）
+**主题：AgentCard `limitations` 字段 — 三元能力边界声明**
+
+| 特性 | 优先级 | 状态 | Commit |
+|------|--------|------|--------|
+| `limitations: string[]` 顶层 AgentCard 字段（声明 agent 不能做的事） | P0 | ✅ 已完成 | — |
+| `--limitations` CLI flag（逗号分隔，e.g. `--limitations "no_file_access,no_internet"`） | P0 | ✅ 已完成 | — |
+| `/status` 端点响应包含 `limitations` 数组 | P1 | ✅ 已完成 | — |
+| `_limitations` 全局变量初始化为 `[]`（向后兼容默认值） | P1 | ✅ 已完成 | — |
+| spec/core-v1.3.md §11：`limitations` 字段 Schema、well-known values 表、三元边界说明 | P0 | ✅ 已完成 | — |
+| docs/whats-new.md：v2.7 区块（用法示例 + A2A #1694 对比） | P1 | ✅ 已完成 | — |
+| README：vs-A2A 对比表新行 + v2.7 亮点段落（ref A2A #1694） | P1 | ✅ 已完成 | — |
+| `tests/test_limitations.py`：20 个测试用例 LM1–LM5（全通过） | P1 | ✅ 已完成 | — |
+
+**差异化亮点：**
+- A2A issue [#1694](https://github.com/a2aproject/A2A/issues/1694)（2026-03-27）：提案在 AgentCard 中添加 `limitations` 字段，尚未合并
+- ACP v2.7 当天即发布可运行代码，比 A2A 提案早落地
+- 三元能力边界完整声明：`capabilities`（能做）+ `availability`（何时）+ `limitations`（不能做）
+- 完全向后兼容：旧客户端忽略可选的 `limitations` 字段
 
 ---
 
