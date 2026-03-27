@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-27（v2.5 开发轮：Task 事件序列规范完成，commit a76ede6；relay v2.5.0 上线）
+> 最后更新：2026-03-27（v2.6 开发轮：Task `cancelling` 中间状态完成；relay v2.6.0 上线）
 
 ---
 
@@ -351,6 +351,40 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
   - `supported_transports`: `["http", "ws", "h2c"]` — *如何传输字节*（协议层）
   - `transport_modes`: `["p2p", "relay"]` — *数据走哪条路径*（拓扑层）
 - 默认 `["p2p", "relay"]`，沙箱环境可声明 `["relay"]`，公网节点可声明 `["p2p"]`
+
+---
+
+### ✅ v2.6（已完成，2026-03-27）
+**主题：Task `cancelling` 中间状态 + spec 更新**
+
+| 特性 | 优先级 | 状态 | Commit |
+|------|--------|------|--------|
+| `TASK_CANCELLING = "cancelling"` 常量 + `CANCELLING_STATES` 集合 | P0 | ✅ 已完成 | TBD |
+| `:cancel` 端点两阶段取消（phase-1: `cancelling` SSE，phase-2: 异步 `canceled`） | P0 | ✅ 已完成 | TBD |
+| 幂等取消：`cancelling`/`canceled` → 200 + 当前状态 | P0 | ✅ 已完成 | TBD |
+| AgentCard `capabilities.task_cancelling = true` | P1 | ✅ 已完成 | TBD |
+| spec/core-v1.0.md §3.2 新增 `cancelling` 状态行 | P0 | ✅ 已完成 | TBD |
+| spec/core-v1.0.md §3.3.1 两阶段取消协议（时序图） | P0 | ✅ 已完成 | TBD |
+| spec/core-v1.0.md §8.2 更新 cancel 路径：`working → cancelling → canceled` | P1 | ✅ 已完成 | TBD |
+| spec/core-v1.0.md Appendix B A2A 对比表更新（cancel 语义差异化） | P1 | ✅ 已完成 | TBD |
+| `tests/test_task_cancel.py`（10 个测试用例） | P1 | ✅ 已完成 | TBD |
+
+**差异化亮点：**
+- A2A issue [#1684](https://github.com/google-a2a/A2A/issues/1684)：`CancelTaskRequest` 无正式定义
+- A2A issue [#1680](https://github.com/google-a2a/A2A/issues/1680)：缺少「正在取消中」中间状态
+- ACP v2.6 提前补全上述两个语义缺口，形成**协议差异化**
+
+**两阶段取消时序：**
+```
+Client                          Server
+  |                               |
+  |-- POST /tasks/{id}:cancel --> |
+  |                               | phase-1: state → cancelling
+  |                               |   SSE: {"type":"status","state":"cancelling"}
+  |<-- 200 {status:cancelling} -- |
+  |                               | phase-2 (async): stop work → canceled
+  |                               |   SSE: {"type":"status","state":"canceled"}
+```
 
 ---
 

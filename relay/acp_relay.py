@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v2.5.0
+ACP P2P Relay v2.6.0
 ====================
 Zero-server, zero-code-change P2P Agent communication.
+
+v2.6 changes (2026-03-27):
+  - Task `cancelling` intermediate state (ACP-unique, fills A2A #1684/#1680 semantic gap):
+    * New constant TASK_CANCELLING = "cancelling"
+    * :cancel endpoint: phase-1 → `cancelling` (SSE event pushed immediately),
+      phase-2 → async `canceled` (worker thread, ~instant in ref impl)
+    * Idempotent: already cancelling/canceled → 200 + current status
+    * AgentCard capabilities.task_cancelling = true (negotiation flag)
+    * spec/core-v1.0.md §3 updated: new state row + transition diagram
+    * A2A comparison table updated (ACP leads A2A on cancel semantics)
 
 v2.5 changes (2026-03-27):
   - SSE event sequence field (`seq`): every SSE event now carries a global monotonically-
@@ -131,7 +141,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.5.0"  # v2.5: SSE event seq + named event types (acp.task.status/artifact) + supported_interfaces AgentCard field
+VERSION = "2.6.0"  # v2.6: Task cancelling 中间状态 + spec 更新 (A2A #1684/#1680 差异化)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -231,21 +241,29 @@ def _err(code: str, message: str, http_status: int = 400,
 
 # ── Task states ────────────────────────────────────────────────────────────────
 #
-#  submitted -> working -> completed  (terminal)
-#                       -> failed     (terminal)
-#                       -> input_required  (interrupted; resumes via /tasks/{id}/continue)
+#  submitted -> working -> completed      (terminal)
+#                       -> failed         (terminal)
+#                       -> input_required (interrupted; resumes via /tasks/{id}/continue)
+#                       -> cancelling     (v2.6: intermediate cancel state; ACP-unique)
+#                            └──> canceled (terminal)
 #
 # BUG-002 fix (2026-03-23): added TASK_CANCELED — spec §3 defines 5 states including canceled.
+# v2.6 (2026-03-27): added TASK_CANCELLING — intermediate state exposing cancel-in-progress
+#   to observers via SSE.  Fills semantic gap identified in A2A issues #1684/#1680 (CancelTask
+#   lacks a "being cancelled" intermediate state).  ACP leads A2A on this.
 #
 TASK_SUBMITTED      = "submitted"
 TASK_WORKING        = "working"
 TASK_COMPLETED      = "completed"
 TASK_FAILED         = "failed"
 TASK_CANCELED       = "canceled"
+TASK_CANCELLING     = "cancelling"     # v2.6: intermediate cancel state (ACP-unique)
 TASK_INPUT_REQUIRED = "input_required"
 
 TERMINAL_STATES    = {TASK_COMPLETED, TASK_FAILED, TASK_CANCELED}
 INTERRUPTED_STATES = {TASK_INPUT_REQUIRED}
+# States that represent an in-progress cancel (not yet terminal)
+CANCELLING_STATES  = {TASK_CANCELLING}
 
 # ── Global state ───────────────────────────────────────────────────────────────
 _recv_queue: deque = deque(maxlen=1000)
@@ -955,6 +973,7 @@ def _make_agent_card(name, skills):
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
             ),
             "sse_seq":            True,                         # v2.3: SSE events carry global seq + named event types
+            "task_cancelling":    True,                         # v2.6: `cancelling` intermediate state before `canceled` (ACP-unique, fills A2A #1684/#1680 gap)
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -2893,16 +2912,35 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)}, 500)
 
         # /tasks/{id}:cancel — A2A-aligned cancel endpoint  [stable]
+        # v2.6: Two-phase cancel — first transitions to `cancelling` (SSE observable),
+        #        then asynchronously completes to `canceled` (terminal).
+        #        Idempotent: already cancelling/canceled → 200 immediately.
+        #        Fills the semantic gap in A2A issues #1684/#1680 (no "being cancelled" state).
         elif p.startswith("/tasks/") and p.endswith(":cancel"):
             task_id = p[len("/tasks/"):-len(":cancel")]
             task = _tasks.get(task_id)
             if not task:
                 self._json({"error": "task not found"}, 404)
             elif task["status"] in TERMINAL_STATES:
-                self._json({"error": f"task already in terminal state: {task['status']}"}, 409)
+                # Already terminal (including canceled) — idempotent 200
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            elif task["status"] in CANCELLING_STATES:
+                # Already mid-cancel — idempotent 200
+                self._json({"ok": True, "task_id": task_id, "status": TASK_CANCELLING,
+                            "note": "cancel already in progress"})
             else:
-                _update_task(task_id, TASK_CANCELED)  # BUG-002 fix: use TASK_CANCELED, not TASK_FAILED
-                self._json({"ok": True, "task_id": task_id, "status": TASK_CANCELED})
+                # Phase 1: transition to `cancelling`, push SSE event immediately
+                _update_task(task_id, TASK_CANCELLING)
+                # Phase 2: asynchronously complete the cancel → `canceled`
+                # For the reference implementation, cancellation is instantaneous;
+                # real agents may need to signal their worker and await acknowledgment.
+                def _do_cancel(tid):
+                    import time as _time
+                    _time.sleep(0.05)   # brief yield — allows SSE clients to observe `cancelling` before canceled
+                    _update_task(tid, TASK_CANCELED)
+                threading.Thread(target=_do_cancel, args=(task_id,), daemon=True).start()
+                self._json({"ok": True, "task_id": task_id, "status": TASK_CANCELLING})
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # 比 SSE subscribe 更简单，适合 Agent 调用

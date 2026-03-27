@@ -2,7 +2,7 @@
 
 **Status:** Release Candidate  
 **Authors:** ACP Community  
-**Date:** 2026-03-27 (v2.5: Task Event Sequence spec + SSE field completeness)  
+**Date:** 2026-03-27 (v2.6: Task `cancelling` intermediate state — ACP leads A2A on cancel semantics)  
 **License:** Apache 2.0  
 **Supersedes:** [core-v0.8.md](core-v0.8.md)  
 **See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v0.8.md](identity-v0.8.md)
@@ -151,10 +151,19 @@ Tasks are units of delegated work. A task is created by the requesting agent and
                       │                                           │
                       ├──► failed (terminal)                     │
                       │                                           │
-                      └──► input_required ──► working ──► ...    │
-                                  │                               │
-                                  └──► canceled (terminal) ◄─────┘
+                      ├──► input_required ──► working ──► ...    │
+                      │         │                                 │
+                      │         └──► cancelling ──► canceled ◄───┘
+                      │                                           │
+                      └──► cancelling ──► canceled (terminal) ◄──┘
 ```
+
+> **v2.6 — `cancelling` intermediate state (ACP-unique):** When a client calls
+> `POST /tasks/{id}:cancel`, the task transitions to `cancelling` first (an observable
+> SSE event is pushed), then asynchronously completes to `canceled` (terminal).
+> This fills the semantic gap in A2A issues [#1684](https://github.com/google-a2a/A2A/issues/1684)
+> and [#1680](https://github.com/google-a2a/A2A/issues/1680), where A2A lacks both a
+> "being cancelled" intermediate state and a formal `CancelTaskRequest` definition.
 
 ### 3.2 States
 
@@ -165,13 +174,33 @@ Tasks are units of delegated work. A task is created by the requesting agent and
 | `completed` | ✅ Yes | **stable** | Peer finished successfully; artifact may be attached |
 | `failed` | ✅ Yes | **stable** | Peer encountered an unrecoverable error |
 | `input_required` | No | **stable** | Peer needs additional input to continue |
-| `canceled` | ✅ Yes | **stable** | Task was explicitly canceled |
+| `cancelling` | No | **stable** (v2.6+) | Cancel requested; completion is in progress. Observers can detect cancellation before it finalises. |
+| `canceled` | ✅ Yes | **stable** | Task has been fully canceled |
 
 ### 3.3 Transition Rules
 
 - Terminal states (`completed`, `failed`, `canceled`) cannot transition to any other state.
 - `input_required` → `working` resumes when the client sends a `/tasks/{id}/continue` message.
-- A task in any non-terminal state may be moved to `canceled` via `POST /tasks/{id}:cancel`.
+- Any non-terminal, non-cancelling state may transition to `cancelling` via `POST /tasks/{id}:cancel`.
+- `cancelling` → `canceled` is completed asynchronously by the server after the in-flight work is stopped.
+- Calling `:cancel` on a task already in `cancelling` or `canceled` is **idempotent** — returns `200` with the current status.
+
+#### 3.3.1 Two-Phase Cancel Protocol (v2.6+)
+
+```
+Client                          Server
+  |                               |
+  |-- POST /tasks/{id}:cancel --> |
+  |                               | phase-1: state → cancelling
+  |                               |   SSE: {"type":"status","state":"cancelling"}
+  |<-- 200 {status:cancelling} -- |
+  |                               | phase-2 (async): stop work, state → canceled
+  |                               |   SSE: {"type":"status","state":"canceled"}
+```
+
+This two-phase approach lets SSE stream consumers observe the cancellation in progress,
+which is especially useful when the underlying work cannot be stopped instantaneously
+(e.g., long-running LLM calls, external API requests).
 
 ### 3.4 Task Object
 
@@ -534,10 +563,14 @@ in the following order:
 For other terminal outcomes, the sequence diverges after step 2:
 
 ```
-submitted → working → failed            (unrecoverable error)
-submitted → working → input_required    (peer needs more info)
-submitted → working → canceled          (explicit cancel via :cancel)
+submitted → working → failed                          (unrecoverable error)
+submitted → working → input_required                  (peer needs more info)
+submitted → working → cancelling → canceled           (explicit cancel via :cancel, v2.6+)
 ```
+
+> **v2.6+ cancel path:** The server MUST emit a `cancelling` SSE event before emitting the
+> final `canceled` event. Clients that observe `cancelling` know the cancel is in-progress
+> and MUST NOT re-send the cancel request. See §3.3.1 for the two-phase cancel protocol.
 
 For `input_required`, once the client calls `/tasks/{id}:continue`, the sequence resumes:
 
@@ -555,7 +588,7 @@ input_required → working → completed | failed | canceled
 | `ts` | string | **MUST** | ISO 8601 UTC timestamp |
 | `seq` | integer | **MUST** | Global SSE sequence counter |
 | `task_id` | string | **MUST** | Associated Task ID |
-| `state` | string | **MUST** | One of: `submitted`, `working`, `completed`, `failed`, `input_required`, `canceled` |
+| `state` | string | **MUST** | One of: `submitted`, `working`, `completed`, `failed`, `input_required`, `cancelling`, `canceled` |
 | `error` | string | SHOULD (if `state=failed`) | Human-readable error description |
 | `context_id` | string | MAY | Multi-turn context group (if task has context) |
 
@@ -606,6 +639,24 @@ input_required → working → completed | failed | canceled
   "seq":     3,
   "task_id": "task_abc123",
   "state":   "input_required"
+}
+
+// cancelling (v2.6+) — cancel in progress, will transition to canceled
+{
+  "type":    "status",
+  "ts":      "2026-03-27T07:00:05Z",
+  "seq":     4,
+  "task_id": "task_abc123",
+  "state":   "cancelling"
+}
+
+// canceled — cancel complete
+{
+  "type":    "status",
+  "ts":      "2026-03-27T07:00:05Z",
+  "seq":     5,
+  "task_id": "task_abc123",
+  "state":   "canceled"
 }
 ```
 
@@ -900,6 +951,7 @@ ACP_BASE_URL=http://localhost:7901 python3 tests/compat/run.py
 | v0.9 | 2026-03-21 | CLI flags (`--version/--verbose/--config`), async SDK stdlib-only, 63 unit tests, `role` server validation, `pip install acp-relay`, `acp-relay-client` npm |
 | **v1.0** | 2026-03-21 | **Stability annotations, API surface freeze, v1.0 compatibility guarantee** |
 | v2.5 | 2026-03-27 | §8 Task Event Sequence spec, SSE mandatory field completeness (`type`/`ts`/`seq`/`task_id`), full lifecycle examples, conformance requirements |
+| v2.6 | 2026-03-27 | `cancelling` intermediate state (§3.2), two-phase cancel protocol (§3.3.1), A2A #1684/#1680 gap analysis |
 
 ---
 
@@ -918,10 +970,11 @@ ACP and A2A target different deployment contexts:
 | **message_id** | REQUIRED by spec, not enforced | Optional, auto-generated if absent |
 | **Test suite** | ✅ ITK | ✅ `tests/compat/` (MUST-level assertions) |
 | **Streaming** | SSE | SSE |
-| **Task states** | 6 | 5 (no `unknown` state) |
+| **Task states** | 6 (no `cancelling` intermediate) | 6 (`cancelling` intermediate + no `unknown`, v2.6+) |
+| **Cancel semantics** | `CancelTaskRequest` undefined ([#1684](https://github.com/google-a2a/A2A/issues/1684)), no intermediate state ([#1680](https://github.com/google-a2a/A2A/issues/1680)) | Two-phase cancel: `cancelling` → `canceled`; idempotent; fully specified (§3.3.1) |
 | **Install** | `pip install a2a-sdk` (heavy) | `pip install acp-relay` (websockets only) |
 | **npm** | `@google-a2a/a2a` | `acp-relay-client` |
 
 ---
 
-*Spec version: v1.0 (updated v2.5) | Supersedes: core-v0.8.md | Reference impl: relay/acp_relay.py*
+*Spec version: v1.0 (updated v2.6) | Supersedes: core-v0.8.md | Reference impl: relay/acp_relay.py*
