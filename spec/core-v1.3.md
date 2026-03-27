@@ -454,3 +454,101 @@ Agents are NOT required to roll back or undo work already completed. Cancel is a
 *For full v1.0 spec, see [core-v1.0.md](core-v1.0.md).*  
 *For transport bindings, see [transports.md](transports.md).*  
 *For conformance testing, see [../docs/conformance.md](../docs/conformance.md).*
+
+---
+
+## §11. AgentCard `limitations` Field (v2.7) — New Section
+
+**Ref:** A2A GitHub #1694 (2026-03-27) — proposal to add `limitations` to AgentCard  
+**Status:** ACP v2.7 IMPLEMENTED (A2A #1694 still proposal as of 2026-03-28)
+
+### §11.1 Overview — Three-Part Capability Boundary
+
+ACP v2.7 introduces the `limitations` field to complete the **three-part capability boundary declaration**:
+
+| Field | Type | Declares | Example |
+|-------|------|----------|---------|
+| `capabilities` | object | What this agent **CAN do** (feature flags) | `{"streaming": true, "http2": false}` |
+| `availability` | object | **When** the agent is active (scheduling) | `{"mode": "cron", "interval_seconds": 3600}` |
+| **`limitations`** | `string[]` | What this agent **CANNOT do** (hard constraints) | `["no_file_access", "no_internet"]` |
+
+This triangle gives consuming agents — and their orchestrators — a complete picture of an agent's operational envelope without requiring runtime probing.
+
+### §11.2 Schema
+
+```json
+{
+  "name": "SandboxAgent",
+  "limitations": ["no_file_access", "no_internet", "no_shell"],
+  "capabilities": { ... },
+  "availability": { ... }
+}
+```
+
+**Field rules:**
+
+- **Type:** `string[]` (JSON array of strings)
+- **Position:** Top-level AgentCard field (same level as `capabilities` and `availability`)
+- **Required:** NO — OPTIONAL field
+- **Default:** `[]` (empty array) when absent or not configured
+- **Backward compatibility:** Clients that do not recognize this field MUST ignore it (standard JSON forward-compatibility rule)
+
+### §11.3 Limitation String Conventions
+
+Limitation strings are free-form but SHOULD follow `snake_case` naming. Common well-known values:
+
+| Value | Meaning |
+|-------|---------|
+| `no_file_access` | Agent cannot read or write local files |
+| `no_internet` | Agent has no outbound internet access |
+| `no_shell` | Agent cannot execute shell commands |
+| `no_code_execution` | Agent cannot run arbitrary code |
+| `no_memory` | Agent has no persistent memory between sessions |
+| `read_only` | Agent can read but not modify external state |
+| `rate_limited` | Agent is subject to rate limiting (see `availability` for scheduling) |
+| `sandboxed` | Agent runs in a restricted execution environment |
+
+Custom values are allowed. Implementors SHOULD document custom limitation strings in their AgentCard `description` or linked documentation.
+
+### §11.4 CLI Flag
+
+```bash
+# Single limitation
+python3 acp_relay.py --name SandboxAgent --limitations no_internet
+
+# Multiple limitations (comma-separated)
+python3 acp_relay.py --name SandboxAgent --limitations "no_file_access,no_internet,no_shell"
+```
+
+The `--limitations` value is split on commas; leading/trailing whitespace is trimmed per entry.
+
+### §11.5 `/status` Response
+
+The `/status` endpoint includes the `limitations` array:
+
+```json
+{
+  "acp_version": "2.7.0",
+  "limitations": ["no_file_access", "no_internet"],
+  ...
+}
+```
+
+### §11.6 Contrast with `capabilities`
+
+`capabilities` is a **positive** declaration (boolean flags and feature arrays).  
+`limitations` is a **negative** declaration (what the agent explicitly cannot do).
+
+These are complementary, not redundant:
+- An agent may have `capabilities.streaming: true` AND `limitations: ["no_file_access"]`
+- The absence of a capability flag does not imply a limitation; `limitations` is explicit opt-in
+
+### §11.7 Relation to A2A #1694
+
+A2A GitHub issue #1694 (opened 2026-03-27) proposes adding a similar `limitations` field to A2A AgentCard. ACP v2.7 implements this concept on the same day — demonstrating ACP's agility as a lightweight protocol.
+
+Key differences from the A2A proposal:
+- ACP `limitations` is at the same level as `capabilities` (A2A proposal TBD)
+- ACP explicitly frames it as part of a **3-part boundary triad** with `availability`
+- ACP ships working code; A2A #1694 is still an open proposal
+

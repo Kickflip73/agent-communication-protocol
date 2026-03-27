@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v2.6.0
+ACP P2P Relay v2.7.0
 ====================
 Zero-server, zero-code-change P2P Agent communication.
+
+v2.7 changes (2026-03-28):
+  - AgentCard top-level `limitations: string[]` field (ACP-exclusive, ref A2A #1694):
+    Declares what this agent cannot do (e.g. ["no_file_access", "no_internet"]).
+    Completes the three-part capability boundary declaration alongside
+    `capabilities` (what the agent CAN do) and `availability` (current state).
+    --limitations flag: comma-separated string (e.g. --limitations "no_file_access,no_internet")
+    Optional field; defaults to [] (empty array) when not specified.
+    Fully backward-compatible: old clients that don't know this field simply ignore it.
 
 v2.6 changes (2026-03-27):
   - Task `cancelling` intermediate state (ACP-unique, fills A2A #1684/#1680 semantic gap):
@@ -141,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.6.0"  # v2.6: Task cancelling 中间状态 + spec 更新 (A2A #1684/#1680 差异化)
+VERSION = "2.7.0"  # v2.7: AgentCard limitations field (ACP-exclusive, ref A2A #1694)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -514,6 +523,7 @@ _status: dict = {
     "server_seq":        0,
     "peer_count":        0,    # v0.6: active peer count
     "p2p_enabled":       False, # v2.3: set True when P2P WebSocket listener is active
+    "limitations":       [],    # v2.7: what this agent CANNOT do (top-level capability boundary)
 }
 
 def _now():
@@ -903,6 +913,7 @@ _availability: dict  = {}         # empty = persistent (default behaviour)
 _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension list (opt-in)
 _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
 _transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
+_limitations: list = []  # v2.7: top-level AgentCard field — what this agent CANNOT do (e.g. ["no_file_access", "no_internet"])
 
 # v2.3: supported_interfaces — top-level AgentCard field declaring which ACP interface groups
 # this agent implements.  Values:
@@ -945,6 +956,7 @@ def _make_agent_card(name, skills):
         "timestamp":       _now(),
         "transport_modes": list(_transport_modes),          # v2.4: routing modes ["p2p", "relay"] or subset
         "supported_interfaces": _make_supported_interfaces(), # v2.3: declared interface groups
+        "limitations": list(_limitations),                   # v2.7: what this agent CANNOT do (capability boundary declaration)
         "skills":      [{"id": s, "name": s} for s in skills],
         "capabilities": {
             "streaming":          True,
@@ -3669,6 +3681,13 @@ Examples:
                              "Default: auto-derived from runtime configuration. "
                              "Example: --supported-interfaces core,task,stream. "
                              "Advertised as top-level 'supported_interfaces' in AgentCard.")
+    parser.add_argument("--limitations", default=None, metavar="LIMITATIONS",
+                        help="(v2.7) Comma-separated list of things this agent CANNOT do. "
+                             "Completes the 3-part capability boundary: capabilities (can-do) + "
+                             "availability (current state) + limitations (cannot-do). "
+                             "Example: --limitations no_file_access,no_internet. "
+                             "Advertised as top-level 'limitations' array in AgentCard. "
+                             "Defaults to [] (empty) when not specified. Ref: A2A #1694.")
 
     args = parser.parse_args()
 
@@ -3859,7 +3878,19 @@ Examples:
         else:
             log.warning("⚠️  --supported-interfaces resulted in empty list; using auto-derived value")
 
-    # Rebuild card to reflect transport_modes + supported_interfaces
+    # v2.7: limitations — top-level AgentCard field (what this agent CANNOT do)
+    global _limitations
+    raw_limitations = _get(getattr(args, "limitations", None), "limitations", None)
+    if raw_limitations is not None:
+        parsed_limitations = [lim.strip() for lim in raw_limitations.split(",") if lim.strip()]
+        _limitations = parsed_limitations
+        if _limitations:
+            log.info(f"🚫 Limitations declared: {_limitations}")
+    else:
+        _limitations = []
+    _status["limitations"] = list(_limitations)
+
+    # Rebuild card to reflect transport_modes + supported_interfaces + limitations
     _status["agent_card"] = _make_agent_card(args.name, skills)
     log.info(f"🚌 Transport modes: {_transport_modes}")
     log.info(f"🔌 Supported interfaces: {_make_supported_interfaces()}")

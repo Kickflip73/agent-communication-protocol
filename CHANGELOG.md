@@ -11,6 +11,25 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.7.0] — 2026-03-28 (AgentCard `limitations` Field — Three-Part Capability Boundary)
+### Added
+- `limitations: string[]` top-level AgentCard field: declares what this agent CANNOT do
+- Completes three-part capability boundary triad: `capabilities` (can-do) + `availability` (scheduling) + `limitations` (cannot-do)
+- `--limitations` CLI flag: comma-separated string (e.g. `--limitations "no_file_access,no_internet"`)
+- `_status["limitations"]` in `/status` endpoint response
+- `_limitations` global variable initialized to `[]` (backward-compatible default)
+- spec/core-v1.3.md §11: `limitations` field schema, well-known values table, 3-part boundary explanation
+- docs/whats-new.md: v2.7 section with usage examples and A2A #1694 comparison
+- README: new row in vs-A2A comparison table + callout paragraph for #1694
+- tests/test_limitations.py: 20 tests across LM1–LM5 (all pass)
+
+### Design
+- ACP-exclusive: A2A #1694 (2026-03-27) proposes the same concept — ACP ships working code same day
+- Fully backward-compatible: old clients ignore the optional `limitations` field
+- Limitation strings are free-form `snake_case`; well-known values documented in spec §11.3
+
+---
+
 ## [2.6.0] — 2026-03-27
 ### Added
 - Task `cancelling` 中间状态（两阶段取消协议）

@@ -1,7 +1,50 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-03-27
+> Last updated: 2026-03-28
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## 2026-03-28
+
+### AgentCard `limitations` Field — Three-Part Capability Boundary (v2.7.0)
+
+ACP v2.7 introduces the **`limitations: string[]`** field, completing a **three-part capability boundary declaration** in AgentCard:
+
+| Field | Declares |
+|-------|----------|
+| `capabilities` | What the agent **CAN do** (feature flags) |
+| `availability` | **When** the agent is active (scheduling/cron) |
+| **`limitations`** ✨ | What the agent **CANNOT do** (hard constraints) |
+
+**Usage:**
+
+```bash
+# Declare a sandboxed agent that cannot access files or the internet
+python3 acp_relay.py --name "SandboxAgent" \
+  --limitations "no_file_access,no_internet,no_shell"
+```
+
+**AgentCard response** (`GET /.well-known/acp.json`):
+```json
+{
+  "name": "SandboxAgent",
+  "acp_version": "2.7.0",
+  "limitations": ["no_file_access", "no_internet", "no_shell"],
+  "capabilities": { "streaming": true, ... },
+  "availability": { "mode": "persistent" }
+}
+```
+
+**Design rationale:**
+
+`capabilities` (positive flags) and `limitations` (explicit cannot-dos) are **complementary**, not redundant:
+- A streaming-capable agent (`capabilities.streaming: true`) may still have `limitations: ["no_internet"]`
+- The absence of a capability flag does NOT imply a limitation — `limitations` is explicit opt-in
+
+**Backward compatibility:** The field is optional (`default: []`). Old clients that don't recognize it simply ignore it per standard JSON forward-compatibility rules.
+
+**vs. A2A #1694:** A2A GitHub issue #1694 (opened 2026-03-27) proposes the same concept for A2A AgentCard. **ACP ships working code on day one** — ACP v2.7 is live today while A2A #1694 remains an open proposal.
 
 ---
 
