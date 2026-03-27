@@ -11,6 +11,22 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.5.0] - 2026-03-27
+### Added
+- spec §8: Task 事件序列规范（7 MUST + 2 SHOULD 合规要求）
+- SSE 事件 Envelope 必填字段：type/ts/seq/task_id
+- Task 完整生命周期 SSE Wire Format 示例
+- relay/acp_relay.py: Named event 行（acp.task.status / acp.task.artifact）
+- AgentCard: supported_interfaces 字段
+- tests/test_task_event_sequence.py: 10 个 Task 事件序列测试
+
+### Fixed
+- BUG-031: test_dcutr_t6_scenario_a.py T6.7 缺少 role 字段
+- BUG-032: test_scenario_bc.py relay 启动等待不足
+- BUG-033: cert teardown TimeoutExpired
+
+---
+
 ## [2.4.0] — 2026-03-27 (AgentCard `transport_modes` Top-Level Field)
 
 ### Added — `transport_modes` Routing Topology Declaration (v2.4 milestone)
