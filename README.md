@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v1.4.0--dev-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.4.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-22%2F22_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-279%2F279_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -423,8 +423,12 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | v1.1 | ✅ | HMAC replay-window, `failed_message_id` |
 | v1.2 | ✅ | Scheduling metadata (`availability`), Docker image |
 | v1.3 | ✅ | Rust SDK, DID identity (`did:acp:`), Extension mechanism, GHCR CI |
-| **v1.4** | ✅ | **True P2P NAT traversal**: UDP hole-punch (DCUtR-style) + signaling, three-level auto-fallback |
-| **v1.5** | ✅ | **Hybrid identity**: `--ca-cert` adds CA certificate on top of `did:acp:` self-sovereign identity |
+| v1.4 | ✅ | True P2P NAT traversal: UDP hole-punch (DCUtR-style) + signaling, three-level auto-fallback |
+| v1.5 | ✅ | Hybrid identity: `--ca-cert` adds CA certificate on top of `did:acp:` self-sovereign identity |
+| v1.6 | ✅ | HTTP/2 cleartext (h2c) transport binding (`--http2`); AgentCard `capabilities.http2` |
+| v2.0–v2.2 | ✅ | Offline delivery queue; LAN discovery; `GET /tasks` list + filtering + offset pagination |
+| v2.3 | ✅ | Python SDK `auto_stream`; `supported_transports` spec-documented; cursor pagination |
+| **v2.4** | ✅ | **`transport_modes` top-level AgentCard field** — routing topology declaration (`p2p`/`relay`); `--transport-modes` CLI flag; spec §5.4 |
 
 ---
 

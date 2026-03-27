@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-25 16:52（文档轮：补全 v1.0–v1.6 全部版本记录，当前版本 v1.6）
+> 最后更新：2026-03-27 12:20（文档轮：填入 v2.4 commit cf16664，新增 v2.5 里程碑规划，README 版本同步至 v2.4.0）
 
 ---
 
@@ -341,16 +341,34 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
 
 | 特性 | 优先级 | 状态 | Commit |
 |------|--------|------|--------|
-| `transport_modes` 顶层字段 — AgentCard 声明路由拓扑 `["p2p", "relay"]` | P1 | ✅ 已完成（2026-03-27） | pending |
-| `--transport-modes` CLI 标志（逗号分隔子集） | P1 | ✅ 已完成（2026-03-27） | pending |
-| spec/core-v1.0.md 更新：§5.2 顶层字段表、§5.4 transport_modes 专节 | P0 | ✅ 已完成（2026-03-27） | pending |
-| 15 个单元测试（test_transport_modes_v24.py） | P1 | ✅ 已完成（2026-03-27） | pending |
+| `transport_modes` 顶层字段 — AgentCard 声明路由拓扑 `["p2p", "relay"]` | P1 | ✅ 已完成（2026-03-27） | `cf16664` |
+| `--transport-modes` CLI 标志（逗号分隔子集） | P1 | ✅ 已完成（2026-03-27） | `cf16664` |
+| spec/core-v1.0.md 更新：§5.2 顶层字段表、§5.4 transport_modes 专节 | P0 | ✅ 已完成（2026-03-27） | `cf16664` |
+| 15 个单元测试（test_transport_modes_v24.py） | P1 | ✅ 已完成（2026-03-27） | `cf16664` |
 
 **设计核心区别：**
 - `transport_modes`（路由拓扑）≠ `capabilities.supported_transports`（协议绑定）
   - `supported_transports`: `["http", "ws", "h2c"]` — *如何传输字节*（协议层）
   - `transport_modes`: `["p2p", "relay"]` — *数据走哪条路径*（拓扑层）
 - 默认 `["p2p", "relay"]`，沙箱环境可声明 `["relay"]`，公网节点可声明 `["p2p"]`
+
+---
+
+### 🔮 v2.5（计划中，目标：2026-04）
+**主题：Task 事件序列规范 + SSE 字段完整性**
+
+| 特性 | 优先级 | 状态 |
+|------|--------|------|
+| **Task 事件序列规范**（spec §8）— 定义 submitted→working→completed 的 SSE 事件发送顺序及必填字段 | P0 | ⏳ 待开发 |
+| SSE 示例字段完整性审查 — 检查 spec 中所有 SSE 示例是否包含 `task_id`、`server_seq`、`ts` 等必要字段 | P0 | ⏳ 待开发 |
+| `task_id` 在 SSE 事件中的必填语义正式化（目前为 optional，但实际上 Task 流中为 required） | P1 | ⏳ 待开发 |
+| spec/core-v1.0.md §6（SSE Events）与 §7（Task lifecycle）一致性审查 | P1 | ⏳ 待开发 |
+| `tests/test_task_event_sequence.py` — Task 事件序列集成测试 | P1 | ⏳ 待开发 |
+
+**背景：**
+- 2026-03-27 研究轮识别：spec 中 SSE 事件示例存在部分字段缺失（如某些 `task_update` 示例缺少 `server_seq`）
+- Task 事件序列顺序在 spec 中未明确约束，可能导致不同实现行为不一致
+- 与 A2A 的差异化机会：A2A 至今未定义完整的 task 生命周期 SSE 事件序列规范
 
 ---
 
