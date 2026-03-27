@@ -801,3 +801,28 @@ def stop_reference_relay():
 ```
 
 *最后更新：2026-03-27 by J.A.R.V.I.S.*
+
+---
+
+### BUG-034 ✅ P2 — `test_scenario_d_stress.py` `_start_relay` deadline=30s 不足以等待公网 IP 检测完成
+
+**发现时间**: 2026-03-27 本轮测试（场景 C/D 测试轮）
+**状态**: ✅ 已修复（本轮 commit）
+
+**现象**:
+- `pytest tests/test_scenario_d_stress.py` 全部 10 个测试 ERROR（setup 阶段）
+- 错误：`RuntimeError: Relay StressBeta:39873 did not start within 20s`（错误消息也误写为 20s，实际 deadline 是 30s）
+- fixture `relay_pair` 调用 `_start_relay(BETA_WS, "StressBeta", wait_link=True)` 超时
+
+**根因**:
+- `_start_relay(..., wait_link=True)` 等待 `/status` 响应中 `data.get("link")` 非 None
+- relay 启动时需要进行公网 IP 探测（`Detecting public IP...`），本沙箱环境耗时约 **31s**
+- `_start_relay` 等待 deadline = `time.time() + 30`，比 IP 检测时间少 ~1s，导致必然超时
+
+**修复方案**:
+- 将 `_start_relay` 中的 `deadline = time.time() + 30` 改为 `deadline = time.time() + 60`
+- 同步修正错误消息 `"did not start within 20s"` → `"did not start within 60s"`
+
+**影响**: P2（沙箱环境中稳定复现；历史测试通过原因是当时 IP 探测 <30s）
+
+*最后更新：2026-03-27 by J.A.R.V.I.S.*

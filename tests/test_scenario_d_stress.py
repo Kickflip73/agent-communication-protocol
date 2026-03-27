@@ -72,7 +72,7 @@ def _start_relay(ws_port, name, wait_link=False):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         env=clean_subprocess_env(),
     )
-    deadline = time.time() + 30
+    deadline = time.time() + 60
     while time.time() < deadline:
         try:
             conn = _http_client.HTTPConnection("127.0.0.1", http_port, timeout=1)
@@ -94,7 +94,7 @@ def _start_relay(ws_port, name, wait_link=False):
             pass
         time.sleep(0.3)
     proc.kill()
-    raise RuntimeError(f"Relay {name}:{ws_port} did not start within 20s")
+    raise RuntimeError(f"Relay {name}:{ws_port} did not start within 60s")
 
 def _stop_relay(proc):
     try:
