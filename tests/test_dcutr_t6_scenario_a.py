@@ -179,8 +179,10 @@ def run_tests():
     print("\n[T6.7] Task 状态机验证")
     st, task = http_post(f"{BASE_A}/tasks", {
         "task_id": "regression_task_001",
+        "role": "agent",   # BUG-031 fix: role is required since BUG-010 fix
         "title": "DCUtR Regression Test Task",
         "description": "Verifying task state machine after DCUtR commit",
+        "input": {"parts": [{"type": "text", "content": "Regression test task"}]},
     })
     if st in (200, 201):
         task_id = task.get("id") or task.get("task_id")

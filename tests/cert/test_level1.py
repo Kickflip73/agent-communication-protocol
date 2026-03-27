@@ -41,7 +41,11 @@ def start_reference_relay():
 def stop_reference_relay():
     if RELAY_PROC:
         RELAY_PROC.send_signal(signal.SIGTERM)
-        RELAY_PROC.wait(timeout=3)
+        try:
+            RELAY_PROC.wait(timeout=8)  # BUG-033 fix: relay needs >3s to exit after SIGTERM
+        except subprocess.TimeoutExpired:
+            RELAY_PROC.kill()
+            RELAY_PROC.wait()
 
 # ── Test harness ──────────────────────────────────────────────────────────────
 results = []

@@ -71,6 +71,21 @@ def wait_peer_ready(http_port, peer_id, retries=16, interval=0.5):
     return False
 
 
+def wait_link_ready(http_port, retries=30, interval=0.5):
+    """Wait until relay has detected its public IP and link is non-None.
+    BUG-032 fix: hard-coded sleep(5) was insufficient in sandbox environments.
+    """
+    for _ in range(retries):
+        try:
+            r, _ = get(http_port, "/status")
+            if r.get("link"):
+                return r["link"]
+        except Exception:
+            pass
+        time.sleep(interval)
+    return None
+
+
 def ok(name, passed, note=""):
     sym = "✅" if passed else "❌"
     results.append((name, passed, note))
@@ -109,16 +124,12 @@ def run_bc_tests():
     start_agent("Orchestrator", 7850)
     start_agent("Worker1",      7851)
     start_agent("Worker2",      7852)
-    time.sleep(5)
 
     try:
-        # Get links
-        orch_link, _ = get(7950, "/status")
-        orch_link = orch_link["link"]
-        w1_link, _   = get(7951, "/status")
-        w1_link = w1_link["link"]
-        w2_link, _   = get(7952, "/status")
-        w2_link = w2_link["link"]
+        # BUG-032 fix: wait_link_ready() instead of time.sleep(5) to handle slow IP detection
+        orch_link = wait_link_ready(7950)
+        w1_link   = wait_link_ready(7951)
+        w2_link   = wait_link_ready(7952)
         print(f"  Orchestrator: {orch_link}")
         print(f"  Worker1:      {w1_link}")
         print(f"  Worker2:      {w2_link}")
@@ -217,12 +228,12 @@ def run_bc_tests():
     start_agent("PipeA", 7853)
     start_agent("PipeB", 7854)
     start_agent("PipeC", 7855)
-    time.sleep(5)
 
     try:
-        link_a, _ = get(7953, "/status"); link_a = link_a["link"]
-        link_b, _ = get(7954, "/status"); link_b = link_b["link"]
-        link_c, _ = get(7955, "/status"); link_c = link_c["link"]
+        # BUG-032 fix: wait_link_ready() to handle slow IP detection in sandbox
+        link_a = wait_link_ready(7953)
+        link_b = wait_link_ready(7954)
+        link_c = wait_link_ready(7955)
         print(f"  PipeA: {link_a}")
         print(f"  PipeB: {link_b}")
         print(f"  PipeC: {link_c}")

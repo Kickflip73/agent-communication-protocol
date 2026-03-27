@@ -702,3 +702,102 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 
 *最后更新：2026-03-27 by J.A.R.V.I.S.*
 
+
+---
+
+## Round 9 — 测试轮 AB：场景 A/B + 全套回归 (2026-03-27 14:xx)
+
+### 场景测试结果
+
+| 场景 | 测试文件 | 结果 |
+|------|---------|------|
+| A — 双 Agent 通信 | `test_dcutr_t6_scenario_a.py` | **7/8 PASS** (0s，peers 预热) |
+| B — 团队协作 | `test_scenario_bc.py` | **13/33 PASS** (48s，P2P 环境受限) |
+
+### 全套回归结果
+
+- `tests/`: **288 passed, 6 skipped, 1 error** (177.78s)
+- `sdk/python/tests/`: **85/85 PASS** (1.62s) ✅
+
+### BUG-031 ✅ P1 — `test_dcutr_t6_scenario_a.py` T6.7 Task 创建缺少 `role` 字段
+
+**发现时间**: 2026-03-27 本轮测试
+**状态**: ✅ 已修复 (本轮 commit)
+
+**现象**:
+- `test_dcutr_t6_scenario_a.py` T6.7 调用 `POST /tasks` 时未传入 `role` 字段
+- 服务端（BUG-010 修复后）要求 `role`，返回 400 `ERR_INVALID_REQUEST`
+- 结果：T6.7 ❌，整体 7/8 通过
+
+**根因**:
+- `test_dcutr_t6_scenario_a.py` 第 180-185 行：task 创建 payload 只有 `task_id`、`title`、`description`，无 `role` 字段
+- BUG-010 修复（2026-03-23）要求 `/tasks` POST 必须包含 `role`，但测试脚本未同步更新
+
+**影响范围**: `tests/test_dcutr_t6_scenario_a.py` T6.7
+
+**修复方案**:
+- 在 T6.7 payload 中添加 `"role": "agent"`
+
+---
+
+### BUG-032 ✅ P2 — `test_scenario_bc.py` relay 启动等待不足：link=None 导致 P2P 连接失败
+
+**发现时间**: 2026-03-27 本轮测试
+**状态**: ✅ 已修复 (本轮 commit)
+
+**现象**:
+- `test_scenario_bc.py` 启动子进程 relay 后 `time.sleep(5)` 即查询 `/status` 的 `link` 字段
+- 沙箱公网 IP 探测需 >5s，`link` 为 `None`
+- 后续 `POST /peers/connect {"link": None}` 失败，所有 P2P 连接测试（B1~B3, B5~B7, C1~C3 等）都失败
+
+**根因**:
+- `run_bc_tests()` 第 112 行：`time.sleep(5)` 硬编码等待，不轮询 `link` 非 None
+- 无类似 `wait_peer_ready()` 的重试等待逻辑
+
+**影响范围**: `tests/test_scenario_bc.py` 所有依赖 `link` 的连接测试
+
+**修复方案**:
+```python
+def wait_link_ready(http_port, retries=30, interval=0.5):
+    for _ in range(retries):
+        try:
+            r, _ = get(http_port, "/status")
+            if r.get("link"):
+                return r["link"]
+        except Exception:
+            pass
+        time.sleep(interval)
+    return None
+```
+替换 `time.sleep(5)` + `orch_link = orch_link["link"]` 为 `wait_link_ready(7950)`。
+
+---
+
+### BUG-033 ✅ P2 — `tests/cert/test_level1.py` `stop_reference_relay()` wait(timeout=3) 触发 TimeoutExpired
+
+**发现时间**: 2026-03-27 本轮测试
+**状态**: ✅ 已修复 (本轮 commit)
+
+**现象**:
+- `pytest tests/` 全套运行时，`test_level1.py::test_c1_10_content_type` teardown 报错：
+  `subprocess.TimeoutExpired: wait(timeout=3)` — relay SIGTERM 后 >3s 才退出
+- 1 error 影响整洁度，但不影响测试结果（10 tests passed）
+
+**根因**:
+- BUG-022 修复了 `test_scenario_h.py` 等的 teardown，但 `tests/cert/test_level1.py` 第 44 行
+  `RELAY_PROC.wait(timeout=3)` 未一起修复
+- relay SIGTERM 后因公网 IP 探测阻塞，进程需 3~10s 退出
+
+**修复方案**:
+```python
+def stop_reference_relay():
+    if RELAY_PROC:
+        RELAY_PROC.send_signal(signal.SIGTERM)
+        try:
+            RELAY_PROC.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            RELAY_PROC.kill()
+            RELAY_PROC.wait()
+```
+
+*最后更新：2026-03-27 by J.A.R.V.I.S.*
