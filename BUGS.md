@@ -642,7 +642,7 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 **根因**：Python 3.10+ 移除了 `asyncio.get_event_loop()` 在非异步上下文自动创建新 loop 的行为。`AsyncRelayClient.__init__` 中隐式触发了该调用。
 **影响**：仅测试环境，运行时 async 使用（在事件循环内调用）不受影响。
 **修复方案**：将 `asyncio.get_event_loop()` 替换为 `asyncio.new_event_loop()` 或延迟到首次 async 调用时初始化；或在测试中使用 `pytest-asyncio` 管理 loop。
-**状态**：❌ 未修复
+**状态**：✅ 已修复（commit 57fa596）— 将 `relay_client.py` 中三处 `asyncio.get_event_loop()` 替换为 `asyncio.get_running_loop()`（在 async 方法内部安全调用）；`test_async_relay_client.py` 的 `run()` helper 改为 `asyncio.run()`。
 
 ---
 
@@ -653,5 +653,5 @@ Beta 死後 3-5s 內，Alpha 仍然報告 connected=true，ws.send 仍然"成功
 **错误信息**：版本断言失败，预期 `0.6.0`，实际 `0.8.0`
 **根因**：SDK 版本已升级至 0.8.0，测试中版本号未同步更新。
 **修复方案**：将断言改为 `assert client_version >= "0.6.0"` 或直接更新为 `0.8.0`。
-**状态**：❌ 未修复
+**状态**：✅ 已修复（commit 57fa596）— 将 `test_relay_client.py::test_import` 中的版本断言从 `"0.6.0"` 更新为 `"0.8.0"`。
 
