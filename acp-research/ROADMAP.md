@@ -345,16 +345,42 @@ Key commit: `d9a6b76`, `5bd7382`（docs）
 
 ---
 
-### 🔮 v2.2（规划中，2026-Q2）
+### ✅ v2.2（完成，2026-03-27）
 **主题：任务列表 + 错误追踪增强**
 
-- [ ] **`GET /tasks` 列表查询 + 分页**（参考 A2A v1.0 tasks/list）
-  - 参数：`?status=working&limit=20&offset=0`，响应：`{"tasks":[...], "total": N, "has_more": bool}`
-- ✅ **`failed_msg_id` 错误回传**（参考 ANP 2026-03-05 commit，2026-03-27 完成）
-  - `/message:send` 所有错误码已覆盖（commit `e281790`，2026-03-21）
-  - `/peer/{id}/send` 所有错误路径补充完整，9 个错误路径全覆盖（本轮完成）
-  - 新增集成测试 `TestPeerSendFailedMessageId`（4 个测试用例）
-- [ ] **VERSION 字符串持续同步**（当前 `2.1.0`）
+- ✅ **`GET /tasks` 列表查询 + 分页**（commit `9f3e931`，2026-03-27）
+  - 参数：`?status=&limit=20&offset=0&peer_id=&sort=asc|desc&created_after=&updated_after=`
+  - 响应：`{"tasks":[...], "total": N, "has_more": bool, "next_offset": N}`
+- ✅ **`failed_msg_id` 错误回传**（commit `4f2b548`，2026-03-27）
+  - `/message:send` + `/peer/{id}/send` 所有错误路径全覆盖（9 种错误码）
+  - 新增集成测试 `TestPeerSendFailedMessageId`
+- ✅ **VERSION 同步至 `2.2.0`**（commit `fac2a31`）
+
+---
+
+### ✅ v2.3（完成，2026-03-28）
+**主题：AgentCard `limitations` — 三元能力边界完整声明**
+
+灵感来源：A2A GitHub #1694（2026-03-27）— 提议 AgentCard 新增 `limitations` 字段
+
+- ✅ **`limitations: string[]` 顶层 AgentCard 字段**
+  - 含义：声明该 Agent **不能做什么**（如 `["no_file_access", "no_internet"]`）
+  - 与 `capabilities`（能做什么）+ `availability`（当前状态）构成三元完整能力边界
+  - 可选字段，缺省 = `[]`（空数组），完全向后兼容
+- ✅ **`--limitations` CLI flag**（逗号分隔字符串）
+  - 示例：`--limitations "no_file_access,no_internet,no_shell"`
+- ✅ **`_status["limitations"]` 写入** → `/status` 端点自动包含
+- ✅ **`_limitations` 全局变量**（默认 `[]`）
+- ✅ **spec/core-v1.3.md §11**：完整 limitations 字段规范，含 well-known 值表、三元组关系说明、A2A #1694 对比
+- ✅ **docs/whats-new.md v2.3（v2.7）节**：用法示例 + A2A 差异化说明
+- ✅ **README 差异化**：vs-A2A 对比表新增行 + callout 段落
+- ✅ **tests/test_limitations.py**：20 个测试（LM1–LM5），**20/20 PASS**
+- ✅ **CHANGELOG v2.7.0 条目**
+- ✅ **VERSION：`2.6.0` → `2.7.0`**
+
+**差异化价值**：A2A #1694 同日（2026-03-27）提案，ACP 次日即落地 ✈️
+
+Key commit: TBD（本轮）
 
 ---
 

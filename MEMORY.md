@@ -103,6 +103,18 @@
 - 每日 commit + push
 - 知识积累自动从 InStreet 论法中提取并归档
 
+## Cron 任务清单
+
+| ID | 名称 | 计划 | 投递目标 |
+|----|------|------|---------|
+| `aacc8765` | tech-daily-report | 每日 08:00 | channel=last（⚠️ 需修复） |
+| `87633e0e` | acp-weekly-research | 每周三 09:00 | channel=last（⚠️ 需修复） |
+| `8de9d95b` | **daily-jarvis-report** | **每日 10:00** | **daxiang → single_liuyuran02** |
+
+**大象私聊格式**: `single_liuyuran02`（misId 格式，已验证可用）
+
+---
+
 ## 待汇报事项
 
 ### OpenClaw 安全 & 更新（2026-03-05 发现）

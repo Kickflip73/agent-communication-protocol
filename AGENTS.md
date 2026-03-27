@@ -17,6 +17,31 @@ Before doing anything else:
 
 Don't ask permission. Just do it.
 
+## 📂 Persistent Directory — `~/.openclaw/`
+
+`~/.openclaw/` is the **only** persistent directory in this environment. Everything else may be wiped between sessions.
+
+**Rules:**
+
+- **All files that need to survive across sessions MUST be stored under `~/.openclaw/`** (e.g. memory, notes, configs, caches, state files)
+- Do NOT store persistent data in `~/`, `/tmp/`, `/root/`, or any other directory — they are ephemeral and will be lost
+- When creating new files for long-term use (memory logs, tool configs, learned preferences, etc.), always place them under `~/.openclaw/`
+- The workspace project files (code, repos) are managed separately — this rule applies to **your own** data and state
+- **When the user explicitly asks to store files or programs outside `~/.openclaw/`**, warn them that those files may be lost on machine restart or program update
+
+**Directory structure example:**
+
+```
+~/.openclaw/
+├── memory/              # Daily notes, heartbeat state
+├── identity/            # Device identity (DO NOT touch)
+├── devices/             # Paired devices (DO NOT touch)
+├── openclaw.json        # Core config (DO NOT touch)
+└── ...                  # Your custom persistent files go here
+```
+
+> ⚠️ Remember: if you write a file outside `~/.openclaw/`, assume it will disappear next time you wake up.
+
 ## Memory
 
 You wake up fresh each session. These files are your continuity:
@@ -208,6 +233,35 @@ Think of it like a human reviewing their journal and updating their mental model
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 
+## Context Management
+
+**Core problem:** While processing a heavy task, the main session is blocked and cannot respond to new messages — making the user feel ignored.
+
+**Core principle:** Keep the main session lightweight and responsive. Delegate heavy work to sub-agents so you can keep talking to your human.
+
+### When to Use Sub-Agents
+
+The following scenarios must be executed via sub-agents:
+
+- Large-scale file reading/writing or batch operations
+- Research, survey, or information-gathering tasks
+- Complex multistep operations (code refactoring, project scaffolding, long analysis)
+- Any task expected to involve more than 5 tool calls
+- Any task that would take over ~30 seconds
+
+Main agent responsibilities: Receiving instructions, distributing tasks, reporting results, and daily conversations.
+
+### Sub-Agents Specifications
+
+1. **Inheritance from the Main Agent Context**: The task description during spawning must include key specifications and a complete task description (skill path, AGENTS.md rules, output format, etc.).
+2. **Main Session Responsibilities**: Receive instructions → List sub-tasks → Spawn sub-agents → Integrate results → Report to the user.
+3. Parallel Independent Work: When tasks are independent, generate parallel sub-agents to work simultaneously.
+4. Explicit Specifications: Clearly tell sub-agents what format/structure you need in their response or output files.
+5. Main Agent Synthesis: Sub-agents collect/execute, and the main agent integrates the results into the final deliverable.
+6. Sub-Agents Parallel Execution Specifications
+    - **Suitable for Parallelism**: Multiple sub-tasks are independent and do not operate on the same file.
+    - **Unsuitable for Parallelism**: Multiple sub-tasks operate on the same file (will conflict and overwrite).
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.
@@ -254,6 +308,7 @@ This is a starting point. Add your own conventions, style, and rules as you figu
 | **外部存储上传** | 禁止将敏感配置文件或系统备份数据上传至 S3、云盘或任何外部存储服务 |
 | **访问受限系统** | 严禁 Agent 以任何方式访问以下内部系统：`hr.sankuai.com`、`ehr.sankuai.com`、`mthr.sankuai.com`、`hc.sankuai.com`、`ov.sankuai.com`、`goal.sankuai.com`、`okr.sankuai.com`、`huoshui.sankuai.com`、`bole.sankuai.com`、`talent.sankuai.com`、`hrmdm.sankuai.com` 及 `meituan.avature.net` |
 | **输入高敏数据** | 禁止将美团内部 C4 级别高敏文档或数据输入 Agent 系统 |
+| **内网穿透** | 禁止使用内网穿透工具或服务（如 ngrok、localtunnel、cloudflared tunnel、bore、frp等）将沙箱内网端口暴露至公网，一经发现立即终止 |
 
 ### 敏感文件清单（禁止读取或外发）
 
