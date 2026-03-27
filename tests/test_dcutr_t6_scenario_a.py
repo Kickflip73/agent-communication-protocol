@@ -185,8 +185,10 @@ def run_tests():
         "input": {"parts": [{"type": "text", "content": "Regression test task"}]},
     })
     if st in (200, 201):
-        task_id = task.get("id") or task.get("task_id")
-        status = task.get("status")
+        # BUG-031 fix: response is {"ok": true, "task": {...}}, not the task object directly
+        task_obj = task.get("task", task)
+        task_id = task_obj.get("id") or task_obj.get("task_id")
+        status = task_obj.get("status")
         print(f"  Task created: id={task_id}, status={status}")
         
         if status in ("submitted", "working"):
