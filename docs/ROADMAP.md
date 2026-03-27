@@ -332,6 +332,23 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
 |------|------|--------|
 | [x] GET /tasks 列表查询 + 分页 (2026-03-27，commit fac2a31) | ✅ | `fac2a31` |
 | [x] failed_msg_id 错误回传（2026-03-27，commit 4f2b548） | ✅ | `4f2b548` |
+| [x] supported_transports AgentCard 字段（2026-03-27，commit 7702ef5） | ✅ | `7702ef5` |
+
+---
+
+### 🔧 v2.3（目标：2026-04）
+**主题：SDK 增强 + 规范对齐**
+
+| 特性 | 优先级 | 状态 | Commit |
+|------|--------|------|--------|
+| `supported_transports` 补充到 spec/core-v1.0.md（文档对齐） | P0 | ⏳ 待开发 | — |
+| Python SDK `auto_stream` 参数（`send(msg, auto_stream=True)` 自动选择 SSE） | P1 | ⏳ 待开发 | — |
+| `GET /tasks` cursor 分页（`?cursor=` 参数，对标 A2A page_token） | P2 | ✅ 已完成 | `fac2a31` |
+
+**设计目标：**
+- `supported_transports` 在 AgentCard spec 中正式文档化（代码已实现，spec 缺失）
+- `auto_stream=True`：`send()` 方法自动检查 peer capabilities，若 peer 支持 SSE 则切换到 stream 模式接收回复
+- cursor 分页已在 v2.2 实现，ROADMAP 正式归档
 
 ---
 

@@ -249,19 +249,20 @@ GET /.well-known/acp.json   [stable]
   "skills":      [{"id": "summarize", "name": "summarize"}],
 
   "capabilities": {
-    "streaming":          true,
-    "push_notifications": true,
-    "input_required":     true,
-    "part_types":         ["text", "file", "data"],
-    "max_msg_bytes":      1048576,
-    "query_skill":        true,
-    "server_seq":         true,
-    "multi_session":      true,
-    "error_codes":        true,
-    "hmac_signing":       false,
-    "lan_discovery":      false,
-    "context_id":         true,
-    "identity":           "none"
+    "streaming":             true,
+    "push_notifications":    true,
+    "input_required":        true,
+    "part_types":            ["text", "file", "data"],
+    "max_msg_bytes":         1048576,
+    "query_skill":           true,
+    "server_seq":            true,
+    "multi_session":         true,
+    "error_codes":           true,
+    "hmac_signing":          false,
+    "lan_discovery":         false,
+    "context_id":            true,
+    "identity":              "none",
+    "supported_transports":  ["http", "ws"]
   },
 
   "identity": null,
@@ -305,6 +306,7 @@ GET /.well-known/acp.json   [stable]
 | `lan_discovery` | bool | **experimental** | mDNS LAN discovery active |
 | `context_id` | bool | **stable** | `context_id` field supported |
 | `identity` | string | **stable** | `"ed25519"` or `"none"` |
+| `supported_transports` | string[] | **stable** | Transport bindings active on this node (v2.2+). Values: `"http"` (HTTP/1.1), `"ws"` (WebSocket), `"h2c"` (HTTP/2 cleartext). Absent means `["http"]`. |
 
 ### 5.3 Forward Compatibility
 

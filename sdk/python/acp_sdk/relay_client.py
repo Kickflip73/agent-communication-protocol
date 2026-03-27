@@ -186,18 +186,32 @@ class RelayClient:
         parts: list[dict] = None,
         role: str = "user",
         message_id: str = None,
+        auto_stream: bool = False,
+        stream_timeout: float = 30.0,
     ) -> dict:
         """
         Send a message to the currently connected peer (primary).
 
         Args:
-            text:       Plain text content (convenience shorthand).
-            parts:      Structured Part list (text/file/data). Overrides `text`.
-            role:       Message role ("user" | "assistant"). Default "user".
-            message_id: Client-assigned idempotency key. Auto-generated if omitted.
+            text:          Plain text content (convenience shorthand).
+            parts:         Structured Part list (text/file/data). Overrides `text`.
+            role:          Message role ("user" | "assistant"). Default "user".
+            message_id:    Client-assigned idempotency key. Auto-generated if omitted.
+            auto_stream:   If True, check peer capabilities and automatically switch to
+                           SSE stream mode for collecting the reply when the peer declares
+                           ``"streaming": true`` in its AgentCard. The method then sends
+                           the message and blocks until the first ``acp.message`` SSE event
+                           is received (or ``stream_timeout`` seconds elapse).
+                           Returns ``{"ok": True, "message_id": ..., "reply": <event_dict>}``
+                           when a reply is captured, or the plain send result on timeout / if
+                           the peer does not advertise streaming. (v2.3+)
+            stream_timeout: Seconds to wait for the SSE reply when auto_stream=True.
+                            Default 30.
 
         Returns:
             {"ok": True, "message_id": "msg_..."} on success.
+            When auto_stream=True and a reply is captured:
+            {"ok": True, "message_id": "msg_...", "reply": {...}}.
         """
         body: dict[str, Any] = {"role": role}
         if message_id:
@@ -208,6 +222,45 @@ class RelayClient:
             body["text"] = text
         else:
             raise ValueError("Provide either 'text' or 'parts'")
+
+        if auto_stream:
+            # Check if peer supports streaming before sending
+            try:
+                caps = self.capabilities()
+                peer_supports_streaming = caps.get("streaming", False)
+            except Exception:
+                peer_supports_streaming = False
+
+            if peer_supports_streaming:
+                # Start SSE listener in a background thread, then send
+                import threading
+                import queue as _queue
+
+                reply_q: _queue.Queue = _queue.Queue()
+
+                def _listen():
+                    for event in self.stream(timeout=stream_timeout):
+                        if event.get("type") in ("acp.message", "message"):
+                            reply_q.put(event)
+                            return
+                    reply_q.put(None)  # timeout sentinel
+
+                t = threading.Thread(target=_listen, daemon=True)
+                t.start()
+                # Small delay to ensure SSE connection is established before send
+                import time as _time
+                _time.sleep(0.1)
+
+                result = _http_post(f"{self.base_url}/message:send", body, self.timeout)
+                if result.get("ok"):
+                    try:
+                        reply = reply_q.get(timeout=stream_timeout)
+                        if reply is not None:
+                            result["reply"] = reply
+                    except _queue.Empty:
+                        pass  # timeout — return plain send result
+                return result
+
         return _http_post(f"{self.base_url}/message:send", body, self.timeout)
 
     def send_to_peer(
@@ -618,20 +671,30 @@ class AsyncRelayClient:
         create_task: bool = False,
         sync: bool = False,
         sync_timeout: float = 30.0,
+        auto_stream: bool = False,
+        stream_timeout: float = 30.0,
     ) -> dict:
         """
         Send a message to the connected peer (primary).
 
         Args:
-            text:         Plain text content (shorthand for parts=[{type:text,...}]).
-            parts:        Structured Part list. Overrides `text`.
-            role:         Message role ("user" | "agent"). Default "user".
-            message_id:   Client-assigned idempotency key. Auto-generated if omitted.
-            task_id:      Associate message with an existing task (v0.5).
-            context_id:   Multi-turn context group identifier (v0.7).
-            create_task:  Auto-create a task for this message (v0.5).
-            sync:         Block until peer replies (v0.5).
-            sync_timeout: Seconds to wait for sync reply (default 30).
+            text:          Plain text content (shorthand for parts=[{type:text,...}]).
+            parts:         Structured Part list. Overrides `text`.
+            role:          Message role ("user" | "agent"). Default "user".
+            message_id:    Client-assigned idempotency key. Auto-generated if omitted.
+            task_id:       Associate message with an existing task (v0.5).
+            context_id:    Multi-turn context group identifier (v0.7).
+            create_task:   Auto-create a task for this message (v0.5).
+            sync:          Block until peer replies (v0.5).
+            sync_timeout:  Seconds to wait for sync reply (default 30).
+            auto_stream:   If True, check peer capabilities and automatically switch to
+                           SSE stream mode for receiving the reply when the peer declares
+                           ``"streaming": true`` in its AgentCard. Sends the message then
+                           awaits the first ``acp.message`` SSE event (or stream_timeout).
+                           Returns ``{"ok": True, "message_id": ..., "reply": <event_dict>}``
+                           when a reply is captured. Falls back to plain send if peer does
+                           not advertise streaming or on timeout. (v2.3+)
+            stream_timeout: Seconds to wait for SSE reply when auto_stream=True (default 30).
 
         Returns:
             {"ok": True, "message_id": "msg_..."} on success,
@@ -655,6 +718,41 @@ class AsyncRelayClient:
         if sync:
             body["sync"] = True
             body["timeout"] = int(sync_timeout)
+
+        if auto_stream:
+            import asyncio
+            # Check peer capabilities
+            peer_supports_streaming = False
+            try:
+                caps = await self.capabilities()
+                peer_supports_streaming = caps.get("streaming", False)
+            except Exception:
+                pass
+
+            if peer_supports_streaming:
+                # Collect first reply event from SSE stream concurrently
+                reply_holder: list = []
+
+                async def _collect_reply():
+                    async for event in self.stream(timeout=stream_timeout):
+                        if event.get("type") in ("acp.message", "message"):
+                            reply_holder.append(event)
+                            return
+
+                # Start stream listener task
+                listener = asyncio.ensure_future(_collect_reply())
+                await asyncio.sleep(0.1)  # brief pause to establish SSE connection
+
+                result = await self._post("/message:send", body)
+                if result.get("ok"):
+                    try:
+                        await asyncio.wait_for(listener, timeout=stream_timeout)
+                        if reply_holder:
+                            result["reply"] = reply_holder[0]
+                    except asyncio.TimeoutError:
+                        listener.cancel()
+                return result
+
         return await self._post("/message:send", body)
 
     async def send_to_peer(
