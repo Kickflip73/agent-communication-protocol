@@ -11,6 +11,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.7.0] — 2026-03-28 (acp-client Python pip Package)
+### Added
+- `sdk/python/acp_client/` — new pip-installable `acp-client` package (v1.7.0)
+  - `client.py` — `RelayClient` (sync, stdlib urllib, zero external deps)
+  - `async_client.py` — `AsyncRelayClient` (async via run_in_executor bridge)
+  - `models.py` — typed dataclasses: `AgentCard`, `Message`, `Task`, `TaskStatus`, `Part`, `PartType`
+  - `exceptions.py` — `ACPError` hierarchy: `PeerNotFoundError`, `TaskNotFoundError`, `TaskNotCancelableError`, `SendError`, `AuthError`, `TimeoutError`
+  - `__init__.py` — clean public API surface
+  - `_cli.py` — `acp-client` CLI entry-point (status / card / link / peers / send / recv / tasks / stream)
+- `sdk/python/pyproject.toml` — PEP 517 build config (Python ≥ 3.9, zero mandatory deps, optional: `[async]`, `[http2]`, `[dev]`)
+- `sdk/python/README-sdk.md` — complete SDK documentation (install + 30s quick-start + full API reference + relay integration guide)
+- `sdk/python/tests/test_sdk_package.py` — 60 test cases (all passing, no live relay required — uses in-process mock HTTP server)
+
+### Design
+- Zero mandatory external dependencies (stdlib urllib only for core HTTP)
+- Optional extras: `httpx` for native async, `h2` for HTTP/2
+- Backward-compatible: `sdk/python/acp_sdk/` unchanged; existing `from acp_sdk import RelayClient` continues to work
+- Fully typed public API with rich exception hierarchy
+- `acp-client` CLI covers all major relay operations
+
+---
+
 ## [2.7.0] — 2026-03-28 (AgentCard `limitations` Field — Three-Part Capability Boundary)
 ### Added
 - `limitations: string[]` top-level AgentCard field: declares what this agent CANNOT do

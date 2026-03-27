@@ -313,12 +313,20 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
 
 ---
 
-### 🔮 v1.7（计划中，目标：2026-04）
+### ✅ v1.7（已完成，2026-03-28）
 **主题：Python acp-client SDK + 文档站**
 
 | 特性 | 优先级 | 状态 |
 |------|--------|------|
-| `acp-client` Python 包（pip 可安装，类型注解完整） | P0 | ⏳ 待开发 |
+| `acp-client` Python 包（pip 可安装，类型注解完整） | P0 | ✅ 已完成 |
+| `acp_client/` 子模块拆分（client / async_client / models / exceptions） | P0 | ✅ 已完成 |
+| `AgentCard`, `Message`, `Task`, `TaskStatus`, `Part` 数据模型 | P0 | ✅ 已完成 |
+| `ACPError` 异常层次体系 | P0 | ✅ 已完成 |
+| `acp-client` CLI 入口点（status/peers/send/recv/tasks/stream） | P1 | ✅ 已完成 |
+| `pyproject.toml` PEP 517 构建配置 | P0 | ✅ 已完成 |
+| `README-sdk.md` 完整 SDK 文档（安装 + 快速入门 + API 参考） | P0 | ✅ 已完成 |
+| `tests/test_sdk_package.py`（60 测试用例，全部通过） | P0 | ✅ 已完成 |
+| `pip install -e .` 可用，零强制依赖 | P0 | ✅ 已完成 |
 | Node.js `@acp/client` npm 包 | P1 | ⏳ 待开发 |
 | 文档站（`docs/` → GitHub Pages） | P1 | ⏳ 待开发 |
 | Show HN 发布 | P0 | ⏳ 待发布 |
