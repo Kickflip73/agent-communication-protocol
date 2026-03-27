@@ -2,7 +2,7 @@
 
 **Status:** Release Candidate  
 **Authors:** ACP Community  
-**Date:** 2026-03-21  
+**Date:** 2026-03-27 (v2.5: Task Event Sequence spec + SSE field completeness)  
 **License:** Apache 2.0  
 **Supersedes:** [core-v0.8.md](core-v0.8.md)  
 **See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v0.8.md](identity-v0.8.md)
@@ -72,8 +72,8 @@ Every ACP message shares a common JSON envelope regardless of transport:
 | `server_seq` | integer | v0.5 | **stable** | Server-assigned monotonic sequence number (ordering guarantee) |
 | `task_id` | string | v0.5 | **stable** | Associates message with a task |
 | `context_id` | string | v0.7 | **stable** | Groups messages into a named multi-turn context |
-| `sig` | string | v0.7 | **stable** | HMAC-SHA256 signature (see §6.1) |
-| `identity` | object | v0.8 | **stable** | Ed25519 identity block (see §6.2) |
+| `sig` | string | v0.7 | **stable** | HMAC-SHA256 signature (see §7.1) |
+| `identity` | object | v0.8 | **stable** | Ed25519 identity block (see §7.2) |
 
 ### 1.3 message_id Generation Strategy
 
@@ -475,7 +475,242 @@ No external library required (raw UDP socket). AgentCard: `capabilities.lan_disc
 
 ---
 
-## 8. Transport Bindings
+## 8. Task Event Sequence (v2.5) — `stable`
+
+This section defines the **normative ordering** of SSE events over the Task lifecycle,
+the mandatory fields each event MUST carry, and complete wire-format examples.
+
+> **Why this matters:** Clients that consume `GET /stream` or `GET /tasks/{id}:subscribe`
+> need a deterministic event sequence to drive state machines without polling. Implementations
+> that omit required fields force clients to fall back to HTTP polling — defeating the purpose
+> of SSE. This section formalises what was previously only implied by the implementation.
+
+### 8.1 SSE Event Envelope
+
+Every SSE event delivered via `GET /stream` is a JSON object with the following **mandatory** fields:
+
+| Field | Type | Constraint | Description |
+|-------|------|------------|-------------|
+| `type` | string | **MUST** | Event category: `"status"`, `"artifact"`, `"message"`, `"peer"`, `"mdns"` |
+| `ts` | string | **MUST** | ISO 8601 UTC timestamp of event emission |
+| `seq` | integer | **MUST** | Monotonically-increasing SSE sequence counter (global, per-server). Enables gap detection. |
+| `task_id` | string | **MUST** (when event is Task-related) | Associates the event with a specific Task. MUST be present for `type=status` and `type=artifact`. |
+
+> **`seq` vs `server_seq`:** The message-level `server_seq` field (§1.2) is assigned to
+> **messages** and increments per outbound message. The SSE-level `seq` field is a separate
+> counter that increments for **every SSE event** (across all types). Both use monotonically
+> increasing integers; they are independent counters.
+
+#### 8.1.1 SSE Wire Format
+
+ACP uses named events for task-related SSE types:
+
+```
+event: acp.task.status
+data: {"type":"status","ts":"2026-03-27T07:00:00Z","seq":1,"task_id":"task_abc123","state":"submitted"}
+
+event: acp.task.artifact
+data: {"type":"artifact","ts":"2026-03-27T07:00:05Z","seq":3,"task_id":"task_abc123","artifact":{...}}
+```
+
+All other types (`message`, `peer`, `mdns`) use plain data-only events:
+
+```
+data: {"type":"message","ts":"2026-03-27T07:00:01Z","seq":2,"message_id":"msg_xyz","role":"user","parts":[...]}
+```
+
+### 8.2 Task Lifecycle Event Sequence
+
+For a Task progressing from `submitted` to `completed`, the server MUST emit SSE events
+in the following order:
+
+```
+1. type=status  state=submitted   ← Task accepted by server
+2. type=status  state=working     ← Server/peer starts processing
+3. type=artifact                  ← (optional) intermediate artifact(s)
+4. type=status  state=completed   ← Task finished; final artifact attached if any
+```
+
+For other terminal outcomes, the sequence diverges after step 2:
+
+```
+submitted → working → failed            (unrecoverable error)
+submitted → working → input_required    (peer needs more info)
+submitted → working → canceled          (explicit cancel via :cancel)
+```
+
+For `input_required`, once the client calls `/tasks/{id}:continue`, the sequence resumes:
+
+```
+input_required → working → completed | failed | canceled
+```
+
+### 8.3 Status Event Schema
+
+`type=status` events MUST include:
+
+| Field | Type | Constraint | Description |
+|-------|------|------------|-------------|
+| `type` | string | **MUST** | `"status"` |
+| `ts` | string | **MUST** | ISO 8601 UTC timestamp |
+| `seq` | integer | **MUST** | Global SSE sequence counter |
+| `task_id` | string | **MUST** | Associated Task ID |
+| `state` | string | **MUST** | One of: `submitted`, `working`, `completed`, `failed`, `input_required`, `canceled` |
+| `error` | string | SHOULD (if `state=failed`) | Human-readable error description |
+| `context_id` | string | MAY | Multi-turn context group (if task has context) |
+
+**Complete status event examples:**
+
+```json
+// submitted
+{
+  "type":    "status",
+  "ts":      "2026-03-27T07:00:00Z",
+  "seq":     1,
+  "task_id": "task_abc123",
+  "state":   "submitted"
+}
+
+// working
+{
+  "type":    "status",
+  "ts":      "2026-03-27T07:00:01Z",
+  "seq":     2,
+  "task_id": "task_abc123",
+  "state":   "working"
+}
+
+// completed
+{
+  "type":    "status",
+  "ts":      "2026-03-27T07:00:05Z",
+  "seq":     4,
+  "task_id": "task_abc123",
+  "state":   "completed"
+}
+
+// failed
+{
+  "type":    "status",
+  "ts":      "2026-03-27T07:00:03Z",
+  "seq":     3,
+  "task_id": "task_abc123",
+  "state":   "failed",
+  "error":   "Upstream service unavailable"
+}
+
+// input_required
+{
+  "type":    "status",
+  "ts":      "2026-03-27T07:00:04Z",
+  "seq":     3,
+  "task_id": "task_abc123",
+  "state":   "input_required"
+}
+```
+
+### 8.4 Artifact Event Schema
+
+`type=artifact` events MUST include:
+
+| Field | Type | Constraint | Description |
+|-------|------|------------|-------------|
+| `type` | string | **MUST** | `"artifact"` |
+| `ts` | string | **MUST** | ISO 8601 UTC timestamp |
+| `seq` | integer | **MUST** | Global SSE sequence counter |
+| `task_id` | string | **MUST** | Associated Task ID |
+| `artifact` | object | **MUST** | Artifact payload; MUST contain `"parts"` array |
+| `context_id` | string | MAY | Multi-turn context group (if task has context) |
+
+**Complete artifact event example:**
+
+```json
+{
+  "type":     "artifact",
+  "ts":       "2026-03-27T07:00:04Z",
+  "seq":      3,
+  "task_id":  "task_abc123",
+  "artifact": {
+    "parts": [
+      { "type": "text", "content": "Here is your summary: ..." }
+    ]
+  }
+}
+```
+
+### 8.5 Message Event Schema
+
+`type=message` events carry a message delivered to or from this agent:
+
+| Field | Type | Constraint | Description |
+|-------|------|------------|-------------|
+| `type` | string | **MUST** | `"message"` |
+| `ts` | string | **MUST** | ISO 8601 UTC timestamp |
+| `seq` | integer | **MUST** | Global SSE sequence counter |
+| `message_id` | string | **MUST** | Unique message identifier |
+| `role` | string | **MUST** | `"user"` or `"agent"` |
+| `parts` | array | **MUST** | One or more Part objects (see §2) |
+| `task_id` | string | MAY | Present if message is associated with a Task |
+| `context_id` | string | MAY | Multi-turn context group |
+
+**Complete message event example:**
+
+```json
+{
+  "type":       "message",
+  "ts":         "2026-03-27T07:00:01Z",
+  "seq":        2,
+  "message_id": "msg_7a3f9c2b",
+  "role":       "agent",
+  "parts":      [{ "type": "text", "content": "Processing your request..." }],
+  "task_id":    "task_abc123"
+}
+```
+
+### 8.6 Full Lifecycle Example (SSE Wire Format)
+
+A complete Task lifecycle for a summarization request — as it appears on the `GET /stream` wire:
+
+```
+event: acp.task.status
+data: {"type":"status","ts":"2026-03-27T07:00:00Z","seq":1,"task_id":"task_abc123","state":"submitted"}
+
+data: {"type":"message","ts":"2026-03-27T07:00:01Z","seq":2,"message_id":"msg_in01","role":"user","parts":[{"type":"text","content":"Summarize this document."}],"task_id":"task_abc123"}
+
+event: acp.task.status
+data: {"type":"status","ts":"2026-03-27T07:00:02Z","seq":3,"task_id":"task_abc123","state":"working"}
+
+data: {"type":"message","ts":"2026-03-27T07:00:04Z","seq":4,"message_id":"msg_out01","role":"agent","parts":[{"type":"text","content":"Working on summary..."}],"task_id":"task_abc123"}
+
+event: acp.task.artifact
+data: {"type":"artifact","ts":"2026-03-27T07:00:06Z","seq":5,"task_id":"task_abc123","artifact":{"parts":[{"type":"text","content":"Summary: The document discusses..."}]}}
+
+event: acp.task.status
+data: {"type":"status","ts":"2026-03-27T07:00:06Z","seq":6,"task_id":"task_abc123","state":"completed"}
+```
+
+### 8.7 Conformance Requirements
+
+Implementations MUST:
+1. Include `type`, `ts`, `seq` in **every** SSE event.
+2. Include `task_id` in every `status` and `artifact` event.
+3. Emit `state=submitted` before `state=working`.
+4. Not emit `state=working` (or any later state) before `state=submitted`.
+5. Not transition a terminal task (`completed`, `failed`, `canceled`) to any other state.
+6. Emit exactly one `state=submitted` event per Task lifetime.
+7. Use a **strictly monotonically increasing** `seq` counter (no resets, no gaps).
+
+Implementations SHOULD:
+- Emit a `state=completed` or `state=failed` event as the final event in a Task's SSE stream.
+- Include `error` in `state=failed` events.
+
+Implementations MAY:
+- Emit intermediate `type=message` events between `working` and terminal states.
+- Emit multiple `type=artifact` events for streaming/chunked results.
+
+---
+
+## 9. Transport Bindings
 
 ACP separates the message envelope (this document) from the transport layer.
 The same envelope is used across all bindings.
@@ -495,11 +730,11 @@ See [transports.md](transports.md) for full binding specifications including HMA
 
 ---
 
-## 9. Multi-Session Peer Registry (v0.6) — `stable`
+## 10. Multi-Session Peer Registry (v0.6) — `stable`
 
 An ACP agent can maintain simultaneous connections to multiple peers.
 
-### 9.1 Endpoints
+### 10.1 Endpoints
 
 | Endpoint | Method | Stability | Description |
 |----------|--------|-----------|-------------|
@@ -508,7 +743,7 @@ An ACP agent can maintain simultaneous connections to multiple peers.
 | `/peer/{id}/send` | POST | **stable** | Send message to a specific peer (same body as `/message:send`) |
 | `/peers/connect` | POST | **stable** | Establish a new peer connection `{"link": "acp://..."}` |
 
-### 9.2 Peer Object
+### 10.2 Peer Object
 
 ```json
 {
@@ -525,7 +760,7 @@ An ACP agent can maintain simultaneous connections to multiple peers.
 
 ---
 
-## 10. Skill Query API (v0.5) — `stable`
+## 11. Skill Query API (v0.5) — `stable`
 
 Enables runtime capability discovery:
 
@@ -549,7 +784,7 @@ this endpoint is available.
 
 ---
 
-## 11. CLI Reference (v0.9)
+## 12. CLI Reference (v0.9)
 
 The reference implementation CLI flags (all **stable** unless noted):
 
@@ -577,7 +812,7 @@ The reference implementation CLI flags (all **stable** unless noted):
 
 ---
 
-## 12. Package Distribution (v0.9)
+## 13. Package Distribution (v0.9)
 
 ### Python
 
@@ -603,7 +838,7 @@ pip install -e ".[dev]"
 
 ---
 
-## 13. Versioning
+## 14. Versioning
 
 ACP uses semantic versioning. The `acp_version` field in AgentCard declares the implemented version.
 
@@ -622,7 +857,7 @@ removal of **stable** endpoints, changes to HTTP status code semantics.
 
 ---
 
-## 14. Reference Implementation
+## 15. Reference Implementation
 
 The reference implementation is `relay/acp_relay.py` — a single Python file with one required
 dependency (`websockets`).
@@ -664,6 +899,7 @@ ACP_BASE_URL=http://localhost:7901 python3 tests/compat/run.py
 | v0.8 | 2026-03-21 | Ed25519 identity, Node.js SDK, compat test suite |
 | v0.9 | 2026-03-21 | CLI flags (`--version/--verbose/--config`), async SDK stdlib-only, 63 unit tests, `role` server validation, `pip install acp-relay`, `acp-relay-client` npm |
 | **v1.0** | 2026-03-21 | **Stability annotations, API surface freeze, v1.0 compatibility guarantee** |
+| v2.5 | 2026-03-27 | §8 Task Event Sequence spec, SSE mandatory field completeness (`type`/`ts`/`seq`/`task_id`), full lifecycle examples, conformance requirements |
 
 ---
 
@@ -688,4 +924,4 @@ ACP and A2A target different deployment contexts:
 
 ---
 
-*Spec version: v1.0 | Supersedes: core-v0.8.md | Reference impl: relay/acp_relay.py*
+*Spec version: v1.0 (updated v2.5) | Supersedes: core-v0.8.md | Reference impl: relay/acp_relay.py*

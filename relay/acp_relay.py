@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v2.4.0
+ACP P2P Relay v2.5.0
 ====================
 Zero-server, zero-code-change P2P Agent communication.
+
+v2.5 changes (2026-03-27):
+  - SSE event sequence field (`seq`): every SSE event now carries a global monotonically-
+    increasing `seq` integer.  Clients can detect dropped/out-of-order events without
+    relying on wall-clock timestamps.
+    capabilities.sse_seq=true declared in AgentCard.
+  - Named SSE event types: task-related SSE events now emit a named `event:` line on the
+    wire so EventSource consumers can filter by type:
+      event: acp.task.status   (for type=status events)
+      event: acp.task.artifact (for type=artifact events)
+    All other event types (message, peer, mdns) remain as unnamed data-only events.
+  - AgentCard top-level `supported_interfaces` field: declares which ACP interface groups
+    this agent implements (core/task/stream/mdns/p2p/identity).  Inspired by A2A SDK
+    v1.0.0-alpha `supported_interfaces` for lightweight capability negotiation.
+    Auto-derived from runtime config; override with --supported-interfaces flag.
 
 v2.4 changes (2026-03-27):
   - AgentCard top-level `transport_modes` field: declares routing modes ["p2p", "relay"] or subset
@@ -116,7 +131,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.4.0"  # v2.4: AgentCard top-level transport_modes field (["p2p", "relay"]) + --transport-modes CLI flag
+VERSION = "2.5.0"  # v2.5: SSE event seq + named event types (acp.task.status/artifact) + supported_interfaces AgentCard field
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -249,6 +264,11 @@ _sync_pending: dict  = {}
 _sse_subscribers     = []
 _push_webhooks       = []
 _sse_notify          = threading.Event()   # BUG-009 fix: signal SSE handlers on new event
+
+# v2.3: SSE event sequence counter — monotonically-increasing global seq for all SSE events.
+# Clients use seq to detect out-of-order or dropped events without relying on wall-clock timestamps.
+_sse_seq_lock = threading.Lock()
+_sse_seq: int = 0
 
 # Idempotency cache (bounded)
 _seen_message_ids: dict = {}
@@ -475,6 +495,7 @@ _status: dict = {
     "max_msg_bytes":     MAX_MSG_BYTES,
     "server_seq":        0,
     "peer_count":        0,    # v0.6: active peer count
+    "p2p_enabled":       False, # v2.3: set True when P2P WebSocket listener is active
 }
 
 def _now():
@@ -865,6 +886,36 @@ _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension li
 _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
 _transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
 
+# v2.3: supported_interfaces — top-level AgentCard field declaring which ACP interface groups
+# this agent implements.  Values:
+#   core     — base messaging endpoints (/message:send, /status, /stream, /.well-known/acp.json)
+#   task     — task lifecycle endpoints (/tasks, /tasks/{id}, /tasks/{id}:cancel, /tasks/{id}:subscribe)
+#   stream   — SSE event stream with seq + named event types (v2.3)
+#   mdns     — mDNS LAN peer discovery (--advertise-mdns)
+#   p2p      — direct P2P WebSocket transport (acp:// link)
+#   identity — Ed25519/DID identity (--identity)
+# Implementors may declare a subset; clients use this list for capability negotiation.
+_VALID_INTERFACES = {"core", "task", "stream", "mdns", "p2p", "identity"}
+_supported_interfaces_override: list | None = None  # None = auto-derive at runtime
+
+
+def _make_supported_interfaces() -> list:
+    """
+    v2.3: Derive the supported_interfaces list from runtime configuration.
+    Returns a sorted list of interface group identifiers.
+    If overridden via --supported-interfaces CLI flag, returns that list verbatim.
+    """
+    if _supported_interfaces_override is not None:
+        return list(_supported_interfaces_override)
+    ifaces = {"core", "task", "stream"}          # always present
+    if _mdns_running:
+        ifaces.add("mdns")
+    if _status.get("p2p_enabled", False):
+        ifaces.add("p2p")
+    if _ed25519_private:
+        ifaces.add("identity")
+    return sorted(ifaces)
+
 
 def _make_agent_card(name, skills):
     card = {
@@ -874,7 +925,8 @@ def _make_agent_card(name, skills):
         "description":     f"ACP P2P Agent: {name}",
         "http_port":       _status["http_port"],
         "timestamp":       _now(),
-        "transport_modes": list(_transport_modes),  # v2.4: routing modes ["p2p", "relay"] or subset
+        "transport_modes": list(_transport_modes),          # v2.4: routing modes ["p2p", "relay"] or subset
+        "supported_interfaces": _make_supported_interfaces(), # v2.3: declared interface groups
         "skills":      [{"id": s, "name": s} for s in skills],
         "capabilities": {
             "streaming":          True,
@@ -902,6 +954,7 @@ def _make_agent_card(name, skills):
             "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
             ),
+            "sse_seq":            True,                         # v2.3: SSE events carry global seq + named event types
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1096,11 +1149,47 @@ def _broadcast_sse_event(event_type, payload):
       artifact -> {task_id, artifact}
       message  -> {message_id, role, parts, task_id?}
       peer     -> {event: connected|disconnected, session_id?}
+
+    v2.3: every event carries a monotonically-increasing `seq` field so that
+    consumers can detect out-of-order or missed events without relying on
+    wall-clock timestamps.  The SSE wire format also uses a named event line:
+      event: acp.task.status   (for type=status)
+      event: acp.task.artifact (for type=artifact)
+    All other types continue to arrive as unnamed data-only events.
     """
-    event = {"type": event_type, "ts": _now(), **payload}
+    global _sse_seq
+    with _sse_seq_lock:
+        _sse_seq += 1
+        seq = _sse_seq
+    event = {"type": event_type, "ts": _now(), "seq": seq, **payload}
     for q in _sse_subscribers:
         q.append(event)
     _sse_notify.set()   # BUG-009 fix: wake up SSE polling handlers immediately
+
+
+# v2.3: SSE event type → named SSE event field mapping.
+# Consumers can filter by event name using EventSource.addEventListener('acp.task.status', ...).
+_SSE_EVENT_NAMES = {
+    "status":   "acp.task.status",
+    "artifact": "acp.task.artifact",
+}
+
+
+def _sse_format(evt: dict) -> bytes:
+    """
+    Serialize a single SSE event dict to wire bytes (v2.3).
+
+    For task status/artifact events, emits a named `event:` line:
+      event: acp.task.status\ndata: {...}\n\n
+      event: acp.task.artifact\ndata: {...}\n\n
+    All other event types (message, peer, mdns...) use the plain data-only form:
+      data: {...}\n\n
+    """
+    event_name = _SSE_EVENT_NAMES.get(evt.get("type", ""))
+    data_line = f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+    if event_name:
+        return f"event: {event_name}\n{data_line}".encode()
+    return data_line.encode()
     if _push_webhooks:
         body = json.dumps(event, ensure_ascii=False).encode()
         for url in list(_push_webhooks):
@@ -1561,6 +1650,7 @@ async def host_mode(token, ws_port, http_port):
         asyncio.ensure_future(_http_relay_guest(relay_base, relay_token, http_port))
 
     async with websockets.serve(on_guest, "0.0.0.0", ws_port):
+        _status["p2p_enabled"] = True   # v2.3: flag for supported_interfaces auto-derivation
         print(f"\n{'='*60}")
         print(f"ACP P2P v{VERSION} - service started")
         print(f"  IP: {'public' if public_ip else 'LAN'} {display_ip}")
@@ -2265,8 +2355,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         if q:
                             evt = q.popleft()
                             if evt.get("task_id") == task_id or evt.get("type") == "peer":
-                                data = f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
-                                self.wfile.write(data.encode())
+                                self.wfile.write(_sse_format(evt))  # v2.3: named event type
                                 self.wfile.flush()
                             if evt.get("type") == "status" and evt.get("state") in TERMINAL_STATES:
                                 break
@@ -2314,8 +2403,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 while True:
                     if q:
                         evt = q.popleft()
-                        data = f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
-                        self.wfile.write(data.encode())
+                        self.wfile.write(_sse_format(evt))  # v2.3: named event type
                         self.wfile.flush()
                     else:
                         self.wfile.write(b": keepalive\n\n")
@@ -3537,6 +3625,12 @@ Examples:
                              "Values: p2p, relay. Default: 'p2p,relay' (both). "
                              "Example: --transport-modes p2p  (P2P only, no relay fallback). "
                              "Advertised as top-level 'transport_modes' in AgentCard / /.well-known/acp.json.")
+    parser.add_argument("--supported-interfaces", default=None, metavar="IFACES",
+                        help="(v2.3) Comma-separated interface groups this agent supports. "
+                             "Values: core, task, stream, mdns, p2p, identity. "
+                             "Default: auto-derived from runtime configuration. "
+                             "Example: --supported-interfaces core,task,stream. "
+                             "Advertised as top-level 'supported_interfaces' in AgentCard.")
 
     args = parser.parse_args()
 
@@ -3713,9 +3807,24 @@ Examples:
             _transport_modes = parsed_modes
         else:
             log.warning("⚠️  --transport-modes resulted in empty list; keeping default ['p2p', 'relay']")
-    # Rebuild card to reflect transport_modes
+    # v2.3: supported_interfaces — parse CLI override
+    global _supported_interfaces_override
+    raw_ifaces = _get(getattr(args, "supported_interfaces", None), "supported-interfaces", None)
+    if raw_ifaces is not None:
+        parsed_ifaces = [i.strip() for i in raw_ifaces.split(",") if i.strip()]
+        invalid_ifaces = [i for i in parsed_ifaces if i not in _VALID_INTERFACES]
+        if invalid_ifaces:
+            log.warning(f"⚠️  Unknown supported_interfaces ignored: {invalid_ifaces} — valid: {sorted(_VALID_INTERFACES)}")
+            parsed_ifaces = [i for i in parsed_ifaces if i in _VALID_INTERFACES]
+        if parsed_ifaces:
+            _supported_interfaces_override = sorted(parsed_ifaces)
+        else:
+            log.warning("⚠️  --supported-interfaces resulted in empty list; using auto-derived value")
+
+    # Rebuild card to reflect transport_modes + supported_interfaces
     _status["agent_card"] = _make_agent_card(args.name, skills)
     log.info(f"🚌 Transport modes: {_transport_modes}")
+    log.info(f"🔌 Supported interfaces: {_make_supported_interfaces()}")
 
     threading.Thread(target=run_http, args=(http_port, http_host), kwargs={"http2": _http2_enabled}, daemon=True).start()
     log.info(f"HTTP interface: {'h2c' if _http2_enabled else 'http'}//{http_host}:{http_port}")

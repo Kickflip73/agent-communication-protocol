@@ -158,6 +158,41 @@ class RelayClient:
         """
         return _http_get(f"{self.base_url}/.well-known/did.json", self.timeout)
 
+    def supported_interfaces(self) -> list:
+        """
+        Return the relay's declared supported interface groups (v2.5+).
+
+        Values include: core, task, stream, mdns, p2p, identity.
+        Consumers use this list for lightweight capability negotiation before
+        attempting optional endpoints (e.g. check 'mdns' before /discover).
+
+        Returns:
+            Sorted list of interface group strings, or empty list if unavailable
+            (e.g. connecting to a pre-v2.5 relay).
+
+        Example:
+            >>> client.supported_interfaces()
+            ['core', 'stream', 'task']
+        """
+        try:
+            card = self.card()
+            return list(card.get("supported_interfaces", []))
+        except Exception:
+            return []
+
+    def sse_seq_enabled(self) -> bool:
+        """
+        Return True if the relay supports SSE event sequencing (v2.5+).
+
+        When True, all events from /stream and /tasks/{id}:subscribe carry a
+        monotonically-increasing `seq` field, and task status/artifact events
+        use named SSE event types (event: acp.task.status / acp.task.artifact).
+
+        Returns:
+            bool — True if capabilities.sse_seq is True on the remote relay.
+        """
+        return bool(self.capabilities().get("sse_seq", False))
+
     # ── Peer management (v0.6 multi-session) ─────────────────────────────
 
     def peers(self) -> list[dict]:
@@ -985,6 +1020,31 @@ class AsyncRelayClient:
     async def did_document(self) -> dict:
         """Fetch the W3C DID Document for this node (v1.3+)."""
         return await self._get("/.well-known/did.json")
+
+    async def supported_interfaces(self) -> list:
+        """
+        Return the relay's declared supported interface groups (v2.5+).
+
+        Values include: core, task, stream, mdns, p2p, identity.
+
+        Returns:
+            Sorted list of interface group strings, or empty list if unavailable.
+        """
+        try:
+            card = await self._get("/.well-known/acp.json")
+            return list(card.get("supported_interfaces", []))
+        except Exception:
+            return []
+
+    async def sse_seq_enabled(self) -> bool:
+        """
+        Return True if the relay supports SSE event sequencing (v2.5+).
+
+        When True, all events from /stream carry a `seq` field and task
+        status/artifact events use named SSE event types.
+        """
+        caps = await self.capabilities()
+        return bool(caps.get("sse_seq", False))
 
     async def cancel_task(self, task_id: str, raise_on_terminal: bool = False) -> dict:
         """
