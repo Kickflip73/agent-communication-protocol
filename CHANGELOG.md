@@ -11,6 +11,16 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.6.0] — 2026-03-27
+### Added
+- Task `cancelling` 中间状态（两阶段取消协议）
+- AgentCard `capabilities.task_cancelling: true` 能力声明
+- spec §3.3.1 两阶段取消时序图
+- spec Appendix B A2A 对比（Issue #1684/#1680 差异化说明）
+- `tests/test_task_cancel.py`（10 个测试用例）
+
+---
+
 ## [v2.5.0] - 2026-03-27
 ### Added
 - spec §8: Task 事件序列规范（7 MUST + 2 SHOULD 合规要求）
