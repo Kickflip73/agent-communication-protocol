@@ -23,7 +23,7 @@ from acp_sdk.relay_client import AsyncRelayClient
 # ── Helper to run async tests ──────────────────────────────────────────
 
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────

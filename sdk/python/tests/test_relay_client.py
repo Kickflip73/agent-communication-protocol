@@ -202,4 +202,4 @@ def test_import():
     from acp_sdk import RelayClient, AsyncRelayClient, ACPMessage, ACPAgent
     assert RelayClient.__version__ if hasattr(RelayClient, "__version__") else True
     from acp_sdk import __version__
-    assert __version__ == "0.6.0"
+    assert __version__ == "0.8.0"

@@ -594,14 +594,14 @@ class AsyncRelayClient:
 
     async def _get(self, path: str) -> dict:
         import asyncio
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, _http_get, f"{self.base_url}{path}", self.timeout
         )
 
     async def _post(self, path: str, body: dict) -> dict:
         import asyncio
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, _http_post, f"{self.base_url}{path}", body, self.timeout
         )
@@ -854,7 +854,7 @@ class AsyncRelayClient:
             finally:
                 q.put(sentinel)
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loop.run_in_executor(None, _read_sse)
 
         while True:
