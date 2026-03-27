@@ -11,6 +11,46 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.4.0] — 2026-03-27 (AgentCard `transport_modes` Top-Level Field)
+
+### Added — `transport_modes` Routing Topology Declaration (v2.4 milestone)
+
+- **`transport_modes` — new top-level AgentCard field** (v2.4+)
+  - Declared at `/.well-known/acp.json` as a top-level key (not nested under `capabilities`)
+  - Declares the **routing topologies** supported by this node (distinct from `capabilities.supported_transports` which declares *protocol bindings*)
+  - Valid values: `"p2p"` (direct peer-to-peer WebSocket) and/or `"relay"` (HTTP relay-mediated)
+  - Default: `["p2p", "relay"]` — both topologies supported; peer may choose
+  - Examples:
+    - `["p2p", "relay"]` — standard node, both modes available (default)
+    - `["relay"]` — sandbox/NAT-only node; P2P not possible
+    - `["p2p"]` — edge agent with public IP; no relay dependency
+  - Absent means `["p2p", "relay"]` (backwards-compatible)
+  - Receivers MUST treat as advisory; unknown values MUST be ignored
+
+- **`--transport-modes` CLI flag** (v2.4+)
+  - Comma-separated routing modes: `--transport-modes p2p,relay` (default), `--transport-modes p2p`, `--transport-modes relay`
+  - Invalid values are warned and silently ignored; empty result falls back to default
+
+- **Spec update** — `spec/core-v1.0.md §5.2–§5.5`
+  - §5.2: New "Top-Level AgentCard Fields" table (formally documents all top-level keys)
+  - §5.3: Capability Flags table updated with note distinguishing `supported_transports` vs `transport_modes`
+  - §5.4: New dedicated section — `transport_modes` semantics, valid values, CLI, examples
+  - §5.5: Forward Compatibility (renumbered from §5.3)
+
+- **Tests** — `tests/unit/test_transport_modes_v24.py` — 15 new unit tests
+  - `transport_modes` present in AgentCard, is a list, top-level (not under capabilities)
+  - Default `["p2p", "relay"]`, p2p-only, relay-only variants
+  - Snapshot semantics (mutation does not affect global)
+  - Version check (>= 2.4.0)
+  - Global default and valid values
+
+### Changed
+
+- `relay/acp_relay.py`: VERSION bumped `2.2.0` → `2.4.0`
+- `_make_agent_card()`: returns `transport_modes` as a snapshot list (not reference)
+
+---
+
 ## [2.2.0] — 2026-03-27 (GET /tasks List Endpoint with Filtering + Pagination)
 
 ### Added — `GET /tasks` List Queries (v2.2 milestone)

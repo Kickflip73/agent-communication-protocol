@@ -336,6 +336,24 @@ Level 3: Cloudflare Worker 中继（100% 成功率兜底）
 
 ---
 
+### ✅ v2.4（已完成，2026-03-27）
+**主题：AgentCard 拓扑声明**
+
+| 特性 | 优先级 | 状态 | Commit |
+|------|--------|------|--------|
+| `transport_modes` 顶层字段 — AgentCard 声明路由拓扑 `["p2p", "relay"]` | P1 | ✅ 已完成（2026-03-27） | pending |
+| `--transport-modes` CLI 标志（逗号分隔子集） | P1 | ✅ 已完成（2026-03-27） | pending |
+| spec/core-v1.0.md 更新：§5.2 顶层字段表、§5.4 transport_modes 专节 | P0 | ✅ 已完成（2026-03-27） | pending |
+| 15 个单元测试（test_transport_modes_v24.py） | P1 | ✅ 已完成（2026-03-27） | pending |
+
+**设计核心区别：**
+- `transport_modes`（路由拓扑）≠ `capabilities.supported_transports`（协议绑定）
+  - `supported_transports`: `["http", "ws", "h2c"]` — *如何传输字节*（协议层）
+  - `transport_modes`: `["p2p", "relay"]` — *数据走哪条路径*（拓扑层）
+- 默认 `["p2p", "relay"]`，沙箱环境可声明 `["relay"]`，公网节点可声明 `["p2p"]`
+
+---
+
 ### 🔧 v2.3（目标：2026-04）
 **主题：SDK 增强 + 规范对齐**
 

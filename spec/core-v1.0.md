@@ -243,10 +243,11 @@ GET /.well-known/acp.json   [stable]
 
 ```json
 {
-  "name":        "MyAgent",
-  "acp_version": "1.0",
-  "timestamp":   "2026-03-21T07:00:00Z",
-  "skills":      [{"id": "summarize", "name": "summarize"}],
+  "name":            "MyAgent",
+  "acp_version":     "2.4.0",
+  "timestamp":       "2026-03-27T07:00:00Z",
+  "skills":          [{"id": "summarize", "name": "summarize"}],
+  "transport_modes": ["p2p", "relay"],
 
   "capabilities": {
     "streaming":             true,
@@ -289,7 +290,24 @@ GET /.well-known/acp.json   [stable]
 }
 ```
 
-### 5.2 Capability Flags
+### 5.2 Top-Level AgentCard Fields
+
+| Field | Type | Stability | Description |
+|-------|------|-----------|-------------|
+| `name` | string | **stable** | Human-readable agent name |
+| `acp_version` | string | **stable** | ACP protocol version implemented |
+| `timestamp` | string | **stable** | ISO-8601 UTC timestamp of card generation |
+| `skills` | object[] | **stable** | List of `{id, name}` skill descriptors |
+| `transport_modes` | string[] | **stable** | **v2.4+** Routing modes supported by this node. Values: `"p2p"` (direct peer-to-peer), `"relay"` (HTTP relay fallback). Default: `["p2p", "relay"]`. Absent means `["p2p", "relay"]`. See §5.4. |
+| `capabilities` | object | **stable** | Protocol capability flags (see §5.3) |
+| `identity` | object\|null | **stable** | Ed25519 public key block, or `null` |
+| `trust` | object | **stable** | HMAC signing configuration |
+| `auth` | object | **stable** | Supported auth schemes |
+| `endpoints` | object | **stable** | Endpoint path map |
+| `availability` | object | **experimental** | v1.2+ heartbeat/cron availability metadata |
+| `extensions` | object[] | **experimental** | v1.3+ declared protocol extensions |
+
+### 5.3 Capability Flags
 
 | Flag | Type | Stability | Description |
 |------|------|-----------|-------------|
@@ -306,9 +324,49 @@ GET /.well-known/acp.json   [stable]
 | `lan_discovery` | bool | **experimental** | mDNS LAN discovery active |
 | `context_id` | bool | **stable** | `context_id` field supported |
 | `identity` | string | **stable** | `"ed25519"` or `"none"` |
-| `supported_transports` | string[] | **stable** | Transport bindings active on this node (v2.2+). Values: `"http"` (HTTP/1.1), `"ws"` (WebSocket), `"h2c"` (HTTP/2 cleartext). Absent means `["http"]`. |
+| `supported_transports` | string[] | **stable** | Protocol bindings active on this node (v2.2+). Values: `"http"` (HTTP/1.1), `"ws"` (WebSocket), `"h2c"` (HTTP/2 cleartext). Absent means `["http"]`. **Note:** This declares *protocol* bindings; for *routing topology*, see top-level `transport_modes` (v2.4+). |
 
-### 5.3 Forward Compatibility
+### 5.4 `transport_modes` — Routing Topology Declaration (v2.4+)
+
+`transport_modes` is a **top-level** AgentCard field that declares which routing topologies this node supports.
+
+> **Distinction:** `capabilities.supported_transports` declares *protocol bindings* (e.g. HTTP/1.1, WebSocket). `transport_modes` declares *routing topology* (e.g. direct P2P, relay-mediated). They are orthogonal dimensions.
+
+**Valid values:**
+
+| Value | Meaning |
+|-------|---------|
+| `"p2p"` | Agent supports direct peer-to-peer connections (WebSocket direct connect) |
+| `"relay"` | Agent supports relay-mediated message delivery (HTTP relay fallback) |
+
+**Semantics:**
+- Default (absent or `["p2p", "relay"]`): agent supports both topologies; peer may choose
+- `["p2p"]`: agent prefers/requires direct connection; relay not available (e.g. exposes public IP)
+- `["relay"]`: agent is behind NAT/firewall and relay-only; P2P not possible (e.g. sandbox environment)
+
+**CLI flag:** `--transport-modes p2p,relay` (comma-separated subset)
+
+**Example — relay-only sandbox agent:**
+```json
+{
+  "name": "SandboxAgent",
+  "transport_modes": ["relay"],
+  ...
+}
+```
+
+**Example — P2P-only edge agent:**
+```json
+{
+  "name": "EdgeAgent",
+  "transport_modes": ["p2p"],
+  ...
+}
+```
+
+Receivers MUST treat `transport_modes` as advisory. Unknown values in the list MUST be ignored.
+
+### 5.5 Forward Compatibility
 
 Receivers MUST ignore unknown capability fields. A flag value of `false` or absent is equivalent.
 

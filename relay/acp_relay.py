@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v0.7-dev (engine v2.1-alpha)
-==========================================
+ACP P2P Relay v2.4.0
+====================
 Zero-server, zero-code-change P2P Agent communication.
+
+v2.4 changes (2026-03-27):
+  - AgentCard top-level `transport_modes` field: declares routing modes ["p2p", "relay"] or subset
+    Distinct from capabilities.supported_transports (protocol bindings): this declares *routing* topology
+    --transport-modes p2p,relay  (default: both; pass subset to restrict)
+    /.well-known/acp.json now includes "transport_modes": ["p2p", "relay"]
 
 v2.1-alpha changes (2026-03-26):
   - LAN port-scan discovery: GET /peers/discover
@@ -110,7 +116,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.2.0"  # v2.2: GET /tasks offset pagination + status filter + sort=asc|desc + supported_transports AgentCard field
+VERSION = "2.4.0"  # v2.4: AgentCard top-level transport_modes field (["p2p", "relay"]) + --transport-modes CLI flag
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -857,16 +863,18 @@ def _validate_parts(parts):
 _availability: dict  = {}         # empty = persistent (default behaviour)
 _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension list (opt-in)
 _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
+_transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
 
 
 def _make_agent_card(name, skills):
     card = {
-        "name":        name,
-        "version":     VERSION,
-        "acp_version": VERSION,
-        "description": f"ACP P2P Agent: {name}",
-        "http_port":   _status["http_port"],
-        "timestamp":   _now(),
+        "name":            name,
+        "version":         VERSION,
+        "acp_version":     VERSION,
+        "description":     f"ACP P2P Agent: {name}",
+        "http_port":       _status["http_port"],
+        "timestamp":       _now(),
+        "transport_modes": list(_transport_modes),  # v2.4: routing modes ["p2p", "relay"] or subset
         "skills":      [{"id": s, "name": s} for s in skills],
         "capabilities": {
             "streaming":          True,
@@ -3524,6 +3532,11 @@ Examples:
                              "Requires: pip install hypercorn h2. "
                              "Falls back to HTTP/1.1 if dependencies are missing. "
                              "Enables multiplexed streams and reduced head-of-line blocking.")
+    parser.add_argument("--transport-modes", default=None, metavar="MODES",
+                        help="(v2.4) Comma-separated routing modes this node supports. "
+                             "Values: p2p, relay. Default: 'p2p,relay' (both). "
+                             "Example: --transport-modes p2p  (P2P only, no relay fallback). "
+                             "Advertised as top-level 'transport_modes' in AgentCard / /.well-known/acp.json.")
 
     args = parser.parse_args()
 
@@ -3685,6 +3698,24 @@ Examples:
         # Rebuild agent card to reflect http2=True capability
         _status["agent_card"] = _make_agent_card(args.name, skills)
         log.info(f"🚀 HTTP/2 (h2c) transport enabled via hypercorn on {http_host}:{http_port}")
+
+    # v2.4: transport_modes — top-level AgentCard routing modes
+    global _transport_modes
+    _VALID_TRANSPORT_MODES = {"p2p", "relay"}
+    raw_modes = _get(getattr(args, "transport_modes", None), "transport-modes", None)
+    if raw_modes is not None:
+        parsed_modes = [m.strip() for m in raw_modes.split(",") if m.strip()]
+        invalid = [m for m in parsed_modes if m not in _VALID_TRANSPORT_MODES]
+        if invalid:
+            log.warning(f"⚠️  Unknown transport_modes ignored: {invalid} — valid: {sorted(_VALID_TRANSPORT_MODES)}")
+            parsed_modes = [m for m in parsed_modes if m in _VALID_TRANSPORT_MODES]
+        if parsed_modes:
+            _transport_modes = parsed_modes
+        else:
+            log.warning("⚠️  --transport-modes resulted in empty list; keeping default ['p2p', 'relay']")
+    # Rebuild card to reflect transport_modes
+    _status["agent_card"] = _make_agent_card(args.name, skills)
+    log.info(f"🚌 Transport modes: {_transport_modes}")
 
     threading.Thread(target=run_http, args=(http_port, http_host), kwargs={"http2": _http2_enabled}, daemon=True).start()
     log.info(f"HTTP interface: {'h2c' if _http2_enabled else 'http'}//{http_host}:{http_port}")
