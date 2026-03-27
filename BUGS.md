@@ -832,7 +832,7 @@ def stop_reference_relay():
 ### BUG-035 🟡 P2 — `test_scenario_bc.py` `wait_link_ready` 串行等待导致前几个 relay 超时（BUG-032 修复不完整）
 
 **发现时间**: 2026-03-27 本轮测试（场景 A/B 测试轮）
-**状态**: 🔧 待修复
+**状态**: ✅ 已修复 (2026-03-28, commit `78ae426`)
 
 **现象**:
 ```
