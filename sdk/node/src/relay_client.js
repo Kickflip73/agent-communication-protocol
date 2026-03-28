@@ -1,7 +1,7 @@
 /**
  * RelayClient — Node.js HTTP client for a running acp_relay.py instance.
  *
- * @version 2.1.0
+ * @version 2.4.0
  *
  * Zero external dependencies. Uses only Node.js built-in `http`/`https` modules.
  * Requires Node.js >= 18 (fetch API available built-in, or use http module).
@@ -389,11 +389,115 @@ class RelayClient {
     return sseStream(this._url('/stream'), options);
   }
 
+  // ── Status & capability helpers ────────────
+
+  /**
+   * Get the ACP link for this node (share with peers).
+   * @returns {Promise<string>}
+   */
+  async link() {
+    const data = await this._get('/link');
+    return data.link ?? '';
+  }
+
+  /**
+   * Return the relay's declared capabilities block from AgentCard (v1.6+).
+   *
+   * Includes fields such as:
+   *   - http2 (bool): HTTP/2 h2c transport enabled
+   *   - did_identity (bool): DID self-sovereign identity enabled
+   *   - hmac_signing (bool): HMAC-SHA256 message signing enabled
+   *   - mdns (bool): mDNS LAN discovery enabled
+   *   - sse_seq (bool): SSE event sequencing enabled (v2.5+)
+   *
+   * @returns {Promise<Record<string, boolean>>}
+   */
+  async capabilities() {
+    try {
+      const card = await this._get('/.well-known/acp.json');
+      return card.capabilities ?? {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /**
+   * Return this node's identity block (v1.3+, did:acp:).
+   *
+   * @returns {Promise<{did?: string, public_key_b64?: string, scheme?: string}>}
+   */
+  async identity() {
+    const card = await this._get('/.well-known/acp.json');
+    return card.identity ?? {};
+  }
+
+  /**
+   * Fetch the W3C DID Document for this node (v1.3+).
+   * Endpoint: GET /.well-known/did.json
+   *
+   * @returns {Promise<object>}
+   */
+  didDocument() {
+    return this._get('/.well-known/did.json');
+  }
+
+  /**
+   * Return the relay's declared supported interface groups (v2.5+).
+   *
+   * Values include: core, task, stream, mdns, p2p, identity.
+   * Consumers use this list for lightweight capability negotiation before
+   * attempting optional endpoints (e.g. check 'mdns' before /discover).
+   *
+   * @returns {Promise<string[]>}
+   */
+  async supportedInterfaces() {
+    try {
+      const card = await this._get('/.well-known/acp.json');
+      return Array.from(card.supported_interfaces ?? []);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * Return true if the relay supports SSE event sequencing (v2.5+).
+   *
+   * When true, all events from /stream carry a monotonically-increasing
+   * `seq` field and task status/artifact events use named SSE event types.
+   *
+   * @returns {Promise<boolean>}
+   */
+  async sseSeqEnabled() {
+    const caps = await this.capabilities();
+    return Boolean(caps.sse_seq);
+  }
+
   // ── Task management ────────────────────────
 
-  /** List all tasks. */
-  async tasks() {
-    const result = await this._get('/tasks');
+  /**
+   * List tasks with optional filters (v1.4+).
+   *
+   * @param {object} [options]
+   * @param {string} [options.status]        - Filter by task state (submitted/working/completed/failed/input_required/canceled)
+   * @param {string} [options.peer_id]       - Filter by peer agent id
+   * @param {string} [options.created_after] - ISO-8601 timestamp; return only tasks created after this time
+   * @param {string} [options.updated_after] - ISO-8601 timestamp; return only tasks updated after this time
+   * @param {string} [options.sort]          - Sort order: "asc" or "desc" (default "desc")
+   * @param {string} [options.cursor]        - Pagination cursor from previous response
+   * @param {number} [options.limit]         - Max number of tasks to return
+   * @returns {Promise<Array>}
+   */
+  async tasks(options = {}) {
+    const params = [];
+    if (options.status)        params.push(`status=${encodeURIComponent(options.status)}`);
+    if (options.peer_id)       params.push(`peer_id=${encodeURIComponent(options.peer_id)}`);
+    if (options.created_after) params.push(`created_after=${encodeURIComponent(options.created_after)}`);
+    if (options.updated_after) params.push(`updated_after=${encodeURIComponent(options.updated_after)}`);
+    if (options.sort)          params.push(`sort=${encodeURIComponent(options.sort)}`);
+    if (options.cursor)        params.push(`cursor=${encodeURIComponent(options.cursor)}`);
+    if (options.limit != null) params.push(`limit=${options.limit}`);
+    const path = params.length ? `/tasks?${params.join('&')}` : '/tasks';
+    const result = await this._get(path);
     return result.tasks ?? result ?? [];
   }
 
@@ -418,11 +522,34 @@ class RelayClient {
   }
 
   /**
-   * Cancel a task.
+   * Cancel a task (v1.5.2, spec §10).
+   *
+   * Cancel semantics are synchronous and idempotent:
+   *   - Canceling an active task returns {"state": "canceled"}.
+   *   - Canceling an already-canceled task returns 200 (idempotent).
+   *   - Canceling a completed/failed task returns ERR_TASK_NOT_CANCELABLE (409).
+   *
    * @param {string} taskId
+   * @param {object} [options]
+   * @param {boolean} [options.raiseOnTerminal=false] - If true, throw on 409 terminal state
+   * @returns {Promise<object>}
    */
-  cancelTask(taskId) {
-    return this._post(`/tasks/${encodeURIComponent(taskId)}:update`, { state: 'canceled' });
+  async cancelTask(taskId, options = {}) {
+    try {
+      return await this._post(`/tasks/${encodeURIComponent(taskId)}:cancel`, {});
+    } catch (err) {
+      // Handle 409 ERR_TASK_NOT_CANCELABLE
+      if (err && err.statusCode === 409) {
+        if (options.raiseOnTerminal) {
+          throw new Error(
+            `Task ${taskId} is in a terminal state and cannot be canceled. ` +
+            `Server: ${JSON.stringify(err.body ?? {})}`
+          );
+        }
+        return err.body ?? { error: 'ERR_TASK_NOT_CANCELABLE', task_id: taskId };
+      }
+      throw err;
+    }
   }
 
   // ── Skill discovery ────────────────────────

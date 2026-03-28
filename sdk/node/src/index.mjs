@@ -1,6 +1,6 @@
 /**
  * acp-relay-client — ESM entry point
- * Agent Communication Protocol (ACP) Node.js SDK v2.1.0
+ * Agent Communication Protocol (ACP) Node.js SDK v2.4.0
  *
  * @example
  * import { RelayClient } from 'acp-relay-client';

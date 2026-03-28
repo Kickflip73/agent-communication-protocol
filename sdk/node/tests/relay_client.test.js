@@ -253,15 +253,50 @@ describe('updateTask()', () => {
 });
 
 describe('cancelTask()', () => {
-  test('sends state=canceled', async () => {
-    let received;
-    setHandler('POST', '/tasks/task_002:update', (req, res, body) => {
-      received = body;
+  test('calls POST /tasks/{id}:cancel (not :update)', async () => {
+    let calledPath;
+    setHandler('POST', '/tasks/task_002:cancel', (req, res, body) => {
+      calledPath = req.url;
       jsonResponse(res, 200, { task_id: 'task_002', state: 'canceled' });
     });
     const c = makeClient();
-    await c.cancelTask('task_002');
-    assert.strictEqual(received.state, 'canceled');
+    const result = await c.cancelTask('task_002');
+    assert.ok(calledPath, ':cancel endpoint should have been called');
+    assert.strictEqual(result.state, 'canceled');
+  });
+
+  test('returns canceled state on success', async () => {
+    setHandler('POST', '/tasks/task_003:cancel', (req, res) => {
+      jsonResponse(res, 200, { task_id: 'task_003', state: 'canceled' });
+    });
+    const c = makeClient();
+    const result = await c.cancelTask('task_003');
+    assert.strictEqual(result.state, 'canceled');
+    assert.strictEqual(result.task_id, 'task_003');
+  });
+
+  test('returns error body on 409 ERR_TASK_NOT_CANCELABLE', async () => {
+    setHandler('POST', '/tasks/task_done:cancel', (req, res) => {
+      const payload = JSON.stringify({ error: 'ERR_TASK_NOT_CANCELABLE', task_id: 'task_done' });
+      res.writeHead(409, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
+      res.end(payload);
+    });
+    const c = makeClient();
+    const result = await c.cancelTask('task_done');
+    assert.strictEqual(result.error, 'ERR_TASK_NOT_CANCELABLE');
+  });
+
+  test('throws on 409 when raiseOnTerminal=true', async () => {
+    setHandler('POST', '/tasks/task_done2:cancel', (req, res) => {
+      const payload = JSON.stringify({ error: 'ERR_TASK_NOT_CANCELABLE', task_id: 'task_done2' });
+      res.writeHead(409, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
+      res.end(payload);
+    });
+    const c = makeClient();
+    await assert.rejects(
+      () => c.cancelTask('task_done2', { raiseOnTerminal: true }),
+      /terminal state/
+    );
   });
 });
 
@@ -399,7 +434,7 @@ describe('RelayClient.requiredExtensions()', () => {
   test('returns only required extensions', async () => {
     setHandler('GET', '/.well-known/acp.json', (req, res) => {
       jsonResponse(res, 200, {
-        name: 'Agent', version: '2.1.0',
+        name: 'Agent', version: '2.4.0',
         extensions: [
           { uri: 'acp:ext:hmac-v1', required: true, params: {} },
           { uri: 'acp:ext:mdns-v1', required: false, params: {} },
@@ -415,12 +450,251 @@ describe('RelayClient.requiredExtensions()', () => {
   test('returns empty array when none required', async () => {
     setHandler('GET', '/.well-known/acp.json', (req, res) => {
       jsonResponse(res, 200, {
-        name: 'Agent', version: '2.1.0',
+        name: 'Agent', version: '2.4.0',
         extensions: [{ uri: 'acp:ext:mdns-v1', required: false, params: {} }],
       });
     });
     const client = makeClient();
     const req = await client.requiredExtensions();
     assert.deepStrictEqual(req, []);
+  });
+});
+
+// ─── v2.4 New API Tests ────────────────────────────────────
+
+describe('capabilities() — v1.6+', () => {
+  test('returns capabilities dict from AgentCard', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.4.0',
+        capabilities: { http2: true, hmac_signing: true, did_identity: false, mdns: true, sse_seq: true },
+      });
+    });
+    const client = makeClient();
+    const caps = await client.capabilities();
+    assert.strictEqual(caps.http2, true);
+    assert.strictEqual(caps.hmac_signing, true);
+    assert.strictEqual(caps.did_identity, false);
+    assert.strictEqual(caps.sse_seq, true);
+  });
+
+  test('returns empty object when capabilities field absent', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { name: 'OldAgent', version: '1.0.0' });
+    });
+    const client = makeClient();
+    const caps = await client.capabilities();
+    assert.deepStrictEqual(caps, {});
+  });
+
+  test('returns empty object on network error', async () => {
+    // Use a client pointing to a non-existent port to simulate network error
+    const badClient = new RelayClient('http://127.0.0.1:1', { timeout: 500 });
+    const caps = await badClient.capabilities();
+    assert.deepStrictEqual(caps, {});
+  });
+});
+
+describe('link()', () => {
+  test('returns link string', async () => {
+    setHandler('GET', '/link', (req, res) => {
+      jsonResponse(res, 200, { link: 'acp://127.0.0.1:7801/tok_abc123' });
+    });
+    const client = makeClient();
+    const link = await client.link();
+    assert.strictEqual(link, 'acp://127.0.0.1:7801/tok_abc123');
+  });
+
+  test('returns empty string when link field absent', async () => {
+    setHandler('GET', '/link', (req, res) => {
+      jsonResponse(res, 200, {});
+    });
+    const client = makeClient();
+    const link = await client.link();
+    assert.strictEqual(link, '');
+  });
+});
+
+describe('identity() — v1.3+', () => {
+  test('returns identity block from AgentCard', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.4.0',
+        identity: { did: 'did:acp:abc123', public_key_b64: 'AAAA...', scheme: 'ed25519' },
+      });
+    });
+    const client = makeClient();
+    const ident = await client.identity();
+    assert.strictEqual(ident.did, 'did:acp:abc123');
+    assert.strictEqual(ident.scheme, 'ed25519');
+  });
+
+  test('returns empty object when identity absent', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { name: 'Agent', version: '2.4.0' });
+    });
+    const client = makeClient();
+    const ident = await client.identity();
+    assert.deepStrictEqual(ident, {});
+  });
+});
+
+describe('didDocument() — v1.3+', () => {
+  test('fetches /.well-known/did.json', async () => {
+    setHandler('GET', '/.well-known/did.json', (req, res) => {
+      jsonResponse(res, 200, {
+        '@context': 'https://www.w3.org/ns/did/v1',
+        id: 'did:acp:abc123',
+        verificationMethod: [],
+      });
+    });
+    const client = makeClient();
+    const doc = await client.didDocument();
+    assert.strictEqual(doc.id, 'did:acp:abc123');
+    assert.ok(Array.isArray(doc.verificationMethod));
+  });
+});
+
+describe('supportedInterfaces() — v2.5+', () => {
+  test('returns supported_interfaces list from AgentCard', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.5.0',
+        supported_interfaces: ['core', 'task', 'stream'],
+      });
+    });
+    const client = makeClient();
+    const ifaces = await client.supportedInterfaces();
+    assert.deepStrictEqual(ifaces.sort(), ['core', 'stream', 'task']);
+  });
+
+  test('returns empty array when field absent (pre-v2.5 relay)', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { name: 'OldAgent', version: '1.0.0' });
+    });
+    const client = makeClient();
+    const ifaces = await client.supportedInterfaces();
+    assert.deepStrictEqual(ifaces, []);
+  });
+
+  test('returns empty array on network error', async () => {
+    const badClient = new RelayClient('http://127.0.0.1:1', { timeout: 500 });
+    const ifaces = await badClient.supportedInterfaces();
+    assert.deepStrictEqual(ifaces, []);
+  });
+});
+
+describe('sseSeqEnabled() — v2.5+', () => {
+  test('returns true when sse_seq capability is true', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.5.0',
+        capabilities: { sse_seq: true },
+      });
+    });
+    const client = makeClient();
+    assert.strictEqual(await client.sseSeqEnabled(), true);
+  });
+
+  test('returns false when sse_seq capability is false', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.5.0',
+        capabilities: { sse_seq: false },
+      });
+    });
+    const client = makeClient();
+    assert.strictEqual(await client.sseSeqEnabled(), false);
+  });
+
+  test('returns false when capabilities absent', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { name: 'OldAgent', version: '1.0.0' });
+    });
+    const client = makeClient();
+    assert.strictEqual(await client.sseSeqEnabled(), false);
+  });
+});
+
+describe('tasks() with filters — v1.4+', () => {
+  test('passes status filter as query param', async () => {
+    let receivedUrl;
+    setHandler('GET', '/tasks', (req, res) => {
+      receivedUrl = req.url;
+      jsonResponse(res, 200, { tasks: [] });
+    });
+    const client = makeClient();
+    await client.tasks({ status: 'working' });
+    assert.ok(receivedUrl.includes('status=working'), `Expected status=working in ${receivedUrl}`);
+  });
+
+  test('passes multiple filters as query params', async () => {
+    let receivedUrl;
+    setHandler('GET', '/tasks', (req, res) => {
+      receivedUrl = req.url;
+      jsonResponse(res, 200, { tasks: [] });
+    });
+    const client = makeClient();
+    await client.tasks({ status: 'completed', limit: 10, sort: 'desc' });
+    assert.ok(receivedUrl.includes('status=completed'), `URL should contain status=completed: ${receivedUrl}`);
+    assert.ok(receivedUrl.includes('limit=10'), `URL should contain limit=10: ${receivedUrl}`);
+    assert.ok(receivedUrl.includes('sort=desc'), `URL should contain sort=desc: ${receivedUrl}`);
+  });
+
+  test('passes cursor for pagination', async () => {
+    let receivedUrl;
+    setHandler('GET', '/tasks', (req, res) => {
+      receivedUrl = req.url;
+      jsonResponse(res, 200, { tasks: [], next_cursor: null });
+    });
+    const client = makeClient();
+    await client.tasks({ cursor: 'cursor_xyz_001' });
+    assert.ok(receivedUrl.includes('cursor=cursor_xyz_001'), `URL should contain cursor: ${receivedUrl}`);
+  });
+
+  test('passes peer_id filter', async () => {
+    let receivedUrl;
+    setHandler('GET', '/tasks', (req, res) => {
+      receivedUrl = req.url;
+      jsonResponse(res, 200, { tasks: [] });
+    });
+    const client = makeClient();
+    await client.tasks({ peer_id: 'peer_abc' });
+    assert.ok(receivedUrl.includes('peer_id=peer_abc'), `URL should contain peer_id: ${receivedUrl}`);
+  });
+
+  test('passes created_after and updated_after timestamps', async () => {
+    let receivedUrl;
+    setHandler('GET', '/tasks', (req, res) => {
+      receivedUrl = req.url;
+      jsonResponse(res, 200, { tasks: [] });
+    });
+    const client = makeClient();
+    await client.tasks({ created_after: '2026-01-01T00:00:00Z', updated_after: '2026-01-02T00:00:00Z' });
+    assert.ok(receivedUrl.includes('created_after='), `URL should contain created_after: ${receivedUrl}`);
+    assert.ok(receivedUrl.includes('updated_after='), `URL should contain updated_after: ${receivedUrl}`);
+  });
+
+  test('no query params when called with empty options', async () => {
+    let receivedUrl;
+    setHandler('GET', '/tasks', (req, res) => {
+      receivedUrl = req.url;
+      jsonResponse(res, 200, { tasks: [{ task_id: 'task_001', state: 'working' }] });
+    });
+    const client = makeClient();
+    const tasks = await client.tasks({});
+    assert.strictEqual(receivedUrl, '/tasks');
+    assert.strictEqual(tasks.length, 1);
+  });
+
+  test('no query params when called with no arguments (backward compat)', async () => {
+    let receivedUrl;
+    setHandler('GET', '/tasks', (req, res) => {
+      receivedUrl = req.url;
+      jsonResponse(res, 200, { tasks: [] });
+    });
+    const client = makeClient();
+    await client.tasks();
+    assert.strictEqual(receivedUrl, '/tasks');
   });
 });
