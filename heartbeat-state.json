@@ -1,18 +1,17 @@
 {
   "last_research_scan": "2026-03-28T01:36:00Z",
-  "next_round": "test",
-  "notes": "开发轮 Extension 机制（2026-03-28）：relay VERSION 2.7.0→2.8.0；_make_builtin_extensions() 自动注册 hmac/mdns/h2c；AgentCard 始终包含 extensions:[]；--extensions 批量 CLI flag；SDK Extension 数据类 + AgentCard.extensions 字段 + has/get/required 便捷方法；向后兼容；spec §5.5 完整说明；tests/test_extensions.py 39 用例全绿；全套单元测试 195 passed 0 failed；commit 2eaa357 已 push。",
-  "last_updated": "2026-03-28T10:35:00+08:00",
+  "next_round": "dev",
+  "notes": "测试轮（2026-03-28 11:28）：Extension 专项 39/39 PASS；全套回归 533 passed 6 skipped；test_level1 在全套并发时 7 FAILED（端口竞争，BUG-027 已知问题，单独跑 10/10 全通）；无新 Bug。",
+  "last_updated": "2026-03-28T11:28:00+08:00",
+  "last_test_run": "2026-03-28T11:28:00+08:00",
   "last_dev_run": "2026-03-28T10:35:00+08:00",
-  "dev_summary": {
-    "version": "2.8.0",
-    "feature": "Extension mechanism",
-    "tests_new": 39,
-    "tests_regression": 195,
-    "commit": "2eaa357"
+  "test_summary": {
+    "extensions_spec": "39/39 PASS",
+    "full_suite": "533 passed, 6 skipped, 7 failed (BUG-027 port conflict, known P2)",
+    "level1_isolated": "10/10 PASS"
   },
   "lastChecks": {
-    "test": "2026-03-28T10:25:00+08:00",
+    "test": "2026-03-28T11:28:00+08:00",
     "dev": "2026-03-28T10:35:00+08:00"
   }
 }
