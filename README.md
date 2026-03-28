@@ -272,6 +272,8 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Error response Content-Type** | ❌ Undefined — `application/json` vs `application/problem+json` contradicted within spec (#1685) | **✅ Always `application/json; charset=utf-8` — one content type for all responses, zero ambiguity** |
 | **Webhook security** | ❌ Push notification config API returns credentials in plaintext (#1681, security bug) | **✅ Webhooks store URL only — no credentials, no leakage surface** |
 | **AgentCard limitations field** | ❌ Open proposal — issue #1694 (2026-03-27), not yet merged | **✅ `limitations: string[]` — AgentCard top-level field ships in v2.7; completes 3-part boundary: `capabilities` + `availability` + `limitations`** |
+| **Skills / capability discovery** | ❌ No structured skill discovery in spec | **✅ `GET /skills` — Skills-lite 能力发现（轻量，无 JSON Schema 开销）；AgentCard `skills[]` 结构化对象数组（v2.10.0）** |
+| **Agent capability boundaries** | ❌ `limitations[]` open proposal (issue #1694, not merged) | **✅ `limitations[]` — 透明能力边界（A2A v1.0 同期推出，ACP 已支持 v2.7）** |
 
 > A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) has 62 comments and three competing third-party implementations (AgentID, APS, qntm) racing to fill the gap — still nothing merged into A2A spec. ACP v1.8+v1.9 ships the complete identity story today: agents sign their own card (v1.8), and when two agents connect, each side **automatically** verifies the other's card at handshake (v1.9). `GET /peer/verify` → `{verified: true}`. No CA. No registration. No extra calls.
 

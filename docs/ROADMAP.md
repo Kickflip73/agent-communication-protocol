@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-28（v2.8：Extension 机制 — URI 标识扩展点，内置扩展自动注册，SDK Extension 数据类，39 测试用例全绿）
+> 最后更新：2026-03-28（v2.10.0：Skills-lite — GET /skills 结构化能力发现端点，AgentCard skills[] 对象数组，6/6 测试全绿）
 
 ---
 
@@ -453,6 +453,18 @@ Client                          Server
 
 ---
 
+### ✅ v2.4 — Skills 能力发现（✅ 2026-03-28）
+**主题：Skills-lite — 结构化能力发现端点**
+
+> Skills-lite v2.10.0, GET /skills + structured AgentCard skills, 2026-03-28
+
+- `GET /skills` 端点：tag/q/limit/offset 过滤 + 分页
+- AgentCard `skills[]` 结构化对象数组
+- `--skills` CLI 向后兼容（CSV 自动转换）
+- 测试：SK1–SK6，6/6 PASS
+
+---
+
 ### ✅ v2.8（已完成，2026-03-28）
 **主题：Extension 机制 — URI 标识扩展点，向 A2A 靠拢**
 
@@ -477,7 +489,7 @@ Client                          Server
 
 ---
 
-### 🔮 v2.0（目标：2026-06）
+### ✅ v2.0（已完成，2026-03-28）
 **主题：生产可用 + 生态**
 
 - [x] `acp-client` 作为 Agent 框架标准插件（LangChain / AutoGen 集成）
@@ -490,6 +502,29 @@ Client                          Server
   - ✅ `Extension` 数据类 + `AgentCard.extensions` 字段 + 向后兼容
   - ✅ relay v2.8.0 上线
 - [ ] 完整 DID 文档站 + 合规认证工具公开
+
+---
+
+### ✅ v2.9 — GET /messages 端点（✅ 2026-03-28）
+**主题：统一消息查询接口**
+
+- `GET /messages` 端点：查询历史消息，支持 peer_id/since/limit/offset 过滤 + 分页
+- 消息 envelope 标准化：每条消息携带 `message_id`、`seq`、`ts`、`from` 字段
+- 向后兼容：旧版 `/recv` 端点继续支持
+- AgentCard `capabilities.message_history: true` 声明
+
+---
+
+### 🔮 v3.0 — NAT Auto-Traversal（✅ 2026-03-28）
+**主题：零配置 NAT 穿透完整方案**
+
+- 三级 NAT 穿透策略（Direct → DCUtR UDP hole-punch → Relay）已完整实现
+- Level 1: 公网 IP / 局域网直连（延迟 < 1ms）
+- Level 2: DCUtR 风格 UDP 打洞（~70% 真实 NAT 场景成功）
+- Level 3: Cloudflare Worker 无状态中继（100% 成功率兜底）
+- 信令服务器：一次性地址交换（TTL 30s），零消息帧存储
+- SSE 实时反映连接级别：`dcutr_started` → `dcutr_connected` / `relay_fallback`
+- `GET /status` 返回 `connection_type`: `p2p_direct` | `dcutr_direct` | `relay`
 
 ---
 

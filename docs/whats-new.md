@@ -5,6 +5,13 @@
 
 ---
 
+## v2.10.0 — Skills-lite (2026-03-28)
+- 新增 `GET /skills` — 结构化能力发现端点，支持 tag 过滤/关键词搜索/分页
+- AgentCard `skills[]` 字段升级为结构化对象数组（兼容旧 CSV 格式）
+- 对标 A2A v1.0 Skills，ACP 精简实现：轻量无 JSON Schema 开销
+
+---
+
 ## 2026-03-28
 
 ### AgentCard `limitations` Field — Three-Part Capability Boundary (v2.7.0)
