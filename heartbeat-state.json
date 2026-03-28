@@ -1,10 +1,10 @@
 {
   "last_research_scan": "2026-03-28T15:44:00+08:00",
-  "next_round": "dev",
-  "notes": "研究轮R2完成 — A2A新：PR#1655(QuerySkill), Issue#1696(身份验证指引), OIXA经济层合作。下轮: dev(能力发现/QuerySkill纳入规划)",
-  "last_updated": "2026-03-28T15:47:00+08:00",
+  "next_round": "test",
+  "notes": "dev轮完成 — v2.11.0 Skills input_modes/output_modes/examples + SK7-SK9测试。下轮: 测试轮验证",
+  "last_updated": "2026-03-28T16:23:00+08:00",
   "last_test_run": "2026-03-28T15:14:00+08:00",
-  "last_dev_run": "2026-03-28T14:44:00+08:00",
+  "last_dev_run": "2026-03-28T16:23:00+08:00",
   "last_fix_run": "2026-03-28T15:44:00+08:00",
   "last_docs_run": "2026-03-28T14:51:00+08:00",
   "last_research_run": "2026-03-28T15:47:00+08:00",
@@ -13,12 +13,12 @@
     "scenario_h_concurrent": "1/1 PASS",
     "scenario_e_nat": "14/14 PASS",
     "scenario_d_stress": "10/10 PASS",
-    "skills_lite": "6/6 PASS (SK1-SK6)",
-    "total": "127+ passed, 0 failed"
+    "skills_lite": "9/9 PASS (SK1-SK9)",
+    "total": "130+ passed, 0 failed"
   },
   "lastChecks": {
     "test": "2026-03-28T15:14:00+08:00",
-    "dev": "2026-03-28T14:44:00+08:00",
+    "dev": "2026-03-28T16:23:00+08:00",
     "fix": "2026-03-28T15:44:00+08:00",
     "docs": "2026-03-28T14:51:00+08:00",
     "research": "2026-03-28T15:47:00+08:00"
