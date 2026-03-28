@@ -380,6 +380,113 @@ pytest tests/test_sdk_package.py -v
 
 ---
 
+## LangChain Integration
+
+`acp-client` v1.8.0 ships a first-class LangChain adapter so any LangChain Agent
+can communicate with ACP peers out of the box — **with zero changes to the core SDK**
+(LangChain is an optional dependency).
+
+### Installation
+
+```bash
+# Core SDK only (no LangChain required):
+pip install acp-client
+
+# With LangChain support:
+pip install "acp-client[langchain]"
+# or equivalently:
+pip install acp-client langchain
+```
+
+### Quick-start
+
+```python
+from acp_client.integrations.langchain import ACPTool, ACPCallbackHandler, create_acp_tool
+from langchain.agents import initialize_agent, AgentType
+from langchain_openai import ChatOpenAI
+
+# 1. Create the ACP tool pointing at a running relay + peer
+tool = create_acp_tool(
+    relay_url="http://localhost:8765",   # local ACP Relay endpoint
+    peer_id="agent_b",                   # session-id of the remote peer
+    timeout=30,                          # seconds to wait for a reply
+)
+
+# 2. (Optional) Add a callback handler for audit logging
+handler = ACPCallbackHandler()
+
+# 3. Wire up a LangChain agent
+llm = ChatOpenAI(model="gpt-4o")
+agent = initialize_agent(
+    [tool],
+    llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    callbacks=[handler],
+    verbose=True,
+)
+
+# 4. Run the agent — it can now delegate to agent_b via ACP
+result = agent.run("Ask agent_b to summarise the latest AI news")
+print(result)
+```
+
+### API Reference
+
+#### `ACPTool`
+
+| Attribute | Value |
+|-----------|-------|
+| `name` | `"acp_send"` |
+| `description` | LLM-readable description of the ACP send/receive contract |
+
+```python
+ACPTool(
+    relay_url: str = "http://localhost:8765",  # ACP Relay URL
+    peer_id: str = "",                          # target peer; empty = primary peer
+    timeout: float = 30.0,                      # reply timeout in seconds
+)
+```
+
+- `_run(message: str) -> str` — synchronous; returns reply text or error string
+- `_arun(message: str) -> str` — async version (thread-pool, non-blocking)
+- On timeout or `ACPError`, returns a descriptive error string (never raises) so the LLM can observe and retry.
+
+#### `ACPCallbackHandler`
+
+```python
+ACPCallbackHandler(log_level: int = logging.INFO)
+```
+
+Records structured log entries for every ACP tool invocation:
+- `on_tool_start` — logs `tool_start` with tool name and input length
+- `on_tool_end` — logs `tool_end` with output length
+- `on_tool_error` — logs `tool_error` with exception string
+
+All events are accumulated in `handler._calls` (list of dicts) for post-run inspection.
+
+#### `create_acp_tool`
+
+```python
+from acp_client.integrations.langchain import create_acp_tool
+# or (when langchain is installed):
+from acp_client import create_acp_tool
+
+tool = create_acp_tool("http://localhost:8765", "agent_b", timeout=60)
+```
+
+Factory convenience wrapper — identical to `ACPTool(...)` but with a clean positional API.
+
+### Design Notes
+
+- **Lazy import**: LangChain is never imported at module load time. If it is absent, an
+  `ImportError` with a `pip install` hint is raised only at first instantiation.
+- **Dynamic subclassing**: `ACPTool` and `ACPCallbackHandler` build a real subclass of
+  `BaseTool` / `BaseCallbackHandler` inside `__new__`, so they are fully compatible with
+  all LangChain versions that use Pydantic v1 or v2.
+- **Zero new mandatory deps**: the core `acp_client` remains stdlib-only.
+
+---
+
 ## License
 
 Apache 2.0 — see [LICENSE](../../LICENSE).

@@ -55,7 +55,7 @@ def test_import_exceptions():
 
 def test_version():
     import acp_client
-    assert acp_client.__version__ == "1.7.0"
+    assert acp_client.__version__ == "1.8.0"
 
 
 def test_all_exports():

@@ -456,7 +456,11 @@ Client                          Server
 ### 🔮 v2.0（目标：2026-06）
 **主题：生产可用 + 生态**
 
-- [ ] `acp-client` 作为 Agent 框架标准插件（LangChain / AutoGen 集成）
+- [x] `acp-client` 作为 Agent 框架标准插件（LangChain / AutoGen 集成）
+  - ✅ `ACPTool` — LangChain BaseTool 适配器（lazy import, zero hard dependency）
+  - ✅ `ACPCallbackHandler` — LangChain CallbackHandler（tool 通信日志）
+  - ✅ `create_acp_tool()` — 工厂辅助函数（顶层导出）
+  - ✅ `sdk/python/acp_client/integrations/langchain.py` — acp_client v1.8.0 发布
 - [ ] Extension 机制（URI 标识扩展点，向 A2A 靠拢）
 - [ ] 完整 DID 文档站 + 合规认证工具公开
 

@@ -42,7 +42,19 @@ from .exceptions import (
     AuthError,
 )
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
+
+# ── Optional integrations (lazy import; framework not required) ───────────────
+# LangChain integration is available when langchain is installed:
+#   from acp_client.integrations.langchain import ACPTool, create_acp_tool
+#   from acp_client import create_acp_tool  # re-exported here for convenience
+try:
+    from .integrations.langchain import create_acp_tool  # noqa: F401
+    _langchain_available = True
+except ImportError:
+    _langchain_available = False
+
+
 __all__ = [
     # Clients
     "RelayClient",
@@ -61,4 +73,6 @@ __all__ = [
     "TaskNotCancelableError",
     "SendError",
     "AuthError",
+    # Integrations (conditional)
+    "create_acp_tool",
 ]

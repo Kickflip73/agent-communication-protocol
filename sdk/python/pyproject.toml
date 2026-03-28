@@ -36,6 +36,8 @@ dependencies = []
 http2 = ["h2>=4.0"]
 # Native async HTTP (experimental)
 async = ["httpx>=0.27"]
+# LangChain Tool adapter (ACPTool, ACPCallbackHandler)
+langchain = ["langchain>=0.1.0"]
 # Full development environment
 dev = [
     "pytest>=7.4",

@@ -11,6 +11,48 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [1.8.0] — 2026-03-28 (acp-client LangChain Tool Adapter)
+### Added
+- `sdk/python/acp_client/integrations/` — new optional integrations sub-package
+  - `langchain.py` — LangChain Tool adapter (`ACPTool`, `ACPCallbackHandler`, `create_acp_tool`)
+    - `ACPTool` — `BaseTool` subclass (lazy import; langchain is optional dep, not required for core SDK)
+      - `name = "acp_send"`, LLM-readable description
+      - `_run(message) -> str` — synchronous send + receive via `RelayClient`
+      - `_arun(message) -> str` — async wrapper (thread-pool executor, non-blocking)
+      - Graceful error handling: returns descriptive error strings, never raises, so LLM can recover
+    - `ACPCallbackHandler` — `BaseCallbackHandler` subclass (lazy import)
+      - `on_tool_start` / `on_tool_end` / `on_tool_error` — structured log entries via `logging`
+      - `_calls` list accumulates all events for post-run inspection
+    - `create_acp_tool(relay_url, peer_id, timeout=30)` — factory helper
+  - `__init__.py` — package docstring (zero required imports)
+- `__init__.py` — conditional top-level re-export of `create_acp_tool` (available when langchain installed)
+- `pyproject.toml` — new optional extra: `[langchain]` = `langchain>=0.1.0`
+- `tests/test_langchain_integration.py` — 38 test cases (all passing, mock-only, no real langchain required)
+  - TC-01: init (name, description, relay_url, peer_id, timeout)
+  - TC-02: _run success paths (send_and_recv, specific peer_id, instance method)
+  - TC-03: _run timeout (None reply → error string, no raise)
+  - TC-04: _run ACPError handling
+  - TC-05: _arun async wrapper
+  - TC-06: missing langchain ImportError with install hint
+  - TC-07: create_acp_tool factory
+  - TC-08: ACPCallbackHandler events
+  - TC-09: __repr__
+  - TC-10: integration smoke tests
+  - TC-11: public API (top-level re-export)
+  - TC-12: pyproject.toml optional dep declared
+- `sdk/python/README-sdk.md` — new "LangChain Integration" chapter
+
+### Design
+- **Lazy import pattern**: LangChain never imported at module load time; `ImportError` with pip hint raised only at first instantiation if langchain absent
+- Dynamic subclassing via `__new__`: builds a real `BaseTool`/`BaseCallbackHandler` subclass at instantiation, compatible with all LangChain versions
+- Zero new mandatory dependencies; core `acp_client` remains stdlib-only
+- Python 3.9–3.13 compatible
+
+### Bump
+- `__version__`: `1.7.0` → `1.8.0`
+
+---
+
 ## [1.7.0] — 2026-03-28 (acp-client Python pip Package)
 ### Added
 - `sdk/python/acp_client/` — new pip-installable `acp-client` package (v1.7.0)
