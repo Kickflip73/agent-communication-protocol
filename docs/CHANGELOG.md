@@ -124,6 +124,91 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.0.0] — 2026-03-28 (Automatic NAT Traversal — Three-Level P2P Integration)
+
+**主题：v1.4 NAT 穿透与 `/peers/connect` 完整集成，实现零感知自动三级降级**
+
+### Added
+- `_connect_with_nat_traversal(link, name, role)` — 三级连接策略，替换 `/peers/connect` 直连逻辑
+  - **Level 1（直连）**：ws://IP:PORT/TOKEN，3s 超时
+  - **Level 2（DCUtR 打洞）**：交换 signaling → TCP/UDP SYN 打洞，12s 超时
+  - **Level 3（Relay 降级）**：HTTP Relay（Cloudflare Worker）兜底
+- `/peers/connect` 端点现在自动调用 `_connect_with_nat_traversal()`（不再硬编码 Level 1 直连）
+- `_peers[peer_id]["transport_level"]` 字段：记录实际使用的连接级别（"direct" | "dcutr" | "relay"）
+- `--relay` 语义变更：v1.4 起从「用户主动选择 relay」→「强制 Level 3 跳过 L1+L2」
+- SSE 事件 `dcutr_started` / `dcutr_connected` / `relay_fallback`：连接过程可观测
+- http_relay scheme 链接直接进入 Level 3（跳过 L1+L2）
+
+### Changed
+- VERSION: `2.9.0` → `3.0.0`（里程碑：P2P 无中间人核心设计完整落地）
+- `/peers/connect` 路由逻辑：原始 `await guest_mode(...)` 替换为 `await _connect_with_nat_traversal(...)`
+
+### Fixed
+- BUG-037: `messages_received` 多 peer 场景计数始终为 0（懒绑定修复，commit `ced26b3`）
+  - 根因：HTTP relay 通道先于 P2P 注册处理 `acp.agent_card`，agent_name 未及时绑定
+  - 修复：`_on_message` 中增加懒绑定路径，将 `_from` 绑定到最新未命名 peer 再计数
+  - 测试：12/12 PASS（`tests/test_bug037_messages_received.py`）
+
+### Design
+- **里程碑意义**：ACP 核心设计「P2P 无中间人」完整落地
+  - 连接流程对用户完全透明，不再需要手动指定 `--relay`
+  - 最优路径（Level 1 直连）成功率 ≥70%（同网段或公网 IP 场景）
+  - NAT 穿透成功率预期 ≥55%（Full Cone / Restricted Cone NAT）
+  - 对称 NAT 自动降级 Level 3，零用户感知
+
+---
+
+## [2.9.0] — 2026-03-28 (Message History List — `GET /messages` with Filtering + Pagination)
+
+### Added
+- `GET /messages` — 历史消息列表端点（分页 + 过滤）
+  - 参数：`?limit=20&offset=0&from=<agent_name>&since=<epoch>&message_type=<type>`
+  - 响应：`{"messages":[...], "total": N, "has_more": bool, "next_offset": N}`
+  - 从 `_recv_queue` 中读取，支持 sender 过滤和时间窗口过滤
+- `[stable]` 端点声明（`spec/core-v1.3.md` 端点列表）
+- 文档更新：`docs/whats-new.md` v2.9 节
+
+### Design
+- 参考 A2A v1.0 `tasks/list` 分页模式，ACP 风格化简化（无游标，仅 offset）
+- 与 `GET /recv`（弹出队列）区分：`GET /messages` 只读不消费
+
+---
+
+## [2.8.0] — 2026-03-28 (Extension Mechanism + LangChain Adapter + Node SDK v2.1.0)
+
+### Added — Extension Mechanism（URI-identified extensions in AgentCard）
+- `_extensions` 全局变量：`[{uri, required, params}]` 扩展列表
+- `--extension <URI>` / `--extensions <URI1,URI2,...>` CLI flags
+- `POST /extensions/register` / `DELETE /extensions/{uri}` 运行时扩展管理
+- `GET /.well-known/acp.json` 始终包含 `extensions` 字段（空列表 `[]` 时不省略）
+- 自动内建扩展推导：`--identity` 启用时自动添加 `acp:ext:did_identity`，`--secret` 启用时添加 `acp:ext:hmac_signing`
+- `spec/extensions.md`：Extension URI 命名规范 + well-known 扩展表
+
+### Added — LangChain Adapter
+- `sdk/python/acp_client/integrations/langchain.py`
+  - `ACPTool`：LangChain `BaseTool` 子类，将 ACP relay 封装为 LangChain 工具
+  - `ACPCallbackHandler`：LangChain callback handler，拦截 tool call 并转发至 ACP relay
+- 可与 LangChain Agent、LCEL chain、AgentExecutor 直接集成
+
+### Added — Node.js SDK v2.1.0（Extension 支持）
+- `Extension` 类：`{uri, required, params}` — `toDict()` / `fromDict()` / `toString()`
+- `RelayClient.agentCard()` 升级为 async，自动解析 `extensions[]` 为 `Extension` 实例
+- `RelayClient.hasExtension(uri)` — 快捷检查 AgentCard 是否含指定扩展
+- `RelayClient.requiredExtensions()` — 过滤必需扩展列表
+- 向后兼容：`extensions` 字段缺失时返回 `[]`
+- `sdk/python/acp_client/__init__.py`：顶层导出 `Extension` 类（`sdk` v1.9.0）
+- 测试：14 个新增测试用例，`32/32 PASS`
+
+### Added — GitHub Pages 文档站
+- `docs/` MkDocs Material 配置（`mkdocs.yml`）
+- `docs/index.md`、`docs/getting-started/`、`docs/guides/`、`docs/spec/`
+- GitHub Pages CI workflow：`docs` 推送自动部署
+
+### Fixed
+- BUG-036: `/peer/{id}/send` 响应缺少 `server_seq` 字段（commit `da09a6f`）
+
+---
+
 ## [2.7.0] — 2026-03-28 (AgentCard `limitations` Field — Three-Part Capability Boundary)
 ### Added
 - `limitations: string[]` top-level AgentCard field: declares what this agent CANNOT do

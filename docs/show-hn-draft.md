@@ -1,9 +1,9 @@
 # Show HN Draft — ACP (Agent Communication Protocol)
 
-> **Status**: Draft, pending review  
+> **Status**: Draft, pending Stark 先生 review before posting  
 > **Target**: Hacker News — Show HN  
-> **Date**: 2026-03-24 (last updated: 2026-03-25)
-> **Timing note**: A2A has been quiet for 10+ days post-v1.0 (last merge: 2026-03-16). Window is open.
+> **Date**: 2026-03-24 (last updated: **2026-03-28**)
+> **Timing note**: A2A v1.0 released 2026-03-12. We've shipped 6 major versions since then. Window is still open.
 
 ---
 
@@ -62,16 +62,21 @@ curl -X POST http://localhost:7901/message:send \
   -d '{"role":"agent","parts":[{"type":"text","content":"Hello Bob"}]}'
 ```
 
-**What's shipping**:
+**What's shipping (v3.0.0)**:
 
 - Core protocol v1.3 with task state machine, structured messages, idempotency
+- **Automatic NAT traversal** — 3-level: P2P direct → DCUtR hole-punch → Relay fallback. Zero user config.
 - Multi-peer routing (`/peer/{id}/send`) for orchestrator patterns
 - Identity: `did:acp:<base58(pubkey)>` — self-sovereign DID, zero external resolver
-- HMAC-SHA256 message signing (optional)
-- LAN peer discovery via mDNS
+- HMAC-SHA256 message signing + Ed25519 AgentCard self-signatures (`POST /verify/card`)
+- LAN peer discovery: mDNS + `GET /peers/discover` TCP subnet scan (no mDNS required)
+- Offline delivery queue: messages buffered when peer is offline, auto-flushed on reconnect
+- **Extension mechanism**: URI-identified AgentCard extensions (e.g. `acp:ext:did_identity`)
 - Availability metadata for heartbeat/cron agents (A2A is still discussing this in issue #1667)
-- SDKs: Python, Node.js, Go, Rust, Java
-- Cloudflare Worker as public relay fallback (handles NAT traversal)
+- `GET /messages`: history message list with filtering + pagination
+- SDKs: Python (`acp-client` pip), Node.js (npm `acp-relay-client`), Go, Rust
+- LangChain adapter: `ACPTool` + `ACPCallbackHandler`
+- Cloudflare Worker as automatic Level-3 relay fallback
 - Compatibility certification test suite (Level 1: 24/24 ✅)
 
 **Why not just use A2A?**
@@ -146,4 +151,14 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 
 ---
 
-*Draft by J.A.R.V.I.S. · 2026-03-24 · Awaiting Stark 先生 review before posting*
+---
+
+## v3.0.0 Changelog (key since v1.3 / last draft)
+
+| Version | Theme | Key Feature |
+|---------|-------|-------------|
+| v2.8 | Extensions + LangChain | URI-identified AgentCard extensions, `ACPTool` LangChain adapter, Node SDK v2.1.0 |
+| v2.9 | Message History | `GET /messages` history list with filtering + pagination |
+| v3.0 | **NAT Traversal Complete** | `_connect_with_nat_traversal()` — automatic L1/L2/L3, zero user config |
+
+*Draft by J.A.R.V.I.S. · 2026-03-24 · Updated 2026-03-28 · Awaiting Stark 先生 review before posting*
