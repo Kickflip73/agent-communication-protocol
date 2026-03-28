@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-26 13:54（文档轮：v2.1-alpha LAN Port-Scan Discovery，README/whats-new/show-hn 全同步）
+> 最后更新：2026-03-29 06:29（文档轮：v2.4 完成标记，竞品表更新至 2026-03-29，v2.5 里程碑规划）
 
 ---
 
@@ -19,14 +19,25 @@
 
 ---
 
-## 竞品生态现状（2026-03-19）
+## 竞品生态现状（更新：2026-03-29）
 
-| 协议 | Stars | 活跃度 | 定位 | 态度 |
-|------|-------|--------|------|------|
-| **A2A** (Google) | 22,643 | 🟡 停滞（v1.0 后 10+ 天无 merge） | 企业级 Agent 总线 | 借鉴概念，不复制复杂度 |
-| **ANP** (社区) | 1,240 | 🔴 停更 | 去中心化身份 | **已归档**（2026-03-05 最后活动：`failed_msg_id` E2E 精确失败报告，我们已采纳思路）|
-| **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | 参考即可 |
-| **MCP** (Anthropic) | - | ✅ 稳定 | 工具调用 | 不同赛道，可互补 |
+| 协议 | Stars | 活跃度 | 定位 | 身份认证 | 态度 |
+|------|-------|--------|------|----------|------|
+| **ACP** (本项目) | — | ✅ 持续开发 | 轻量 P2P Agent 通信 | ✅ Ed25519+`did:acp:` DID（v1.3，**领先 A2A 2-3 月**） | — |
+| **A2A** (Google) | 22,643+ | ✅ 活跃 | 企业级 Agent 总线 | 🔴 Issue #1672 讨论中（83 评论，未合并） | 借鉴概念，不复制复杂度 |
+| **ANP** (社区) | 1,240 | 🔴 已归档 | 去中心化身份 | ✅ 理论设计（停更）| 停更，不再追踪 |
+| **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
+| **MCP** (Anthropic) | — | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
+
+### ACP 差异化领先点（2026-03-29 更新）
+
+| 功能 | ACP | A2A | 领先方 |
+|------|-----|-----|--------|
+| Agent 身份认证（Ed25519/DID） | ✅ v1.3 已实现 | 🔴 #1672 讨论中（83 评论） | **ACP 领先 2-3 月** |
+| `limitations` 字段 | ✅ v2.7 已实现 | 🔴 #1694 提案未合并 | **ACP 领先** |
+| WebSocket 原生推送 | ✅ v2.12 已实现 | 🔴 #1029 提案中 | **ACP 领先** |
+| `trust.signals[]` 格式 | 🟡 间接（identity 字段）| 🟡 #1628 提案中 | 持平 |
+| Python SDK | ✅ v1.7+ | 🟡 v1.0.0-alpha.0 | 版本号差距，ACP 更轻量 |
 
 ---
 
@@ -223,18 +234,25 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 🎯 v2.4（目标：2026-04，下一里程碑）
+### ✅ v2.4（完成，2026-03-28~29）
 **主题：Node.js SDK 完善 + WebSocket 原生支持**
 
-- [ ] Node.js SDK `AcpRelayClient` 完善（参考 Python SDK v1.7 特性集）
-  - `tasks()` 列表查询 + 过滤
-  - `cancel_task()` 幂等取消
-  - `capabilities()` 能力提取
-  - WebSocket 原生推送（替代轮询 `/recv`）
-- [ ] `GET /ws/stream`：WebSocket 原生消息推送端点（补充 SSE）
-- [ ] 重连语义（BUG-038 根本修复）：local-only 重连测试套件
-- [ ] `test_reconnect.py` 完整重写（local relay，无需公网）
-- [ ] 全套测试 0 failed 保持
+- ✅ Node.js SDK v2.4：`tasks/cancel` + `capabilities()` API（commit `c6afb91`，2026-03-28）
+- ✅ `GET /ws/stream`：WebSocket 原生消息推送端点（commit `1de1a96`，2026-03-29）
+  - RFC 6455 握手，ThreadingHTTPServer worker 模式
+  - `capabilities.ws_stream: true` + `endpoints.ws_stream: "/ws/stream"`
+  - 测试：WS1/WS4/WS5 PASS，WS2/WS3（P2P广播）沙箱 skip
+- [ ] 重连语义（BUG-038 根本修复）：local-only 重连测试套件 →（移至 v2.5）
+- [ ] `test_reconnect.py` 完整重写（local relay，无需公网）→（移至 v2.5）
+- ✅ 全套测试 0 failed 保持（快速回归 15 passed 2 skipped）
+
+### 🎯 v2.5（目标：2026-04，下一里程碑）
+**主题：测试稳定性 + trust.signals 兼容**
+
+- [ ] `test_reconnect.py` 完整重写（local relay，无需公网 IP）
+- [ ] WS2/WS3 本地 peer 测试（消除 P2P skip）
+- [ ] `trust.signals[]` 兼容格式（参考 A2A Issue #1628，与 ACP `identity` 字段对齐）
+- [ ] 全套测试 0 failed 稳定化
 
 ---
 

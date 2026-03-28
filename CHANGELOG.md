@@ -7,6 +7,55 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.12.0] — 2026-03-29 (GET /ws/stream — WebSocket Native Push Endpoint)
+
+### Added
+- **`GET /ws/stream`** — WebSocket native push endpoint (Upgrade: websocket)
+  - Clients subscribe by connecting to `ws://<host>:<http_port>/ws/stream`
+  - On each `_broadcast_sse_event()` call, all connected WS clients receive a JSON frame:
+    ```json
+    {"event": "acp.message", "data": {"message_id": "...", "from": "...", "parts": [...], "timestamp": "...", "server_seq": 42}}
+    ```
+  - Supports `acp.message` and `acp.peer` event types
+  - `_ws_stream_clients: set` tracks active subscribers; dead connections auto-pruned on next broadcast
+  - `_handle_ws_stream()` runs in ThreadingHTTPServer worker thread (no asyncio dependency)
+  - `_broadcast_ws_stream_event()` called from `_broadcast_sse_event()` — single dispatch path
+- **AgentCard** updated:
+  - `capabilities.ws_stream: true`
+  - `endpoints.ws_stream: "/ws/stream"`
+- **`tests/test_ws_stream.py`** — WS1–WS5 test suite
+  - WS1: HTTP 101 Switching Protocols handshake ✅
+  - WS2: `acp.message` event delivery to WS subscriber (requires P2P peer; skip in sandbox) ⏭
+  - WS3: Multi-client broadcast — all connected clients receive same event (requires P2P; skip in sandbox) ⏭
+  - WS4: Client disconnect cleanup — relay survives, no crash ✅
+  - WS5: `capabilities.ws_stream` + `endpoints.ws_stream` in AgentCard ✅
+
+### Changed
+- VERSION: `2.11.0` → `2.12.0`
+
+### Design Notes
+- Complements existing SSE `/stream` endpoint: SSE is unidirectional HTTP/1.1 keep-alive; WS provides a proper bidirectional upgrade for clients that prefer WebSocket
+- Implemented via raw WebSocket handshake inside ThreadingHTTPServer (SHA-1 + base64 accept key, RFC 6455 compliant)
+- Broadcast is fire-and-forget; broken connections detected lazily on next send (no heartbeat overhead)
+
+### Competitive Context
+- A2A `#1029` (pub/sub async, 17 comments) remains unimplemented; ACP ws/stream delivers real-time push ahead of A2A
+
+---
+
+## [2.11.0] — 2026-03-28 (Node.js SDK v2.4 — tasks/cancel, capabilities API)
+
+### Added (SDK: `sdk/node/`)
+- **`client.tasks.cancel(taskId)`** — cancel a running task
+- **`client.capabilities()`** — fetch AgentCard capabilities object
+- Node.js SDK version: `2.3.x` → `2.4.0`
+- Tests: `sdk/node/tests/` suite updated (all pass)
+
+### Changed
+- VERSION: `2.10.0` → `2.11.0`
+
+---
+
 ## [2.10.0] — 2026-03-28 (Skills-lite — Structured Skill Declaration + GET /skills)
 
 ### Added
