@@ -1,22 +1,22 @@
 {
   "last_research_scan": "2026-03-28T15:47:00+08:00",
-  "next_round": "test",
-  "notes": "文档轮: v2.11.0 input_modes/output_modes/examples + BUG-039 security fix 文档已更新; 下轮: test",
-  "last_updated": "2026-03-28T16:57:00+08:00",
-  "last_test_run": "2026-03-28T16:27:00+08:00",
+  "next_round": "fix",
+  "notes": "测试轮R12完成: SK1-SK9 9/9, D1-D16 16/16, WH1/WH2 PASS(BUG-039验证), BUG-040修复(测试兼容v2.11.0). 下轮: fix(BUG-040已修复,检查其他P2)",
+  "last_updated": "2026-03-28T17:33:00+08:00",
+  "last_test_run": "2026-03-28T17:33:00+08:00",
   "last_dev_run": "2026-03-28T16:26:00+08:00",
   "last_fix_run": "2026-03-28T16:27:00+08:00",
   "last_docs_run": "2026-03-28T16:57:00+08:00",
   "last_research_run": "2026-03-28T15:47:00+08:00",
   "test_summary": {
-    "skills_v2.11.0": "9/9 PASS (SK1-SK9)",
-    "scenario_g_reconnect": "3/3 PASS (GR1/GR2/GR3)",
-    "scenario_h_concurrent": "1/1 PASS",
-    "scenario_e_nat": "14/14 PASS",
-    "total": "130+ passed, 0 failed"
+    "round12_skills_v2.11.0": "9/9 PASS (SK1-SK9)",
+    "round12_scenario_d": "16/16 PASS (D1-D16)",
+    "round12_webhook_security": "2/2 PASS (WH1 localhost ok, WH2 remote rejected)",
+    "round12_round_tests": "8 passed, 2 skipped (public-net)",
+    "total": "145+ passed, 0 failed"
   },
   "lastChecks": {
-    "test": "2026-03-28T16:27:00+08:00",
+    "test": "2026-03-28T17:33:00+08:00",
     "dev": "2026-03-28T16:26:00+08:00",
     "fix": "2026-03-28T16:27:00+08:00",
     "docs": "2026-03-28T16:57:00+08:00",
