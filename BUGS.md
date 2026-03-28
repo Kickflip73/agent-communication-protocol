@@ -1158,11 +1158,11 @@ w1_orch_peer = max(
 
 ---
 
-### BUG-042 ⚠️ P3 — relay-to-relay 通过 `/peers/connect` 无法建立稳定连接（`_connect_with_nat_traversal` Level 1 + BUG-041 dedup 竞态）
+### BUG-042 ✅ P3 — relay-to-relay 通过 `/peers/connect` 无法建立稳定连接（`_connect_with_nat_traversal` Level 1 + BUG-041 dedup 竞态）
 
 **发现**：2026-03-28 BUG-038 v3 修复过程中（relay-to-relay 架构调研）
 **优先级**：P3（测试架构问题，非生产影响；已通过 `--join` 绕过）
-**状态**：⚠️ 已知问题 — 有绕过方案，不影响当前测试
+**状态**：✅ 已修复（2026-03-28 commit `6831f76`）
 
 **现象**：
 当 Relay A 通过 `POST /peers/connect {"link": "acp://127.0.0.1:<beta_ws>/<token>"}` 尝试连接 Relay B 时：
@@ -1176,12 +1176,36 @@ w1_orch_peer = max(
 - 但关闭前 Beta 已注册了这个 peer（`connected=True`）
 - `guest_mode` 的实际连接被 BUG-041 dedup 误判为 duplicate 而拒绝
 
-**绕过方案**（已在 test_reconnect.py v3 中使用）：
-使用 `--join acp://127.0.0.1:<host_ws>/<token>` 启动 Beta relay，**直接调用 `guest_mode()`**，跳过 `_connect_with_nat_traversal`（无 Level 1 测试连接，无竞态）
+**修复方案（relay 源码层 + 测试层双重修复）**：
 
-**根本修复方向**（不修改测试，需改 relay 源码）：
-- `_connect_with_nat_traversal` Level 1 成功后，应直接 `return (peer_id, "direct")` **而不打开新的** `guest_mode`
-- 或者：Level 1 的测试连接应在 `guest_mode` 接管后关闭（手动传递 ws 给 guest_mode）
+*relay 源码层（`relay/acp_relay.py`，约 20 行改动）*：
+- 给 `guest_mode()` 新增 `_existing_ws=None` 参数
+- 当 `_existing_ws` 非空时，直接使用已建立的 WS 对象运行消息循环（`async with _existing_ws as ws:`），跳过新建连接
+- `_connect_with_nat_traversal` Level 1 成功后改为：
+  `asyncio.ensure_future(guest_mode(host, port, token, http_port, _existing_ws=ws))`
+- 只有一个 WS 连接被建立，BUG-041 dedup 永远不会误触发
+
+*测试层（`tests/test_dcutr_t6_scenario_a.py`，完整重写）*：
+- 改为标准 pytest 格式（7 个 test 函数 + module-scoped fixture）
+- Alpha(host) + Beta(`--join` Alpha) 架构，直接调用 `guest_mode()`，无 NAT 竞态
+- 动态端口分配，`--timeout=120`
+
+**测试验证**：
+```
+pytest tests/test_dcutr_t6_scenario_a.py -v
+  test_t6_1_relay_health   PASSED
+  test_t6_2_agent_card     PASSED
+  test_t6_3_alpha_to_beta  PASSED
+  test_t6_4_beta_receives  PASSED
+  test_t6_5_beta_to_alpha  PASSED
+  test_t6_6_alpha_receives PASSED
+  test_t6_7_task_state     PASSED
+  7 passed in 38.82s
+```
+
+**不破坏性验证**：
+- `test_scenario_bc.py`：1 skipped（需公网，标记 `@pytest.mark.p2p`，未修改）
+- `test_reconnect.py`：使用 `--join` 绕过，修复后继续正常工作
 
 
 ---
