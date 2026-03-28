@@ -1,6 +1,6 @@
 /**
  * acp-relay-client — ESM entry point
- * Agent Communication Protocol (ACP) Node.js SDK v0.9.0-dev
+ * Agent Communication Protocol (ACP) Node.js SDK v2.1.0
  *
  * @example
  * import { RelayClient } from 'acp-relay-client';
@@ -12,7 +12,7 @@
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
-const { RelayClient, httpGet, httpPost, sseStream } = require('./relay_client.js');
+const { RelayClient, Extension, httpGet, httpPost, sseStream } = require('./relay_client.js');
 
-export { RelayClient, httpGet, httpPost, sseStream };
+export { RelayClient, Extension, httpGet, httpPost, sseStream };
 export default RelayClient;

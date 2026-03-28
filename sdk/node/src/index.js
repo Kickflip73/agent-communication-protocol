@@ -1,7 +1,7 @@
 /**
  * acp-relay-client — Node.js SDK for the Agent Communication Protocol
  *
- * @version 0.9.0-dev
+ * @version 2.1.0
  * @license Apache-2.0
  *
  * @example
@@ -12,10 +12,11 @@
 
 'use strict';
 
-const { RelayClient, httpGet, httpPost, sseStream } = require('./relay_client');
+const { RelayClient, Extension, httpGet, httpPost, sseStream } = require('./relay_client');
 
 module.exports = {
   RelayClient,
+  Extension,
   // Low-level utilities (for power users / custom integrations)
   httpGet,
   httpPost,

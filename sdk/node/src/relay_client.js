@@ -1,6 +1,8 @@
 /**
  * RelayClient — Node.js HTTP client for a running acp_relay.py instance.
  *
+ * @version 2.1.0
+ *
  * Zero external dependencies. Uses only Node.js built-in `http`/`https` modules.
  * Requires Node.js >= 18 (fetch API available built-in, or use http module).
  *
@@ -205,6 +207,44 @@ async function* sseStream(url, options = {}) {
 
 
 // ─────────────────────────────────────────────
+// Extension class
+// ─────────────────────────────────────────────
+
+/**
+ * Extension — represents a single ACP extension declaration in AgentCard.
+ * Mirrors Python acp_client.models.Extension
+ */
+class Extension {
+  /**
+   * @param {string} uri - Extension URI (e.g. "acp:ext:hmac-v1")
+   * @param {boolean} [required=false]
+   * @param {object} [params={}]
+   */
+  constructor(uri, required = false, params = {}) {
+    this.uri = uri;
+    this.required = required;
+    this.params = params;
+  }
+
+  /** @returns {object} */
+  toDict() {
+    return { uri: this.uri, required: this.required, params: this.params };
+  }
+
+  /**
+   * @param {object} data
+   * @returns {Extension}
+   */
+  static fromDict(data) {
+    return new Extension(data.uri ?? '', data.required ?? false, data.params ?? {});
+  }
+
+  toString() {
+    return `Extension(uri=${this.uri}, required=${this.required})`;
+  }
+}
+
+// ─────────────────────────────────────────────
 // RelayClient class
 // ─────────────────────────────────────────────
 
@@ -236,8 +276,32 @@ class RelayClient {
   /** Get relay status and AgentCard. */
   status() { return this._get('/status'); }
 
-  /** Get the AgentCard (/.well-known/acp.json). */
-  agentCard() { return this._get('/.well-known/acp.json'); }
+  /** Get the AgentCard (/.well-known/acp.json). Parses extensions[] into Extension instances. */
+  async agentCard() {
+    const data = await httpGet(`${this.baseUrl}/.well-known/acp.json`, { timeout: this.timeout });
+    // Parse extensions
+    data.extensions = (data.extensions ?? []).map(e => Extension.fromDict(e));
+    return data;
+  }
+
+  /**
+   * Check if the agent declares a specific extension.
+   * @param {string} uri - Extension URI to look up
+   * @returns {Promise<boolean>}
+   */
+  async hasExtension(uri) {
+    const card = await this.agentCard();
+    return card.extensions.some(e => e.uri === uri);
+  }
+
+  /**
+   * Get all required extensions from the AgentCard.
+   * @returns {Promise<Extension[]>}
+   */
+  async requiredExtensions() {
+    const card = await this.agentCard();
+    return card.extensions.filter(e => e.required);
+  }
 
   // ── Messaging ──────────────────────────────
 
@@ -427,4 +491,4 @@ class RelayClient {
   }
 }
 
-module.exports = { RelayClient, httpGet, httpPost, sseStream };
+module.exports = { RelayClient, Extension, httpGet, httpPost, sseStream };

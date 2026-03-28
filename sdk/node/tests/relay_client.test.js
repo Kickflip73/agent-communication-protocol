@@ -10,7 +10,7 @@
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
-const { RelayClient } = require('../src/index');
+const { RelayClient, Extension } = require('../src/index');
 
 // ─────────────────────────────────────────────
 // Mock HTTP server
@@ -291,5 +291,136 @@ describe('reply()', () => {
     await c.reply('msg_original', 'Here is my reply');
     assert.strictEqual(received.reply_to, 'msg_original');
     assert.strictEqual(received.parts[0].content, 'Here is my reply');
+  });
+});
+
+// ─── Extension Tests ───────────────────────────────
+describe('Extension class', () => {
+  test('constructor defaults', () => {
+    const ext = new Extension('acp:ext:hmac-v1');
+    assert.strictEqual(ext.uri, 'acp:ext:hmac-v1');
+    assert.strictEqual(ext.required, false);
+    assert.deepStrictEqual(ext.params, {});
+  });
+
+  test('constructor with params', () => {
+    const ext = new Extension('acp:ext:hmac-v1', true, { scheme: 'hmac-sha256' });
+    assert.strictEqual(ext.required, true);
+    assert.deepStrictEqual(ext.params, { scheme: 'hmac-sha256' });
+  });
+
+  test('toDict round-trip', () => {
+    const ext = new Extension('acp:ext:test-v1', false, { foo: 'bar' });
+    const d = ext.toDict();
+    assert.deepStrictEqual(d, { uri: 'acp:ext:test-v1', required: false, params: { foo: 'bar' } });
+  });
+
+  test('fromDict', () => {
+    const ext = Extension.fromDict({ uri: 'acp:ext:mdns-v1', required: true, params: {} });
+    assert.strictEqual(ext.uri, 'acp:ext:mdns-v1');
+    assert.strictEqual(ext.required, true);
+  });
+
+  test('fromDict missing fields', () => {
+    const ext = Extension.fromDict({});
+    assert.strictEqual(ext.uri, '');
+    assert.strictEqual(ext.required, false);
+    assert.deepStrictEqual(ext.params, {});
+  });
+
+  test('toString', () => {
+    const ext = new Extension('acp:ext:hmac-v1', false);
+    assert.ok(ext.toString().includes('acp:ext:hmac-v1'));
+  });
+});
+
+describe('RelayClient.agentCard() extensions parsing', () => {
+  test('parses extensions array into Extension instances', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'TestAgent',
+        version: '2.1.0',
+        capabilities: {},
+        extensions: [
+          { uri: 'acp:ext:hmac-v1', required: false, params: { scheme: 'hmac-sha256' } },
+          { uri: 'acp:ext:mdns-v1', required: false, params: {} },
+        ],
+      });
+    });
+    const client = makeClient();
+    const card = await client.agentCard();
+    assert.strictEqual(card.extensions.length, 2);
+    assert.ok(card.extensions[0] instanceof Extension);
+    assert.strictEqual(card.extensions[0].uri, 'acp:ext:hmac-v1');
+    assert.strictEqual(card.extensions[1].uri, 'acp:ext:mdns-v1');
+  });
+
+  test('handles empty extensions array', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { name: 'TestAgent', version: '2.1.0', extensions: [] });
+    });
+    const client = makeClient();
+    const card = await client.agentCard();
+    assert.deepStrictEqual(card.extensions, []);
+  });
+
+  test('handles missing extensions field (backward compat)', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { name: 'OldAgent', version: '1.0.0' });
+    });
+    const client = makeClient();
+    const card = await client.agentCard();
+    assert.deepStrictEqual(card.extensions, []);
+  });
+});
+
+describe('RelayClient.hasExtension()', () => {
+  test('returns true when extension present', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.1.0',
+        extensions: [{ uri: 'acp:ext:hmac-v1', required: false, params: {} }],
+      });
+    });
+    const client = makeClient();
+    assert.strictEqual(await client.hasExtension('acp:ext:hmac-v1'), true);
+  });
+
+  test('returns false when extension absent', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { name: 'Agent', version: '2.1.0', extensions: [] });
+    });
+    const client = makeClient();
+    assert.strictEqual(await client.hasExtension('acp:ext:hmac-v1'), false);
+  });
+});
+
+describe('RelayClient.requiredExtensions()', () => {
+  test('returns only required extensions', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.1.0',
+        extensions: [
+          { uri: 'acp:ext:hmac-v1', required: true, params: {} },
+          { uri: 'acp:ext:mdns-v1', required: false, params: {} },
+        ],
+      });
+    });
+    const client = makeClient();
+    const req = await client.requiredExtensions();
+    assert.strictEqual(req.length, 1);
+    assert.strictEqual(req[0].uri, 'acp:ext:hmac-v1');
+  });
+
+  test('returns empty array when none required', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        name: 'Agent', version: '2.1.0',
+        extensions: [{ uri: 'acp:ext:mdns-v1', required: false, params: {} }],
+      });
+    });
+    const client = makeClient();
+    const req = await client.requiredExtensions();
+    assert.deepStrictEqual(req, []);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * TypeScript type declarations for acp-sdk v0.8.0
+ * TypeScript type declarations for acp-sdk v2.1.0
  */
 
 export interface AcpPart {
@@ -61,6 +61,28 @@ export interface AcpSkill {
   [key: string]: unknown;
 }
 
+export declare class Extension {
+  uri: string;
+  required: boolean;
+  params: Record<string, unknown>;
+  constructor(uri: string, required?: boolean, params?: Record<string, unknown>);
+  toDict(): { uri: string; required: boolean; params: Record<string, unknown> };
+  static fromDict(data: { uri?: string; required?: boolean; params?: Record<string, unknown> }): Extension;
+  toString(): string;
+}
+
+export interface AgentCard {
+  name: string;
+  version: string;
+  link?: string;
+  capabilities?: Record<string, boolean>;
+  limitations?: string[];
+  extensions: Extension[];
+  transport_modes?: string[];
+  supported_transports?: string[];
+  [key: string]: unknown;
+}
+
 export interface SseEvent {
   type: string;
   data: string;
@@ -97,7 +119,9 @@ export declare class RelayClient {
 
   // Status & discovery
   status(): Promise<AcpStatus>;
-  agentCard(): Promise<unknown>;
+  agentCard(): Promise<AgentCard>;
+  hasExtension(uri: string): Promise<boolean>;
+  requiredExtensions(): Promise<Extension[]>;
 
   // Messaging
   send(text: string, extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string }>;
