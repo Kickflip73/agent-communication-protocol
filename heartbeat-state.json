@@ -1,16 +1,18 @@
 {
   "last_research_scan": "2026-03-28T01:36:00Z",
-  "next_round": "dev",
-  "notes": "测试轮 D+H（2026-03-28 Round 2）：SDK 183/183 PASS；全套回归 318 passed 6 skipped 0 failed；场景D压测（100条消息/并发/断线重连）10/10 PASS；场景H并发压力 1/1 PASS。无新 Bug，ACP 全链路健康。",
-  "last_updated": "2026-03-28T10:25:00+08:00",
-  "last_test_run": "2026-03-28T10:25:00+08:00",
-  "test_summary": {
-    "sdk": {"passed": 183, "failed": 0},
-    "scenario_d_stress": {"passed": 10, "failed": 0, "note": "100 sequential msgs, concurrent sends, disconnect-reconnect, large msg, malformed JSON all pass"},
-    "scenario_h": {"passed": 1, "failed": 0, "note": "Multi-agent concurrent relay stress test pass"},
-    "full_regression": {"passed": 318, "skipped": 6, "failed": 0}
+  "next_round": "test",
+  "notes": "开发轮 Extension 机制（2026-03-28）：relay VERSION 2.7.0→2.8.0；_make_builtin_extensions() 自动注册 hmac/mdns/h2c；AgentCard 始终包含 extensions:[]；--extensions 批量 CLI flag；SDK Extension 数据类 + AgentCard.extensions 字段 + has/get/required 便捷方法；向后兼容；spec §5.5 完整说明；tests/test_extensions.py 39 用例全绿；全套单元测试 195 passed 0 failed；commit 2eaa357 已 push。",
+  "last_updated": "2026-03-28T10:35:00+08:00",
+  "last_dev_run": "2026-03-28T10:35:00+08:00",
+  "dev_summary": {
+    "version": "2.8.0",
+    "feature": "Extension mechanism",
+    "tests_new": 39,
+    "tests_regression": 195,
+    "commit": "2eaa357"
   },
   "lastChecks": {
-    "test": "2026-03-28T10:25:00+08:00"
+    "test": "2026-03-28T10:25:00+08:00",
+    "dev": "2026-03-28T10:35:00+08:00"
   }
 }
