@@ -1005,3 +1005,33 @@ def wait_all_links(ports, timeout=60):
 100KB 消息被接受（正确行为），1.1MB 消息被正确拒绝（413 ERR_MSG_TOO_LARGE）。无新 Bug。
 
 *最后更新：2026-03-28 by J.A.R.V.I.S.*
+
+---
+
+### BUG-038 🟡 P2 — `test_reconnect.py` 整体架构依赖外网云 relay 注册（`session_id` + `/link` token），沙箱环境全部失败
+
+**发现**：2026-03-28 场景 G 测试（心跳 Round 11）
+**优先级**：P2（测试架构需重写，非代码功能缺陷）
+**状态**：🟡 部分修复（`_start_relay` 已去除 session_id 等待，但 `_get_token` 仍依赖外网）
+
+**复现**：
+```
+pytest tests/test_reconnect.py -v
+```
+
+**根因**（两层）：
+1. `_start_relay()` 原本等待 `session_id` 非空 → **已修复**（现在只等 HTTP 200）
+2. `_get_token()` 通过 `/link` endpoint 获取 cloud token，无外网时 `/link` 不返回有效 token，40次轮询后抛出 `RuntimeError: Could not obtain relay token`
+
+**核心问题**：`test_reconnect.py` 的设计假设 relay 可以连接公网云 relay 并取得分享 token，整个 GR1–GR3 场景都用这个 token 来建立 P2P 连接。沙箱无外网，这条路走不通。
+
+**受影响**：GR1、GR2、GR3（全部 3 个测试）
+
+**正确修复方案**（下一个修复轮）：
+重写 `test_reconnect.py`，改用 **local-only 模式**测试重连：
+- 两个 relay 实例直接通过 WS URL（`ws://127.0.0.1:<port>`）互连，不需要云 token
+- GR1：同 relay 重连 — 断开 WS → 重新 connect → 收发消息
+- GR2：relay 重启 — kill relay → 重启 → Agent 重新 connect
+- GR3：离线队列 — 断开 → 对方发消息 → 重连 → 验证消息缓冲
+
+**Commit**：`_start_relay` 部分修复已在 test_reconnect.py 中（待提交）
