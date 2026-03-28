@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.11.0"  # v2.11: skill input_modes/output_modes/examples fields + /skills/query input_mode filter
+VERSION = "2.12.0"  # v2.12: GET /ws/stream WebSocket native push endpoint
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -306,6 +306,11 @@ _sync_pending: dict  = {}
 _sse_subscribers     = []
 _push_webhooks       = []
 _sse_notify          = threading.Event()   # BUG-009 fix: signal SSE handlers on new event
+
+# v2.12: WebSocket /ws/stream native push clients
+# Each entry is a socket-like object with a send_ws_text(data: str) method
+_ws_stream_clients: set = set()
+_ws_stream_lock = threading.Lock()
 
 # v2.3: SSE event sequence counter — monotonically-increasing global seq for all SSE events.
 # Clients use seq to detect out-of-order or dropped events without relying on wall-clock timestamps.
@@ -1081,6 +1086,7 @@ def _make_agent_card(name, skills):
             ),
             "sse_seq":            True,                         # v2.3: SSE events carry global seq + named event types
             "task_cancelling":    True,                         # v2.6: `cancelling` intermediate state before `canceled` (ACP-unique, fills A2A #1684/#1680 gap)
+            "ws_stream":          True,                         # v2.12: GET /ws/stream WebSocket native push endpoint
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1112,6 +1118,7 @@ def _make_agent_card(name, skills):
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
+            "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -1340,6 +1347,8 @@ def _broadcast_sse_event(event_type, payload):
     for q in _sse_subscribers:
         q.append(event)
     _sse_notify.set()   # BUG-009 fix: wake up SSE polling handlers immediately
+    # v2.12: also broadcast to WebSocket /ws/stream clients
+    _broadcast_ws_stream_event(event_type, event)
 
 
 # v2.3: SSE event type → named SSE event field mapping.
@@ -1377,6 +1386,240 @@ def _deliver_push(url, body):
         log.info(f"Push delivered -> {url}")
     except Exception as e:
         log.warning(f"Push failed -> {url}: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WebSocket /ws/stream native push (v2.12)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ws_handshake(handler):
+    """
+    Perform a RFC 6455 WebSocket upgrade handshake on an HTTP handler.
+    Returns the raw socket on success, raises on failure.
+
+    Steps:
+      1. Read Sec-WebSocket-Key from headers
+      2. Compute accept key = base64(SHA1(key + magic))
+      3. Send 101 Switching Protocols response (MUST be HTTP/1.1)
+
+    Note: BaseHTTPRequestHandler.send_response() uses HTTP/1.0 by default.
+    We write the 101 response directly as raw bytes to ensure HTTP/1.1.
+    """
+    import hashlib as _hashlib
+    import base64 as _base64_mod
+
+    key = handler.headers.get("Sec-WebSocket-Key", "").strip()
+    if not key:
+        handler.send_response(400)
+        handler.end_headers()
+        raise ValueError("Missing Sec-WebSocket-Key")
+
+    magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    accept = _base64_mod.b64encode(
+        _hashlib.sha1((key + magic).encode()).digest()
+    ).decode()
+
+    # Write HTTP/1.1 101 response directly (bypass BaseHTTPRequestHandler
+    # which defaults to HTTP/1.0; websockets library requires HTTP/1.1)
+    response = (
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Accept: {accept}\r\n"
+        "\r\n"
+    )
+    handler.wfile.write(response.encode())
+    handler.wfile.flush()
+    return handler.connection
+
+
+def _ws_send_frame(sock, data: str):
+    """
+    Send a WebSocket text frame (opcode 0x1) over a raw socket.
+    Uses a simple unmasked frame (server→client frames are unmasked per RFC 6455).
+    """
+    payload = data.encode("utf-8")
+    length = len(payload)
+    header = bytearray()
+    header.append(0x81)  # FIN=1, opcode=text(1)
+    if length < 126:
+        header.append(length)
+    elif length < 65536:
+        header.append(126)
+        header += length.to_bytes(2, "big")
+    else:
+        header.append(127)
+        header += length.to_bytes(8, "big")
+    sock.sendall(bytes(header) + payload)
+
+
+def _ws_recv_frame(sock):
+    """
+    Receive a single WebSocket frame from client.
+    Returns (opcode, payload_bytes) or raises on close/error.
+    Handles masking (client→server frames are always masked per RFC 6455).
+    """
+    # Read first 2 bytes
+    header = b""
+    while len(header) < 2:
+        chunk = sock.recv(2 - len(header))
+        if not chunk:
+            raise ConnectionResetError("WS connection closed")
+        header += chunk
+
+    fin   = (header[0] & 0x80) != 0
+    opcode = header[0] & 0x0F
+    masked = (header[1] & 0x80) != 0
+    length = header[1] & 0x7F
+
+    if length == 126:
+        lb = b""
+        while len(lb) < 2:
+            lb += sock.recv(2 - len(lb))
+        length = int.from_bytes(lb, "big")
+    elif length == 127:
+        lb = b""
+        while len(lb) < 8:
+            lb += sock.recv(8 - len(lb))
+        length = int.from_bytes(lb, "big")
+
+    mask_key = b""
+    if masked:
+        while len(mask_key) < 4:
+            mask_key += sock.recv(4 - len(mask_key))
+
+    payload = b""
+    while len(payload) < length:
+        chunk = sock.recv(length - len(payload))
+        if not chunk:
+            raise ConnectionResetError("WS connection closed during payload")
+        payload += chunk
+
+    if masked:
+        payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+
+    return opcode, payload
+
+
+class _WsStreamClient:
+    """Wrapper around a raw socket for a /ws/stream subscriber."""
+    def __init__(self, sock):
+        self._sock = sock
+        self._lock = threading.Lock()
+        self.closed = False
+
+    def send(self, data: str):
+        if self.closed:
+            return
+        try:
+            with self._lock:
+                _ws_send_frame(self._sock, data)
+        except Exception:
+            self.closed = True
+
+    def close(self):
+        self.closed = True
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+
+
+def _broadcast_ws_stream_event(event_type: str, event: dict):
+    """
+    v2.12: Broadcast a typed event to all /ws/stream WebSocket subscribers.
+
+    Maps ACP event types to WS event names:
+      message → acp.message
+      peer    → acp.peer
+      status  → acp.task.status
+      artifact→ acp.task.artifact
+      *       → acp.<type>
+    """
+    _WS_EVENT_NAMES = {
+        "message":  "acp.message",
+        "peer":     "acp.peer",
+        "status":   "acp.task.status",
+        "artifact": "acp.task.artifact",
+    }
+    ws_event_name = _WS_EVENT_NAMES.get(event_type, f"acp.{event_type}")
+
+    # Build the WS push payload
+    # For message events, reshape data to match spec:
+    # { event, data: { message_id, from, parts, timestamp, server_seq } }
+    if event_type == "message":
+        ws_payload = json.dumps({
+            "event": ws_event_name,
+            "data": {
+                "message_id": event.get("message_id"),
+                "from":       event.get("role", "agent"),
+                "parts":      event.get("parts", []),
+                "timestamp":  event.get("ts"),
+                "server_seq": event.get("seq"),
+            }
+        }, ensure_ascii=False)
+    else:
+        ws_payload = json.dumps({
+            "event": ws_event_name,
+            "data":  event,
+        }, ensure_ascii=False)
+
+    dead = set()
+    with _ws_stream_lock:
+        clients = set(_ws_stream_clients)
+
+    for client in clients:
+        client.send(ws_payload)
+        if client.closed:
+            dead.add(client)
+
+    if dead:
+        with _ws_stream_lock:
+            _ws_stream_clients.difference_update(dead)
+
+
+def _handle_ws_stream(handler):
+    """
+    v2.12: Handle a /ws/stream WebSocket connection lifecycle.
+    Called from do_GET when path == /ws/stream and Upgrade: websocket.
+    Runs in the ThreadingHTTPServer worker thread for this connection.
+    """
+    try:
+        sock = _ws_handshake(handler)
+    except Exception as e:
+        log.warning(f"/ws/stream handshake failed: {e}")
+        return
+
+    client = _WsStreamClient(sock)
+    with _ws_stream_lock:
+        _ws_stream_clients.add(client)
+
+    log.info(f"/ws/stream client connected (total={len(_ws_stream_clients)})")
+
+    try:
+        # Keep-alive loop: read frames from client (handle ping/close)
+        # We don't need to process client→server data, just detect disconnects
+        sock.settimeout(60.0)
+        while not client.closed:
+            try:
+                opcode, payload = _ws_recv_frame(sock)
+                if opcode == 0x8:  # close frame
+                    break
+                elif opcode == 0x9:  # ping → pong
+                    _ws_send_frame(sock, "")  # minimal pong (opcode 0xA)
+                    # Actually send proper pong
+                    pong = bytearray([0x8A, len(payload)]) + payload
+                    sock.sendall(bytes(pong))
+                # ignore text/binary frames from client
+            except OSError:
+                break
+    except Exception:
+        pass
+    finally:
+        client.close()
+        with _ws_stream_lock:
+            _ws_stream_clients.discard(client)
+        log.info(f"/ws/stream client disconnected (total={len(_ws_stream_clients)})")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2928,6 +3171,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
                             except Exception: pass
             limit = int(qs.get("limit", ["100"])[0])
             self._json({"history": history[-limit:], "total": len(history)})
+
+        elif p == "/ws/stream":  # v2.12: WebSocket native push stream
+            upgrade = self.headers.get("Upgrade", "").lower()
+            if upgrade != "websocket":
+                self._json({"error": "WebSocket upgrade required", "hint": "Set 'Upgrade: websocket' header"}, 426)
+                return
+            # Delegate to WS handler (runs in this thread — blocking)
+            self.close_connection = True
+            _handle_ws_stream(self)
 
         elif p == "/stream":  # [stable] SSE event stream
             # BUG-001 additional fix: prevent BaseHTTP HTTP/1.0 from closing
