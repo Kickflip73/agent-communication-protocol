@@ -1042,10 +1042,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#v2110-2026-03-28" class="md-nav__link">
+  <a href="#v2110-skills-2026-03-28" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v2.11.0 (2026-03-28)
+        v2.11.0 — Skills 字段增强 (2026-03-28)
       
     </span>
   </a>
@@ -2941,11 +2941,12 @@
 <p>Format: <a href="https://semver.org">Semantic Versioning</a> — <code>MAJOR.MINOR.PATCH-status</code>
 Dates: Asia/Shanghai (UTC+8)</p>
 <hr />
-<h2 id="v2110-2026-03-28">v2.11.0 (2026-03-28)<a class="headerlink" href="#v2110-2026-03-28" title="Permanent link">&para;</a></h2>
+<h2 id="v2110-skills-2026-03-28">v2.11.0 — Skills 字段增强 (2026-03-28)<a class="headerlink" href="#v2110-skills-2026-03-28" title="Permanent link">&para;</a></h2>
 <ul>
-<li>feat(skills): skill 对象新增 input_modes / output_modes / examples 字段</li>
-<li>feat(skills): /skills/query 支持 constraints.input_mode 过滤</li>
-<li>test: SK7/SK8/SK9 覆盖新字段</li>
+<li>feat: <code>GET /skills</code> 响应中每个 skill 新增 <code>input_modes</code>、<code>output_modes</code>、<code>examples</code> 字段</li>
+<li>feat: <code>GET /.well-known/acp.json</code> AgentCard skills[] 包含完整新字段</li>
+<li>feat: <code>/skills/query</code> 新增 <code>constraints.input_mode</code> 过滤 — 无 skill_id 时按 input_mode 筛选</li>
+<li>security: <code>/webhooks/register</code> 和 <code>/webhooks/deregister</code> 现在限制仅 localhost 调用，防止消息泄露（BUG-039）</li>
 </ul>
 <hr />
 <h2 id="unreleased-post-v20-offline">[Unreleased] — post-v2.0-offline<a class="headerlink" href="#unreleased-post-v20-offline" title="Permanent link">&para;</a></h2>

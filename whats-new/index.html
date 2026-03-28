@@ -1015,6 +1015,56 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2110-skills-2026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.11.0 — Skills 字段增强 (2026-03-28)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v2.11.0 — Skills 字段增强 (2026-03-28)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#input_modes-output_modes-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        新增字段：input_modes / output_modes / examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skillsquery-input_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /skills/query 新增 input_mode 过滤
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-039-webhook-localhost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        安全修复：BUG-039 — Webhook 注册限制 localhost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2100-skills-lite-2026-03-28" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1575,6 +1625,47 @@
 For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 </blockquote>
 <hr />
+<h2 id="v2110-skills-2026-03-28">v2.11.0 — Skills 字段增强 (2026-03-28)<a class="headerlink" href="#v2110-skills-2026-03-28" title="Permanent link">&para;</a></h2>
+<h3 id="input_modes-output_modes-examples">新增字段：<code>input_modes</code> / <code>output_modes</code> / <code>examples</code><a class="headerlink" href="#input_modes-output_modes-examples" title="Permanent link">&para;</a></h3>
+<p><code>GET /skills</code> 响应中每个 skill 对象新增三个字段，帮助调用方在连接前判断兼容性：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>input_modes</code></td>
+<td><code>string[]</code></td>
+<td>该 skill 接受的输入模式，如 <code>["text", "image", "audio"]</code></td>
+</tr>
+<tr>
+<td><code>output_modes</code></td>
+<td><code>string[]</code></td>
+<td>该 skill 的输出模式，如 <code>["text", "stream"]</code></td>
+</tr>
+<tr>
+<td><code>examples</code></td>
+<td><code>string[]</code></td>
+<td>示例调用描述，帮助调用方理解典型用途</td>
+</tr>
+</tbody>
+</table>
+<p>同样，<code>GET /.well-known/acp.json</code> 的 AgentCard <code>skills[]</code> 数组也包含上述完整字段。</p>
+<h3 id="skillsquery-input_mode"><code>/skills/query</code> 新增 <code>input_mode</code> 过滤<a class="headerlink" href="#skillsquery-input_mode" title="Permanent link">&para;</a></h3>
+<p><code>POST /skills/query</code> 的 <code>constraints</code> 支持新增字段 <code>input_mode</code>：当请求体不包含 <code>skill_id</code> 时，可按 <code>input_mode</code> 筛选能处理该输入类型的 skill 列表。</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;constraints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">&quot;input_mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;image&quot;</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="bug-039-webhook-localhost">安全修复：BUG-039 — Webhook 注册限制 localhost<a class="headerlink" href="#bug-039-webhook-localhost" title="Permanent link">&para;</a></h3>
+<p><code>/webhooks/register</code> 和 <code>/webhooks/deregister</code> 现在<strong>仅接受来自 localhost (127.0.0.1) 的请求</strong>。此前任意客户端均可注册 webhook URL，存在将消息事件泄露到外部服务器的风险（BUG-039）。修复后远程调用将收到 <code>403 Forbidden</code>。</p>
+<hr />
 <h2 id="v2100-skills-lite-2026-03-28">v2.10.0 — Skills-lite (2026-03-28)<a class="headerlink" href="#v2100-skills-lite-2026-03-28" title="Permanent link">&para;</a></h2>
 <ul>
 <li>新增 <code>GET /skills</code> — 结构化能力发现端点，支持 tag 过滤/关键词搜索/分页</li>
@@ -1608,18 +1699,18 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 </tbody>
 </table>
 <p><strong>Usage:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Declare a sandboxed agent that cannot access files or the internet</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--limitations<span class="w"> </span><span class="s2">&quot;no_file_access,no_internet,no_shell&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Declare a sandboxed agent that cannot access files or the internet</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--limitations<span class="w"> </span><span class="s2">&quot;no_file_access,no_internet,no_shell&quot;</span>
 </span></code></pre></div>
 <p><strong>AgentCard response</strong> (<code>GET /.well-known/acp.json</code>):
-<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="p">,</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;acp_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2.7.0&quot;</span><span class="p">,</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;limitations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;no_file_access&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;no_internet&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;no_shell&quot;</span><span class="p">],</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;streaming&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">&quot;availability&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;persistent&quot;</span><span class="w"> </span><span class="p">}</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">&quot;acp_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2.7.0&quot;</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">&quot;limitations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;no_file_access&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;no_internet&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;no_shell&quot;</span><span class="p">],</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;streaming&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="nt">&quot;availability&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;persistent&quot;</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">}</span>
 </span></code></pre></div></p>
 <p><strong>Design rationale:</strong></p>
 <p><code>capabilities</code> (positive flags) and <code>limitations</code> (explicit cannot-dos) are <strong>complementary</strong>, not redundant:
@@ -1634,60 +1725,60 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 <p><strong>Key distinction:</strong> <code>transport_modes</code> (routing topology) is orthogonal to <code>capabilities.supported_transports</code> (protocol bindings):
 - <code>supported_transports</code>: declares <em>protocol bindings</em> — HTTP/1.1, WebSocket, HTTP/2
 - <code>transport_modes</code>: declares <em>routing topology</em> — direct P2P, relay-mediated</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Relay-only sandbox agent</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="w"> </span>--transport-modes<span class="w"> </span>relay
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># P2P-only edge agent (public IP)</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;EdgeAgent&quot;</span><span class="w"> </span>--transport-modes<span class="w"> </span>p2p
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Relay-only sandbox agent</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="w"> </span>--transport-modes<span class="w"> </span>relay
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># P2P-only edge agent (public IP)</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;EdgeAgent&quot;</span><span class="w"> </span>--transport-modes<span class="w"> </span>p2p
 </span></code></pre></div>
 <p><strong>AgentCard response</strong> (<code>GET /.well-known/acp.json</code>):
-<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="p">,</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;acp_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2.4.0&quot;</span><span class="p">,</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">&quot;transport_modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;relay&quot;</span><span class="p">],</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">&quot;supported_transports&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;http&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ws&quot;</span><span class="p">]</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SandboxAgent&quot;</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;acp_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2.4.0&quot;</span><span class="p">,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">&quot;transport_modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;relay&quot;</span><span class="p">],</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">&quot;supported_transports&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;http&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ws&quot;</span><span class="p">]</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">}</span>
 </span></code></pre></div></p>
 <p>Default is <code>["p2p", "relay"]</code> — both topologies available, peer's choice. Absent means the same. Receivers MUST treat the field as advisory; unknown values MUST be ignored.</p>
 <p>→ See <strong>spec §5.4</strong> and <code>--transport-modes</code> in <a href="../cli-reference/">CLI Reference</a></p>
 <hr />
 <h3 id="task-list-queries-get-tasks-with-filtering-pagination-v220">Task List Queries — <code>GET /tasks</code> with Filtering + Pagination (v2.2.0)<a class="headerlink" href="#task-list-queries-get-tasks-with-filtering-pagination-v220" title="Permanent link">&para;</a></h3>
 <p>ACP agents can now <strong>query all tasks</strong> with rich filtering and offset-based pagination — no more fetching all tasks and filtering client-side.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># List all tasks (newest first, page 1)</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?offset=0&amp;limit=20&quot;</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Filter by status</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?status=working&quot;</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># Filter by peer (works for both top-level and payload.peer_id)</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?peer_id=peer_001&quot;</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="c1"># Date-range filter (tasks created in the last hour)</span>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?created_after=2026-03-27T04:00:00&quot;</span>
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="c1"># Pagination — fetch page 2</span>
-</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?limit=10&amp;offset=10&quot;</span>
-</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>
-</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="c1"># Sort oldest-first</span>
-</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?sort=asc&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># List all tasks (newest first, page 1)</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?offset=0&amp;limit=20&quot;</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Filter by status</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?status=working&quot;</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># Filter by peer (works for both top-level and payload.peer_id)</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?peer_id=peer_001&quot;</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># Date-range filter (tasks created in the last hour)</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?created_after=2026-03-27T04:00:00&quot;</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="c1"># Pagination — fetch page 2</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?limit=10&amp;offset=10&quot;</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="c1"># Sort oldest-first</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks?sort=asc&quot;</span>
 </span></code></pre></div>
 <p><strong>Response shape:</strong></p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;tasks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="p">{</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;task_abc123&quot;</span><span class="p">,</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">      </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;working&quot;</span><span class="p">,</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">      </span><span class="nt">&quot;peer_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;peer_001&quot;</span><span class="p">,</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">      </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T05:10:00&quot;</span><span class="p">,</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">      </span><span class="nt">&quot;updated_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T05:11:00&quot;</span>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="p">}</span>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span><span class="p">],</span>
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span><span class="nt">&quot;total&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">  </span><span class="nt">&quot;has_more&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">  </span><span class="nt">&quot;next_offset&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
-</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;tasks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;task_abc123&quot;</span><span class="p">,</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">      </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;working&quot;</span><span class="p">,</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">      </span><span class="nt">&quot;peer_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;peer_001&quot;</span><span class="p">,</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">      </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T05:10:00&quot;</span><span class="p">,</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">      </span><span class="nt">&quot;updated_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T05:11:00&quot;</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">  </span><span class="nt">&quot;total&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">  </span><span class="nt">&quot;has_more&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">  </span><span class="nt">&quot;next_offset&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="p">}</span>
 </span></code></pre></div>
 <p><strong>All query parameters:</strong></p>
 <table>
@@ -1755,27 +1846,27 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 <h2 id="2026-03-26">2026-03-26<a class="headerlink" href="#2026-03-26" title="Permanent link">&para;</a></h2>
 <h3 id="lan-port-scan-discovery-find-acp-agents-without-mdns-v21-alpha">LAN Port-Scan Discovery — Find ACP Agents Without mDNS (v2.1-alpha)<a class="headerlink" href="#lan-port-scan-discovery-find-acp-agents-without-mdns-v21-alpha" title="Permanent link">&para;</a></h3>
 <p>ACP agents can now <strong>automatically discover other ACP relays on the same LAN</strong> by scanning common ports — no <code>--advertise-mdns</code> flag required on either side.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Discover all ACP agents on your local network:</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>curl<span class="w"> </span>http://localhost:7901/peers/discover
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># → {</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1">#     &quot;found&quot;: [</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1">#       {</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1">#         &quot;host&quot;: &quot;192.168.1.42&quot;,</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1">#         &quot;http_port&quot;: 7901,</span>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1">#         &quot;name&quot;: &quot;Agent-Alice&quot;,</span>
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1">#         &quot;link&quot;: &quot;acp://192.168.1.42:7801/tok_abc123&quot;,</span>
-</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="c1">#         &quot;latency_ms&quot;: 3.2</span>
-</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="c1">#       }</span>
-</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1">#     ],</span>
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="c1">#     &quot;scanned_hosts&quot;: 253,</span>
-</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="c1">#     &quot;scanned_ports&quot;: 1518,</span>
-</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="c1">#     &quot;subnet&quot;: &quot;192.168.1&quot;,</span>
-</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="c1">#     &quot;duration_ms&quot;: 1340,</span>
-</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="c1">#     &quot;total_found&quot;: 1</span>
-</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="c1">#   }</span>
-</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>
-</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a><span class="c1"># Optional: narrow the scan</span>
-</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/peers/discover?subnet=10.0.1&amp;ports=7901,7902&amp;workers=32&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Discover all ACP agents on your local network:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>curl<span class="w"> </span>http://localhost:7901/peers/discover
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># → {</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1">#     &quot;found&quot;: [</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1">#       {</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1">#         &quot;host&quot;: &quot;192.168.1.42&quot;,</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="c1">#         &quot;http_port&quot;: 7901,</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="c1">#         &quot;name&quot;: &quot;Agent-Alice&quot;,</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="c1">#         &quot;link&quot;: &quot;acp://192.168.1.42:7801/tok_abc123&quot;,</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="c1">#         &quot;latency_ms&quot;: 3.2</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="c1">#       }</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="c1">#     ],</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="c1">#     &quot;scanned_hosts&quot;: 253,</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="c1">#     &quot;scanned_ports&quot;: 1518,</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="c1">#     &quot;subnet&quot;: &quot;192.168.1&quot;,</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="c1">#     &quot;duration_ms&quot;: 1340,</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="c1">#     &quot;total_found&quot;: 1</span>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="c1">#   }</span>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="c1"># Optional: narrow the scan</span>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/peers/discover?subnet=10.0.1&amp;ports=7901,7902&amp;workers=32&quot;</span>
 </span></code></pre></div>
 <p>How it works:
 - Auto-detects local /24 subnet from the machine's primary LAN IP
@@ -1792,21 +1883,21 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 <hr />
 <h3 id="offline-delivery-queue-messages-survive-disconnects-v20-alpha">Offline Delivery Queue — Messages Survive Disconnects (v2.0-alpha)<a class="headerlink" href="#offline-delivery-queue-messages-survive-disconnects-v20-alpha" title="Permanent link">&para;</a></h3>
 <p>ACP agents now <strong>buffer outbound messages when the peer is offline, and auto-deliver them the moment the peer reconnects</strong> — zero extra code by the caller.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Agent A sends a message — peer (Agent B) is NOT connected yet:</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;role&quot;:&quot;user&quot;,&quot;parts&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;content&quot;:&quot;hello, are you there?&quot;}]}&#39;</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># → {&quot;ok&quot;: false, &quot;error_code&quot;: &quot;ERR_NOT_CONNECTED&quot;,</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1">#    &quot;error&quot;: &quot;No P2P connection — message queued for delivery on reconnect&quot;}</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="c1"># Inspect the queue:</span>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>curl<span class="w"> </span>http://localhost:7901/offline-queue
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="c1"># → {&quot;total_queued&quot;: 1, &quot;max_per_peer&quot;: 100,</span>
-</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="c1">#    &quot;queue&quot;: {&quot;default&quot;: {&quot;depth&quot;: 1,</span>
-</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="c1">#      &quot;messages&quot;: [{&quot;type&quot;: &quot;acp.message&quot;, &quot;queued_at&quot;: &quot;2026-03-26T10:17Z&quot;}]}}}</span>
-</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
-</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="c1"># Agent B connects. Queue auto-flushes immediately on handshake:</span>
-</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="c1"># 📤 Flushed 1 offline message(s) to peer &#39;peer_a1b2&#39; on connect</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Agent A sends a message — peer (Agent B) is NOT connected yet:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;role&quot;:&quot;user&quot;,&quot;parts&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;content&quot;:&quot;hello, are you there?&quot;}]}&#39;</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># → {&quot;ok&quot;: false, &quot;error_code&quot;: &quot;ERR_NOT_CONNECTED&quot;,</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1">#    &quot;error&quot;: &quot;No P2P connection — message queued for delivery on reconnect&quot;}</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="c1"># Inspect the queue:</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>curl<span class="w"> </span>http://localhost:7901/offline-queue
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="c1"># → {&quot;total_queued&quot;: 1, &quot;max_per_peer&quot;: 100,</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="c1">#    &quot;queue&quot;: {&quot;default&quot;: {&quot;depth&quot;: 1,</span>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="c1">#      &quot;messages&quot;: [{&quot;type&quot;: &quot;acp.message&quot;, &quot;queued_at&quot;: &quot;2026-03-26T10:17Z&quot;}]}}}</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="c1"># Agent B connects. Queue auto-flushes immediately on handshake:</span>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="c1"># 📤 Flushed 1 offline message(s) to peer &#39;peer_a1b2&#39; on connect</span>
 </span></code></pre></div>
 <p>How it works:
 - <code>_ws_send()</code> catches <code>ConnectionError</code> → calls <code>_offline_enqueue(msg, peer_id)</code>
@@ -1822,20 +1913,20 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 <hr />
 <h3 id="peer-agentcard-auto-verification-at-handshake-v19">Peer AgentCard Auto-Verification at Handshake (v1.9)<a class="headerlink" href="#peer-agentcard-auto-verification-at-handshake-v19" title="Permanent link">&para;</a></h3>
 <p>ACP agents now <strong>automatically verify each other's identity the moment they connect</strong> — no extra API calls needed.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Start both agents with identity</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice<span class="w"> </span>--identity<span class="w"> </span>~/.acp/alice.json<span class="w">  </span><span class="c1"># host mode</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Bob<span class="w">   </span>--identity<span class="w"> </span>~/.acp/bob.json<span class="w">    </span><span class="c1"># connect to Alice</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># After connection, immediately check peer identity:</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>curl<span class="w"> </span>http://localhost:7982/peer/verify
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># → {</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="c1">#     &quot;peer_name&quot;: &quot;Alice&quot;,</span>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="c1">#     &quot;peer_did&quot;: &quot;did:acp:FmXk7...&quot;,</span>
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="c1">#     &quot;verified&quot;: true,</span>
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="c1">#     &quot;did_consistent&quot;: true,</span>
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="c1">#     &quot;scheme&quot;: &quot;ed25519&quot;,</span>
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="c1">#     &quot;error&quot;: null</span>
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="c1">#   }</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Start both agents with identity</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice<span class="w"> </span>--identity<span class="w"> </span>~/.acp/alice.json<span class="w">  </span><span class="c1"># host mode</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Bob<span class="w">   </span>--identity<span class="w"> </span>~/.acp/bob.json<span class="w">    </span><span class="c1"># connect to Alice</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># After connection, immediately check peer identity:</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>curl<span class="w"> </span>http://localhost:7982/peer/verify
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># → {</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="c1">#     &quot;peer_name&quot;: &quot;Alice&quot;,</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="c1">#     &quot;peer_did&quot;: &quot;did:acp:FmXk7...&quot;,</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="c1">#     &quot;verified&quot;: true,</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="c1">#     &quot;did_consistent&quot;: true,</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="c1">#     &quot;scheme&quot;: &quot;ed25519&quot;,</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="c1">#     &quot;error&quot;: null</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="c1">#   }</span>
 </span></code></pre></div>
 <p>How it works:
 - On connect, each side sends a <strong>signed AgentCard</strong> (via <code>_send_agent_card</code>)
@@ -1850,17 +1941,17 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 <hr />
 <h3 id="agentcard-self-signature-cryptographic-identity-verification-v18">AgentCard Self-Signature — Cryptographic Identity Verification (v1.8)<a class="headerlink" href="#agentcard-self-signature-cryptographic-identity-verification-v18" title="Permanent link">&para;</a></h3>
 <p>ACP agents can now <strong>cryptographically sign their own AgentCard</strong> and any peer can verify it.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Start with identity (auto-generates Ed25519 keypair)</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice<span class="w"> </span>--identity<span class="w"> </span>~/.acp/identity.json
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Alice&#39;s AgentCard now includes a self-signature:</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># GET /.well-known/acp.json →</span>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="c1"># { &quot;self&quot;: { ..., &quot;identity&quot;: { &quot;card_sig&quot;: &quot;base64url...&quot;, &quot;did&quot;: &quot;did:acp:...&quot; } } }</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Start with identity (auto-generates Ed25519 keypair)</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice<span class="w"> </span>--identity<span class="w"> </span>~/.acp/identity.json
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Alice&#39;s AgentCard now includes a self-signature:</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># GET /.well-known/acp.json →</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># { &quot;self&quot;: { ..., &quot;identity&quot;: { &quot;card_sig&quot;: &quot;base64url...&quot;, &quot;did&quot;: &quot;did:acp:...&quot; } } }</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Anyone can verify Alice&#39;s card — no CA, no registration:</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://alice.local:7901/verify/card<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;name&quot;: &quot;Alice&quot;, &quot;identity&quot;: {&quot;card_sig&quot;: &quot;...&quot;, &quot;public_key&quot;: &quot;...&quot;}, ...}&#39;</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># → {&quot;valid&quot;: true, &quot;did&quot;: &quot;did:acp:...&quot;, &quot;did_consistent&quot;: true}</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Anyone can verify Alice&#39;s card — no CA, no registration:</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://alice.local:7901/verify/card<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;name&quot;: &quot;Alice&quot;, &quot;identity&quot;: {&quot;card_sig&quot;: &quot;...&quot;, &quot;public_key&quot;: &quot;...&quot;}, ...}&#39;</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># → {&quot;valid&quot;: true, &quot;did&quot;: &quot;did:acp:...&quot;, &quot;did_consistent&quot;: true}</span>
 </span></code></pre></div>
 <p>How it works:
 - AgentCard is signed with the agent's Ed25519 private key at serve time
@@ -1886,24 +1977,24 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 <h2 id="2026-03-24">2026-03-24<a class="headerlink" href="#2026-03-24" title="Permanent link">&para;</a></h2>
 <h3 id="nat-traversal-signaling-layer-v14">NAT Traversal Signaling Layer (v1.4)<a class="headerlink" href="#nat-traversal-signaling-layer-v14" title="Permanent link">&para;</a></h3>
 <p>Three-level connection strategy, now with a real signaling layer:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>Level 1: Direct P2P (same LAN, public IP) — instant
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>Level 2: UDP hole-punching via Cloudflare Worker signaling — handles most NAT
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>Level 3: HTTP relay fallback — always works, higher latency
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>Level 1: Direct P2P (same LAN, public IP) — instant
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>Level 2: UDP hole-punching via Cloudflare Worker signaling — handles most NAT
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>Level 3: HTTP relay fallback — always works, higher latency
 </span></code></pre></div>
 <p>The signaling server is privacy-first: addresses are stored ephemerally (30s TTL), one-time-read (auto-deleted after retrieval), no persistent address storage.</p>
 <h3 id="hybrid-identity-v15">Hybrid Identity (v1.5)<a class="headerlink" href="#hybrid-identity-v15" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Self-sovereign by default</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1"># did:acp:abc123...  (derived from Ed25519 key pair, works offline)</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># Or hybrid: trust your org CA</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice<span class="w"> </span>--ca-cert<span class="w"> </span>/path/to/org-ca.pem
-</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="c1"># identity.scheme: ed25519+ca</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Self-sovereign by default</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="c1"># did:acp:abc123...  (derived from Ed25519 key pair, works offline)</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="c1"># Or hybrid: trust your org CA</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>acp-relay<span class="w"> </span>--name<span class="w"> </span>Alice<span class="w"> </span>--ca-cert<span class="w"> </span>/path/to/org-ca.pem
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="c1"># identity.scheme: ed25519+ca</span>
 </span></code></pre></div>
 <p>Compare: A2A is converging on <code>getagentid.dev</code> as a reference CA — an external service you have to register with. ACP's default requires no registration, no external service, no internet connection.</p>
 <h3 id="java-sdk">Java SDK<a class="headerlink" href="#java-sdk" title="Permanent link">&para;</a></h3>
-<div class="language-java highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">AcpClient</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AcpClient</span><span class="p">(</span><span class="s">&quot;http://localhost:7901&quot;</span><span class="p">);</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">SendResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="s">&quot;Hello from Java&quot;</span><span class="p">);</span>
+<div class="language-java highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">AcpClient</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AcpClient</span><span class="p">(</span><span class="s">&quot;http://localhost:7901&quot;</span><span class="p">);</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">SendResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="s">&quot;Hello from Java&quot;</span><span class="p">);</span>
 </span></code></pre></div>
 <p>Zero external dependencies. Maven Central package: <code>dev.acp:acp-client</code>.</p>
 <h3 id="compatibility-certification">Compatibility Certification<a class="headerlink" href="#compatibility-certification" title="Permanent link">&para;</a></h3>
@@ -1926,19 +2017,19 @@ For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 <hr />
 <h2 id="2026-03-22">2026-03-22<a class="headerlink" href="#2026-03-22" title="Permanent link">&para;</a></h2>
 <h3 id="docker">Docker<a class="headerlink" href="#docker" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/kickflip73/acp-relay:latest
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span><span class="m">7801</span>:7801<span class="w"> </span>-p<span class="w"> </span><span class="m">7901</span>:7901<span class="w"> </span>ghcr.io/kickflip73/acp-relay:latest<span class="w"> </span>--name<span class="w"> </span>Alice
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/kickflip73/acp-relay:latest
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span><span class="m">7801</span>:7801<span class="w"> </span>-p<span class="w"> </span><span class="m">7901</span>:7901<span class="w"> </span>ghcr.io/kickflip73/acp-relay:latest<span class="w"> </span>--name<span class="w"> </span>Alice
 </span></code></pre></div>
 <h3 id="did-identity">DID Identity<a class="headerlink" href="#did-identity" title="Permanent link">&para;</a></h3>
 <p><code>did:acp:&lt;base58url(pubkey)&gt;</code> — self-sovereign agent identity. No registry. No external resolver. Generated from your Ed25519 key pair on startup.</p>
 <h3 id="extension-mechanism">Extension Mechanism<a class="headerlink" href="#extension-mechanism" title="Permanent link">&para;</a></h3>
 <p>Agents can now declare capability extensions via URI:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="p">{</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">&quot;extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="s2">&quot;acp:ext:streaming-video&quot;</span><span class="p">,</span>
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="s2">&quot;acp:ext:long-running-tasks&quot;</span>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span><span class="p">]</span>
-</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="p">{</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nt">&quot;extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span><span class="s2">&quot;acp:ext:streaming-video&quot;</span><span class="p">,</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span><span class="s2">&quot;acp:ext:long-running-tasks&quot;</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="p">}</span>
 </span></code></pre></div>
 <h3 id="hmac-replay-protection">HMAC Replay Protection<a class="headerlink" href="#hmac-replay-protection" title="Permanent link">&para;</a></h3>
 <p>Previously: HMAC-SHA256 signing was optional but replay attacks were possible. Now: sliding window (60s, 1000-entry cache) rejects replayed message IDs. Zero breaking change — unsigned messages still accepted if <code>--secret</code> not set.</p>
