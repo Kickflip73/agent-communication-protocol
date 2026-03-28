@@ -150,7 +150,22 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.10.0"  # v2.10: Skills-lite structured skill declaration + GET /skills
+VERSION = "2.11.0"  # v2.11: skill input_modes/output_modes/examples fields + /skills/query input_mode filter
+
+# ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
+# Import relay/identity.py for standalone verify helpers.
+# Falls back silently if identity.py is not on sys.path.
+try:
+    import os as _os_id
+    import sys as _sys_id
+    _identity_dir = _os_id.path.dirname(_os_id.path.abspath(__file__))
+    if _identity_dir not in _sys_id.path:
+        _sys_id.path.insert(0, _identity_dir)
+    import identity as _identity_ext
+    _IDENTITY_EXT_AVAILABLE = True
+except ImportError:
+    _identity_ext = None  # type: ignore
+    _IDENTITY_EXT_AVAILABLE = False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -363,6 +378,7 @@ def _hmac_verify(message_id: str, ts, sig: str) -> bool:
 _ed25519_private: "Ed25519PrivateKey | None" = None   # type: ignore
 _ed25519_public_b64: str = None   # base64url-encoded 32-byte public key
 _did_acp: str = None              # v1.3: did:acp:<base64url(pubkey)> — stable Agent identifier
+_did_key: str = None              # v0.8: did:key:z6Mk... W3C did:key identifier (base58btc multibase)
 _ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certificate (hybrid identity)
 
 
@@ -383,9 +399,44 @@ def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
     return f"did:acp:{encoded}"
 
 
+_BASE58_ALPHABET = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _base58_encode(data: bytes) -> str:
+    """Pure-Python base58btc encoding (stdlib-only, no external deps)."""
+    n = int.from_bytes(data, "big")
+    result = bytearray()
+    while n > 0:
+        n, remainder = divmod(n, 58)
+        result.append(_BASE58_ALPHABET[remainder])
+    # leading zero bytes → '1' characters
+    for byte in data:
+        if byte != 0:
+            break
+        result.append(_BASE58_ALPHABET[0])
+    return result[::-1].decode("ascii")
+
+
+def _pubkey_to_did_key(pubkey_bytes: bytes) -> str:
+    """Derive a W3C did:key identifier from a raw 32-byte Ed25519 public key.
+
+    Follows the did:key spec (https://w3c-ccg.github.io/did-key-spec/):
+      - Prepend Ed25519 multicodec prefix 0xed 0x01
+      - Encode with base58btc (pure Python, no external deps)
+      - Prefix with 'z' (multibase base58btc indicator)
+
+    Format: did:key:z6Mk<base58btc(0xed01 + pubkey)>
+    Example: did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
+    """
+    ED25519_MULTICODEC = bytes([0xed, 0x01])
+    prefixed = ED25519_MULTICODEC + pubkey_bytes
+    encoded = _base58_encode(prefixed)
+    return f"did:key:z{encoded}"
+
+
 def _ed25519_load_or_create(identity_path: str = None) -> bool:
     """Load existing Ed25519 keypair or generate a new one. Returns success."""
-    global _ed25519_private, _ed25519_public_b64, _did_acp
+    global _ed25519_private, _ed25519_public_b64, _did_acp, _did_key
     if not _ED25519_AVAILABLE:
         log.warning("Ed25519 identity requires: pip install cryptography")
         return False
@@ -404,7 +455,8 @@ def _ed25519_load_or_create(identity_path: str = None) -> bool:
             pub_raw = _ed25519_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
             _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
             _did_acp = _pubkey_to_did_acp(pub_raw)
-            log.info(f"Ed25519 identity loaded from {path} | did={_did_acp}")
+            _did_key = _pubkey_to_did_key(pub_raw)
+            log.info(f"Ed25519 identity loaded from {path} | did={_did_key}")
             return True
         except Exception as e:
             log.warning(f"Failed to load identity from {path}: {e} — generating new keypair")
@@ -414,17 +466,19 @@ def _ed25519_load_or_create(identity_path: str = None) -> bool:
     priv_raw = _ed25519_private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
     _did_acp = _pubkey_to_did_acp(pub_raw)
+    _did_key = _pubkey_to_did_key(pub_raw)
     priv_b64 = _base64.urlsafe_b64encode(priv_raw).rstrip(b"=").decode()
     try:
         path.write_text(_json.dumps({
             "scheme":      "ed25519",
             "public_key":  _ed25519_public_b64,
-            "did":         _did_acp,
+            "did":         _did_key,
+            "did_acp":     _did_acp,
             "private_key": priv_b64,
             "created_at":  _now(),
         }, indent=2))
         path.chmod(0o600)
-        log.info(f"Ed25519 keypair generated and saved to {path} | did={_did_acp}")
+        log.info(f"Ed25519 keypair generated and saved to {path} | did={_did_key}")
     except Exception as e:
         log.warning(f"Could not save identity to {path}: {e} — keypair active for this session only")
     return True
@@ -1030,7 +1084,9 @@ def _make_agent_card(name, skills):
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
             "public_key": _ed25519_public_b64,
-            "did":        _did_acp,            # v1.3: stable did:acp: identifier
+            "pubkey_b64": _ed25519_public_b64,   # v0.8: alias — base64url-encoded 32-byte Ed25519 public key
+            "did":        _did_key,              # v0.8: W3C did:key:z6Mk... identifier (base58btc multibase)
+            "did_acp":    _did_acp,              # v1.3: did:acp:<base64url> — ACP-native identifier
             **( {"ca_cert": _ca_cert_pem} if _ca_cert_pem else {} ),  # v1.5: CA-signed cert (hybrid model)
         } if _ed25519_private else None),
         "trust": {
@@ -1200,9 +1256,12 @@ def _verify_agent_card(card: dict) -> dict:
         sig_bytes = _base64.urlsafe_b64decode(sig_b64 + "==")
         pub_key.verify(sig_bytes, payload)
 
-        # Optionally verify did:acp: matches public_key
+        # Optionally verify did:key: or did:acp: matches public_key
         did_consistent = None
-        if did and did.startswith("did:acp:"):
+        if did and did.startswith("did:key:"):
+            expected_did = _pubkey_to_did_key(pub_raw)
+            did_consistent = (did == expected_did)
+        elif did and did.startswith("did:acp:"):
             expected_did = "did:acp:" + _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
             did_consistent = (did == expected_did)
 
@@ -1595,7 +1654,8 @@ def _attach_sig(msg: dict) -> dict:
         msg["identity"] = {
             "scheme":     "ed25519",
             "public_key": _ed25519_public_b64,
-            "did":        _did_acp,            # v1.3: stable did:acp: identifier
+            "pubkey_b64": _ed25519_public_b64,  # v0.8: explicit alias
+            "did":        _did_key or _did_acp,  # v0.8: prefer did:key; fall back to did:acp
         }
         # Sig is computed last (excludes identity.sig from canonical form)
         msg["identity"]["sig"] = _ed25519_sign_msg(msg)
@@ -2204,22 +2264,25 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 return
 
             link    = _status.get("link")
+            # Prefer did:key (W3C standard) when available; fall back to did:acp
+            primary_did = _did_key or _did_acp
             did_doc = {
                 "@context": [
                     "https://www.w3.org/ns/did/v1",
                     "https://w3id.org/security/suites/ed25519-2020/v1",
                 ],
-                "id": _did_acp,
+                "id": primary_did,
+                "alsoKnownAs": ([_did_acp] if _did_key and _did_acp else []),  # v0.8: cross-reference did:acp
                 "verificationMethod": [{
-                    "id":                f"{_did_acp}#key-1",
+                    "id":                f"{primary_did}#key-1",
                     "type":              "Ed25519VerificationKey2020",
-                    "controller":        _did_acp,
-                    "publicKeyMultibase": f"z{_ed25519_public_b64}",  # 'z' = base64url multibase prefix
+                    "controller":        primary_did,
+                    "publicKeyMultibase": f"z{_base58_encode(bytes([0xed, 0x01]) + _base64.urlsafe_b64decode(_ed25519_public_b64 + '=='))}",  # multibase base58btc
                 }],
-                "authentication":       [f"{_did_acp}#key-1"],
-                "assertionMethod":      [f"{_did_acp}#key-1"],
+                "authentication":       [f"{primary_did}#key-1"],
+                "assertionMethod":      [f"{primary_did}#key-1"],
                 "service": ([{
-                    "id":              f"{_did_acp}#acp",
+                    "id":              f"{primary_did}#acp",
                     "type":            "ACPRelay",
                     "serviceEndpoint": link,
                 }] if link else []),
@@ -2942,6 +3005,53 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         return
 
                 message_id = body.get("message_id") or _make_id("msg")
+
+                # ── Ed25519 optional signature verification (v0.8) ───────────
+                # If the caller supplies a `signature` block and the relay has a
+                # peer_card with identity.public_key, verify the Ed25519 signature.
+                # * No signature → pass through (backward compatible).
+                # * Signature + known public_key → verify; 400 on failure/replay.
+                # * Signature + no known public_key → skip (can't verify).
+                _sig_obj = body.get("signature")
+                if _sig_obj and _IDENTITY_EXT_AVAILABLE:
+                    # Try to resolve the sender's public key from peer_card
+                    _peer_card_id = (_status.get("peer_card") or {}).get("identity", {})
+                    _sender_pubkey = _peer_card_id.get("public_key") if _peer_card_id else None
+                    if _sender_pubkey:
+                        import time as _t_sig
+                        _ts_val = body.get("timestamp")
+                        # Replay-window check (strict: timestamp must be present)
+                        if _ts_val is not None:
+                            _delta = abs(_t_sig.time() - float(_ts_val))
+                            if _delta > _identity_ext.REPLAY_WINDOW_SECONDS:
+                                e_body, e_code = _err(
+                                    "ERR_REPLAY_DETECTED",
+                                    "replay detected: timestamp outside ±300s window",
+                                    400,
+                                    failed_message_id=_client_msg_id,
+                                )
+                                self._json(e_body, e_code)
+                                return
+                        # Cryptographic verification
+                        _aug_sig = dict(_sig_obj)
+                        if _ts_val is not None:
+                            _aug_sig["_timestamp"] = _ts_val
+                        _v = _identity_ext.verify_signature(
+                            _sender_pubkey, _aug_sig, parts, message_id
+                        )
+                        if _v is False:
+                            e_body, e_code = _err(
+                                "ERR_INVALID_SIGNATURE",
+                                "invalid_signature: Ed25519 signature verification failed",
+                                400,
+                                failed_message_id=_client_msg_id,
+                            )
+                            self._json(e_body, e_code)
+                            return
+                        elif _v is True:
+                            log.debug(f"✅ Ed25519 signature verified on {message_id}")
+                        # _v is None → library unavailable → pass through
+
                 msg = {
                     "type":       "acp.message",
                     "message_id": message_id,
@@ -3421,9 +3531,37 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     known_skill_ids  = set(raw_skills)
                     known_skills_str = sorted(known_skill_ids)
 
+                # v2.11: extract input_mode constraint before branching
+                req_input_mode = constraints.get("input_mode", "").strip()
+
                 # Determine support level
                 if not skill_id:
-                    # No skill_id: return full skill list
+                    # No skill_id: check for input_mode filter (v2.11), else return full list
+                    if req_input_mode:
+                        # Filter skills by input_mode support
+                        if _is_structured:
+                            matched_skills = [
+                                s for s in raw_skills
+                                if req_input_mode in (s.get("input_modes") or [])
+                            ]
+                        else:
+                            matched_skills = []
+                        if matched_skills:
+                            self._json({
+                                "skills":       matched_skills,
+                                "capabilities": capabilities,
+                                "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                            })
+                        else:
+                            self._json({
+                                "support_level": "unsupported",
+                                "reason": f"No skill supports input_mode='{req_input_mode}'",
+                                "skills": [],
+                                "capabilities": capabilities,
+                                "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                            })
+                        return
+                    # No skill_id and no input_mode filter: return full skill list
                     if _is_structured:
                         self._json({
                             "skills":       raw_skills,
@@ -3445,6 +3583,17 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         max_bytes = capabilities.get("max_msg_bytes", MAX_MSG_BYTES)
                         if constraints["file_size_bytes"] > max_bytes:
                             violations.append(f"file_size_bytes {constraints['file_size_bytes']} exceeds max {max_bytes}")
+
+                    # v2.11: check input_mode constraint against skill's input_modes
+                    if req_input_mode and _is_structured:
+                        skill_obj = next((s for s in raw_skills if s["id"] == skill_id), None)
+                        if skill_obj:
+                            skill_input_modes = skill_obj.get("input_modes") or []
+                            if skill_input_modes and req_input_mode not in skill_input_modes:
+                                violations.append(
+                                    f"input_mode='{req_input_mode}' not supported by skill "
+                                    f"'{skill_id}' (supports: {skill_input_modes})"
+                                )
 
                     if violations:
                         support_level = "partial"
@@ -4093,6 +4242,13 @@ Examples:
                         help="(v0.8) Path to Ed25519 keypair JSON (auto-generated if absent). "
                              "Omit path to use ~/.acp/identity.json. "
                              "Requires: pip install cryptography.")
+    parser.add_argument("--identity-file", default=None, metavar="PATH",
+                        help="(v0.8) Alias for --identity. Path to Ed25519 keypair JSON file.")
+    parser.add_argument("--gen-identity", action="store_true",
+                        help="(v0.8) Generate a new Ed25519 keypair, save to --identity-file path "
+                             "(default: ~/.acp/identity.key), print the did:key identifier, "
+                             "then exit. Use with --identity-file to set a custom output path. "
+                             "Requires: pip install cryptography.")
     parser.add_argument("--availability-mode", default=None,
                         choices=["persistent", "heartbeat", "cron", "manual"],
                         help="(v1.2) Agent availability mode. 'persistent' = always-on (default). "
@@ -4179,6 +4335,9 @@ Examples:
     secret_str     = _get(args.secret,       "secret",         None)
     advertise_mdns = _get_bool(args.advertise_mdns, "advertise-mdns")
     identity_path  = _get(args.identity,     "identity",       None)
+    # --identity-file is an alias for --identity; CLI > config > None
+    if identity_path is None and getattr(args, "identity_file", None):
+        identity_path = args.identity_file
 
     # ── Configure logging ─────────────────────────────────────────────────────
     if verbose:
@@ -4201,6 +4360,22 @@ Examples:
         log.info(f"🕐 HMAC replay-window: ±{_HMAC_REPLAY_WINDOW}s")
     else:
         _hmac_secret = None
+
+    # Ed25519 optional identity (v0.8) — --gen-identity: generate keypair and exit
+    if getattr(args, "gen_identity", False):
+        gen_path = identity_path or os.path.expanduser("~/.acp/identity.key")
+        ok = _ed25519_load_or_create(gen_path)
+        if ok and _did_key:
+            print(f"✅ Ed25519 keypair generated")
+            print(f"   File:     {gen_path}")
+            print(f"   did:key:  {_did_key}")
+            print(f"   did:acp:  {_did_acp}")
+            print(f"   pubkey:   {_ed25519_public_b64}")
+        else:
+            print("❌ Failed to generate Ed25519 keypair (missing cryptography library?)")
+            print("   Try: pip install cryptography")
+            sys.exit(1)
+        sys.exit(0)
 
     # Ed25519 optional identity (v0.8)
     if identity_path is not None:

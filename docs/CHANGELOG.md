@@ -7,6 +7,13 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.11.0 (2026-03-28)
+- feat(skills): skill 对象新增 input_modes / output_modes / examples 字段
+- feat(skills): /skills/query 支持 constraints.input_mode 过滤
+- test: SK7/SK8/SK9 覆盖新字段
+
+---
+
 ## [Unreleased] — post-v2.0-offline
 
 ---

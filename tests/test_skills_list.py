@@ -1,5 +1,5 @@
 """
-test_skills_list.py — ACP v2.10 Skills-lite: GET /skills endpoint + structured AgentCard skills
+test_skills_list.py — ACP v2.11 Skills-lite: GET /skills endpoint + structured AgentCard skills
 
 Tests:
   SK1: GET /skills basic — returns skills list and total fields
@@ -8,6 +8,9 @@ Tests:
   SK4: GET /skills pagination — limit/offset parameters
   SK5: GET /skills error handling — non-integer limit returns 400
   SK6: AgentCard /.well-known/acp.json — skills field is structured object array
+  SK7: GET /skills — response includes input_modes/output_modes/examples fields
+  SK8: /skills/query constraints.input_mode="image" — matches image-capable skill
+  SK9: /skills/query constraints.input_mode="audio" — returns unsupported (no audio skill)
 """
 
 import json
@@ -50,6 +53,16 @@ _SKILLS_JSON = json.dumps([
         "tags": ["code", "engineering"],
         "examples": ["Review this Python function"],
         "input_modes": ["text"],
+        "output_modes": ["text"],
+    },
+    # SK7/SK8: skill with input_modes=["text","image"] for input_mode filter tests
+    {
+        "id": "image-caption",
+        "name": "Image Captioning",
+        "description": "Generates captions for images",
+        "tags": ["vision", "nlp"],
+        "examples": [{"input": "photo.jpg", "output": "A sunset over the mountains"}],
+        "input_modes": ["text", "image"],
         "output_modes": ["text"],
     },
 ])
@@ -156,9 +169,9 @@ def test_sk1_basic_skills_list():
     assert isinstance(data["total"],   int),  "total must be an integer"
     assert isinstance(data["has_more"], bool), "has_more must be bool"
 
-    # We started with 3 structured skills
-    assert data["total"] == 3, f"Expected total=3 for 3 registered skills: {data}"
-    assert len(data["skills"]) == 3, f"Expected 3 skills in list: {data}"
+    # We started with 4 structured skills
+    assert data["total"] == 4, f"Expected total=4 for 4 registered skills: {data}"
+    assert len(data["skills"]) == 4, f"Expected 4 skills in list: {data}"
     assert data["has_more"] is False, f"has_more should be False (total <= default limit 50): {data}"
 
     # Verify each skill has required structured fields
@@ -180,9 +193,9 @@ def test_sk2_filter_by_tag():
     assert "skills" in data, f"Missing 'skills': {data}"
     assert "total"  in data, f"Missing 'total': {data}"
 
-    # 'summarize' and 'translate' both have tag 'nlp'; 'code-review' does not
-    assert data["total"] == 2, f"Expected total=2 for tag=nlp: {data}"
-    assert len(data["skills"]) == 2, f"Expected 2 skills for tag=nlp: {data}"
+    # 'summarize', 'translate', 'image-caption' all have tag 'nlp'; 'code-review' does not
+    assert data["total"] == 3, f"Expected total=3 for tag=nlp: {data}"
+    assert len(data["skills"]) == 3, f"Expected 3 skills for tag=nlp: {data}"
 
     # All returned skills must have the 'nlp' tag
     for skill in data["skills"]:
@@ -247,14 +260,14 @@ def test_sk4_pagination():
     status1, page1 = _get("/skills?limit=2&offset=0")
     assert status1 == 200, f"Expected 200: {page1}"
     assert len(page1["skills"]) <= 2, f"limit=2 should return at most 2 skills: {page1}"
-    assert page1["total"] == 3, f"Expected total=3: {page1}"
-    assert page1["has_more"] is True, f"has_more should be True (3 skills, page size 2): {page1}"
+    assert page1["total"] == 4, f"Expected total=4: {page1}"
+    assert page1["has_more"] is True, f"has_more should be True (4 skills, page size 2): {page1}"
     assert page1["next_offset"] == 2, f"next_offset should be 2: {page1}"
 
     # Get page 2: limit=2, offset=2
     status2, page2 = _get("/skills?limit=2&offset=2")
     assert status2 == 200, f"Expected 200: {page2}"
-    assert len(page2["skills"]) == 1, f"Page 2 should have 1 skill (3-2=1): {page2}"
+    assert len(page2["skills"]) == 2, f"Page 2 should have 2 skills (4-2=2): {page2}"
     assert page2["has_more"] is False, f"has_more should be False on last page: {page2}"
 
     # Verify no overlap between pages
@@ -266,7 +279,7 @@ def test_sk4_pagination():
     # limit=100 (exceeds total): has_more=False, returns all
     status3, all_data = _get("/skills?limit=100&offset=0")
     assert status3 == 200
-    assert len(all_data["skills"]) == 3, f"Expected all 3 skills with limit=100: {all_data}"
+    assert len(all_data["skills"]) == 4, f"Expected all 4 skills with limit=100: {all_data}"
     assert all_data["has_more"] is False, f"has_more should be False when returning all: {all_data}"
 
     # offset beyond total: empty result
@@ -322,7 +335,7 @@ def test_sk6_agentcard_structured_skills():
 
     skills = card["skills"]
     assert isinstance(skills, list), f"skills must be a list: {skills}"
-    assert len(skills) == 3, f"Expected 3 skills in AgentCard: {skills}"
+    assert len(skills) == 4, f"Expected 4 skills in AgentCard: {skills}"
 
     # Every skill must be a structured object (not a plain string)
     for skill in skills:
@@ -339,9 +352,10 @@ def test_sk6_agentcard_structured_skills():
 
     # Verify specific skill content
     skill_ids = [s["id"] for s in skills]
-    assert "summarize"   in skill_ids, f"'summarize' not found in AgentCard skills: {skill_ids}"
-    assert "translate"   in skill_ids, f"'translate' not found in AgentCard skills: {skill_ids}"
-    assert "code-review" in skill_ids, f"'code-review' not found in AgentCard skills: {skill_ids}"
+    assert "summarize"     in skill_ids, f"'summarize' not found in AgentCard skills: {skill_ids}"
+    assert "translate"     in skill_ids, f"'translate' not found in AgentCard skills: {skill_ids}"
+    assert "code-review"   in skill_ids, f"'code-review' not found in AgentCard skills: {skill_ids}"
+    assert "image-caption" in skill_ids, f"'image-caption' not found in AgentCard skills: {skill_ids}"
 
     # Verify 'summarize' has expected structured fields
     summarize = next(s for s in skills if s["id"] == "summarize")
@@ -360,6 +374,113 @@ def test_sk6_agentcard_structured_skills():
     assert endpoints["skills"] == "/skills", (
         f"Unexpected skills endpoint: {endpoints['skills']}"
     )
+
+
+def _post(path, payload):
+    """POST JSON request, returns (status_code, parsed_json)."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        f"http://localhost:{HTTP_PORT}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SK7: GET /skills — response includes input_modes / output_modes / examples
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_sk7_skills_include_new_fields():
+    """SK7: GET /skills — each skill includes input_modes, output_modes, examples."""
+    status, data = _get("/skills")
+    assert status == 200, f"Expected 200: {data}"
+    skills = data["skills"]
+    assert len(skills) >= 1, f"Expected at least one skill: {data}"
+
+    for skill in skills:
+        assert "input_modes"  in skill, f"Skill '{skill.get('id')}' missing 'input_modes': {skill}"
+        assert "output_modes" in skill, f"Skill '{skill.get('id')}' missing 'output_modes': {skill}"
+        assert "examples"     in skill, f"Skill '{skill.get('id')}' missing 'examples': {skill}"
+        assert isinstance(skill["input_modes"],  list), f"input_modes must be list: {skill}"
+        assert isinstance(skill["output_modes"], list), f"output_modes must be list: {skill}"
+        assert isinstance(skill["examples"],     list), f"examples must be list: {skill}"
+
+    # Verify image-caption declares text+image input_modes
+    ic = next((s for s in skills if s["id"] == "image-caption"), None)
+    assert ic is not None, f"'image-caption' skill not found: {[s['id'] for s in skills]}"
+    assert "image" in ic["input_modes"], (
+        f"'image-caption' should declare 'image' in input_modes: {ic['input_modes']}"
+    )
+    assert "text"  in ic["input_modes"], (
+        f"'image-caption' should declare 'text' in input_modes: {ic['input_modes']}"
+    )
+    assert ic["output_modes"] == ["text"], (
+        f"'image-caption' should have output_modes=['text']: {ic['output_modes']}"
+    )
+    assert len(ic["examples"]) >= 1, (
+        f"'image-caption' should have at least one example: {ic['examples']}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SK8: /skills/query constraints.input_mode="image" — matches image-capable skill
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_sk8_query_input_mode_image_matches():
+    """SK8: /skills/query with constraints.input_mode='image' returns image-capable skills."""
+    status, data = _post("/skills/query", {"constraints": {"input_mode": "image"}})
+    assert status == 200, f"Expected 200: {data}"
+
+    # Should NOT be "unsupported" — we have image-caption with input_modes=["text","image"]
+    support = data.get("support_level", "")
+    assert support != "unsupported", (
+        f"Expected matching skills for input_mode='image', got unsupported: {data}"
+    )
+
+    # Should return skills list containing image-capable skills
+    skills = data.get("skills", [])
+    assert len(skills) >= 1, (
+        f"Expected at least one skill supporting input_mode='image': {data}"
+    )
+    skill_ids = [s["id"] if isinstance(s, dict) else s for s in skills]
+    assert "image-caption" in skill_ids, (
+        f"Expected 'image-caption' in results for input_mode='image': {skill_ids}"
+    )
+
+    # text-only skills should NOT appear
+    assert "summarize" not in skill_ids, (
+        f"'summarize' (text-only) should not match input_mode='image': {skill_ids}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SK9: /skills/query constraints.input_mode="audio" — returns unsupported
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_sk9_query_input_mode_audio_unsupported():
+    """SK9: /skills/query with constraints.input_mode='audio' returns unsupported (no audio skill)."""
+    status, data = _post("/skills/query", {"constraints": {"input_mode": "audio"}})
+    assert status == 200, f"Expected 200: {data}"
+
+    # No skill has audio in input_modes → should return unsupported or empty
+    skills = data.get("skills", [])
+    support = data.get("support_level", "")
+
+    # Either support_level="unsupported" or empty skills list
+    if support:
+        assert support == "unsupported", (
+            f"Expected support_level='unsupported' for input_mode='audio': {data}"
+        )
+    else:
+        assert len(skills) == 0, (
+            f"Expected empty skills for input_mode='audio' (no audio skills registered): {data}"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
