@@ -1,0 +1,122 @@
+site_name: ACP — Agent Communication Protocol
+site_description: The missing link between AI Agents. P2P · Zero server · curl-compatible.
+site_url: https://kickflip73.github.io/agent-communication-protocol/
+repo_url: https://github.com/Kickflip73/agent-communication-protocol
+repo_name: Kickflip73/agent-communication-protocol
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+    - toc.integrate
+  icon:
+    repo: fontawesome/brands/github
+  logo: assets/logo.svg
+  favicon: assets/favicon.png
+
+plugins:
+  - search
+
+validation:
+  links:
+    absolute_links: warn
+    unrecognized_links: warn
+    anchors: warn
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Kickflip73/agent-communication-protocol
+  version:
+    provider: mike
+  analytics:
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/emoticon-happy-outline
+          name: This page was helpful
+          data: 1
+          note: Thanks for your feedback!
+        - icon: material/emoticon-sad-outline
+          name: This page could be improved
+          data: 0
+          note: Thanks for your feedback!
+
+extra_css:
+  - assets/extra.css
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: getting-started/quickstart.md
+    - Installation: getting-started/installation.md
+    - Concepts: getting-started/concepts.md
+  - Guides:
+    - Two Agents in 60 Seconds: guides/two-agents.md
+    - Team Collaboration: guides/team-collaboration.md
+    - NAT Traversal: nat-traversal.md
+    - Integration Guide: integration-guide.md
+    - Security: security.md
+  - Reference:
+    - CLI Reference: cli-reference.md
+    - Conformance: conformance.md
+    - Comparison: comparison.md
+  - What's New: whats-new.md
+  - Changelog: CHANGELOG.md
+  - Roadmap: ROADMAP.md
+  - Blog:
+    - Overview: blog/index.md
+    - "ACP v1.3 — did:acp:": blog/2026-03-23-acp-v1-3-announcement.md
+    - "Show HN Draft": blog/2026-03-24-hn-post-final.md
