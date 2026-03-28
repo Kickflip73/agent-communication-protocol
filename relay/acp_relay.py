@@ -1899,12 +1899,14 @@ async def host_mode(token, ws_port, http_port):
 # GUEST mode
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
+async def guest_mode(host, ws_port, token, http_port, embedded_relay=None, _existing_ws=None):
     """
     P2P 直连模式。连接失败超过 P2P_MAX_RETRIES 次后，
     自动降级到中继。传输层选择对应用层透明。
     token 同时是 P2P token 和 relay session token（同一标识符）。
     embedded_relay: 保留参数（兼容旧调用），实际不再需要
+    _existing_ws: 已建立的 WS 对象（BUG-042 修复：由 _connect_with_nat_traversal Level 1 传入，
+                  避免重新握手触发 BUG-041 dedup 关闭连接）
     """
     global _peer_ws
     _embedded_relay = embedded_relay  # 保留兼容性
@@ -1914,8 +1916,17 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
 
     while retry < P2P_MAX_RETRIES:
         try:
-            log.info(f"{'Reconnecting #' + str(retry) if retry else 'Connecting to (P2P)'}: {uri}")
-            async with await _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10) as ws:
+            # BUG-042 fix: if an existing WS is provided (from _connect_with_nat_traversal
+            # Level 1), reuse it directly for the first iteration to avoid opening a second
+            # WS connection that would be rejected by BUG-041 dedup logic on the host side.
+            if _existing_ws is not None:
+                log.info(f"[guest_mode] BUG-042: reusing Level-1 WS (no reconnect): {uri}")
+                _ws_ctx = _existing_ws
+                _existing_ws = None  # consume once
+            else:
+                log.info(f"{'Reconnecting #' + str(retry) if retry else 'Connecting to (P2P)'}: {uri}")
+                _ws_ctx = await _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10)
+            async with _ws_ctx as ws:
                 _peer_ws = ws
                 _status["connected"]  = True
                 _status["session_id"] = "sess_" + uuid.uuid4().hex[:12]
@@ -2147,10 +2158,12 @@ async def _connect_with_nat_traversal(link: str, name: str, role: str) -> tuple:
             _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10),
             timeout=DIRECT_TIMEOUT,
         )
-        # Success: hand off to guest_mode (same event-loop) via coroutine
-        log.info(f"[NAT L1] Direct connect succeeded: {uri}")
-        # We don't block here; guest_mode runs the message loop.
-        asyncio.ensure_future(guest_mode(host, port, token, http_port))
+        # BUG-042 fix: pass the already-established WS to guest_mode so it reuses
+        # this connection directly instead of opening a second WS.  The old code did
+        # asyncio.ensure_future(guest_mode(...)) which opened a NEW WS, triggering
+        # BUG-041 dedup on the host side and immediately closing the second connection.
+        log.info(f"[NAT L1] Direct connect succeeded: {uri} — handing off to guest_mode")
+        asyncio.ensure_future(guest_mode(host, port, token, http_port, _existing_ws=ws))
         return (token, "direct")
     except (asyncio.TimeoutError, ConnectionRefusedError, OSError,
             Exception) as e:
