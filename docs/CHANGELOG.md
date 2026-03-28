@@ -7,10 +7,11 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## v2.11.0 (2026-03-28)
-- feat(skills): skill 对象新增 input_modes / output_modes / examples 字段
-- feat(skills): /skills/query 支持 constraints.input_mode 过滤
-- test: SK7/SK8/SK9 覆盖新字段
+## v2.11.0 — Skills 字段增强 (2026-03-28)
+- feat: `GET /skills` 响应中每个 skill 新增 `input_modes`、`output_modes`、`examples` 字段
+- feat: `GET /.well-known/acp.json` AgentCard skills[] 包含完整新字段
+- feat: `/skills/query` 新增 `constraints.input_mode` 过滤 — 无 skill_id 时按 input_mode 筛选
+- security: `/webhooks/register` 和 `/webhooks/deregister` 现在限制仅 localhost 调用，防止消息泄露（BUG-039）
 
 ---
 

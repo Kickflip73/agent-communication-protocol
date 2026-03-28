@@ -5,6 +5,38 @@
 
 ---
 
+## v2.11.0 — Skills 字段增强 (2026-03-28)
+
+### 新增字段：`input_modes` / `output_modes` / `examples`
+
+`GET /skills` 响应中每个 skill 对象新增三个字段，帮助调用方在连接前判断兼容性：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `input_modes` | `string[]` | 该 skill 接受的输入模式，如 `["text", "image", "audio"]` |
+| `output_modes` | `string[]` | 该 skill 的输出模式，如 `["text", "stream"]` |
+| `examples` | `string[]` | 示例调用描述，帮助调用方理解典型用途 |
+
+同样，`GET /.well-known/acp.json` 的 AgentCard `skills[]` 数组也包含上述完整字段。
+
+### `/skills/query` 新增 `input_mode` 过滤
+
+`POST /skills/query` 的 `constraints` 支持新增字段 `input_mode`：当请求体不包含 `skill_id` 时，可按 `input_mode` 筛选能处理该输入类型的 skill 列表。
+
+```json
+{
+  "constraints": {
+    "input_mode": "image"
+  }
+}
+```
+
+### 安全修复：BUG-039 — Webhook 注册限制 localhost
+
+`/webhooks/register` 和 `/webhooks/deregister` 现在**仅接受来自 localhost (127.0.0.1) 的请求**。此前任意客户端均可注册 webhook URL，存在将消息事件泄露到外部服务器的风险（BUG-039）。修复后远程调用将收到 `403 Forbidden`。
+
+---
+
 ## v2.10.0 — Skills-lite (2026-03-28)
 - 新增 `GET /skills` — 结构化能力发现端点，支持 tag 过滤/关键词搜索/分页
 - AgentCard `skills[]` 字段升级为结构化对象数组（兼容旧 CSV 格式）
