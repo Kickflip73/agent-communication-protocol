@@ -1,10 +1,10 @@
 {
   "last_research_scan": "2026-03-28T01:36:00Z",
-  "next_round": "dev",
+  "next_round": "test",
   "notes": "测试轮（2026-03-28 11:25）v2：Extension 专项 39/39 PASS；SDK 专项 183/183 PASS；全套回归（排除P2P+stress）323 passed 4 skipped；test_peer_card_verify 8 errors（端口8442启动超时，已知基础设施问题）；无新 Bug。",
-  "last_updated": "2026-03-28T11:35:00+08:00",
+  "last_updated": "2026-03-28T11:34:00+08:00",
   "last_test_run": "2026-03-28T11:35:00+08:00",
-  "last_dev_run": "2026-03-28T10:35:00+08:00",
+  "last_dev_run": "2026-03-28T11:34:00+08:00",
   "test_summary": {
     "extensions_spec": "39/39 PASS",
     "sdk_spec": "183/183 PASS",
