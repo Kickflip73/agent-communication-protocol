@@ -1,7 +1,7 @@
 {
   "last_research_scan": "2026-03-28T01:36:00Z",
   "next_round": "test",
-  "notes": "测试轮（2026-03-28 11:25）v2：Extension 专项 39/39 PASS；SDK 专项 183/183 PASS；全套回归（排除P2P+stress）323 passed 4 skipped；test_peer_card_verify 8 errors（端口8442启动超时，已知基础设施问题）；无新 Bug。",
+  "notes": "开发轮（2026-03-28 11:34）：GitHub Pages 文档站完成。MkDocs Material 配置，docs/ 新增 index.md、Getting Started（quickstart/installation/concepts）、Guides（two-agents/team-collaboration）、blog/index.md、assets/extra.css、CHANGELOG.md；.github/workflows/docs.yml 自动部署 workflow；构建通过（0 errors，仅 warnings for spec 子链接）；push e6a7cc2 触发 GitHub Actions 部署到 https://kickflip73.github.io/agent-communication-protocol/",
   "last_updated": "2026-03-28T11:34:00+08:00",
   "last_test_run": "2026-03-28T11:35:00+08:00",
   "last_dev_run": "2026-03-28T11:34:00+08:00",
@@ -12,6 +12,6 @@
   },
   "lastChecks": {
     "test": "2026-03-28T11:35:00+08:00",
-    "dev": "2026-03-28T10:35:00+08:00"
+    "dev": "2026-03-28T11:34:00+08:00"
   }
 }
