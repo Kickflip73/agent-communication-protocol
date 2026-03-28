@@ -1,0 +1,2978 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The missing link between AI Agents. P2P · Zero server · curl-compatible.">
+      
+      
+      
+        <link rel="canonical" href="https://kickflip73.github.io/agent-communication-protocol/ROADMAP/">
+      
+      
+        <link rel="prev" href="../CHANGELOG/">
+      
+      
+        <link rel="next" href="../blog/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Roadmap - ACP — Agent Communication Protocol</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#acp" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ACP — Agent Communication Protocol" class="md-header__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ACP — Agent Communication Protocol
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Roadmap
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guides/two-agents/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../cli-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../whats-new/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../CHANGELOG/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../blog/" class="md-tabs__link">
+          
+  
+  
+  Blog
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ACP — Agent Communication Protocol" class="md-nav__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    ACP — Agent Communication Protocol
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/two-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Two Agents in 60 Seconds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/team-collaboration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Team Collaboration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../nat-traversal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NAT Traversal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../whats-new/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What's New
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        战略定位
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="战略定位">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        五大核心特性方向
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        定位口号
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2a" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        对 A2A 的态度
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        设计禁忌（红线，永不做）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-03-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        竞品生态现状（2026-03-20）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        版本路线图
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="版本路线图">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#v042026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v0.4（已完成，2026-03-18）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v052026-03-19-2026-03-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v0.5（已完成，2026-03-19，提前于截止日 2026-03-26）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v06-2026-03-20-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v0.6（全部完成 🎉，2026-03-20，提前 20 天）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v07-2026-03-20-2026-04-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v0.7（全部完成 🎉，2026-03-20，目标原为 2026-04-23）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v082026-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔮 v0.8（进行中，目标：2026-05）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v102026-03-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.0（已完成，2026-03-22）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v112026-03-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.1（已完成，2026-03-22）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v122026-03-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.2（已完成，2026-03-22）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v132026-03-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.3（已完成，2026-03-23）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v142026-03-2324" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.4（已完成，2026-03-23/24）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v152026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.5（已完成，2026-03-24）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v152-dev2026-03-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.5.2-dev（已完成，2026-03-25）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v162026-03-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.6（已完成，2026-03-25）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v172026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v1.7（已完成，2026-03-28）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v222026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.2（已完成，2026-03-27）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v242026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.4（已完成，2026-03-27）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v272026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.7（已完成，2026-03-28）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v262026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.6（已完成，2026-03-27）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v252026-03-27commit-a76ede6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.5（已完成，2026-03-27，commit a76ede6）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v232026-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔧 v2.3（目标：2026-04）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v282026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.8（已完成，2026-03-28）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v202026-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔮 v2.0（目标：2026-06）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        核心差异化
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        研究信息源（贾维斯每周自动扫描）
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Blog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Blog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/2026-03-23-acp-v1-3-announcement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ACP v1.3 — did:acp:
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/2026-03-24-hn-post-final/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Show HN Draft
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
+最后更新：2026-03-28（v2.8：Extension 机制 — URI 标识扩展点，内置扩展自动注册，SDK Extension 数据类，39 测试用例全绿）</p>
+</blockquote>
+<hr />
+<h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<h3 id="_2">五大核心特性方向<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>含义</th>
+<th>设计原则</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>① 轻量级，简单开箱即用</strong></td>
+<td>最小化接入成本，无需学习曲线</td>
+<td>单文件 Skill，一个命令即运行，JSON over HTTP/SSE</td>
+</tr>
+<tr>
+<td><strong>② P2P 无中间人</strong></td>
+<td>Agent 直连，不经过任何第三方服务器</td>
+<td>Relay 只做连接打洞，消息直通，无持久化</td>
+</tr>
+<tr>
+<td><strong>③ 实用性，解决任意 Agent 通信</strong></td>
+<td>不限框架、不限平台、不限语言</td>
+<td>协议最小集 + 渐进扩展，curl 可接入</td>
+</tr>
+<tr>
+<td><strong>④ 差异化：面向个人和团队</strong></td>
+<td>对标 A2A 企业级，我们做个人/小团队场景</td>
+<td>零运维、零注册、即用即走</td>
+</tr>
+<tr>
+<td><strong>⑤ 标准化</strong></td>
+<td>像 MCP 标准化了 Agent↔Tool，ACP 标准化 Agent↔Agent</td>
+<td>开放规范，任意实现可互通</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_3">定位口号<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><strong>MCP 标准化了 Agent 与 Tool 的通信，ACP 标准化 Agent 与 Agent 的通信。</strong>
+A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人可用，框架无关。</p>
+</blockquote>
+<h3 id="a2a">对 A2A 的态度<a class="headerlink" href="#a2a" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>借鉴概念，不复制复杂度</strong></li>
+<li>Task 状态机：借鉴状态分类的思路，大幅简化（5 种而非 8 种）</li>
+<li>AgentCard：借鉴能力声明理念，保持极简结构</li>
+<li><strong>不借鉴</strong>：OAuth 2.0、gRPC 绑定、多租户、Push Notification 配置管理 CRUD、TSC 治理</li>
+</ul>
+<h3 id="_4">设计禁忌（红线，永不做）<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>❌ OAuth 2.0 / PKCE</li>
+<li>❌ 多租户架构（<code>/{tenant}/tasks</code>）</li>
+<li>❌ gRPC 绑定</li>
+<li>❌ Push Notification 配置 CRUD</li>
+<li>❌ 8 种 Task 状态</li>
+<li>❌ 中心注册表 / 服务发现中心</li>
+<li>❌ 强制 PKI / 证书机构</li>
+</ul>
+<hr />
+<h2 id="2026-03-20">竞品生态现状（2026-03-20）<a class="headerlink" href="#2026-03-20" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>协议</th>
+<th>Stars</th>
+<th>活跃度</th>
+<th>定位</th>
+<th>我们的态度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A2A</strong> (Google)</td>
+<td>22,643</td>
+<td>🟡 TSC 治理，特性趋缓</td>
+<td>企业级 Agent 总线</td>
+<td>借鉴概念，不做复制</td>
+</tr>
+<tr>
+<td><strong>ANP</strong> (社区)</td>
+<td>1,240</td>
+<td>🔴 停更（最后更新 2026-03-05）</td>
+<td>去中心化身份</td>
+<td>借鉴 DID 思路（长期）</td>
+</tr>
+<tr>
+<td><strong>IBM ACP</strong></td>
+<td>966</td>
+<td>🔴 停更（2025-08）</td>
+<td>多模态消息</td>
+<td>参考即可</td>
+</tr>
+<tr>
+<td><strong>MCP</strong> (Anthropic)</td>
+<td>—</td>
+<td>✅ 稳定</td>
+<td>工具调用</td>
+<td>不同赛道，可互补</td>
+</tr>
+</tbody>
+</table>
+<p><strong>快迭代窗口</strong>：A2A 进入 TSC 治理模式后特性交付趋缓，ACP 3 天完成 v0.4→v0.6 三个版本，窗口持续开放。</p>
+<hr />
+<h2 id="_5">版本路线图<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<h3 id="v042026-03-18">✅ v0.4（已完成，2026-03-18）<a class="headerlink" href="#v042026-03-18" title="Permanent link">&para;</a></h3>
+<ul>
+<li>P2P Relay 直连（本地守护进程）</li>
+<li>SSE 流式端点</li>
+<li>AgentCard 能力声明（基础版）</li>
+<li>安全加固（Unbounded Consumption 防护）</li>
+<li>自动降级：P2P 失败 → HTTP 中继</li>
+</ul>
+<hr />
+<h3 id="v052026-03-19-2026-03-26">✅ v0.5（已完成，2026-03-19，提前于截止日 2026-03-26）<a class="headerlink" href="#v052026-03-19-2026-03-26" title="Permanent link">&para;</a></h3>
+<p><strong>主题：消息结构化 + 任务追踪</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Task 状态机（5 种）</td>
+<td>✅</td>
+<td><code>bb6aba3</code></td>
+</tr>
+<tr>
+<td>结构化 Part 模型（text/file/data）</td>
+<td>✅</td>
+<td><code>bb6aba3</code></td>
+</tr>
+<tr>
+<td>消息幂等性（message_id + server_seq）</td>
+<td>✅</td>
+<td><code>bb6aba3</code></td>
+</tr>
+<tr>
+<td>双向 Task 同步（§5b）</td>
+<td>✅</td>
+<td><code>bb6aba3</code></td>
+</tr>
+<tr>
+<td>QuerySkill() API</td>
+<td>✅</td>
+<td><code>bb6aba3</code></td>
+</tr>
+<tr>
+<td>spec/core-v0.5.md</td>
+<td>✅</td>
+<td><code>e078ef1</code></td>
+</tr>
+<tr>
+<td>Token 统一（P2P token == relay token）</td>
+<td>✅</td>
+<td><code>74de528</code></td>
+</tr>
+<tr>
+<td>E2E 测试（Alpha↔Beta 验证）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Task 状态机：</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>submitted → working → completed
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                   → failed
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                   → input_required  ← 可继续（/tasks/{id}/continue）
+</span></code></pre></div></p>
+<hr />
+<h3 id="v06-2026-03-20-20">✅ v0.6（全部完成 🎉，2026-03-20，提前 20 天）<a class="headerlink" href="#v06-2026-03-20-20" title="Permanent link">&para;</a></h3>
+<p><strong>主题：外部 Agent 接入 + SDK 化</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>spec/v0.6-minimal-agent.md（最小接入协议）</td>
+<td>✅</td>
+<td><code>125422e</code></td>
+</tr>
+<tr>
+<td>多 session peer registry（/peers + /peer/{id}/send）</td>
+<td>✅</td>
+<td><code>ad7e1c4</code></td>
+</tr>
+<tr>
+<td>标准化错误码 + failed_message_id</td>
+<td>✅</td>
+<td><code>c816cb5</code></td>
+</tr>
+<tr>
+<td>spec/error-codes.md</td>
+<td>✅</td>
+<td><code>f5b3336</code></td>
+</tr>
+<tr>
+<td>spec/transports.md 重组（Protocol Binding vs Extension）</td>
+<td>✅</td>
+<td><code>cb88475</code></td>
+</tr>
+<tr>
+<td>Cloudflare Worker v2.0（多房间 + 滑动 TTL + cursor poll）</td>
+<td>✅</td>
+<td><code>8e8b771</code></td>
+</tr>
+<tr>
+<td>Python mini-SDK RelayClient（同步 + 异步，19 tests 通过）</td>
+<td>✅</td>
+<td><code>430a97f</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>最小接入协议（3 端点即可接入 ACP）：</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>GET  /.well-known/acp.json   → AgentCard
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>POST /message:send            → 接收入站消息
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>GET  /stream                  → SSE 出站流（可选）
+</span></code></pre></div></p>
+<p><strong>Python SDK 示例：</strong>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">acp_sdk</span><span class="w"> </span><span class="kn">import</span> <span class="n">RelayClient</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">c</span> <span class="o">=</span> <span class="n">RelayClient</span><span class="p">(</span><span class="s2">&quot;http://localhost:7901&quot;</span><span class="p">)</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">c</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;你好，Agent！&quot;</span><span class="p">)</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">msgs</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
+</span></code></pre></div></p>
+<hr />
+<h3 id="v07-2026-03-20-2026-04-23">✅ v0.7（全部完成 🎉，2026-03-20，目标原为 2026-04-23）<a class="headerlink" href="#v07-2026-03-20-2026-04-23" title="Permanent link">&para;</a></h3>
+<p><strong>主题：轻量身份信号 + 多轮对话</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>可选 HMAC-SHA256 签名（<code>sig</code> 字段）</td>
+<td>✅ 已实现</td>
+<td><code>87dad51</code>，<code>--secret</code> 启用</td>
+</tr>
+<tr>
+<td>AgentCard <code>trust</code> + <code>hmac_signing</code> 能力声明</td>
+<td>✅ 已实现</td>
+<td><code>87dad51</code></td>
+</tr>
+<tr>
+<td>contextId 多轮对话（跨 Task 上下文延续）</td>
+<td>✅ 已实现</td>
+<td><code>aabfae5</code>，可选字段 + capability 声明</td>
+</tr>
+<tr>
+<td>本地局域网 Agent 发现（mDNS / 广播）</td>
+<td>✅ 已实现</td>
+<td><code>aabfae5</code>，<code>--advertise-mdns</code>，GET /discover</td>
+</tr>
+<tr>
+<td>spec/transports.md §3.6 HTTP headers 说明</td>
+<td>✅ 已完善</td>
+<td>v0.3，§3.6，解决 A2A #1653 分类争议</td>
+</tr>
+</tbody>
+</table>
+<p><strong>设计决策（2026-03-20 研究轮确认）：</strong>
+- 默认：信任 = 连接本身（零成本）
+- 可选：HMAC-SHA256 <code>sig</code> 字段（10 行扩展）
+- 未来 v0.8：Ed25519 可选扩展（跟踪 APS 项目，A2A #1575）
+- 永不：强制 PKI / 证书机构</p>
+<p><strong>HMAC 签名格式：</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sig = HMAC-SHA256(secret, message_id + &quot;:&quot; + ts).hexdigest()
+</span></code></pre></div></p>
+<p><strong>mDNS LAN 发现（<code>--advertise-mdns</code>）：</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># 广播自身到局域网</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;Agent-A&quot;</span><span class="w"> </span>--advertise-mdns
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># 另一台机器监听 + 自动发现</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;Agent-B&quot;</span><span class="w"> </span>--advertise-mdns
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>curl<span class="w"> </span>http://localhost:7901/discover
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># → [{&quot;peer_id&quot;: &quot;...&quot;, &quot;name&quot;: &quot;Agent-A&quot;, &quot;link&quot;: &quot;acp://192.168.1.x:7801/tok_...&quot;}]</span>
+</span></code></pre></div>
+- 纯 stdlib UDP multicast（224.0.0.251:5354），零外部依赖
+- Peer TTL 120s，自动过期静默节点
+- SSE <code>type=mdns</code> 事件：实时新 peer 通知</p>
+<p><strong>v0.7 进度（5/5 全部完成 🎉）：</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HMAC-SHA256 签名</td>
+<td>✅</td>
+<td><code>87dad51</code></td>
+</tr>
+<tr>
+<td>AgentCard trust 声明</td>
+<td>✅</td>
+<td><code>87dad51</code></td>
+</tr>
+<tr>
+<td>mDNS LAN 发现</td>
+<td>✅</td>
+<td><code>aabfae5</code></td>
+</tr>
+<tr>
+<td>context_id 能力声明</td>
+<td>✅</td>
+<td><code>aabfae5</code></td>
+</tr>
+<tr>
+<td>transports.md §3.6 HTTP headers 说明</td>
+<td>✅</td>
+<td>polish，v0.3</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v082026-05">🔮 v0.8（进行中，目标：2026-05）<a class="headerlink" href="#v082026-05" title="Permanent link">&para;</a></h3>
+<p><strong>主题：生态建设 + 可选身份增强</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js SDK RelayClient（零依赖，TS 类型，19 tests）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td><code>fd8c02a</code></td>
+</tr>
+<tr>
+<td>兼容性测试套件（tests/compat/，黑盒 HTTP）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td><code>98197cf</code></td>
+</tr>
+<tr>
+<td>Ed25519 可选身份扩展（spec/identity-v0.8.md）</td>
+<td>P1</td>
+<td>⏳ 开发中</td>
+<td>—</td>
+</tr>
+<tr>
+<td>规范文档正式发布（三层架构）</td>
+<td>P2</td>
+<td>⏳ 待开发</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>兼容性测试套件（<code>tests/compat/</code>）：</strong>
+- <code>python3 tests/compat/run.py --url http://localhost:7901</code> — 黑盒合规性验证
+- 41 个检查点，7 套件（AgentCard/MessageSend/Tasks/ErrorCodes/Peers/QuerySkills/HMAC）
+- 三级断言：MUST / SHOULD / MAY；可选能力自动 SKIP
+- <code>--json</code> 输出支持 CI 集成；零外部依赖（stdlib only）
+- 任意 ACP 实现均可用此工具验证合规性</p>
+<p><strong>安全细节备注（来自 APS Module 36A，2026-03-20 研究轮）：</strong>
+- Ed25519 签名载荷<strong>必须包含 <code>expiresAt</code></strong>，防止重放攻击（APS 曾在此处有 bug）
+- Merkle 审计日志：推迟至 v1.0（避免复杂度过早引入）</p>
+<hr />
+<h3 id="v102026-03-22">✅ v1.0（已完成，2026-03-22）<a class="headerlink" href="#v102026-03-22" title="Permanent link">&para;</a></h3>
+<p><strong>主题：任务过滤 + 兼容性合规</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/tasks</code> 列表过滤（status/role/since/limit）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>tasks/list</code> 对齐 A2A v1.0 <code>last_updated_after</code> 语义</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>兼容性测试套件扩展</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Level 3 中继降级稳定化</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v112026-03-22">✅ v1.1（已完成，2026-03-22）<a class="headerlink" href="#v112026-03-22" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Level 3 完整 Relay 降级</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P2P → Relay 自动降级（<code>--relay</code> flag）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Relay session 复用（token 双用）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Relay 状态暴露至 <code>/status</code></td>
+<td>✅</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v122026-03-22">✅ v1.2（已完成，2026-03-22）<a class="headerlink" href="#v122026-03-22" title="Permanent link">&para;</a></h3>
+<p><strong>主题：标准化端点 + 错误码扩展</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>标准化端点命名（<code>:cancel</code>、<code>:continue</code>、<code>:update</code>）</td>
+<td>✅</td>
+<td><code>a7f08a8</code></td>
+</tr>
+<tr>
+<td>端点命名风格统一（: 前缀对齐 A2A）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>错误码扩展（<code>ERR_PEER_CONNECTING</code> 等）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v132026-03-23">✅ v1.3（已完成，2026-03-23）<a class="headerlink" href="#v132026-03-23" title="Permanent link">&para;</a></h3>
+<p><strong>主题：自主权身份 — <code>did:acp:</code></strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>did:acp:</code> 自主权 DID（由 Ed25519 公钥派生）</td>
+<td>✅</td>
+<td><code>6595e39</code></td>
+</tr>
+<tr>
+<td><code>GET /.well-known/did.json</code>（W3C DID Document）</td>
+<td>✅</td>
+<td><code>6595e39</code></td>
+</tr>
+<tr>
+<td><code>verificationMethod[]</code> + <code>publicKeyMultibase</code></td>
+<td>✅</td>
+<td><code>6595e39</code></td>
+</tr>
+<tr>
+<td>AgentCard <code>identity.did</code> 字段</td>
+<td>✅</td>
+<td><code>6595e39</code></td>
+</tr>
+<tr>
+<td>无外部注册表，离线可用，零依赖</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>设计亮点：</strong> DID = 公钥本身，无需中心注册，比 A2A #1672 提案提前实现。</p>
+<hr />
+<h3 id="v142026-03-2324">✅ v1.4（已完成，2026-03-23/24）<a class="headerlink" href="#v142026-03-2324" title="Permanent link">&para;</a></h3>
+<p><strong>主题：三级 NAT 穿透（DCUtR 风格 UDP 打洞）</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DCUtRPuncher</code> 类（~200 行，UDP 打洞状态机）</td>
+<td>✅</td>
+<td><code>8c162d4</code></td>
+</tr>
+<tr>
+<td>Level 1: P2P 直连（3 次重试）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Level 2: DCUtR UDP 打洞（STUN + 信令 WS）</td>
+<td>✅</td>
+<td><code>8c162d4</code></td>
+</tr>
+<tr>
+<td>Level 3: Cloudflare Worker 中继兜底</td>
+<td>✅</td>
+<td><code>8c162d4</code></td>
+</tr>
+<tr>
+<td>Cloudflare Worker v2.1（NAT 信令端点）</td>
+<td>✅</td>
+<td><code>8c162d4</code></td>
+</tr>
+<tr>
+<td>HTTP reflection 备用 IP 发现（STUN 失败时）</td>
+<td>✅</td>
+<td><code>b3da914</code></td>
+</tr>
+<tr>
+<td><code>spec/nat-traversal-v1.4.md</code> + <code>docs/nat-traversal.md</code></td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>测试：17 项全绿（STUN/消息/降级/握手）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>三级降级架构（对应用层完全透明）：</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Level 1: 真 P2P WebSocket 直连
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    ↓ 失败 3 次
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>Level 2: DCUtR UDP 打洞（同时探测，TTL 递增）
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    ↓ 打洞失败（对称 NAT / CGNAT，约 25% 场景）
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>Level 3: Cloudflare Worker 中继（100% 成功率兜底）
+</span></code></pre></div></p>
+<hr />
+<h3 id="v152026-03-24">✅ v1.5（已完成，2026-03-24）<a class="headerlink" href="#v152026-03-24" title="Permanent link">&para;</a></h3>
+<p><strong>主题：混合身份模型（自主权 + CA 双轨）</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--ca-cert</code> CA 签名证书扩展（混合身份）</td>
+<td>✅</td>
+<td><code>7aaa2cb</code></td>
+</tr>
+<tr>
+<td><code>identity.scheme</code> 升级为 <code>"ed25519+ca"</code></td>
+<td>✅</td>
+<td><code>7aaa2cb</code></td>
+</tr>
+<tr>
+<td>4 种信任验证策略（spec/identity-v1.5.md）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>测试：6/6 PASS</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>动机：</strong> A2A #1672（43 条评论）正在讨论混合信任模型，ACP v1.5 提前实现并成为差异化点。</p>
+<hr />
+<h3 id="v152-dev2026-03-25">✅ v1.5.2-dev（已完成，2026-03-25）<a class="headerlink" href="#v152-dev2026-03-25" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Cancel 语义正式化（spec §10）</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spec §10</code> — Task Cancel 完整合约</td>
+<td>✅</td>
+<td><code>0d19a11</code></td>
+</tr>
+<tr>
+<td>Cancel 同步即时：<code>:cancel</code> 返回最终 <code>canceled</code> 状态</td>
+<td>✅</td>
+<td><code>0d19a11</code></td>
+</tr>
+<tr>
+<td>Cancel 幂等：重复调用返回 200 + 现有状态</td>
+<td>✅</td>
+<td><code>0d19a11</code></td>
+</tr>
+<tr>
+<td><code>input_required</code> 状态也可取消</td>
+<td>✅</td>
+<td><code>0d19a11</code></td>
+</tr>
+<tr>
+<td>Show HN 草稿更新（A2A #1680/#1684 对比要点）</td>
+<td>✅</td>
+<td><code>0d19a11</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化亮点：</strong> A2A issue #1680、#1684 至今未能明确 cancel 语义（<code>CancelTaskRequest</code> 定义都缺失），ACP cancel 已完整定义并测试通过。</p>
+<hr />
+<h3 id="v162026-03-25">✅ v1.6（已完成，2026-03-25）<a class="headerlink" href="#v162026-03-25" title="Permanent link">&para;</a></h3>
+<p><strong>主题：HTTP/2 cleartext (h2c) 传输绑定</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_H2Handler</code> — raw <code>h2</code> 状态机 over <code>ThreadingTCPServer</code></td>
+<td>✅</td>
+<td><code>cf578e3</code></td>
+</tr>
+<tr>
+<td><code>--http2</code> 启动标志（可选，优雅降级到 HTTP/1.1）</td>
+<td>✅</td>
+<td><code>cf578e3</code></td>
+</tr>
+<tr>
+<td>AgentCard <code>capabilities.http2: true</code></td>
+<td>✅</td>
+<td><code>cf578e3</code></td>
+</tr>
+<tr>
+<td>h2c prior knowledge upgrade（RFC 7540 §3.2）</td>
+<td>✅</td>
+<td><code>cf578e3</code></td>
+</tr>
+<tr>
+<td><code>spec/transports.md §4.3</code>（HTTP/2 绑定说明）</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>测试套件：12 项 h2c 专项全绿</td>
+<td>✅</td>
+<td><code>394b71c</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>实现选择：</strong> raw <code>h2</code> 状态机（非 hypercorn ASGI），避免在非主线程中注册 signal handler 的限制；<code>h2</code>/<code>hypercorn</code> 为可选依赖，未安装时自动 fallback 并打印警告。</p>
+<p><strong>测试基础设施修复（同期，commit <code>5ce0ed3</code>）：</strong>
+- <code>tests/helpers.py</code>（新）：抽取 <code>clean_subprocess_env()</code>，解决 conftest 命名空间冲突
+- 9 个测试文件：<code>from conftest import</code> → <code>from helpers import</code>
+- <code>test_dcutr_t1~t4</code>：补 <code>pytestmark = pytest.mark.asyncio</code>
+- <code>tests/cert/test_level1.py</code>：修复 setup_module、port 计算、健康检查路径、fixture 依赖
+- <strong>最终结果：163 passed, 3 skipped (P2P), 0 failed ✅</strong></p>
+<hr />
+<h3 id="v172026-03-28">✅ v1.7（已完成，2026-03-28）<a class="headerlink" href="#v172026-03-28" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Python acp-client SDK + 文档站</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acp-client</code> Python 包（pip 可安装，类型注解完整）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>acp_client/</code> 子模块拆分（client / async_client / models / exceptions）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>AgentCard</code>, <code>Message</code>, <code>Task</code>, <code>TaskStatus</code>, <code>Part</code> 数据模型</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>ACPError</code> 异常层次体系</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>acp-client</code> CLI 入口点（status/peers/send/recv/tasks/stream）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>pyproject.toml</code> PEP 517 构建配置</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>README-sdk.md</code> 完整 SDK 文档（安装 + 快速入门 + API 参考）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>tests/test_sdk_package.py</code>（60 测试用例，全部通过）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td><code>pip install -e .</code> 可用，零强制依赖</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+</tr>
+<tr>
+<td>Node.js <code>@acp/client</code> npm 包</td>
+<td>P1</td>
+<td>⏳ 待开发</td>
+</tr>
+<tr>
+<td>文档站（<code>docs/</code> → GitHub Pages）</td>
+<td>P1</td>
+<td>⏳ 待开发</td>
+</tr>
+<tr>
+<td>Show HN 发布</td>
+<td>P0</td>
+<td>⏳ 待发布</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v222026-03-27">✅ v2.2（已完成，2026-03-27）<a class="headerlink" href="#v222026-03-27" title="Permanent link">&para;</a></h3>
+<p><strong>主题：任务列表查询 + 分页</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>[x] GET /tasks 列表查询 + 分页 (2026-03-27，commit fac2a31)</td>
+<td>✅</td>
+<td><code>fac2a31</code></td>
+</tr>
+<tr>
+<td>[x] failed_msg_id 错误回传（2026-03-27，commit 4f2b548）</td>
+<td>✅</td>
+<td><code>4f2b548</code></td>
+</tr>
+<tr>
+<td>[x] supported_transports AgentCard 字段（2026-03-27，commit 7702ef5）</td>
+<td>✅</td>
+<td><code>7702ef5</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v242026-03-27">✅ v2.4（已完成，2026-03-27）<a class="headerlink" href="#v242026-03-27" title="Permanent link">&para;</a></h3>
+<p><strong>主题：AgentCard 拓扑声明</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>transport_modes</code> 顶层字段 — AgentCard 声明路由拓扑 <code>["p2p", "relay"]</code></td>
+<td>P1</td>
+<td>✅ 已完成（2026-03-27）</td>
+<td><code>cf16664</code></td>
+</tr>
+<tr>
+<td><code>--transport-modes</code> CLI 标志（逗号分隔子集）</td>
+<td>P1</td>
+<td>✅ 已完成（2026-03-27）</td>
+<td><code>cf16664</code></td>
+</tr>
+<tr>
+<td>spec/core-v1.0.md 更新：§5.2 顶层字段表、§5.4 transport_modes 专节</td>
+<td>P0</td>
+<td>✅ 已完成（2026-03-27）</td>
+<td><code>cf16664</code></td>
+</tr>
+<tr>
+<td>15 个单元测试（test_transport_modes_v24.py）</td>
+<td>P1</td>
+<td>✅ 已完成（2026-03-27）</td>
+<td><code>cf16664</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>设计核心区别：</strong>
+- <code>transport_modes</code>（路由拓扑）≠ <code>capabilities.supported_transports</code>（协议绑定）
+  - <code>supported_transports</code>: <code>["http", "ws", "h2c"]</code> — <em>如何传输字节</em>（协议层）
+  - <code>transport_modes</code>: <code>["p2p", "relay"]</code> — <em>数据走哪条路径</em>（拓扑层）
+- 默认 <code>["p2p", "relay"]</code>，沙箱环境可声明 <code>["relay"]</code>，公网节点可声明 <code>["p2p"]</code></p>
+<hr />
+<h3 id="v272026-03-28">✅ v2.7（已完成，2026-03-28）<a class="headerlink" href="#v272026-03-28" title="Permanent link">&para;</a></h3>
+<p><strong>主题：AgentCard <code>limitations</code> 字段 — 三元能力边界声明</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>limitations: string[]</code> 顶层 AgentCard 字段（声明 agent 不能做的事）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>--limitations</code> CLI flag（逗号分隔，e.g. <code>--limitations "no_file_access,no_internet"</code>）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>/status</code> 端点响应包含 <code>limitations</code> 数组</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>_limitations</code> 全局变量初始化为 <code>[]</code>（向后兼容默认值）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>spec/core-v1.3.md §11：<code>limitations</code> 字段 Schema、well-known values 表、三元边界说明</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>docs/whats-new.md：v2.7 区块（用法示例 + A2A #1694 对比）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>README：vs-A2A 对比表新行 + v2.7 亮点段落（ref A2A #1694）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>tests/test_limitations.py</code>：20 个测试用例 LM1–LM5（全通过）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化亮点：</strong>
+- A2A issue <a href="https://github.com/a2aproject/A2A/issues/1694">#1694</a>（2026-03-27）：提案在 AgentCard 中添加 <code>limitations</code> 字段，尚未合并
+- ACP v2.7 当天即发布可运行代码，比 A2A 提案早落地
+- 三元能力边界完整声明：<code>capabilities</code>（能做）+ <code>availability</code>（何时）+ <code>limitations</code>（不能做）
+- 完全向后兼容：旧客户端忽略可选的 <code>limitations</code> 字段</p>
+<hr />
+<h3 id="v262026-03-27">✅ v2.6（已完成，2026-03-27）<a class="headerlink" href="#v262026-03-27" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Task <code>cancelling</code> 中间状态 + spec 更新</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TASK_CANCELLING = "cancelling"</code> 常量 + <code>CANCELLING_STATES</code> 集合</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td><code>:cancel</code> 端点两阶段取消（phase-1: <code>cancelling</code> SSE，phase-2: 异步 <code>canceled</code>）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>幂等取消：<code>cancelling</code>/<code>canceled</code> → 200 + 当前状态</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>AgentCard <code>capabilities.task_cancelling = true</code></td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>spec/core-v1.0.md §3.2 新增 <code>cancelling</code> 状态行</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>spec/core-v1.0.md §3.3.1 两阶段取消协议（时序图）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>spec/core-v1.0.md §8.2 更新 cancel 路径：<code>working → cancelling → canceled</code></td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>spec/core-v1.0.md Appendix B A2A 对比表更新（cancel 语义差异化）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td><code>tests/test_task_cancel.py</code>（10 个测试用例）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>TBD</td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化亮点：</strong>
+- A2A issue <a href="https://github.com/google-a2a/A2A/issues/1684">#1684</a>：<code>CancelTaskRequest</code> 无正式定义
+- A2A issue <a href="https://github.com/google-a2a/A2A/issues/1680">#1680</a>：缺少「正在取消中」中间状态
+- ACP v2.6 提前补全上述两个语义缺口，形成<strong>协议差异化</strong></p>
+<p><strong>两阶段取消时序：</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Client                          Server
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  |                               |
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  |-- POST /tasks/{id}:cancel --&gt; |
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  |                               | phase-1: state → cancelling
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  |                               |   SSE: {&quot;type&quot;:&quot;status&quot;,&quot;state&quot;:&quot;cancelling&quot;}
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  |&lt;-- 200 {status:cancelling} -- |
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  |                               | phase-2 (async): stop work → canceled
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  |                               |   SSE: {&quot;type&quot;:&quot;status&quot;,&quot;state&quot;:&quot;canceled&quot;}
+</span></code></pre></div></p>
+<hr />
+<h3 id="v252026-03-27commit-a76ede6">✅ v2.5（已完成，2026-03-27，commit <code>a76ede6</code>）<a class="headerlink" href="#v252026-03-27commit-a76ede6" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Task 事件序列规范 + SSE 字段完整性</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Task 事件序列规范</strong>（spec §8）— 定义 submitted→working→completed 的 SSE 事件发送顺序及必填字段</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td><code>a76ede6</code></td>
+</tr>
+<tr>
+<td>SSE 示例字段完整性审查 — 检查 spec 中所有 SSE 示例是否包含 <code>task_id</code>、<code>seq</code>、<code>ts</code> 等必要字段</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td><code>a76ede6</code></td>
+</tr>
+<tr>
+<td><code>task_id</code> 在 SSE 事件中的必填语义正式化（status/artifact 事件中为 MUST）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td><code>a76ede6</code></td>
+</tr>
+<tr>
+<td>spec/core-v1.0.md §8.7 Conformance Requirements（7 MUST + 2 SHOULD + 3 MAY）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td><code>a76ede6</code></td>
+</tr>
+<tr>
+<td><code>tests/test_task_event_sequence.py</code> — Task 事件序列集成测试（10 用例，9 通过，1 skip）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td><code>a76ede6</code></td>
+</tr>
+<tr>
+<td>relay v2.5.0 — SSE 全局 seq、命名 event 行、AgentCard supported_interfaces</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td><code>a76ede6</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>完成摘要：</strong>
+- spec §8 Task 事件序列规范：§8.1 Envelope 字段表、§8.2 生命周期顺序图、§8.3-§8.5 各类型 Schema + 完整 JSON 示例、§8.6 Wire Format 全流示例、§8.7 Conformance
+- relay v2.5.0：每条 SSE 事件携带全局单调递增 <code>seq</code>；task 相关事件发送 named <code>event:</code> 行（<code>acp.task.status</code> / <code>acp.task.artifact</code>）
+- 测试覆盖：TES1（完整生命周期）TES2（必填字段）TES3（seq 单调性）TES4（状态顺序）TES5（failed.error）TES6（artifact.parts）TES7（message 字段）TES8（同 task seq 递增）TES9（终态后无新事件）TES10（首事件为 submitted）</p>
+<hr />
+<h3 id="v232026-04">🔧 v2.3（目标：2026-04）<a class="headerlink" href="#v232026-04" title="Permanent link">&para;</a></h3>
+<p><strong>主题：SDK 增强 + 规范对齐</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>supported_transports</code> 补充到 spec/core-v1.0.md（文档对齐）</td>
+<td>P0</td>
+<td>✅ 已完成（2026-03-27，commit 0a3af37）</td>
+<td><code>0a3af37</code></td>
+</tr>
+<tr>
+<td>Python SDK <code>auto_stream</code> 参数（<code>send(msg, auto_stream=True)</code> 自动选择 SSE）</td>
+<td>P1</td>
+<td>✅ 已完成（2026-03-27，commit 0a3af37）</td>
+<td><code>0a3af37</code></td>
+</tr>
+<tr>
+<td><code>GET /tasks</code> cursor 分页（<code>?cursor=</code> 参数，对标 A2A page_token）</td>
+<td>P2</td>
+<td>✅ 已完成</td>
+<td><code>fac2a31</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>设计目标：</strong>
+- <code>supported_transports</code> 在 AgentCard spec 中正式文档化（代码已实现，spec 缺失）
+- <code>auto_stream=True</code>：<code>send()</code> 方法自动检查 peer capabilities，若 peer 支持 SSE 则切换到 stream 模式接收回复
+- cursor 分页已在 v2.2 实现，ROADMAP 正式归档</p>
+<hr />
+<h3 id="v282026-03-28">✅ v2.8（已完成，2026-03-28）<a class="headerlink" href="#v282026-03-28" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Extension 机制 — URI 标识扩展点，向 A2A 靠拢</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_make_builtin_extensions()</code> — 内置扩展自动注册（hmac/mdns/h2c 对应 <code>acp:ext:*-v1</code> URI）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>_make_agent_card()</code> 始终输出 <code>extensions: []</code>（v2.8 前为 opt-in，现强制包含）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>--extensions URI[,URI,...]</code> 新 CLI flag（批量声明自定义扩展）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>URI 去重：相同 URI 在内置+用户声明中只保留一次</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>SDK：<code>Extension</code> 数据类（uri/required/params，to_dict/from_dict，<strong>repr</strong>）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>SDK：<code>AgentCard.extensions: List[Extension]</code> 字段（默认 <code>[]</code>）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>SDK：<code>has_extension(uri)</code> / <code>get_extension(uri)</code> / <code>required_extensions()</code> 便捷方法</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>SDK：向后兼容——旧响应无 <code>extensions</code> 字段时正常解析为 <code>[]</code></td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td>spec/core-v1.0.md §5.5：完整 Extension 机制说明（Schema/URI 规范/well-known 表/语义规则）</td>
+<td>P0</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>tests/test_extensions.py</code>：39 个测试用例（全通过，无回归）</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化亮点：</strong>
+- URI 命名约定：<code>acp:ext:&lt;name&gt;-v&lt;version&gt;</code>（内置）/ HTTPS URL（外部）
+- 非强制默认：<code>required: false</code> — 客户端不认识的扩展直接忽略，完全向后兼容
+- 无注册中心：轻量设计，URI 唯一性由扩展定义方负责
+- 内置扩展（hmac/mdns/h2c）自动注册，无需用户手动声明</p>
+<hr />
+<h3 id="v202026-06">🔮 v2.0（目标：2026-06）<a class="headerlink" href="#v202026-06" title="Permanent link">&para;</a></h3>
+<p><strong>主题：生产可用 + 生态</strong></p>
+<ul>
+<li>[x] <code>acp-client</code> 作为 Agent 框架标准插件（LangChain / AutoGen 集成）</li>
+<li>✅ <code>ACPTool</code> — LangChain BaseTool 适配器（lazy import, zero hard dependency）</li>
+<li>✅ <code>ACPCallbackHandler</code> — LangChain CallbackHandler（tool 通信日志）</li>
+<li>✅ <code>create_acp_tool()</code> — 工厂辅助函数（顶层导出）</li>
+<li>✅ <code>sdk/python/acp_client/integrations/langchain.py</code> — acp_client v1.8.0 发布</li>
+<li>[x] Extension 机制（URI 标识扩展点，向 A2A 靠拢）</li>
+<li>✅ <code>acp:ext:hmac-v1</code> / <code>acp:ext:mdns-v1</code> / <code>acp:ext:h2c-v1</code> 内置扩展自动注册</li>
+<li>✅ <code>Extension</code> 数据类 + <code>AgentCard.extensions</code> 字段 + 向后兼容</li>
+<li>✅ relay v2.8.0 上线</li>
+<li>[ ] 完整 DID 文档站 + 合规认证工具公开</li>
+</ul>
+<hr />
+<h2 id="_6">核心差异化<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>A2A（企业级）</th>
+<th>ANP（去中心化）</th>
+<th><strong>ACP（个人/团队）</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>部署</td>
+<td>需要服务端运维</td>
+<td>需要 DID 基础设施</td>
+<td><strong>零服务器，本地 Skill 即可</strong></td>
+</tr>
+<tr>
+<td>接入</td>
+<td>改代码 + 配置 + 注册</td>
+<td>需要 DID 注册</td>
+<td><strong>发一个链接，对方粘贴即连</strong></td>
+</tr>
+<tr>
+<td>复杂度</td>
+<td>企业级，11 个端点</td>
+<td>协议协商复杂</td>
+<td><strong>3 个端点，curl 可接入</strong></td>
+</tr>
+<tr>
+<td>认证</td>
+<td>OAuth 2.0 全套</td>
+<td>DID + 签名</td>
+<td><strong>连接时 token，HMAC 可选</strong></td>
+</tr>
+<tr>
+<td>数据</td>
+<td>经过服务器</td>
+<td>经过 DID 节点</td>
+<td><strong>真 P2P，Relay 不存消息</strong></td>
+</tr>
+<tr>
+<td>场景</td>
+<td>企业内系统集成</td>
+<td>去中心化网络</td>
+<td><strong>个人 Agent、小团队、临时协作</strong></td>
+</tr>
+<tr>
+<td>类比</td>
+<td>企业 ERP 之间的 ESB</td>
+<td>区块链上的通信</td>
+<td><strong>两个人发微信</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_7">研究信息源（贾维斯每周自动扫描）<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>A2A:  https://github.com/a2aproject/A2A
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>ANP:  https://github.com/agent-network-protocol/AgentNetworkProtocol
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>IBM:  https://github.com/i-am-bee/acp
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>MCP:  https://github.com/modelcontextprotocol/specification
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 候选参考）
+</span></code></pre></div>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+  <form class="md-feedback" name="feedback" hidden>
+    <fieldset>
+      <legend class="md-feedback__title">
+        Was this page helpful?
+      </legend>
+      <div class="md-feedback__inner">
+        <div class="md-feedback__list">
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page was helpful" data-md-value="1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m7 0c0 .8-.7 1.5-1.5 1.5S14 10.3 14 9.5 14.7 8 15.5 8s1.5.7 1.5 1.5m-5 7.73c-1.75 0-3.29-.73-4.19-1.81L9.23 14c.45.72 1.52 1.23 2.77 1.23s2.32-.51 2.77-1.23l1.42 1.42c-.9 1.08-2.44 1.81-4.19 1.81"/></svg>
+            </button>
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page could be improved" data-md-value="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10m-6.5-4c.8 0 1.5.7 1.5 1.5s-.7 1.5-1.5 1.5-1.5-.7-1.5-1.5.7-1.5 1.5-1.5M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m2 4.5c1.75 0 3.29.72 4.19 1.81l-1.42 1.42C14.32 16.5 13.25 16 12 16s-2.32.5-2.77 1.23l-1.42-1.42C8.71 14.72 10.25 14 12 14"/></svg>
+            </button>
+          
+        </div>
+        <div class="md-feedback__note">
+          
+            <div data-md-value="1" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+            <div data-md-value="0" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+        </div>
+      </div>
+    </fieldset>
+  </form>
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Kickflip73/agent-communication-protocol" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "search.highlight", "search.suggest", "content.code.copy", "content.code.annotate", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,4370 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The missing link between AI Agents. P2P · Zero server · curl-compatible.">
+      
+      
+      
+        <link rel="canonical" href="https://kickflip73.github.io/agent-communication-protocol/CHANGELOG/">
+      
+      
+        <link rel="prev" href="../whats-new/">
+      
+      
+        <link rel="next" href="../ROADMAP/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Changelog - ACP — Agent Communication Protocol</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ACP — Agent Communication Protocol" class="md-header__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ACP — Agent Communication Protocol
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guides/two-agents/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../cli-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../whats-new/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../ROADMAP/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../blog/" class="md-tabs__link">
+          
+  
+  
+  Blog
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ACP — Agent Communication Protocol" class="md-nav__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    ACP — Agent Communication Protocol
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/two-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Two Agents in 60 Seconds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/team-collaboration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Team Collaboration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../nat-traversal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NAT Traversal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../whats-new/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What's New
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#unreleased-post-v20-offline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [Unreleased] — post-v2.0-offline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#280-2026-03-28-extension-mechanism-uri-identified-extensions-in-agentcard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2.8.0] — 2026-03-28 (Extension Mechanism — URI-Identified Extensions in AgentCard)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[2.8.0] — 2026-03-28 (Extension Mechanism — URI-Identified Extensions in AgentCard)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#180-2026-03-28-acp-client-langchain-tool-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.8.0] — 2026-03-28 (acp-client LangChain Tool Adapter)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.8.0] — 2026-03-28 (acp-client LangChain Tool Adapter)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#design_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bump" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bump
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#170-2026-03-28-acp-client-python-pip-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.7.0] — 2026-03-28 (acp-client Python pip Package)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.7.0] — 2026-03-28 (acp-client Python pip Package)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#design_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#270-2026-03-28-agentcard-limitations-field-three-part-capability-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2.7.0] — 2026-03-28 (AgentCard limitations Field — Three-Part Capability Boundary)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[2.7.0] — 2026-03-28 (AgentCard limitations Field — Three-Part Capability Boundary)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#design_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#260-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2.6.0] — 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[2.6.0] — 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v250-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [v2.5.0] - 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[v2.5.0] - 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#240-2026-03-27-agentcard-transport_modes-top-level-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2.4.0] — 2026-03-27 (AgentCard transport_modes Top-Level Field)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[2.4.0] — 2026-03-27 (AgentCard transport_modes Top-Level Field)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-transport_modes-routing-topology-declaration-v24-milestone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — transport_modes Routing Topology Declaration (v2.4 milestone)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#220-2026-03-27-get-tasks-list-endpoint-with-filtering-pagination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2.2.0] — 2026-03-27 (GET /tasks List Endpoint with Filtering + Pagination)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[2.2.0] — 2026-03-27 (GET /tasks List Endpoint with Filtering + Pagination)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-get-tasks-list-queries-v22-milestone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — GET /tasks List Queries (v2.2 milestone)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-tl1tl10-teststest_tasks_listpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (TL1–TL10, tests/test_tasks_list.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#200-alpha1-2026-03-26-1017-offline-delivery-queue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2.0.0-alpha.1] — 2026-03-26 10:17 (Offline Delivery Queue)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[2.0.0-alpha.1] — 2026-03-26 10:17 (Offline Delivery Queue)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-offline-message-delivery-queue-v20-milestone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Offline Message Delivery Queue (v2.0 milestone)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#behaviour-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Behaviour change
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-oq1oq10-teststest_offline_queuepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (OQ1–OQ10, tests/test_offline_queue.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#190-2026-03-26-0745" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.9.0] — 2026-03-26 07:45
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.9.0] — 2026-03-26 07:45">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-peer-agentcard-auto-verification-v19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Peer AgentCard Auto-Verification (v1.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pv1pv8-teststest_peer_card_verifypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (PV1–PV8, tests/test_peer_card_verify.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#motivation_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#180-2026-03-26-0515" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.8.0] — 2026-03-26 05:15
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.8.0] — 2026-03-26 05:15">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-agentcard-self-signature-card_sig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — AgentCard Self-Signature (card_sig)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-cs1cs10-teststest_card_signaturepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (CS1–CS10, tests/test_card_signature.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#motivation_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#170-2026-03-25-2030" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.7.0] — 2026-03-25 20:30
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.7.0] — 2026-03-25 20:30">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#updated-spec-readme-post-release-patch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Updated (spec + README — post-release patch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-python-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (Python SDK)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-relay-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (relay server)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#updated-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Updated (README)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#141-dev-2026-03-25-1440" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.4.1-dev] — 2026-03-25 14:40
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.4.1-dev] — 2026-03-25 14:40">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#160-2026-03-25-1350" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.6.0] — 2026-03-25 13:50
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.6.0] — 2026-03-25 13:50">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#152-dev-2026-03-25-0555" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.5.2-dev] — 2026-03-25 05:55
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.5.2-dev] — 2026-03-25 05:55">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#research-2026-03-25-0525-competitive-scan-7-post-151-dev-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research (2026-03-25 05:25 — Competitive scan #7, post-1.5.1-dev update)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#150-dev-2026-03-24-pre-151-nat-signaling-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.5.0-dev] — 2026-03-24 (pre-1.5.1, NAT signaling layer)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.5.0-dev] — 2026-03-24 (pre-1.5.1, NAT signaling layer)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-2247-v14-nat-traversal-signaling-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (22:47 — v1.4 NAT traversal signaling layer)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-2033" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed (20:33)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-2000" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed (20:00)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#research-scan-6-2026-03-24-2137" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research (scan #6 — 2026-03-24 21:37)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#research-scan-5-2026-03-24-1800" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research (scan #5 — 2026-03-24 18:00)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#151-dev-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.5.1-dev] — 2026-03-24
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.5.1-dev] — 2026-03-24">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#research" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#150-dev-2026-03-24-hybrid-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.5.0-dev] — 2026-03-24 (hybrid identity)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.5.0-dev] — 2026-03-24 (hybrid identity)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#research_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#140-dev-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.4.0-dev] — 2026-03-24
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.4.0-dev] — 2026-03-24">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-coverage-cumulative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Coverage (cumulative)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#130-dev-2026-03-2223" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.3.0-dev] — 2026-03-22/23
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.3.0-dev] — 2026-03-22/23">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-v14-dev" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (v1.4-dev)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-v11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (v1.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-2026-03-23-dcutr-nat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (2026-03-23 — DCUtR NAT 穿透初版实现)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-commit-638f778-2026-03-23-scenario-c-ring-pipeline-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed (commit 638f778 — 2026-03-23, scenario-C ring pipeline testing)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tested-scenario-c-abca-ring-pipeline-2026-03-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tested — Scenario C: A→B→C→A Ring Pipeline (2026-03-23)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-commit-3a1c499-2026-03-23-3-agent-scenario-b-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed (commit 3a1c499 — 2026-03-23, 3-agent scenario-B testing)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-issues-discovered-2026-03-23-not-yet-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Issues (discovered 2026-03-23, not yet fixed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-commit-643450c-2026-03-23-real-dual-agent-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed (commit 643450c — 2026-03-23, real dual-agent testing)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#120-dev-2026-03-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.2.0-dev] — 2026-03-22
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.2.0-dev] — 2026-03-22">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#110-dev-2026-03-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.1.0-dev] — 2026-03-22
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.1.0-dev] — 2026-03-22">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#100-2026-03-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1.0.0] — 2026-03-21
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1.0.0] — 2026-03-21">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-p0-specification-versioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (P0 — Specification &amp; Versioning)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed-p0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed (P0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security-p1-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security (P1 — Audit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#release-tag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Tag
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#090-2026-03-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.9.0] — 2026-03-21
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.9.0] — 2026-03-21">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-p0-developer-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (P0 — Developer UX)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed-p0_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed (P0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-p1-quality-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (P1 — Quality &amp; Docs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-p2-package-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added (P2 — Package Distribution)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#080-2026-03-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.8.0] — 2026-03-21
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.8.0] — 2026-03-21">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#070-2026-03-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.7.0] — 2026-03-20
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.7.0] — 2026-03-20">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#060-2026-03-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.6.0] — 2026-03-20
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.6.0] — 2026-03-20">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050-2026-03-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.5.0] — 2026-03-19
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.5.0] — 2026-03-19">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.4.0] — 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.4.0] — 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.3.0] — 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.3.0] — 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-03-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.2.0] — 2026-03-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.2.0] — 2026-03-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-2026-03-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0] — 2026-03-05
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0] — 2026-03-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#version-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Version Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ROADMAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Blog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Blog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/2026-03-23-acp-v1-3-announcement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ACP v1.3 — did:acp:
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/2026-03-24-hn-post-final/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Show HN Draft
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="changelog">CHANGELOG<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<p>All notable changes to ACP (Agent Communication Protocol) are documented here.</p>
+<p>Format: <a href="https://semver.org">Semantic Versioning</a> — <code>MAJOR.MINOR.PATCH-status</code>
+Dates: Asia/Shanghai (UTC+8)</p>
+<hr />
+<h2 id="unreleased-post-v20-offline">[Unreleased] — post-v2.0-offline<a class="headerlink" href="#unreleased-post-v20-offline" title="Permanent link">&para;</a></h2>
+<hr />
+<h2 id="280-2026-03-28-extension-mechanism-uri-identified-extensions-in-agentcard">[2.8.0] — 2026-03-28 (Extension Mechanism — URI-Identified Extensions in AgentCard)<a class="headerlink" href="#280-2026-03-28-extension-mechanism-uri-identified-extensions-in-agentcard" title="Permanent link">&para;</a></h2>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Extension mechanism</strong> (<code>relay/acp_relay.py</code>):</li>
+<li><code>_make_builtin_extensions()</code> — auto-registers built-in extensions based on runtime config:<ul>
+<li><code>acp:ext:hmac-v1</code> when <code>--secret</code> is set (HMAC-SHA256 signing)</li>
+<li><code>acp:ext:mdns-v1</code> when <code>--advertise-mdns</code> is set (mDNS LAN discovery)</li>
+<li><code>acp:ext:h2c-v1</code> when <code>--http2</code> is set (HTTP/2 cleartext transport)</li>
+</ul>
+</li>
+<li><code>_make_agent_card()</code> now <strong>always emits <code>extensions: []</code></strong> (empty list when none declared) — was opt-in before v2.8</li>
+<li>Deduplication by URI: if same URI appears in built-in and user-declared, kept once (first occurrence)</li>
+<li><code>--extensions URI[,URI,...]</code> new CLI flag — shorthand for declaring multiple extensions by URI</li>
+<li>Built-in + user-declared extensions merged in card; built-ins first, then user-declared</li>
+<li><strong>Python SDK</strong> (<code>sdk/python/acp_client/models.py</code>):</li>
+<li><code>Extension</code> dataclass — <code>uri</code> (str, required), <code>required</code> (bool, default <code>False</code>), <code>params</code> (dict, default <code>{}</code>)<ul>
+<li><code>Extension.to_dict()</code> — serialises to dict; omits <code>params</code> when empty</li>
+<li><code>Extension.from_dict(d)</code> — parses dict; validates <code>uri</code> required; forward-compat (skips malformed entries)</li>
+<li><code>__repr__</code> — human-readable with <code>required</code> indicator</li>
+</ul>
+</li>
+<li><code>AgentCard.extensions: List[Extension]</code> field (default <code>[]</code>)</li>
+<li><code>AgentCard.has_extension(uri)</code> — bool check by URI</li>
+<li><code>AgentCard.get_extension(uri)</code> → <code>Extension | None</code></li>
+<li><code>AgentCard.required_extensions()</code> → <code>List[Extension]</code></li>
+<li><code>AgentCard.from_dict()</code> — handles missing/null <code>extensions</code> field (backward compat)</li>
+<li><code>AgentCard.to_dict()</code> — always emits <code>extensions</code> key</li>
+<li><strong>Spec</strong> (<code>spec/core-v1.0.md</code>):</li>
+<li>New §5.5 "Extension Mechanism (v2.8+)" with full schema, URI naming convention,
+    well-known built-in URIs table, semantics/compat rules, discovery, CLI flags</li>
+<li>AgentCard schema example updated to show <code>extensions</code> array</li>
+<li>Top-level fields table updated: <code>extensions</code> → <strong>stable</strong></li>
+<li><strong>Tests</strong> (<code>tests/test_extensions.py</code>): 39 test cases (all passing):</li>
+<li>Extension dataclass defaults, serialisation, round-trip</li>
+<li>AgentCard <code>extensions</code> field: default empty, to_dict/from_dict</li>
+<li>Backward compat: old responses without <code>extensions</code> field</li>
+<li>Convenience methods: <code>has_extension</code>, <code>get_extension</code>, <code>required_extensions</code></li>
+<li>Relay: <code>_make_builtin_extensions</code> for all 3 built-ins</li>
+<li>Relay: <code>_make_agent_card</code> always emits extensions key</li>
+<li>Relay: user-declared merge, deduplication</li>
+<li><code>--extensions</code> CLI bulk URI parsing</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>relay/acp_relay.py</code> VERSION: <code>2.7.0</code> → <code>2.8.0</code></li>
+<li><code>tests/unit/test_relay_core.py</code>: updated <code>test_extensions_absent_when_empty</code> to assert extensions key always present (v2.8 semantics)</li>
+</ul>
+<h3 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Inspired by A2A extension model; designed to remain minimal and registry-free</li>
+<li>URI naming: <code>acp:ext:&lt;name&gt;-v&lt;version&gt;</code> for built-ins; full HTTPS URL for external/vendor extensions</li>
+<li><strong>Non-required default</strong>: <code>required: false</code> — clients that don't recognise an extension MUST ignore it</li>
+<li>No registry, no central authority — URI uniqueness is the extension definer's responsibility</li>
+</ul>
+<hr />
+<h2 id="180-2026-03-28-acp-client-langchain-tool-adapter">[1.8.0] — 2026-03-28 (acp-client LangChain Tool Adapter)<a class="headerlink" href="#180-2026-03-28-acp-client-langchain-tool-adapter" title="Permanent link">&para;</a></h2>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>sdk/python/acp_client/integrations/</code> — new optional integrations sub-package</li>
+<li><code>langchain.py</code> — LangChain Tool adapter (<code>ACPTool</code>, <code>ACPCallbackHandler</code>, <code>create_acp_tool</code>)<ul>
+<li><code>ACPTool</code> — <code>BaseTool</code> subclass (lazy import; langchain is optional dep, not required for core SDK)</li>
+<li><code>name = "acp_send"</code>, LLM-readable description</li>
+<li><code>_run(message) -&gt; str</code> — synchronous send + receive via <code>RelayClient</code></li>
+<li><code>_arun(message) -&gt; str</code> — async wrapper (thread-pool executor, non-blocking)</li>
+<li>Graceful error handling: returns descriptive error strings, never raises, so LLM can recover</li>
+<li><code>ACPCallbackHandler</code> — <code>BaseCallbackHandler</code> subclass (lazy import)</li>
+<li><code>on_tool_start</code> / <code>on_tool_end</code> / <code>on_tool_error</code> — structured log entries via <code>logging</code></li>
+<li><code>_calls</code> list accumulates all events for post-run inspection</li>
+<li><code>create_acp_tool(relay_url, peer_id, timeout=30)</code> — factory helper</li>
+</ul>
+</li>
+<li><code>__init__.py</code> — package docstring (zero required imports)</li>
+<li><code>__init__.py</code> — conditional top-level re-export of <code>create_acp_tool</code> (available when langchain installed)</li>
+<li><code>pyproject.toml</code> — new optional extra: <code>[langchain]</code> = <code>langchain&gt;=0.1.0</code></li>
+<li><code>tests/test_langchain_integration.py</code> — 38 test cases (all passing, mock-only, no real langchain required)</li>
+<li>TC-01: init (name, description, relay_url, peer_id, timeout)</li>
+<li>TC-02: _run success paths (send_and_recv, specific peer_id, instance method)</li>
+<li>TC-03: _run timeout (None reply → error string, no raise)</li>
+<li>TC-04: _run ACPError handling</li>
+<li>TC-05: _arun async wrapper</li>
+<li>TC-06: missing langchain ImportError with install hint</li>
+<li>TC-07: create_acp_tool factory</li>
+<li>TC-08: ACPCallbackHandler events</li>
+<li>TC-09: <strong>repr</strong></li>
+<li>TC-10: integration smoke tests</li>
+<li>TC-11: public API (top-level re-export)</li>
+<li>TC-12: pyproject.toml optional dep declared</li>
+<li><code>sdk/python/README-sdk.md</code> — new "LangChain Integration" chapter</li>
+</ul>
+<h3 id="design_1">Design<a class="headerlink" href="#design_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Lazy import pattern</strong>: LangChain never imported at module load time; <code>ImportError</code> with pip hint raised only at first instantiation if langchain absent</li>
+<li>Dynamic subclassing via <code>__new__</code>: builds a real <code>BaseTool</code>/<code>BaseCallbackHandler</code> subclass at instantiation, compatible with all LangChain versions</li>
+<li>Zero new mandatory dependencies; core <code>acp_client</code> remains stdlib-only</li>
+<li>Python 3.9–3.13 compatible</li>
+</ul>
+<h3 id="bump">Bump<a class="headerlink" href="#bump" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>__version__</code>: <code>1.7.0</code> → <code>1.8.0</code></li>
+</ul>
+<hr />
+<h2 id="170-2026-03-28-acp-client-python-pip-package">[1.7.0] — 2026-03-28 (acp-client Python pip Package)<a class="headerlink" href="#170-2026-03-28-acp-client-python-pip-package" title="Permanent link">&para;</a></h2>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>sdk/python/acp_client/</code> — new pip-installable <code>acp-client</code> package (v1.7.0)</li>
+<li><code>client.py</code> — <code>RelayClient</code> (sync, stdlib urllib, zero external deps)</li>
+<li><code>async_client.py</code> — <code>AsyncRelayClient</code> (async via run_in_executor bridge)</li>
+<li><code>models.py</code> — typed dataclasses: <code>AgentCard</code>, <code>Message</code>, <code>Task</code>, <code>TaskStatus</code>, <code>Part</code>, <code>PartType</code></li>
+<li><code>exceptions.py</code> — <code>ACPError</code> hierarchy: <code>PeerNotFoundError</code>, <code>TaskNotFoundError</code>, <code>TaskNotCancelableError</code>, <code>SendError</code>, <code>AuthError</code>, <code>TimeoutError</code></li>
+<li><code>__init__.py</code> — clean public API surface</li>
+<li><code>_cli.py</code> — <code>acp-client</code> CLI entry-point (status / card / link / peers / send / recv / tasks / stream)</li>
+<li><code>sdk/python/pyproject.toml</code> — PEP 517 build config (Python ≥ 3.9, zero mandatory deps, optional: <code>[async]</code>, <code>[http2]</code>, <code>[dev]</code>)</li>
+<li><code>sdk/python/README-sdk.md</code> — complete SDK documentation (install + 30s quick-start + full API reference + relay integration guide)</li>
+<li><code>sdk/python/tests/test_sdk_package.py</code> — 60 test cases (all passing, no live relay required — uses in-process mock HTTP server)</li>
+</ul>
+<h3 id="design_2">Design<a class="headerlink" href="#design_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Zero mandatory external dependencies (stdlib urllib only for core HTTP)</li>
+<li>Optional extras: <code>httpx</code> for native async, <code>h2</code> for HTTP/2</li>
+<li>Backward-compatible: <code>sdk/python/acp_sdk/</code> unchanged; existing <code>from acp_sdk import RelayClient</code> continues to work</li>
+<li>Fully typed public API with rich exception hierarchy</li>
+<li><code>acp-client</code> CLI covers all major relay operations</li>
+</ul>
+<hr />
+<h2 id="270-2026-03-28-agentcard-limitations-field-three-part-capability-boundary">[2.7.0] — 2026-03-28 (AgentCard <code>limitations</code> Field — Three-Part Capability Boundary)<a class="headerlink" href="#270-2026-03-28-agentcard-limitations-field-three-part-capability-boundary" title="Permanent link">&para;</a></h2>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>limitations: string[]</code> top-level AgentCard field: declares what this agent CANNOT do</li>
+<li>Completes three-part capability boundary triad: <code>capabilities</code> (can-do) + <code>availability</code> (scheduling) + <code>limitations</code> (cannot-do)</li>
+<li><code>--limitations</code> CLI flag: comma-separated string (e.g. <code>--limitations "no_file_access,no_internet"</code>)</li>
+<li><code>_status["limitations"]</code> in <code>/status</code> endpoint response</li>
+<li><code>_limitations</code> global variable initialized to <code>[]</code> (backward-compatible default)</li>
+<li>spec/core-v1.3.md §11: <code>limitations</code> field schema, well-known values table, 3-part boundary explanation</li>
+<li>docs/whats-new.md: v2.7 section with usage examples and A2A #1694 comparison</li>
+<li>README: new row in vs-A2A comparison table + callout paragraph for #1694</li>
+<li>tests/test_limitations.py: 20 tests across LM1–LM5 (all pass)</li>
+</ul>
+<h3 id="design_3">Design<a class="headerlink" href="#design_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ACP-exclusive: A2A #1694 (2026-03-27) proposes the same concept — ACP ships working code same day</li>
+<li>Fully backward-compatible: old clients ignore the optional <code>limitations</code> field</li>
+<li>Limitation strings are free-form <code>snake_case</code>; well-known values documented in spec §11.3</li>
+</ul>
+<hr />
+<h2 id="260-2026-03-27">[2.6.0] — 2026-03-27<a class="headerlink" href="#260-2026-03-27" title="Permanent link">&para;</a></h2>
+<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Task <code>cancelling</code> 中间状态（两阶段取消协议）</li>
+<li>AgentCard <code>capabilities.task_cancelling: true</code> 能力声明</li>
+<li>spec §3.3.1 两阶段取消时序图</li>
+<li>spec Appendix B A2A 对比（Issue #1684/#1680 差异化说明）</li>
+<li><code>tests/test_task_cancel.py</code>（10 个测试用例）</li>
+</ul>
+<hr />
+<h2 id="v250-2026-03-27">[v2.5.0] - 2026-03-27<a class="headerlink" href="#v250-2026-03-27" title="Permanent link">&para;</a></h2>
+<h3 id="added_5">Added<a class="headerlink" href="#added_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>spec §8: Task 事件序列规范（7 MUST + 2 SHOULD 合规要求）</li>
+<li>SSE 事件 Envelope 必填字段：type/ts/seq/task_id</li>
+<li>Task 完整生命周期 SSE Wire Format 示例</li>
+<li>relay/acp_relay.py: Named event 行（acp.task.status / acp.task.artifact）</li>
+<li>AgentCard: supported_interfaces 字段</li>
+<li>tests/test_task_event_sequence.py: 10 个 Task 事件序列测试</li>
+</ul>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>BUG-031: test_dcutr_t6_scenario_a.py T6.7 缺少 role 字段</li>
+<li>BUG-032: test_scenario_bc.py relay 启动等待不足</li>
+<li>BUG-033: cert teardown TimeoutExpired</li>
+</ul>
+<hr />
+<h2 id="240-2026-03-27-agentcard-transport_modes-top-level-field">[2.4.0] — 2026-03-27 (AgentCard <code>transport_modes</code> Top-Level Field)<a class="headerlink" href="#240-2026-03-27-agentcard-transport_modes-top-level-field" title="Permanent link">&para;</a></h2>
+<h3 id="added-transport_modes-routing-topology-declaration-v24-milestone">Added — <code>transport_modes</code> Routing Topology Declaration (v2.4 milestone)<a class="headerlink" href="#added-transport_modes-routing-topology-declaration-v24-milestone" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>transport_modes</code> — new top-level AgentCard field</strong> (v2.4+)</li>
+<li>Declared at <code>/.well-known/acp.json</code> as a top-level key (not nested under <code>capabilities</code>)</li>
+<li>Declares the <strong>routing topologies</strong> supported by this node (distinct from <code>capabilities.supported_transports</code> which declares <em>protocol bindings</em>)</li>
+<li>Valid values: <code>"p2p"</code> (direct peer-to-peer WebSocket) and/or <code>"relay"</code> (HTTP relay-mediated)</li>
+<li>Default: <code>["p2p", "relay"]</code> — both topologies supported; peer may choose</li>
+<li>Examples:<ul>
+<li><code>["p2p", "relay"]</code> — standard node, both modes available (default)</li>
+<li><code>["relay"]</code> — sandbox/NAT-only node; P2P not possible</li>
+<li><code>["p2p"]</code> — edge agent with public IP; no relay dependency</li>
+</ul>
+</li>
+<li>Absent means <code>["p2p", "relay"]</code> (backwards-compatible)</li>
+<li>
+<p>Receivers MUST treat as advisory; unknown values MUST be ignored</p>
+</li>
+<li>
+<p><strong><code>--transport-modes</code> CLI flag</strong> (v2.4+)</p>
+</li>
+<li>Comma-separated routing modes: <code>--transport-modes p2p,relay</code> (default), <code>--transport-modes p2p</code>, <code>--transport-modes relay</code></li>
+<li>
+<p>Invalid values are warned and silently ignored; empty result falls back to default</p>
+</li>
+<li>
+<p><strong>Spec update</strong> — <code>spec/core-v1.0.md §5.2–§5.5</code></p>
+</li>
+<li>§5.2: New "Top-Level AgentCard Fields" table (formally documents all top-level keys)</li>
+<li>§5.3: Capability Flags table updated with note distinguishing <code>supported_transports</code> vs <code>transport_modes</code></li>
+<li>§5.4: New dedicated section — <code>transport_modes</code> semantics, valid values, CLI, examples</li>
+<li>
+<p>§5.5: Forward Compatibility (renumbered from §5.3)</p>
+</li>
+<li>
+<p><strong>Tests</strong> — <code>tests/unit/test_transport_modes_v24.py</code> — 15 new unit tests</p>
+</li>
+<li><code>transport_modes</code> present in AgentCard, is a list, top-level (not under capabilities)</li>
+<li>Default <code>["p2p", "relay"]</code>, p2p-only, relay-only variants</li>
+<li>Snapshot semantics (mutation does not affect global)</li>
+<li>Version check (&gt;= 2.4.0)</li>
+<li>Global default and valid values</li>
+</ul>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>relay/acp_relay.py</code>: VERSION bumped <code>2.2.0</code> → <code>2.4.0</code></li>
+<li><code>_make_agent_card()</code>: returns <code>transport_modes</code> as a snapshot list (not reference)</li>
+</ul>
+<hr />
+<h2 id="220-2026-03-27-get-tasks-list-endpoint-with-filtering-pagination">[2.2.0] — 2026-03-27 (GET /tasks List Endpoint with Filtering + Pagination)<a class="headerlink" href="#220-2026-03-27-get-tasks-list-endpoint-with-filtering-pagination" title="Permanent link">&para;</a></h2>
+<h3 id="added-get-tasks-list-queries-v22-milestone">Added — <code>GET /tasks</code> List Queries (v2.2 milestone)<a class="headerlink" href="#added-get-tasks-list-queries-v22-milestone" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>GET /tasks</code> — full list + filtering + dual pagination</strong></li>
+<li><code>?status=&lt;s&gt;</code> — filter by task status (submitted/working/completed/failed/canceled/input_required)<ul>
+<li>Returns <code>400 ERR_INVALID_REQUEST</code> for unknown status values</li>
+<li>Backwards-compatible: legacy <code>?state=</code> parameter still accepted (<code>status</code> takes precedence)</li>
+</ul>
+</li>
+<li><code>?peer_id=&lt;id&gt;</code> — filter by peer; checks both <code>task.peer_id</code> (top-level) and
+    <code>task.payload.peer_id</code> (BUG-014 dual-layer lookup)</li>
+<li><code>?created_after=&lt;ISO 8601&gt;</code> — return only tasks created after given timestamp</li>
+<li><code>?updated_after=&lt;ISO 8601&gt;</code> — return only tasks updated after given timestamp</li>
+<li><code>?sort=asc|desc</code> — sort by <code>created_at</code>; default <code>desc</code> (newest first)<ul>
+<li>Legacy <code>created_asc</code> / <code>created_desc</code> values also accepted</li>
+</ul>
+</li>
+<li><code>?limit=&lt;n&gt;</code> — page size; default 20, max 100 in offset mode; legacy default 50, max 200</li>
+<li><code>?offset=&lt;n&gt;</code> — offset-based pagination (v2.2 new); triggers offset mode</li>
+<li>Response shape (offset mode):
+    <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;tasks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="err">...</span><span class="p">],</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;total&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">N</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;has_more&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;next_offset&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">}</span>
+</span></code></pre></div></li>
+<li><code>total</code> reflects <strong>filtered count</strong> (not raw <code>len(_tasks)</code>)</li>
+<li><code>next_offset</code> only present when <code>has_more=true</code></li>
+<li>Legacy keyset cursor mode (<code>?cursor=&lt;task_id&gt;</code>) preserved when <code>offset</code> param absent</li>
+</ul>
+<h3 id="tests-tl1tl10-teststest_tasks_listpy">Tests (TL1–TL10, <code>tests/test_tasks_list.py</code>)<a class="headerlink" href="#tests-tl1tl10-teststest_tasks_listpy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>TL1: No params → returns all tasks with required fields</li>
+<li>TL2: <code>?status=working</code> filters correctly; only matching tasks returned</li>
+<li>TL3: <code>?peer_id=</code> matches both top-level and <code>payload.peer_id</code> (BUG-014)</li>
+<li>TL4: <code>?limit=2&amp;offset=0</code> — first page</li>
+<li>TL5: <code>?limit=2&amp;offset=2</code> — second page; no overlap with first</li>
+<li>TL6: <code>has_more=true</code> when items remain; <code>next_offset</code> present only when <code>has_more=true</code></li>
+<li>TL7: <code>?sort=asc</code> returns oldest task first</li>
+<li>TL8: <code>?created_after=&lt;ISO&gt;</code> filters out older tasks</li>
+<li>TL9: Impossible filter → <code>{"tasks": [], "total": 0, "has_more": false}</code></li>
+<li>TL10: <code>?status=bogus</code> → <code>400 ERR_INVALID_REQUEST</code></li>
+</ul>
+<p>Results: <strong>10/10 passed</strong> — full regression: <strong>256 passed, 4 skipped, 0 failed</strong></p>
+<hr />
+<h2 id="200-alpha1-2026-03-26-1017-offline-delivery-queue">[2.0.0-alpha.1] — 2026-03-26 10:17 (Offline Delivery Queue)<a class="headerlink" href="#200-alpha1-2026-03-26-1017-offline-delivery-queue" title="Permanent link">&para;</a></h2>
+<h3 id="added-offline-message-delivery-queue-v20-milestone">Added — Offline Message Delivery Queue (v2.0 milestone)<a class="headerlink" href="#added-offline-message-delivery-queue-v20-milestone" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>_offline_enqueue(msg, peer_id)</code></strong> — buffers messages when peer is disconnected (v2.0)</li>
+<li>Called automatically from <code>_ws_send()</code> on <code>ConnectionError</code></li>
+<li>Per-peer keyed queue (<code>peer_id</code> or <code>"default"</code> for legacy single-peer sends)</li>
+<li><code>deque(maxlen=100)</code> per bucket — oldest messages dropped when full (never blocks)</li>
+<li>
+<p>Stores metadata: <code>_queued_at</code>, <code>_offline_for_peer</code></p>
+</li>
+<li>
+<p><strong><code>_offline_flush(ws, peer_id)</code></strong> — delivers buffered messages on reconnect (v2.0)</p>
+</li>
+<li>Called automatically in <code>host_mode</code> and <code>guest_mode</code> after peer connects / reconnects</li>
+<li>Flushes in FIFO order; strips internal bookkeeping fields; adds <code>_was_queued: True</code> marker</li>
+<li>Tries peer-specific bucket first, then falls back to <code>"default"</code> bucket</li>
+<li>
+<p>Logs delivery count: <code>📤 Flushed N offline message(s) to peer '&lt;id&gt;' on connect</code></p>
+</li>
+<li>
+<p><strong><code>_offline_queue_snapshot()</code></strong> — serializable view of all queue buckets</p>
+</li>
+<li>
+<p><strong><code>GET /offline-queue</code></strong> — inspect offline delivery buffer</p>
+</li>
+<li>
+<p>Returns <code>{total_queued, max_per_peer, queue: {peer_id: {depth, messages: [{type, queued_at}]}}}</code></p>
+</li>
+<li>
+<p><strong><code>capabilities.offline_queue: true</code></strong> — advertised in AgentCard</p>
+</li>
+<li><strong><code>endpoints.offline_queue: "/offline-queue"</code></strong> — advertised in AgentCard endpoints block</li>
+</ul>
+<h3 id="behaviour-change">Behaviour change<a class="headerlink" href="#behaviour-change" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>POST /message:send</code> and <code>POST /send</code> no longer immediately fail with <code>503</code> and drop the message.
+  They still return <code>503 ERR_NOT_CONNECTED</code> (API contract unchanged), but the message is now
+  silently buffered for delivery the moment a peer reconnects.</li>
+<li>Callers who want guaranteed delivery can poll <code>GET /offline-queue</code> to confirm the message
+  is buffered.</li>
+</ul>
+<h3 id="tests-oq1oq10-teststest_offline_queuepy">Tests (OQ1–OQ10, <code>tests/test_offline_queue.py</code>)<a class="headerlink" href="#tests-oq1oq10-teststest_offline_queuepy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>OQ1: capabilities.offline_queue=True advertised</li>
+<li>OQ2: endpoints.offline_queue="/offline-queue" in AgentCard</li>
+<li>OQ3: GET /offline-queue → empty queue on fresh relay</li>
+<li>OQ4: Required structure fields (total_queued, max_per_peer, queue)</li>
+<li>OQ5: POST /message:send → 503 + message buffered</li>
+<li>OQ6: Queue depth increments with each failed send</li>
+<li>OQ7: Queue snapshot metadata has type, queued_at per message</li>
+<li>OQ8: Legacy POST /send also buffers to offline queue</li>
+<li>OQ9: Queue bounded by OFFLINE_QUEUE_MAXLEN=100 (oldest dropped)</li>
+<li>OQ10: Relay /status healthy after offline queue activity</li>
+</ul>
+<p>Results: <strong>10/10 passed</strong> — full regression: <strong>236 passed, 4 skipped, 0 failed</strong></p>
+<h3 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>A2A has no offline delivery mechanism — if a task message is sent while the
+  receiving agent is offline, the message is simply lost.</li>
+<li>ACP v2.0 offline queue: "send and forget safely" — messages survive short
+  disconnects, auto-delivered on reconnect without any extra code by the caller.</li>
+<li>Show HN talking point: "If your peer is offline when you send, ACP queues it
+  and delivers it the moment they reconnect. A2A drops it silently."</li>
+</ul>
+<hr />
+<h2 id="190-2026-03-26-0745">[1.9.0] — 2026-03-26 07:45<a class="headerlink" href="#190-2026-03-26-0745" title="Permanent link">&para;</a></h2>
+<h3 id="added-peer-agentcard-auto-verification-v19">Added — Peer AgentCard Auto-Verification (v1.9)<a class="headerlink" href="#added-peer-agentcard-auto-verification-v19" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>acp.agent_card</code> handler now auto-verifies peer card on receipt</strong></li>
+<li>When peer sends AgentCard with <code>identity.card_sig</code>, immediately calls <code>_verify_agent_card()</code></li>
+<li>Result stored in <code>_status["peer_card_verification"]</code></li>
+<li>Logs <code>✅ AgentCard verified: &lt;name&gt; | did=&lt;did&gt;...</code> on success</li>
+<li>Logs <code>⚠️ AgentCard sig INVALID: &lt;name&gt; | &lt;reason&gt;</code> on failure</li>
+<li>
+<p>Gracefully handles unsigned peers (valid=None, descriptive error)</p>
+</li>
+<li>
+<p><strong><code>_send_agent_card()</code> now sends signed card</strong> (v1.9 integration with v1.8)</p>
+</li>
+<li>Calls <code>_sign_agent_card(card)</code> before sending during handshake</li>
+<li>
+<p>Peer receives a verifiable card from the first message</p>
+</li>
+<li>
+<p><strong><code>GET /peer/verify</code></strong> — peer card verification result endpoint</p>
+</li>
+<li>Returns <code>{peer_name, peer_did, verified, valid, did_consistent, public_key, scheme, error}</code></li>
+<li><code>verified</code>: convenience boolean (True iff valid is True)</li>
+<li>404 when no peer is connected</li>
+<li>
+<p>Cleared automatically on disconnect</p>
+</li>
+<li>
+<p><strong><code>_status["peer_card_verification"]</code></strong> initialized to <code>None</code>; cleared on disconnect
+  (both host-mode and guest-mode disconnect paths)</p>
+</li>
+<li>
+<p><strong><code>capabilities.auto_card_verify: true</code></strong> — always advertised (all relays)</p>
+</li>
+<li><strong><code>endpoints.peer_verify: "/peer/verify"</code></strong> — advertised in AgentCard endpoints block</li>
+</ul>
+<h3 id="tests-pv1pv8-teststest_peer_card_verifypy">Tests (PV1–PV8, <code>tests/test_peer_card_verify.py</code>)<a class="headerlink" href="#tests-pv1pv8-teststest_peer_card_verifypy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>PV1: capabilities.auto_card_verify=True on both relays</li>
+<li>PV2: GET /peer/verify → 404 when no peer connected</li>
+<li>PV3: endpoints.peer_verify = "/peer/verify" in AgentCard</li>
+<li>PV4: /.well-known/acp.json returns signed card when --identity enabled</li>
+<li>PV5: auto-verify after peer connect → verified=True <em>(skipped: sandbox no public IP)</em></li>
+<li>PV6: unsigned peer card → valid=False + descriptive error</li>
+<li>PV7: /peer/verify response has all required fields (valid, did, public_key, scheme, error)</li>
+<li>PV8: peer_card_verification=None when no peer connected</li>
+</ul>
+<p>Results: <strong>7 passed, 1 skipped</strong> — full regression: <strong>226 passed, 4 skipped, 0 failed</strong></p>
+<h3 id="motivation_1">Motivation<a class="headerlink" href="#motivation_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Completes the identity story: v1.8 lets you sign your card; v1.9 auto-verifies the peer's card</li>
+<li>Together: when two ACP agents connect, <strong>both sides automatically know if the other's identity is cryptographically verified</strong> — zero extra API calls needed</li>
+<li>Show HN talking point: "Connect two agents → identity mutual verification happens at handshake"</li>
+</ul>
+<hr />
+<h2 id="180-2026-03-26-0515">[1.8.0] — 2026-03-26 05:15<a class="headerlink" href="#180-2026-03-26-0515" title="Permanent link">&para;</a></h2>
+<h3 id="added-agentcard-self-signature-card_sig">Added — AgentCard Self-Signature (card_sig)<a class="headerlink" href="#added-agentcard-self-signature-card_sig" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>_sign_agent_card(card)</code></strong> (commit TBD, v1.8)</li>
+<li>Signs AgentCard with Ed25519 private key at serve time</li>
+<li>Signature covers canonical JSON (sorted keys, separators <code>','</code>/<code>':'</code>) with <code>identity.card_sig</code> excluded to avoid circular reference</li>
+<li>Result stored at <code>card.identity.card_sig</code> (base64url, no padding)</li>
+<li>
+<p>No-op when <code>--identity</code> not enabled (zero-breaking backward compat)</p>
+</li>
+<li>
+<p><strong><code>_verify_agent_card(card)</code></strong></p>
+</li>
+<li>Verifies any ACP AgentCard's Ed25519 self-signature</li>
+<li>Returns <code>{valid, did, did_consistent, public_key, scheme, error}</code></li>
+<li><code>did_consistent</code>: cross-checks <code>did:acp:</code> matches <code>identity.public_key</code></li>
+<li>
+<p>Works for any relay's card — not just the local agent's</p>
+</li>
+<li>
+<p><strong><code>GET /.well-known/acp.json</code></strong> now returns signed card when <code>--identity</code> enabled</p>
+</li>
+<li>
+<p><code>identity.card_sig</code> field added to response</p>
+</li>
+<li>
+<p><strong><code>GET /verify/card</code></strong> — self-verification endpoint</p>
+</li>
+<li>
+<p>Returns <code>{self_verification, card_signed}</code> for the local agent's own card</p>
+</li>
+<li>
+<p><strong><code>POST /verify/card</code></strong> — arbitrary card verification endpoint</p>
+</li>
+<li>Body: raw AgentCard JSON or wrapped <code>{self: card}</code> form</li>
+<li>Returns full verification result</li>
+<li>
+<p>Invalid JSON body → 400</p>
+</li>
+<li>
+<p><strong><code>capabilities.card_sig</code></strong>: <code>true</code> when <code>--identity</code> enabled, <code>false</code> otherwise</p>
+</li>
+<li>
+<p><strong><code>endpoints.verify_card</code></strong>: <code>"/verify/card"</code> advertised in AgentCard endpoints block</p>
+</li>
+</ul>
+<h3 id="tests-cs1cs10-teststest_card_signaturepy">Tests (CS1–CS10, <code>tests/test_card_signature.py</code>)<a class="headerlink" href="#tests-cs1cs10-teststest_card_signaturepy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>CS1: card_sig present in GET /.well-known/acp.json when --identity enabled</li>
+<li>CS2: GET /verify/card self-verification → valid=True</li>
+<li>CS3: POST /verify/card valid signed card → valid=True</li>
+<li>CS4: POST /verify/card tampered card → valid=False</li>
+<li>CS5: POST /verify/card unsigned card → valid=False + "card_sig missing"</li>
+<li>CS6: capabilities.card_sig=True with --identity</li>
+<li>CS7: POST /verify/card accepts wrapped {self: card} form</li>
+<li>CS8: POST /verify/card invalid JSON → 400</li>
+<li>CS9: did_consistent=True when did:acp: matches public_key</li>
+<li>CS10: card_sig absent without --identity; capabilities.card_sig=False</li>
+</ul>
+<p>Results: <strong>11/11 PASS</strong> — full regression: <strong>219 passed, 3 skipped, 0 failed</strong></p>
+<h3 id="motivation_2">Motivation<a class="headerlink" href="#motivation_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Directly addresses A2A issue #1672 (Agent Identity Verification — no protocol-level mechanism)</li>
+<li>ACP ships cryptographic AgentCard verification today; A2A has no timeline</li>
+<li>Any ACP peer can now verify "this card was signed by the owner of this did:acp:" identity
+  without any external CA or registration service</li>
+</ul>
+<hr />
+<h2 id="170-2026-03-25-2030">[1.7.0] — 2026-03-25 20:30<a class="headerlink" href="#170-2026-03-25-2030" title="Permanent link">&para;</a></h2>
+<h3 id="updated-spec-readme-post-release-patch">Updated (spec + README — post-release patch)<a class="headerlink" href="#updated-spec-readme-post-release-patch" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>spec/error-codes.md</strong>: explicitly documents <code>Content-Type: application/json; charset=utf-8</code> for all responses including errors; rejects <code>application/problem+json</code> (RFC 9457) by design; references A2A <a href="https://github.com/a2aproject/A2A/issues/1685">#1685</a> as motivation (commit <code>81ffd30</code>)</li>
+<li><strong>README vs-A2A table</strong> (commit <code>81ffd30</code>):</li>
+<li>New row: "Error response Content-Type" — ACP uniform vs A2A #1685 ambiguous</li>
+<li>New row: "Webhook security" — ACP URL-only vs A2A #1681 credentials leaked in plaintext</li>
+<li>New callout paragraph referencing A2A #1681 + #1685</li>
+</ul>
+<h3 id="added-python-sdk">Added (Python SDK)<a class="headerlink" href="#added-python-sdk" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>RelayClient.tasks()</code> v1.4 time-window filters</strong> (commit <code>00e4a09</code>)</li>
+<li>New params: <code>created_after</code>, <code>updated_after</code>, <code>peer_id</code>, <code>sort</code>, <code>cursor</code>, <code>limit</code></li>
+<li>
+<p>Aligns sync and async clients with full relay <code>/tasks</code> endpoint query surface</p>
+</li>
+<li>
+<p><strong><code>RelayClient.cancel_task()</code> v1.5.2 §10 idempotent semantics</strong></p>
+</li>
+<li>Default: returns error dict on 409 <code>ERR_TASK_NOT_CANCELABLE</code> (no exception)</li>
+<li><code>raise_on_terminal=True</code>: raises <code>ValueError</code> for terminal-state tasks</li>
+<li>
+<p>Async client (<code>AsyncRelayClient.cancel_task()</code>) upgraded identically</p>
+</li>
+<li>
+<p><strong><code>RelayClient.capabilities()</code></strong> — new method</p>
+</li>
+<li>Extracts <code>capabilities</code> block from AgentCard (http2 / did_identity / hmac_signing / mdns)</li>
+<li>
+<p>Returns <code>{}</code> gracefully when relay unreachable</p>
+</li>
+<li>
+<p><strong><code>RelayClient.identity()</code></strong> — new method</p>
+</li>
+<li>
+<p>Returns <code>identity</code> block with <code>did:acp:</code> DID field (v1.3+)</p>
+</li>
+<li>
+<p><strong><code>RelayClient.did_document()</code></strong> — new method</p>
+</li>
+<li>
+<p>Fetches <code>/.well-known/did.json</code> W3C DID Document (v1.3+)</p>
+</li>
+<li>
+<p><strong><code>AsyncRelayClient</code></strong>: all above methods added to async client as well</p>
+</li>
+</ul>
+<h3 id="added-relay-server">Added (relay server)<a class="headerlink" href="#added-relay-server" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>SSE <code>context_id</code> propagation</strong> (commit <code>b91f642</code>)</li>
+<li><code>_create_task()</code>: stores <code>context_id</code> on task object; includes it in initial <code>status</code> SSE event</li>
+<li><code>_update_task()</code>: propagates <code>task.context_id</code> to all subsequent <code>status</code> and <code>artifact</code> SSE events</li>
+<li><code>/tasks/create</code> endpoint and <code>/send</code> inline task creation both pass <code>context_id</code> through</li>
+<li>Tasks without <code>context_id</code>: events cleanly omit the field (no null pollution)</li>
+<li>Closes parity gap with A2A Issue #1683 (contextId missing from SSE events)</li>
+</ul>
+<h3 id="updated-readme">Updated (README)<a class="headerlink" href="#updated-readme" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>vs-A2A comparison table</strong>: new row "Cancel task semantics"</li>
+<li>ACP v1.5.2 §10: synchronous + idempotent (200 / 409 <code>ERR_TASK_NOT_CANCELABLE</code>)</li>
+<li>A2A: <code>CancelTaskRequest</code> schema missing (#1684), async cancel state disputed (#1680)</li>
+<li>New callout referencing A2A issues #1680 and #1684</li>
+</ul>
+<h3 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>sdk/python/tests/test_relay_client_v17.py</code></strong>: 10 tests, 10/10 PASS</li>
+<li>T1–T3: <code>tasks()</code> time-window + combined filter query string construction</li>
+<li>T4–T6: <code>cancel_task()</code> success / 409 no-raise / 409 raise</li>
+<li>T7: <code>capabilities()</code> http2 + did_identity flags</li>
+<li>T8: <code>identity()</code> did:acp: field</li>
+<li>T9: <code>did_document()</code> W3C DID Document structure</li>
+<li>T10: <code>capabilities()</code> fallback on unreachable server</li>
+<li><strong><code>tests/test_context_id_sse.py</code></strong>: 17/17 PASS (C1–C8, context_id SSE propagation)</li>
+</ul>
+<p><strong>Full suite: 140 passed, 0 failed ✅</strong></p>
+<hr />
+<h2 id="141-dev-2026-03-25-1440">[1.4.1-dev] — 2026-03-25 14:40<a class="headerlink" href="#141-dev-2026-03-25-1440" title="Permanent link">&para;</a></h2>
+<h3 id="added_6">Added<a class="headerlink" href="#added_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>DCUtR HTTP reflection fallback</strong> (<code>relay/acp_relay.py</code>, commit <code>b3da914</code>)</li>
+<li><code>DCUtRPuncher.attempt()</code>: when STUN fails (UDP blocked by corporate firewall), falls back to HTTP reflection via <code>_relay_get_public_ip()</code> to discover public IP</li>
+<li>Appends <code>{http_ip}:{local_port}</code> to candidate address list; Level 2 hole punch continues</li>
+<li><code>_status["relay_base_url"]</code> now populated at both relay startup paths (<code>--relay</code> CLI flag and P2P <code>guest_mode</code> fallback)</li>
+<li>SSE event <code>dcutr_http_reflect</code> emitted for observability</li>
+<li>Graceful no-op when <code>relay_base_url</code> is unset</li>
+</ul>
+<h3 id="tests_1">Tests<a class="headerlink" href="#tests_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>tests/test_nat_http_reflect.py</code></strong>: 12 unit tests, 12/12 PASS (mock-based, no network required)</li>
+<li>R1–R3: <code>_relay_get_public_ip</code> success / timeout / invalid JSON</li>
+<li>R4: <code>_status["relay_base_url"]</code> round-trip</li>
+<li>R5: DCUtR triggers HTTP reflection when STUN fails + relay_base set</li>
+<li>R6: DCUtR skips HTTP reflection when <code>relay_base_url</code> is None</li>
+</ul>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BUGS.md</strong>: BUG-012 status label corrected to ✅ (code fix was already present in prior commits; status record was missed)</li>
+</ul>
+<hr />
+<h2 id="160-2026-03-25-1350">[1.6.0] — 2026-03-25 13:50<a class="headerlink" href="#160-2026-03-25-1350" title="Permanent link">&para;</a></h2>
+<h3 id="added_7">Added<a class="headerlink" href="#added_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>HTTP/2 cleartext (h2c) transport binding</strong> (<code>relay/acp_relay.py</code>)</li>
+<li>Optional dependency: <code>hypercorn</code> + <code>h2</code> (graceful fallback to HTTP/1.1 if unavailable)</li>
+<li>Implementation: raw <code>h2</code> state machine over <code>socketserver.ThreadingTCPServer</code></li>
+<li><code>--http2</code> CLI flag; <code>capabilities.http2: true</code> in AgentCard</li>
+<li><code>_H2Handler._dispatch()</code>: bridges h2c frames to existing <code>LocalHTTP</code> handler via fake socket</li>
+<li>Supports all endpoints: <code>/status</code>, <code>/.well-known/acp.json</code>, <code>/tasks</code>, SSE streams</li>
+</ul>
+<h3 id="tests_2">Tests<a class="headerlink" href="#tests_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>tests/test_http2_transport.py</code></strong>: 6 scenarios (H1–H6) all PASS</li>
+<li>H1 server startup, H2 AgentCard, H3 SSE, H4 POST /tasks, H5 /status, H6 discovery</li>
+<li><strong>Test infrastructure overhaul</strong> (commit <code>21e3e7d</code>)</li>
+<li><code>tests/conftest.py</code>: global http_proxy strip + <code>clean_subprocess_env()</code> for relay subprocesses</li>
+<li><code>pytest.mark.p2p</code>: skip P2P-dependent tests in sandbox (<code>--with-p2p</code> to enable)</li>
+<li><code>test_scenario_h</code>: rewritten as HTTP-only concurrent isolation test</li>
+<li><strong>Full suite: 15 passed, 3 skipped (P2P), 0 failed, 0 errors</strong></li>
+</ul>
+<p>Key commits: <code>3f06b24</code>, <code>e8974b2</code>, <code>cf578e3</code>, <code>394b71c</code> (HTTP/2), <code>21e3e7d</code> (test infra), <code>0ac2215</code> (BUG-019 docs)</p>
+<hr />
+<h2 id="152-dev-2026-03-25-0555">[1.5.2-dev] — 2026-03-25 05:55<a class="headerlink" href="#152-dev-2026-03-25-0555" title="Permanent link">&para;</a></h2>
+<h3 id="added_8">Added<a class="headerlink" href="#added_8" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>spec §10 — Task Cancel Semantics</strong> (<code>spec/core-v1.3.md</code>): explicit synchronous cancel contract</li>
+<li>Cancel is synchronous and immediate: <code>:cancel</code> returns final <code>canceled</code> state in the same HTTP response, no async/deferred mechanism</li>
+<li>Cancel is idempotent: calling <code>:cancel</code> on an already-canceled task returns 200 with existing state</li>
+<li>New error code: <code>ERR_TASK_NOT_CANCELABLE</code> (409) for tasks in terminal states (<code>completed</code>, <code>failed</code>)</li>
+<li>Design rationale documented: deliberate contrast with A2A issue #1680 (async cancel, unresolved)</li>
+<li>Agent-side cancel behavior guidance (best-effort signal, not a transaction rollback)</li>
+<li><strong>Show HN draft updated</strong> (<code>docs/show-hn-draft.md</code>): added A2A competitive comparison points</li>
+<li>A2A #1681 security bug: <code>PushNotificationConfig</code> leaks credentials by default; ACP has no Push Notification mechanism</li>
+<li>A2A #1680 cancel design gap: async cancel unresolved; ACP cancel is synchronous and unambiguous</li>
+<li>Updated anti-trolling prep with cancel and security talking points</li>
+<li><strong>spec Appendix A</strong>: version history updated to v1.5.2</li>
+</ul>
+<hr />
+<h3 id="research-2026-03-25-0525-competitive-scan-7-post-151-dev-update">Research (2026-03-25 05:25 — Competitive scan #7, post-1.5.1-dev update)<a class="headerlink" href="#research-2026-03-25-0525-competitive-scan-7-post-151-dev-update" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A2A 9-day code freeze continues</strong> (last merge 2026-03-16, TSC governance mode)</li>
+<li><strong>A2A #1681 (security bug)</strong>: <code>GetTaskPushNotificationConfig</code> leaks full credentials in response — ACP has no PushNotification mechanism, zero exposure to this class of vulnerability; strong differentiation point for Show HN</li>
+<li><strong>A2A #1680 (design gap)</strong>: async cancel semantics unresolved — community debating two approaches for cancel-in-progress tasks; ACP cancel is simple synchronous (<code>canceled</code> state returned immediately), no async webhook complexity</li>
+<li><strong>A2A #1679</strong>: Python tutorial docs require full rewrite for <code>v1.0-alpha.0</code> breaking changes; ACP API stable, low doc maintenance burden</li>
+<li><strong>ANP</strong>: confirmed archived (last update 2026-03-05), no new activity</li>
+</ul>
+<hr />
+<h2 id="150-dev-2026-03-24-pre-151-nat-signaling-layer">[1.5.0-dev] — 2026-03-24 (pre-1.5.1, NAT signaling layer)<a class="headerlink" href="#150-dev-2026-03-24-pre-151-nat-signaling-layer" title="Permanent link">&para;</a></h2>
+<h3 id="added-2247-v14-nat-traversal-signaling-layer">Added (22:47 — v1.4 NAT traversal signaling layer)<a class="headerlink" href="#added-2247-v14-nat-traversal-signaling-layer" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Cloudflare Worker v2.1</strong>: NAT traversal signaling endpoints (commit <code>8c162d4</code>)</li>
+<li><code>GET /acp/myip</code> — reflect caller's public IP via <code>CF-Connecting-IP</code> header; used by agents to discover their public address when STUN UDP is blocked</li>
+<li><code>POST /acp/announce</code> — register <code>{token, ip, port, nat_type}</code> with 30s TTL; auto-expires, no message content stored</li>
+<li><code>GET /acp/peer?token=</code> — one-time fetch + delete of peer announce record (prevents address harvesting)</li>
+<li>Privacy design: signaling records are ephemeral (30s) and one-time-read, no persistent storage of agent addresses</li>
+<li><strong>Python signaling helpers</strong> (<code>acp_relay.py</code>) — stdlib-only (<code>urllib</code>), no new deps</li>
+<li><code>_relay_get_public_ip(relay_base_url)</code> — HTTP reflection fallback for when STUN UDP is firewalled</li>
+<li><code>_relay_announce(relay_base_url, token, ip, port, nat_type)</code> — register address via Worker</li>
+<li><code>_relay_get_peer_addr(relay_base_url, token)</code> — fetch peer address (one-time, auto-deletes)</li>
+<li>These complement <code>STUNClient</code>: STUN → primary; HTTP reflection → corporate firewall fallback</li>
+<li><strong><code>tests/test_nat_signaling.py</code></strong>: 22/22 PASS — covers all helpers, error paths, edge cases, full roundtrip; uses local mock server, no network required</li>
+</ul>
+<h3 id="fixed-2033">Fixed (20:33)<a class="headerlink" href="#fixed-2033" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BUG-016 (P1)</strong>: <code>/peer/{id}/send</code> connection race — <code>ERR_PEER_CONNECTING</code> guard (commit <code>665f767</code>)</li>
+<li>Root cause: <code>_register_peer()</code> sets <code>connected=True, ws=None</code> immediately on <code>/peers/connect</code>; send handler only checked <code>connected</code>, not <code>ws</code>, causing a spurious "not connected" 503 during WS handshake</li>
+<li>Fix: added <code>ws is None</code> guard returning 503 <code>ERR_PEER_CONNECTING</code> with retry hint</li>
+<li>Test fix: <code>wait_peer_ready()</code> now uses probe-send success as readiness signal instead of peer list polling</li>
+<li>Verified: <code>test_scenario_fg.py</code> 19/19 ✅ (was 16/19 before fix)</li>
+</ul>
+<h3 id="fixed-2000">Fixed (20:00)<a class="headerlink" href="#fixed-2000" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BUG-015 (P3)</strong>: <code>test_scenario_fg.py</code> pytest incompatibility (commit <code>58dbb66</code>)</li>
+<li>Root cause: module-level <code>sys.exit()</code> triggered <code>INTERNALERROR: SystemExit</code> when mixed with other pytest suites</li>
+<li>Fix: refactored to <code>run_fg_tests()</code> + <code>test_scenario_fg()</code> pytest entry; <code>sys.exit()</code> moved to <code>if __name__ == "__main__":</code> guard</li>
+<li>Verified: 7 tests collected cleanly in mixed-suite run; standalone <code>python3</code> execution unchanged</li>
+</ul>
+<h3 id="research-scan-6-2026-03-24-2137">Research (scan #6 — 2026-03-24 21:37)<a class="headerlink" href="#research-scan-6-2026-03-24-2137" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A2A PR #1678 (NEW ⭐)</strong>: Python SDK tutorial updated to <code>v1.0.0-alpha.0</code></li>
+<li><code>AgentCard.url</code> renamed to <code>icon_url</code> (breaking); new <code>supported_interfaces</code> + <code>extended_agent_card</code> fields</li>
+<li>Signal: A2A AgentCard still churning; ACP's minimal, stable AgentCard format is a differentiation point</li>
+<li><code>supported_interfaces</code> adds protocol negotiation complexity — ACP's "one link, zero config" narrative strengthened</li>
+<li><strong>A2A code layer</strong>: 9 consecutive days without spec/code merge (last: 2026-03-16)</li>
+<li>Window remains open for ACP v1.4 + v2.0 launch before A2A stabilizes</li>
+<li><strong>A2A #1676</strong>: <code>PushNotificationConfig</code> missing (still unresolved) — ACP <code>/recv</code> polling unaffected</li>
+<li><strong>A2A #1672</strong>: <code>getagentid.dev</code> identity CA discussion still open, no resolution</li>
+<li><strong>ANP</strong>: archived, no new activity (dropped from tracking)</li>
+<li>Full report: <code>acp-research/reports/2026-03-24-scan-2.md</code></li>
+</ul>
+<h3 id="research-scan-5-2026-03-24-1800">Research (scan #5 — 2026-03-24 18:00)<a class="headerlink" href="#research-scan-5-2026-03-24-1800" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A2A #1676 (NEW)</strong>: <code>PushNotificationConfig</code> definition missing from A2A spec (bug)</li>
+<li>ACP is unaffected; <code>/recv</code> polling design avoids push config complexity entirely</li>
+<li><strong>A2A #1672 (47 comments)</strong>: <code>getagentid.dev</code> emerging as de-facto A2A identity CA</li>
+<li>Centralized registration service; external dependency; single point of failure</li>
+<li><strong>ACP <code>did:acp:</code> advantage</strong>: self-sovereign, derived from Ed25519 pubkey, zero external resolver,
+    zero registration, works fully offline — already shipping in v1.5</li>
+<li><strong>A2A code layer</strong>: 8 consecutive days with no merges (last: 2026-03-16, CODEOWNERS update)</li>
+<li>TSC governance mode confirmed; fast-iteration window remains open for ACP</li>
+<li><strong>ANP</strong>: confirmed archived (last update 2026-03-05), dropped from active tracking</li>
+<li>Show HN draft updated with <code>getagentid.dev</code> vs <code>did:acp:</code> talking points (commit <code>e39ac4f</code>)</li>
+<li>Full report: <code>acp-research/reports/2026-03-24-scan.md</code></li>
+</ul>
+<hr />
+<h2 id="151-dev-2026-03-24">[1.5.1-dev] — 2026-03-24<a class="headerlink" href="#151-dev-2026-03-24" title="Permanent link">&para;</a></h2>
+<h3 id="added_9">Added<a class="headerlink" href="#added_9" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>GET /tasks</code> time-window filters</strong> — <code>created_after</code> and <code>updated_after</code> (commit <code>a187471</code>)</li>
+<li><code>created_after=&lt;ISO-8601&gt;</code> — return only tasks created after this timestamp</li>
+<li><code>updated_after=&lt;ISO-8601&gt;</code> — return only tasks updated after this timestamp</li>
+<li>Combinable with existing <code>state</code> / <code>peer_id</code> / <code>cursor</code> / <code>sort</code> params</li>
+<li>Future timestamps → empty list (correct behavior, TF4)</li>
+<li>Invalid timestamp strings → 200/400, no 500 crash (TF5)</li>
+<li>Tests: <strong>6/6 PASS</strong> (<code>tests/test_tasks_filtering.py</code> — TF1–TF6)</li>
+<li>Inspired by A2A v1.0.0 <code>tasks/list</code> + <code>last_updated_after</code> (research scan #4)</li>
+</ul>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BUG-014 (P2)</strong>: <code>GET /tasks?peer_id=</code> filter was always returning empty list</li>
+<li>Root cause: <code>peer_id</code> is stored in <code>payload.peer_id</code>, not top-level <code>t["peer_id"]</code></li>
+<li>Fix: filter now checks both <code>t.get("peer_id")</code> and <code>t.get("payload", {}).get("peer_id")</code></li>
+<li>Previously silently broken with zero test coverage; discovered during TF6 regression test</li>
+</ul>
+<h3 id="research">Research<a class="headerlink" href="#research" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A2A v1.0.0 released 2026-03-12</strong> — competitive analysis scan #4 (commit <code>8f0c9b5</code>)</li>
+<li>A2A v0.3.0 → v1.0.0 with multiple BREAKING CHANGES (OAuth modernization, gRPC multi-tenancy,
+    <code>extendedAgentCard</code> restructure, <code>canceled</code> spelling standardization)</li>
+<li>ACP's P2P/zero-server positioning MORE differentiated vs. A2A enterprise trajectory</li>
+<li>A2A #1667 (heartbeat agent): ACP <code>availability</code> block already ships this natively</li>
+<li>A2A #1672 (agent identity): reference impl submitted (getagentid.dev, centralized CA);
+    ACP ed25519 self-sovereign model is superior (no third-party CA dependency)</li>
+<li>Action items: P2 — SDK compat version docs; P3 — highlight self-sovereign identity in README</li>
+<li>Full report: <code>acp-research/reports/2026-03-24-scan4.md</code></li>
+</ul>
+<hr />
+<h2 id="150-dev-2026-03-24-hybrid-identity">[1.5.0-dev] — 2026-03-24 (hybrid identity)<a class="headerlink" href="#150-dev-2026-03-24-hybrid-identity" title="Permanent link">&para;</a></h2>
+<h3 id="added_10">Added<a class="headerlink" href="#added_10" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Hybrid Identity Model</strong> (<code>--ca-cert</code>) — v1.5 (commit <code>7aaa2cb</code>)</li>
+<li>New CLI flag: <code>--ca-cert &lt;PATH_OR_PEM&gt;</code></li>
+<li>When used alongside <code>--identity</code>: AgentCard gains <code>identity.ca_cert</code> (PEM string)</li>
+<li><code>identity.scheme</code> upgraded from <code>"ed25519"</code> → <code>"ed25519+ca"</code> in hybrid mode</li>
+<li><code>capabilities.identity</code>: <code>"none"</code> | <code>"ed25519"</code> | <code>"ed25519+ca"</code> (new enum)</li>
+<li>All <code>did:acp:</code> / <code>public_key</code> fields preserved — fully backward compatible</li>
+<li>New spec: <code>spec/identity-v1.5.md</code> (hybrid trust model, 4 verification strategies)</li>
+<li>Tests: <strong>6/6 PASS</strong> (<code>tests/test_v15_hybrid_identity.py</code>)</li>
+<li><strong>Motivation</strong>: A2A #1672 (43 comments) converging toward same "hybrid" conclusion;
+    ACP ships this today vs. A2A still in discussion</li>
+</ul>
+<h3 id="research_1">Research<a class="headerlink" href="#research_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>A2A code layer: 8 consecutive days without a merge (last commit 2026-03-16)</li>
+<li>A2A #1672 hybrid identity: self-sovereign + CA model — ACP v1.5 preemptively ships this</li>
+<li>A2A #1628 trust.signals[]: enterprise blockchain-level trust, out of ACP scope</li>
+<li>A2A #1606 data handling declarations: compliance metadata, v2.0 extensions candidate</li>
+<li>Reports: <code>acp-research/reports/2026-03-24-scan.md</code>, <code>2026-03-24-scan2.md</code></li>
+</ul>
+<hr />
+<h2 id="140-dev-2026-03-24">[1.4.0-dev] — 2026-03-24<a class="headerlink" href="#140-dev-2026-03-24" title="Permanent link">&para;</a></h2>
+<h3 id="added_11">Added<a class="headerlink" href="#added_11" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Java SDK</strong> (<code>sdk/java/</code>) — zero external dependencies, JDK 11+ (commit <code>28813ed</code>)</li>
+<li><code>RelayClient.of(url)</code> — ping, send, recv, connectPeer, sendToPeer, stream (SSE), patchAvailability</li>
+<li>Full model classes: <code>Part</code>, <code>Message</code>, <code>Task</code>, <code>SendRequest</code>, <code>SendResponse</code>, <code>SseEvent</code></li>
+<li>Zero-dependency JSON serializer/parser (<code>Json.java</code>, hand-written recursive descent)</li>
+<li>Maven <code>pom.xml</code>; zero runtime dependencies (JDK 11 <code>java.net.http</code> only)</li>
+<li>Spring Boot <code>@Bean</code> integration example in README</li>
+<li>Tests: <strong>41/41 ✅</strong> (21 <code>JsonTest</code> unit + 10 <code>RelayClientTest</code> unit + 10 integration)</li>
+<li><strong>Scenario H test</strong> — multi-agent concurrent routing validation (commit <code>06f6fac</code>)</li>
+<li>H1: Hub simultaneous dual-peer connect (2/2 peers)</li>
+<li>H2: Hub→WA + Hub→WB parallel 10-msg each; zero cross-routing errors ✅</li>
+<li>H3: WA↔WB bidirectional concurrent exchange ✅</li>
+<li>H4: Idempotency ID isolation across peers ✅</li>
+<li><strong>6/6 PASS</strong> — completes all 8 scenario coverage (A–H)</li>
+<li>README: new <code>## Heartbeat / Cron Agents</code> section with Python template (commit <code>06f6fac</code>)</li>
+<li>Research: ANP downgraded to archived in ROADMAP (last updated 2026-03-05)</li>
+</ul>
+<h3 id="test-coverage-cumulative">Test Coverage (cumulative)<a class="headerlink" href="#test-coverage-cumulative" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Status</th>
+<th>File</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A — P2P dual agent</td>
+<td>✅</td>
+<td>test_three_level_connection.py</td>
+</tr>
+<tr>
+<td>B — Orchestrator→Workers</td>
+<td>✅</td>
+<td>test_scenario_bc.py</td>
+</tr>
+<tr>
+<td>C — Pipeline A→B→C→A</td>
+<td>✅</td>
+<td>test_scenario_bc.py</td>
+</tr>
+<tr>
+<td>D — Stress (100 msgs, concurrent)</td>
+<td>✅</td>
+<td>test_scenario_d_stress.py</td>
+</tr>
+<tr>
+<td>E — NAT 3-level fallback (real)</td>
+<td>⏳ needs real NAT environment</td>
+<td>—</td>
+</tr>
+<tr>
+<td>F — Error handling</td>
+<td>✅</td>
+<td>test_scenario_fg.py</td>
+</tr>
+<tr>
+<td>G — Disconnect/reconnect</td>
+<td>✅</td>
+<td>test_scenario_fg.py</td>
+</tr>
+<tr>
+<td>H — Multi-agent concurrent routing</td>
+<td>✅</td>
+<td>(ad-hoc, 2026-03-24)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="130-dev-2026-03-2223">[1.3.0-dev] — 2026-03-22/23<a class="headerlink" href="#130-dev-2026-03-2223" title="Permanent link">&para;</a></h2>
+<h3 id="added-v14-dev">Added (v1.4-dev)<a class="headerlink" href="#added-v14-dev" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Three-level connection strategy fully integrated</strong> in <code>guest_mode</code>:</li>
+<li>Level 1: Direct WebSocket (unchanged)</li>
+<li>Level 2: DCUtR UDP hole punch via relay signaling (<strong>NEW</strong> — wired into main connect flow)<ul>
+<li>Signaling-only relay WS for address exchange</li>
+<li>STUNClient public address discovery</li>
+<li>Simultaneous UDP probes via DCUtRPuncher</li>
+<li>SSE events: <code>dcutr_started</code>, <code>dcutr_connected</code>, <code>relay_fallback</code></li>
+<li><code>status.connection_type</code>: <code>p2p_direct</code> | <code>dcutr_direct</code> | <code>relay</code></li>
+</ul>
+</li>
+<li>Level 3: Relay permanent fallback (unchanged)</li>
+<li><strong>tests/test_three_level_connection.py</strong>: 20/20 PASS</li>
+</ul>
+<h3 id="added-v11">Added (v1.1)<a class="headerlink" href="#added-v11" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>GET /tasks</code> pagination</strong> — keyset cursor pagination, state/peer_id filter, sort order</li>
+<li>New params: <code>limit</code> (max 200), <code>cursor</code> (exclusive keyset), <code>state</code>, <code>peer_id</code>, <code>sort</code></li>
+<li>Response: <code>has_more</code>, <code>next_cursor</code>, <code>total</code> fields</li>
+<li>Addresses the gap noted in A2A issue #1667 discussion</li>
+</ul>
+<h3 id="added-2026-03-23-dcutr-nat">Added (2026-03-23 — DCUtR NAT 穿透初版实现)<a class="headerlink" href="#added-2026-03-23-dcutr-nat" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>DCUtR 风格 UDP 打洞 NAT 穿透 — Level 2 连接策略（v1.4 特性，初版实装）</strong></li>
+<li>新增 <code>STUNClient</code> 类 (~120 行)：stdlib-only STUN Binding Request 客户端<ul>
+<li>支持 RFC 5389 / RFC 8489（XOR-MAPPED-ADDRESS 优先，MAPPED-ADDRESS 兜底）</li>
+<li>使用公共 STUN 服务器 <code>stun.l.google.com:19302</code></li>
+<li>3s 超时，失败静默返回 None（不抛异常）</li>
+<li>运行在 executor 中，不阻塞 asyncio event loop</li>
+</ul>
+</li>
+<li>新增 <code>DCUtRPuncher</code> 类 (~200 行)：UDP 打洞状态机<ul>
+<li><code>attempt(relay_ws, local_port)</code> — 发起方：发 dcutr_connect → 等 dcutr_sync → 双方同时发 UDP 包 → 等回包</li>
+<li><code>listen_for_dcutr(relay_ws, local_port)</code> — 响应方：等 dcutr_connect → 回 dcutr_sync → 执行打洞</li>
+<li>打洞成功后自动关闭 Relay 连接（后续通信完全直连）</li>
+<li>所有超时/失败均静默降级，不抛异常到上层</li>
+</ul>
+</li>
+<li>新增 <code>connect_with_holepunch()</code> 函数 (~60 行)：对外公开 API<ul>
+<li>返回 <code>(websocket, is_direct: bool)</code></li>
+<li>Level 1: 直连（3s timeout）→ Level 2: UDP 打洞（5s 信令 + 3s 探测）→ Level 3: Relay 永久中转</li>
+</ul>
+</li>
+<li>新增 3 种 ACP 控制消息类型：<code>dcutr_connect</code> / <code>dcutr_sync</code> / <code>dcutr_result</code><ul>
+<li>在 Relay WebSocket 上传输，不影响业务消息</li>
+</ul>
+</li>
+<li><strong>stdlib only</strong>：<code>asyncio</code>, <code>socket</code>, <code>struct</code>, <code>os</code>, <code>time</code>, <code>uuid</code> — 无新增第三方依赖</li>
+<li><strong>向后兼容</strong>：<code>acp://</code> 链接格式不变，NAT 穿透对上层完全透明</li>
+<li>文档：新建 <code>docs/nat-traversal.md</code>（用户指南），更新 <code>spec/nat-traversal-v1.4.md</code>（完整规范）</li>
+</ul>
+<h3 id="fixed-commit-638f778-2026-03-23-scenario-c-ring-pipeline-testing">Fixed (commit <code>638f778</code> — 2026-03-23, scenario-C ring pipeline testing)<a class="headerlink" href="#fixed-commit-638f778-2026-03-23-scenario-c-ring-pipeline-testing" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BUG-007 part 2 (P1)</strong> — <code>/message:send</code> with <code>peer_id</code> still routed to wrong peer</li>
+<li>Root cause: BUG-007 part 1 (commit <code>3a1c499</code>) added the ambiguity guard but did not
+    update the actual send dispatch — <code>_ws_send_sync(msg)</code> continued to use <code>_peer_ws</code>
+    (the last-connected peer) even when <code>peer_id</code> was explicitly provided in the body.</li>
+<li>Fix: <code>_ws_send(msg, peer_id=None)</code> and <code>_ws_send_sync(msg, peer_id=None)</code> now accept
+    an optional <code>peer_id</code> parameter. When supplied, they look up <code>_peers[peer_id]["ws"]</code>
+    and route directly to that WebSocket, also updating the per-peer <code>messages_sent</code>
+    counter. Both the sync and async paths of <code>/message:send</code> now pass <code>_req_peer_id</code>.</li>
+<li>Legacy behavior (no <code>peer_id</code> → use <code>_peer_ws</code>) preserved for backward compatibility.</li>
+<li>Verified with Scenario C (A→B→C→A ring pipeline): 8/8 checks pass ✅.</li>
+</ul>
+<h3 id="tested-scenario-c-abca-ring-pipeline-2026-03-23">Tested — Scenario C: A→B→C→A Ring Pipeline (2026-03-23)<a class="headerlink" href="#tested-scenario-c-abca-ring-pipeline-2026-03-23" title="Permanent link">&para;</a></h3>
+<p>Full end-to-end 3-agent ring pipeline validated:
+- Ring topology established: A→B, B→C, C→A (6 peer connections total, 2 per agent) ✅
+- A injects payload (<code>raw=[1,2,3,4,5]</code>) → B via <code>peer_id</code>-directed <code>/message:send</code> ✅
+- B receives, processes (<code>doubled=[2,4,6,8,10]</code>), forwards to C ✅
+- C receives, finalizes (<code>sum=30</code>), sends result back to A ✅
+- A receives complete pipeline result ✅
+- Task state machine (<code>pipeline_001</code> → <code>completed</code>) ✅
+- Per-agent send/recv stats correct (A:2/1, B:1/1, C:1/1) ✅
+- <strong>Result: 8/8 PASS 🎉</strong></p>
+<h3 id="fixed-commit-3a1c499-2026-03-23-3-agent-scenario-b-testing">Fixed (commit <code>3a1c499</code> — 2026-03-23, 3-agent scenario-B testing)<a class="headerlink" href="#fixed-commit-3a1c499-2026-03-23-3-agent-scenario-b-testing" title="Permanent link">&para;</a></h3>
+<p>Two bugs discovered during Orchestrator → Worker1 + Worker2 multi-peer test:</p>
+<ul>
+<li><strong>BUG-007 (P1)</strong> — <code>/message:send</code> silently routed to wrong peer when multiple peers connected</li>
+<li>When ≥2 peers are connected and no <code>peer_id</code> is supplied, <code>/message:send</code> previously
+    sent to <code>_peer_ws</code> (the most recently connected peer) with no indication of ambiguity.</li>
+<li>Fix: if <code>len(connected_peers) &gt; 1</code> and <code>peer_id</code> is absent in the request body, return
+    HTTP 400 <code>ERR_AMBIGUOUS_PEER</code> with a <code>connected_peers</code> list guiding the caller to use
+    <code>POST /peer/{id}/send</code> for directed delivery. If <code>peer_id</code> IS supplied in the body,
+    the message is routed to that specific peer (single-peer path unchanged).</li>
+<li>
+<p>Verified: <code>ERR_AMBIGUOUS_PEER</code> returned with peer list ✅; <code>peer_id</code> routing ✅;
+    single-peer agents unaffected ✅.</p>
+</li>
+<li>
+<p><strong>BUG-008 (P2)</strong> — Task action endpoints had inconsistent naming convention</p>
+</li>
+<li><code>:cancel</code> used A2A-aligned colon style; <code>/update</code>, <code>/wait</code>, <code>/continue</code> used slash style.</li>
+<li>Fix: router now accepts <strong>both</strong> colon and slash variants for all three endpoints:
+    <code>POST /tasks/{id}:update</code> / <code>/tasks/{id}/update</code>,
+    <code>GET /tasks/{id}:wait</code> / <code>/tasks/{id}/wait</code>,
+    <code>POST /tasks/{id}:continue</code> / <code>/tasks/{id}/continue</code>.
+    Old slash-style paths remain fully supported (backward-compatible).</li>
+<li>Spec will be updated to recommend colon style; both accepted indefinitely.</li>
+<li>Verified: <code>/update</code> slash ✅, <code>:update</code> colon ✅, <code>:wait</code> colon ✅.</li>
+</ul>
+<h3 id="known-issues-discovered-2026-03-23-not-yet-fixed">Known Issues (discovered 2026-03-23, not yet fixed)<a class="headerlink" href="#known-issues-discovered-2026-03-23-not-yet-fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BUG-009 (P1)</strong> — SSE <code>/stream</code> event delivery latency ~950 ms</li>
+<li>Root cause: the <code>/stream</code> and <code>/tasks/{id}:subscribe</code> handlers poll the event queue
+    using <code>time.sleep(1)</code> in a busy-wait loop. On average, an event arriving mid-sleep
+    waits ~500 ms; worst case 1 s. Measured avg 950 ms across 8 trials.</li>
+<li>Impact: SSE push is unsuitable for latency-sensitive use cases until fixed.</li>
+<li>Planned fix: replace <code>time.sleep(1)</code> with <code>threading.Event.wait(timeout=0.05)</code>;
+    <code>_broadcast_sse_event</code> calls <code>event.set()</code> to wake subscribers immediately.
+    Expected result: SSE delivery latency &lt; 10 ms.</li>
+<li>Priority: P1 — fix in next development round.</li>
+</ul>
+<h3 id="fixed-commit-643450c-2026-03-23-real-dual-agent-testing">Fixed (commit <code>643450c</code> — 2026-03-23, real dual-agent testing)<a class="headerlink" href="#fixed-commit-643450c-2026-03-23-real-dual-agent-testing" title="Permanent link">&para;</a></h3>
+<p>Six bugs discovered during first live AlphaAgent↔BetaAgent P2P communication session:</p>
+<ul>
+<li><strong>BUG-001 (P0)</strong> — SSE <code>/stream</code> never delivered message events (only keepalive)</li>
+<li>Root cause 1: <code>HTTPServer</code> is single-threaded; the <code>/stream</code> blocking loop blocked all
+    subsequent HTTP requests including <code>/message:send</code>. Fix: use <code>ThreadingHTTPServer</code>.</li>
+<li>Root cause 2: BaseHTTP defaults to HTTP/1.0 and sets <code>close_connection = True</code> after
+    <code>handle_one_request()</code> returns, silently closing the SSE connection before any events
+    are sent. Fix: <code>self.close_connection = False</code> + <code>X-Accel-Buffering: no</code> header.</li>
+<li>Root cause 3: <code>/message:send</code> outbound path never called <code>_broadcast_sse_event</code>.
+    Fix: add broadcast with <code>direction: "outbound"</code> after <code>_ws_send_sync</code>.</li>
+<li>
+<p>Test fix: <code>tests/compat/test_stream.py</code> raw-socket reader returns 0 bytes against
+    HTTP/1.0 keep-alive connections; replaced with <code>http.client</code> streaming reader.</p>
+</li>
+<li>
+<p><strong>BUG-002 (P0)</strong> — Task <code>:cancel</code> endpoint returned <code>status: "failed"</code> instead of <code>"canceled"</code></p>
+</li>
+<li>
+<p>Added <code>TASK_CANCELED = "canceled"</code> constant; added to <code>TERMINAL_STATES</code>;
+    cancel handler now uses the constant.</p>
+</li>
+<li>
+<p><strong>BUG-003 (P1)</strong> — <code>/peers/connect</code> for the same link created duplicate peer entries</p>
+</li>
+<li>
+<p>Two-layer fix: (1) <code>/peers/connect</code> checks existing connected peers before registering;
+    returns <code>already_connected: true</code> on match. (2) <code>guest_mode()</code> WS connect reuses
+    pre-registered peer entry (matched by token link) instead of calling <code>_register_peer()</code>
+    again, which had created a second entry.</p>
+</li>
+<li>
+<p><strong>BUG-004 (P1)</strong> — <code>/message:send</code> response body missing <code>server_seq</code> field</p>
+</li>
+<li>
+<p>Captured <code>seq = msg["server_seq"]</code> before <code>_ws_send_sync</code>; included in both sync
+    (reply) and async (fire-and-forget) response paths.</p>
+</li>
+<li>
+<p><strong>BUG-005 (P1)</strong> — <code>peer.messages_received</code> counter never incremented</p>
+</li>
+<li>
+<p><code>_on_message()</code> now looks up sender peer by <code>msg.get("from")</code> name; falls back to
+    single connected peer when <code>from</code> field absent; increments <code>messages_received</code>.</p>
+</li>
+<li>
+<p><strong>BUG-006 (P2)</strong> — Client-supplied <code>task_id</code> in POST <code>/tasks</code> body was ignored</p>
+</li>
+<li><code>_create_task()</code> now accepts optional <code>task_id</code> parameter; if the ID already exists,
+    returns the existing task (idempotent). <code>/tasks</code> handler passes <code>body.get("task_id")</code>.</li>
+</ul>
+<h3 id="added_12">Added<a class="headerlink" href="#added_12" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Extension mechanism</strong> — URI-identified AgentCard extensions (commit <code>88d00fc</code>)</li>
+<li>New optional <code>extensions</code> array in AgentCard: <code>[{uri, required, params?}]</code></li>
+<li><code>capabilities.extensions: true</code> flag when at least one extension declared</li>
+<li>Runtime APIs:<ul>
+<li><code>GET /extensions</code> — list all declared extensions with count</li>
+<li><code>POST /extensions/register</code> — register new extension at runtime (no restart)</li>
+<li><code>POST /extensions/unregister</code> — remove extension by URI at runtime</li>
+</ul>
+</li>
+<li>Merge semantics: URI-keyed; re-registering the same URI updates in-place</li>
+<li>Extensions omitted from AgentCard when none declared (clean opt-in)</li>
+<li><code>tests/unit</code>: +5 <code>TestExtensions</code> tests (card absent/present, capabilities flag, register/unregister)</li>
+<li><code>docs/integration-guide.md</code>: full Extension mechanism section with curl examples</li>
+<li><code>docs/comparison.md</code>: ACP Extensions vs A2A <code>extensions[]</code> comparison row</li>
+<li>
+<p>Design: aligned with A2A extension model (URI-identified, <code>required</code> flag), zero-config when unused</p>
+</li>
+<li>
+<p><strong><code>did:acp:</code> DID Identity</strong> — stable, self-sovereign Agent identifier (commit <code>6595e39</code>)</p>
+</li>
+<li>Derives <code>did:acp:&lt;base64url(ed25519-pubkey)&gt;</code> from existing <code>--identity</code> keypair</li>
+<li>No external registry; the DID <strong>is</strong> the key (key-based method)</li>
+<li>AgentCard gains <code>did</code> field when identity enabled; omitted otherwise</li>
+<li>New endpoint <code>GET /.well-known/did.json</code> — W3C-compatible DID Document:<ul>
+<li><code>verificationMethod[]</code> with <code>publicKeyMultibase</code> (Ed25519VerificationKey2020)</li>
+<li><code>authentication</code>, <code>assertionMethod</code> relationships</li>
+<li>Returns 404 when <code>--identity</code> not configured</li>
+</ul>
+</li>
+<li><code>capabilities.did_identity: true</code> flag when <code>--identity</code> provided</li>
+<li>Outbound AgentCard includes <code>did</code> field for peer verification</li>
+<li><code>tests/unit</code>: +5 <code>TestDidAcp</code> tests (derivation, AgentCard embed, DID Document structure)</li>
+<li><code>docs/integration-guide.md</code>: full DID Identity section (format, AgentCard sample,
+    <code>/.well-known/did.json</code> sample, Python peer-verification snippet, design notes)</li>
+<li><code>docs/comparison.md</code>: DID identifier + DID Document rows — <code>did:acp:</code> (key-based, no DNS)
+    vs ANP <code>did:wba:</code> (domain-based, requires DNS)</li>
+<li>
+<p><code>docs/README.zh-CN.md</code>: v1.3 status <code>规划中</code> → 🚧 进行中, all three items ✅</p>
+</li>
+<li>
+<p><strong>Official Docker image v1.3 + GHCR CI publish pipeline</strong> (commit <code>1f0b7e5</code>)</p>
+</li>
+<li><code>Dockerfile</code> version label bumped <code>1.2.0</code> → <code>1.3.0</code></li>
+<li>New run examples in <code>Dockerfile</code> header: v1.3 Extension + DID identity flags</li>
+<li>GHCR pull instructions: <code>docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay:latest</code></li>
+<li><strong><code>.github/workflows/docker-publish.yml</code></strong> — automated multi-arch build &amp; push:<ul>
+<li>Triggers: push to <code>main</code>, semver tags (<code>v*.*.*</code>), manual <code>workflow_dispatch</code></li>
+<li>Matrix: <code>base</code> (no extra deps) + <code>full</code> (<code>websockets</code> + <code>cryptography</code>)</li>
+<li>Registry: GitHub Container Registry (<code>ghcr.io</code>)</li>
+<li>Tags: <code>:latest</code>, <code>:vX.Y.Z</code>, <code>:sha-&lt;short&gt;</code>, <code>-full</code> variant suffix</li>
+<li>Platforms: <code>linux/amd64</code> + <code>linux/arm64</code> (multi-arch)</li>
+<li>GHA layer cache (<code>cache-from/to: type=gha</code>) for fast incremental rebuilds</li>
+<li>Smoke-test job: pull <code>:latest</code>, start container, verify <code>/.well-known/acp.json</code> returns valid AgentCard</li>
+</ul>
+</li>
+<li><code>docker-compose.yml</code> v1.3 additions:<ul>
+<li>Commented DID Identity pair example (requires <code>acp-relay:full</code>, persistent <code>acp-identity</code> volume)</li>
+<li>Commented Extension registration demo example</li>
+<li><code>volumes.acp-identity</code> declaration for stable Ed25519 keypair across container restarts</li>
+</ul>
+</li>
+</ul>
+<h3 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>v1.3 introduces two orthogonal extensibility layers:
+  <strong>Extensions</strong> (capability advertisement) + <strong>DID</strong> (identity layer)</li>
+<li>Both are fully opt-in: no breaking changes to v1.0/v1.2 deployments</li>
+<li>Unit test total: 92 (v1.2) + 10 (v1.3 TestExtensions + TestDidAcp) = <strong>102 PASS</strong></li>
+<li><code>tests/unit/test_relay_core.py</code>: 121 <code>def test_</code> entries (includes v1.3 classes)</li>
+<li>ACP now has 4 extensibility dimensions: <strong>HMAC security</strong> · <strong>Ed25519 identity</strong> ·
+  <strong>availability scheduling</strong> · <strong>URI-identified Extensions</strong> — all opt-in, zero-config default</li>
+<li>v1.1 Backlog fully closed: <code>failed_message_id</code> ✅ · replay-window ✅ · Rust SDK ✅ · DID ✅ · Docker CI ✅
+  (only HTTP/2 transport binding remains open as optional long-term item)</li>
+</ul>
+<hr />
+<h2 id="120-dev-2026-03-22">[1.2.0-dev] — 2026-03-22<a class="headerlink" href="#120-dev-2026-03-22" title="Permanent link">&para;</a></h2>
+<h3 id="added_13">Added<a class="headerlink" href="#added_13" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>AgentCard <code>availability</code> block</strong> — heartbeat/cron agent scheduling metadata (commit <code>c10c230</code>)</li>
+<li>New optional <code>availability</code> object in AgentCard; omitted when not configured (opt-in)</li>
+<li>Fields: <code>mode</code> (<code>persistent</code>|<code>heartbeat</code>|<code>cron</code>|<code>manual</code>), <code>interval_seconds</code>,
+    <code>next_active_at</code>, <code>last_active_at</code> (auto-stamped from startup time), <code>task_latency_max_seconds</code></li>
+<li><code>capabilities.availability: true</code> flag when block is present</li>
+<li>CLI flags: <code>--availability-mode</code>, <code>--heartbeat-interval</code>, <code>--next-active-at</code></li>
+<li>Config-file keys: <code>availability-mode</code>, <code>heartbeat-interval</code>, <code>next-active-at</code></li>
+<li>ACP is the <strong>first Agent communication protocol</strong> to support scheduling metadata natively
+    (A2A issue #1667, 2026-03-21: A2A AgentCard has no scheduling fields)</li>
+<li><code>tests/unit</code>: +10 <code>TestAgentCardAvailability</code> tests; total 83 PASS</li>
+<li><strong><code>PATCH /.well-known/acp.json</code></strong> — live availability update API (commit <code>cd67181</code>)</li>
+<li>Heartbeat agents can stamp <code>next_active_at</code> / <code>last_active_at</code> on each wake
+    without restarting the relay</li>
+<li>Merge semantics: only patched fields are updated; others preserved</li>
+<li>Whitelist validation: allowed fields enforced; unknown fields → 400</li>
+<li>Mode enum validation; missing <code>availability</code> key → 400</li>
+<li>Supports both <code>/card</code> and <code>/.well-known/acp.json</code> paths</li>
+<li><code>tests/unit</code>: +9 <code>TestPatchAvailability</code> tests; total 92 PASS</li>
+<li><strong><code>docs/cli-reference.md</code></strong> updated to v1.2</li>
+<li>
+<p>New section: "Live availability update (PATCH)" with curl examples, response schema,
+    PATCH rules summary, macOS/Linux <code>date</code> command portability note</p>
+</li>
+<li>
+<p><strong>Rust SDK</strong> — <code>sdk/rust/</code> — <code>acp-relay-sdk</code> v1.2 (commit <code>bed7884</code>)</p>
+</li>
+<li>Thin blocking HTTP client (<code>reqwest 0.12</code> + <code>serde</code> + <code>thiserror</code>)</li>
+<li><code>RelayClient::new(base_url)</code> — validates URL scheme; strips trailing slash</li>
+<li><code>send_message(MessageRequest)</code> → <code>MessageResponse</code><ul>
+<li><code>MessageRequest::user/agent(text)</code> helpers; <code>.with_message_id(id)</code>;
+  <code>.sync_timeout(secs)</code> for blocking request-response</li>
+</ul>
+</li>
+<li><code>agent_card()</code> → <code>AgentCardResponse</code> (self + optional peer, with <code>Availability</code>)</li>
+<li><code>patch_availability(AvailabilityPatch)</code> → live update scheduling metadata (v1.2)</li>
+<li><code>status()</code>, <code>link()</code>, <code>ping()</code> utility methods</li>
+<li><code>AcpError</code> enum: <code>Http</code> / <code>Relay { code, message }</code> / <code>InvalidUrl</code> / <code>Json</code></li>
+<li>8 unit tests (helpers, URL validation, skip_serializing_if behaviour)</li>
+<li><code>sdk/rust/README.md</code>: quick-start, heartbeat example, API table</li>
+<li><strong><code>docs/integration-guide.md</code></strong> — new full Rust SDK section (send, card, PATCH, error handling)</li>
+<li>Added Go SDK section header to match Python/Node/Rust consistency</li>
+</ul>
+<h3 id="notes_1">Notes<a class="headerlink" href="#notes_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Inspired by A2A issue #1667: A2A protocol has no mechanism for heartbeat/cron agents
+  to advertise scheduling intent. ACP v1.2 fills this gap with a clean, opt-in design.</li>
+<li>Multi-language SDK matrix now complete: Python ✅ · Go ✅ · Node.js ✅ · Rust ✅</li>
+</ul>
+<hr />
+<h2 id="110-dev-2026-03-22">[1.1.0-dev] — 2026-03-22<a class="headerlink" href="#110-dev-2026-03-22" title="Permanent link">&para;</a></h2>
+<h3 id="added_14">Added<a class="headerlink" href="#added_14" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>HMAC replay-window</strong> (<code>--hmac-window &lt;seconds&gt;</code>, default 300 s) (commit <code>e263f52</code>)</li>
+<li>New <code>_hmac_check_replay_window(ts_str)</code> helper: parses ISO-8601 UTC timestamp,
+    checks <code>|server_now − msg_ts| ≤ window</code>; returns <code>(ok, reason)</code> for clean logging</li>
+<li>Inbound WS handler: when <code>--secret</code> is set, out-of-window messages are <strong>hard-rejected
+    (dropped)</strong> before any processing — prevents replay attacks</li>
+<li>Signature mismatch remains warn-only for graceful interop with legacy agents</li>
+<li>Configurable via <code>--hmac-window &lt;seconds&gt;</code> CLI flag or <code>hmac-window</code> config-file key</li>
+<li>Graceful degradation: when <code>--secret</code> is not set, replay-window check is a no-op</li>
+<li><code>docs/security.md</code>: HMAC audit result PARTIAL → ✅ PASS; new §1.3 replay-window docs;
+    audit history v1.1.0 = 9 PASS, 0 PARTIAL</li>
+<li><code>tests/unit</code>: +10 <code>TestHMACReplayWindow</code> tests; unit test total 63 → <strong>73 PASS</strong></li>
+</ul>
+<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<ul>
+<li>HMAC-SHA256 audit now <strong>fully PASS</strong> (9/9, 0 PARTIAL)</li>
+<li>Previous PARTIAL item: "no server-side timestamp window check" — now resolved</li>
+</ul>
+<hr />
+<h2 id="100-2026-03-21">[1.0.0] — 2026-03-21<a class="headerlink" href="#100-2026-03-21" title="Permanent link">&para;</a></h2>
+<h3 id="added-p0-specification-versioning">Added (P0 — Specification &amp; Versioning)<a class="headerlink" href="#added-p0-specification-versioning" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>spec/core-v1.0.md</code></strong>: authoritative v1.0 specification (631 lines) (commit <code>20aa1ed</code>)</li>
+<li>Supersedes <code>spec/core-v0.8.md</code></li>
+<li>Stability annotations: <code>stable</code> / <code>experimental</code> per endpoint and field</li>
+<li>§1.1: role MUST-level validation rules (v0.9 breaking change formally recorded)</li>
+<li>§4: complete HTTP API stability matrix (17 endpoints)</li>
+<li>§6: <code>ERR_INVALID_REQUEST</code> formal definition (incl. role trigger)</li>
+<li>§11: CLI reference (12 flags, stability annotations)</li>
+<li>§12: package distribution (<code>pip install acp-relay</code>, <code>npm install acp-relay-client</code>)</li>
+<li>§13: v1.0 compatibility guarantees (4 MUST requirements)</li>
+<li>Appendix A: version history through v0.9 + v1.0</li>
+<li>Appendix B: ACP vs A2A comparison table (refs #876, #883)</li>
+<li><strong>API stability annotations</strong> in <code>acp_relay.py</code> (commit <code>19b3627</code>)</li>
+<li><code>[stable]</code> (13 endpoints): <code>/.well-known/acp.json</code>, <code>/status</code>, <code>/peers</code>, <code>/recv</code>,
+    <code>/tasks</code>, <code>/stream</code>, <code>/message:send</code>, <code>/send</code> (legacy), <code>/peers/connect</code>,
+    <code>/tasks/{id}/continue</code>, <code>/tasks/{id}:cancel</code>, <code>/skills/query</code></li>
+<li><code>[experimental]</code> (1 endpoint): <code>/discover</code> (mDNS, platform-dependent)</li>
+<li><strong><code>docs/security.md</code></strong>: complete security model documentation (commit <code>a3ee229</code>)</li>
+<li>§1 HMAC-SHA256: mechanism, audit findings table (replay-window later resolved in v1.1)</li>
+<li>§2 Ed25519: mechanism, audit findings table, HMAC coexistence</li>
+<li>§3 HMAC vs Ed25519 side-by-side comparison</li>
+<li>§4 Transport security recommendations (nginx/Caddy/Cloudflare Tunnel)</li>
+<li>§5 Known limitations summary (severity + roadmap)</li>
+<li>§6 Audit history</li>
+<li><strong>Go SDK stub</strong> (<code>sdk/go/</code>) (commit <code>bcf6b75</code>)</li>
+<li>Package <code>acprelay</code> — stdlib-only, zero external dependencies (Go 1.21+)</li>
+<li><code>Client</code> struct with 6 stable methods: <code>Send</code>, <code>Recv</code>, <code>GetStatus</code>, <code>GetTasks</code>,
+    <code>CancelTask</code>, <code>QuerySkills</code></li>
+<li>16 tests via <code>net/http/httptest.Server</code></li>
+<li><code>sdk/go/README.md</code> with install + quick start + API reference table</li>
+</ul>
+<h3 id="changed-p0">Changed (P0)<a class="headerlink" href="#changed-p0" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Version bumped to <code>1.0.0</code></strong> across all package files (commit <code>ddfaf07</code>)</li>
+<li><code>relay/acp_relay.py</code>: <code>VERSION = "0.8-dev"</code> → <code>"1.0.0"</code></li>
+<li><code>pyproject.toml</code>: <code>0.9.0.dev0</code> → <code>1.0.0</code></li>
+<li><code>sdk/python/setup.py</code>: <code>0.9.0.dev0</code> → <code>1.0.0</code></li>
+<li><code>sdk/node/package.json</code>: <code>0.9.0-dev.0</code> → <code>1.0.0</code></li>
+</ul>
+<h3 id="security-p1-audit">Security (P1 — Audit)<a class="headerlink" href="#security-p1-audit" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>HMAC-SHA256 audit</strong> (commit <code>a3ee229</code>)</li>
+<li>✅ PASS: <code>hmac.compare_digest</code> constant-time comparison</li>
+<li>✅ PASS: no timing oracle in error path</li>
+<li>✅ PASS: <code>message_id</code> unpredictability (<code>secrets.token_hex(8)</code>)</li>
+<li>✅ PASS: secret never written to disk</li>
+<li>⚠️ PARTIAL: no server-side replay-window timestamp check (resolved in v1.1 <code>--hmac-window</code>)</li>
+<li><strong>Ed25519 identity audit</strong> (commit <code>a3ee229</code>)</li>
+<li>✅ PASS: key file permissions enforced (<code>chmod 0600</code>)</li>
+<li>✅ PASS: canonical form deterministic (<code>sort_keys=True</code> + compact separators)</li>
+<li>✅ PASS: <code>identity.sig</code> excluded from signing payload correctly</li>
+<li>✅ PASS: <code>InvalidSignature</code> exception handling (no exception leaks)</li>
+<li>✅ PASS: graceful fallback when <code>cryptography</code> not installed</li>
+<li>✅ PASS: key generation from OS CSPRNG (<code>Ed25519PrivateKey.generate()</code>)</li>
+</ul>
+<h3 id="release-tag">Release Tag<a class="headerlink" href="#release-tag" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>v1.0.0-rc.1</code> pushed (commit <code>ddfaf07</code>)</li>
+</ul>
+<hr />
+<h2 id="090-2026-03-21">[0.9.0] — 2026-03-21<a class="headerlink" href="#090-2026-03-21" title="Permanent link">&para;</a></h2>
+<h3 id="added-p0-developer-ux">Added (P0 — Developer UX)<a class="headerlink" href="#added-p0-developer-ux" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>CLI <code>--version</code></strong>: prints <code>acp_relay.py &lt;version&gt;</code> and exits (commit <code>e74afdf</code>)</li>
+<li><strong>CLI <code>--verbose</code> / <code>-v</code></strong>: switch root logger from INFO → DEBUG at startup</li>
+<li><strong>CLI <code>--config &lt;FILE&gt;</code></strong>: load defaults from a JSON or YAML config file</li>
+<li>JSON: stdlib <code>json.loads</code></li>
+<li>YAML: stdlib-only flat key-value parser (no PyYAML required); bool/int coercion</li>
+<li>Precedence: <code>CLI flags &gt; config file &gt; hardcoded defaults</code></li>
+<li>All 12 flags supported; clear error + exit(1) on missing file</li>
+<li><strong>Example config files</strong>: <code>relay/examples/config.json</code>, <code>config-relay.json</code>, <code>config-secure.yaml</code></li>
+<li><strong><code>docs/cli-reference.md</code></strong>: comprehensive CLI reference (all flags, port layout, 8 usage patterns, config file section)</li>
+<li><strong><code>spec/core-v0.8.md</code></strong>: single authoritative specification (515 lines, supersedes core-v0.5.md) (commit <code>4728b0e</code>)</li>
+<li>11 chapters: principles, message envelope, Part model, Task FSM, AgentCard, error codes, extensions, transport, peer registration, skill query, versioning</li>
+<li>Appendix A: full version history v0.1–v0.8</li>
+<li>Appendix B: A2A v1.0 comparison table</li>
+</ul>
+<h3 id="changed-p0_1">Changed (P0)<a class="headerlink" href="#changed-p0_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>AsyncRelayClient</code> rewritten — <strong>stdlib-only, zero external dependencies</strong> (removed <code>aiohttp</code>) (commit <code>7bcb907</code>)</li>
+<li>Implementation: <code>asyncio.get_event_loop().run_in_executor()</code> offloads urllib calls to thread pool</li>
+<li>New methods: <code>connect_peer</code>, <code>discover</code>, <code>card</code>, <code>link</code>, <code>get_task</code>, <code>continue_task</code>,
+    <code>cancel_task</code>, <code>wait_for_task</code>, async <code>stream</code> generator</li>
+<li><code>send()</code>: adds <code>context_id</code> (v0.7), <code>task_id</code>, <code>create_task</code>, <code>sync</code> mode</li>
+<li><code>update_task()</code>: new <code>artifact</code> parameter</li>
+<li><code>query_skills()</code>: adds <code>query</code> free-text + <code>limit</code> params</li>
+<li><code>wait_for_peer()</code>: converted to async</li>
+<li>35 new tests in <code>sdk/python/tests/test_async_relay_client.py</code> — all passing</li>
+<li>Python SDK <code>__version__</code>: <code>0.6.0</code> → <code>0.8.0</code></li>
+<li><code>acp-research/ROADMAP.md</code>: full rewrite — all v0.1–v0.8 milestones marked complete</li>
+</ul>
+<h3 id="added-p1-quality-docs">Added (P1 — Quality &amp; Docs)<a class="headerlink" href="#added-p1-quality-docs" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>/message:send</code> server-side required field validation</strong> (commit <code>bb1c80e</code>)</li>
+<li>Missing <code>role</code> → <code>400 ERR_INVALID_REQUEST</code> with descriptive error message</li>
+<li>Invalid <code>role</code> value (not <code>user</code>/<code>agent</code>) → <code>400 ERR_INVALID_REQUEST</code></li>
+<li>Replaces silent default <code>"user"</code> fallback; addresses A2A issue #876 gap</li>
+<li>7 new MUST-level test cases in <code>tests/compat/test_message_send.py</code></li>
+<li><strong><code>CHANGELOG.md</code></strong> (this file): complete version history v0.1.0–v0.9.0-dev (commit <code>b48e9d5</code>)</li>
+<li><strong><code>docs/integration-guide.md</code></strong> comprehensive rewrite (commit <code>2a74d3e</code>)</li>
+<li>Covers P2P / Relay / mDNS transport options; port layout (WS :7801 + HTTP :7901)</li>
+<li>Task CRUD, multi-peer sessions, HMAC signing, Ed25519 identity</li>
+<li>Python sync + async SDK examples; Node.js SDK examples</li>
+<li>Multi-language quick-start (curl / Go / Java / Rust)</li>
+<li>Troubleshooting table (503 / 400 / 413 + solutions)</li>
+<li><strong><code>tests/unit/test_relay_core.py</code></strong>: 63 unit tests covering all internal helpers (commit <code>ac9846c</code>)</li>
+<li>TestErrHelper, TestIdGenerators, TestPartConstructors, TestValidatePart/Parts,
+    TestHMACHelpers, TestTaskStateConstants, TestLoadConfigFile, TestParseLink, TestVersion</li>
+</ul>
+<h3 id="added-p2-package-distribution">Added (P2 — Package Distribution)<a class="headerlink" href="#added-p2-package-distribution" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>pyproject.toml</code></strong>: <code>pip install acp-relay</code> support (commit <code>0fb0c9e</code>)</li>
+<li>Package name: <code>acp-relay</code>; version: <code>0.9.0.dev0</code></li>
+<li>Required dep: <code>websockets&gt;=12.0</code> only</li>
+<li>Optional <code>[identity]</code>: <code>cryptography&gt;=42.0</code>; Optional <code>[dev]</code>: pytest + httpx</li>
+<li>CLI entry-point: <code>acp-relay = 'acp_relay:main'</code></li>
+<li><code>relay/py.typed</code> PEP 561 marker</li>
+<li><strong>Node.js SDK renamed</strong> to <code>acp-relay-client</code> (commit <code>9c1b0d9</code>)</li>
+<li>ESM entry-point <code>src/index.mjs</code> (createRequire bridge, <code>export default RelayClient</code>)</li>
+<li><code>package.json</code>: full npm metadata, <code>exports</code> field (ESM + CJS + types), files whitelist</li>
+<li><code>.npmignore</code>: excludes <code>tests/</code> from published package</li>
+<li><code>LICENSE</code>: Apache-2.0 (aligned with repo root)</li>
+<li>19 tests passing</li>
+</ul>
+<hr />
+<h2 id="080-2026-03-21">[0.8.0] — 2026-03-21<a class="headerlink" href="#080-2026-03-21" title="Permanent link">&para;</a></h2>
+<h3 id="added_15">Added<a class="headerlink" href="#added_15" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Ed25519 optional identity extension</strong> (<code>--identity [path]</code>) (commit <code>1a13dec</code>)</li>
+<li>Self-sovereign keypair: auto-generated at <code>~/.acp/identity.json</code> (chmod 0600)</li>
+<li>Every outbound message includes <code>identity.sig</code> (base64url-encoded Ed25519 signature)</li>
+<li>AgentCard publishes <code>identity.public_key</code> for peer verification</li>
+<li>Graceful fallback: identity block omitted when <code>cryptography</code> not installed</li>
+<li>Requires: <code>pip install cryptography</code></li>
+<li><strong>Node.js SDK</strong> (<code>sdk/node/</code>) (commit <code>fd8c02a</code>)</li>
+<li><code>RelayClient</code> class — zero external dependencies, TypeScript types</li>
+<li>All v0.8 endpoints: send, recv, tasks, peers, skills, stream (SSE)</li>
+<li>19 tests passing</li>
+<li><strong>Compatibility test suite</strong> (<code>tests/compat/</code>) (commit <code>98197cf</code>)</li>
+<li>Black-box spec compliance runner: parameterized by <code>ACP_BASE_URL</code></li>
+<li>Covers: AgentCard structure, <code>/message:send</code> response shape, SSE events,
+    Task lifecycle, error code format, idempotency</li>
+<li><strong><code>spec/core-v0.8.md</code></strong>: consolidated authoritative specification (515 lines)
+  supersedes <code>spec/core-v0.5.md</code> and <code>spec/transports.md</code></li>
+</ul>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>README overhauled for v0.8: dependency table, full feature matrix, updated quickstart</li>
+</ul>
+<hr />
+<h2 id="070-2026-03-20">[0.7.0] — 2026-03-20<a class="headerlink" href="#070-2026-03-20" title="Permanent link">&para;</a></h2>
+<h3 id="added_16">Added<a class="headerlink" href="#added_16" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>HMAC-SHA256 optional message signing</strong> (<code>--secret &lt;key&gt;</code>) (commit <code>87dad51</code>)</li>
+<li><code>sig = HMAC-SHA256(secret, message_id + ":" + timestamp)</code></li>
+<li>Verification is warn-only (never drops messages) for graceful interop</li>
+<li>AgentCard <code>trust.scheme</code>: <code>"hmac-sha256"</code> | <code>"none"</code></li>
+<li><strong>mDNS LAN peer discovery</strong> (<code>--advertise-mdns</code>) (commit <code>aabfae5</code>)</li>
+<li>Pure stdlib UDP multicast <code>224.0.0.251:5354</code> — no zeroconf library required</li>
+<li><code>GET /discover</code>: returns list of LAN peers with <code>acp://</code> links</li>
+<li>SSE event <code>type=mdns</code> for real-time new-peer notifications</li>
+<li><strong><code>context_id</code> multi-turn conversation grouping</strong> (commit <code>aabfae5</code>)</li>
+<li>Optional field on <code>/message:send</code> — client-generated, server-echoed</li>
+<li>Groups related messages across multiple Task cycles</li>
+<li>AgentCard capability: <code>context_id: true</code></li>
+<li><strong><code>spec/transports.md</code> v0.3</strong>: Protocol Bindings vs Extensions separation (commit <code>68db641</code>)</li>
+</ul>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>AgentCard <code>capabilities</code> block: <code>hmac_signing</code>, <code>lan_discovery</code>, <code>context_id</code> fields</li>
+</ul>
+<hr />
+<h2 id="060-2026-03-20">[0.6.0] — 2026-03-20<a class="headerlink" href="#060-2026-03-20" title="Permanent link">&para;</a></h2>
+<h3 id="added_17">Added<a class="headerlink" href="#added_17" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Multi-session peer registry</strong> (commit <code>ad7e1c4</code>)</li>
+<li><code>GET /peers</code>: list all connected peers</li>
+<li><code>GET /peer/{id}</code>: get a specific peer's info</li>
+<li><code>POST /peer/{id}/send</code>: send a message to a specific peer</li>
+<li><code>POST /peers/connect</code>: connect to a new peer via <code>acp://</code> link</li>
+<li>AgentCard capability: <code>multi_session: true</code></li>
+<li><strong>Standardized error codes</strong> (commit <code>c816cb5</code>)</li>
+<li>6 codes: <code>ERR_NOT_CONNECTED</code> / <code>ERR_MSG_TOO_LARGE</code> / <code>ERR_NOT_FOUND</code> /
+    <code>ERR_INVALID_REQUEST</code> / <code>ERR_TIMEOUT</code> / <code>ERR_INTERNAL</code></li>
+<li>Unified response: <code>{ok, error_code, error, failed_message_id}</code></li>
+<li><code>failed_message_id</code>: enables precise client-side retries (inspired by ANP)</li>
+<li>Reference: <code>spec/error-codes.md</code></li>
+<li><strong>Minimal agent spec</strong> (<code>spec/v0.6-minimal-agent.md</code>): 3-endpoint minimum to join ACP network</li>
+<li><code>GET /.well-known/acp.json</code> (AgentCard)</li>
+<li><code>POST /message:send</code> (receive inbound)</li>
+<li><code>GET /stream</code> (SSE outbound, optional)</li>
+<li><strong>Python SDK v0.6</strong> (<code>sdk/python/</code>) (commit <code>430a97f</code>)</li>
+<li><code>RelayClient</code>: sync HTTP client, all v0.6 endpoints, stdlib-only</li>
+<li><code>RelayClient.stream()</code>: SSE generator using <code>urllib</code></li>
+<li><strong>Cloudflare Worker v2.0</strong> (commit <code>8e8b771</code>)</li>
+<li>Multi-room concurrent sessions</li>
+<li>Sliding TTL (30 min inactivity expiry)</li>
+<li>Cursor-based poll (no duplicate messages)</li>
+<li><code>DELETE /acp/{token}</code> cleanup endpoint</li>
+<li><strong>Transport C: HTTP polling relay</strong> (<code>acp+wss://</code> scheme) (commit <code>907c729</code>)</li>
+<li>Fallback for K8s/firewall environments with no inbound TCP</li>
+<li>Auto-fallback: P2P timeout (10 s) → relay (commit <code>fd74394</code>)</li>
+<li>Composite link: single <code>acp://</code> token pre-registered on relay; transparent upgrade/fallback</li>
+<li><strong>Proxy-aware WebSocket connector</strong> (commit <code>4f392b8</code>)</li>
+<li>Reads <code>http_proxy</code> / <code>HTTPS_PROXY</code> env vars; routes WS through HTTP CONNECT tunnel</li>
+</ul>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>GitHub Issues relay transport</strong> (<code>acp+gh://</code>) permanently deleted (commit <code>bc25ab7</code>)</li>
+<li>Reason: required both-side GitHub tokens; violated zero-registration principle</li>
+</ul>
+<hr />
+<h2 id="050-2026-03-19">[0.5.0] — 2026-03-19<a class="headerlink" href="#050-2026-03-19" title="Permanent link">&para;</a></h2>
+<h3 id="added_18">Added<a class="headerlink" href="#added_18" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Task state machine</strong> — 5 states (commit <code>cd9545e</code>, <code>bb6aba3</code>)</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>submitted → working → completed
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                   → failed
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>                   → input_required  (resumable via /tasks/{id}/continue)
+</span></code></pre></div>
+<p>New endpoints:
+  | Endpoint | Method | Description |
+  |----------|--------|-------------|
+  | <code>/tasks</code> | GET | List tasks; <code>?status=</code> filter |
+  | <code>/tasks/{id}</code> | GET | Get single task |
+  | <code>/tasks/{id}/wait</code> | GET | Long-poll until terminal state (<code>?timeout=N</code>) |
+  | <code>/tasks/{id}/update</code> | POST | Update state + optional artifact |
+  | <code>/tasks/{id}/continue</code> | POST | Resume from <code>input_required</code> |
+  | <code>/tasks/{id}:cancel</code> | POST | Cancel → <code>failed</code> |
+  | <code>/tasks/{id}:subscribe</code> | GET | Per-task SSE stream |</p>
+<ul>
+<li><strong>Bilateral task synchronization</strong>: <code>create_task: true</code> on <code>/message:send</code> auto-registers
+  same-id task on the receiving peer; state updates propagate back via <code>task.updated</code> messages</li>
+<li><strong>Structured Part model</strong> — three types:
+  <div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Hello&quot;</span><span class="p">}</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;file&quot;</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;media_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;image/png&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;filename&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;photo.png&quot;</span><span class="p">}</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;data&quot;</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="err">...</span><span class="p">}}</span>
+</span></code></pre></div></li>
+<li><strong>Message idempotency</strong></li>
+<li><code>message_id</code>: client-generated UUID, server deduplicates per session</li>
+<li><code>server_seq</code>: monotonically increasing counter; clients can detect gaps/reordering</li>
+<li><strong>QuerySkill API</strong> (commit <code>710aade</code>)</li>
+<li><code>POST /skills/query</code>: runtime capability query (<code>skill_id</code>, <code>capability</code> filter)</li>
+<li><code>GET /.well-known/acp.json</code>: standard AgentCard discovery endpoint</li>
+<li><strong>Structured SSE event types</strong>: <code>status</code> | <code>artifact</code> | <code>message</code> | <code>peer</code></li>
+<li><strong><code>/message:send</code> endpoint</strong> (A2A-aligned) alongside legacy <code>/send</code></li>
+<li><strong><code>spec/core-v0.5.md</code></strong>: initial formal specification</li>
+</ul>
+<hr />
+<h2 id="040-2026-03-18">[0.4.0] — 2026-03-18<a class="headerlink" href="#040-2026-03-18" title="Permanent link">&para;</a></h2>
+<h3 id="added_19">Added<a class="headerlink" href="#added_19" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A2A-aligned AgentCard</strong> (commit <code>83ca11b</code>)</li>
+<li><code>/.well-known/acp.json</code>: <code>name</code>, <code>description</code>, <code>version</code>, <code>capabilities</code>, <code>skills</code></li>
+<li><code>session_id</code> field on all messages</li>
+<li><strong>Safety limits</strong>: <code>--max-msg-size</code> flag (default 1 MiB); <code>ERR_MSG_TOO_LARGE</code> on violation</li>
+<li><strong><code>--relay</code> flag for host mode</strong>: one-command relay session start (commit <code>07f38ff</code>)</li>
+<li><strong>SKILL.md v2</strong>: full SOP runbook with InStreet-style observable verification</li>
+</ul>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Unbounded consumption risk: max message size enforcement</li>
+<li>Critical <code>NameError</code> in peer-equal architecture refactor (commit <code>af73415</code>)</li>
+</ul>
+<hr />
+<h2 id="030-2026-03-18">[0.3.0] — 2026-03-18<a class="headerlink" href="#030-2026-03-18" title="Permanent link">&para;</a></h2>
+<h3 id="added_20">Added<a class="headerlink" href="#added_20" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Four communication modes</strong> (commit <code>4f7e242</code>)</li>
+<li>Standard (request-response)</li>
+<li>Streaming (SSE events)</li>
+<li>Task delegation (fire-and-forget with status polling)</li>
+<li>Broadcast (one-to-many)</li>
+<li><strong>Explicit connection lifecycle</strong>: <code>connect</code> / <code>disconnect</code> events; clean teardown</li>
+<li><strong>Lightweight explicit session management</strong>: session tokens in AgentCard</li>
+</ul>
+<hr />
+<h2 id="020-2026-03-05">[0.2.0] — 2026-03-05<a class="headerlink" href="#020-2026-03-05" title="Permanent link">&para;</a></h2>
+<h3 id="added_21">Added<a class="headerlink" href="#added_21" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ACP P2P v0.2</strong>: decentralized group chat support</li>
+<li><strong>Skill guide</strong>: how to expose and invoke agent capabilities</li>
+<li><strong><code>acp_relay.py</code></strong>: local daemon replacing central relay server architecture</li>
+<li>Zero-code-change design: Agents connect by passing a single link</li>
+<li>Human-as-messenger pattern: <code>acp://IP:PORT/TOKEN</code> link shared by human</li>
+</ul>
+<h3 id="changed_4">Changed<a class="headerlink" href="#changed_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Architecture shift: from centralized relay → true P2P direct connect (commit <code>183c425</code>)</li>
+</ul>
+<hr />
+<h2 id="010-2026-03-05">[0.1.0] — 2026-03-05<a class="headerlink" href="#010-2026-03-05" title="Permanent link">&para;</a></h2>
+<h3 id="added_22">Added<a class="headerlink" href="#added_22" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Initial ACP v0.1 specification (<code>spec/</code>)</li>
+<li>Python SDK skeleton (<code>sdk/python/</code>)</li>
+<li>Gateway server reference implementation</li>
+<li>Framework integration examples (LangChain, AutoGen, CrewAI stubs)</li>
+<li>Bilingual README (EN + ZH)</li>
+<li>Design principles established:</li>
+<li>Lightweight &amp; zero-config</li>
+<li>True P2P — no middleman</li>
+<li>Practical — curl-compatible</li>
+<li>Personal/team focus</li>
+<li>Standardization (Agent↔Agent, like MCP for Agent↔Tool)</li>
+</ul>
+<hr />
+<h2 id="version-summary">Version Summary<a class="headerlink" href="#version-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Version</th>
+<th>Date</th>
+<th>Theme</th>
+<th>Key Feature</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.9.0-dev</td>
+<td>2026-03-21</td>
+<td>Developer UX + Distribution</td>
+<td>CLI flags, async SDK stdlib-only, unit tests, <code>pip install acp-relay</code>, <code>acp-relay-client</code> npm</td>
+</tr>
+<tr>
+<td>0.8.0</td>
+<td>2026-03-21</td>
+<td>Ecosystem</td>
+<td>Ed25519 identity, Node.js SDK, compat test suite</td>
+</tr>
+<tr>
+<td>0.7.0</td>
+<td>2026-03-20</td>
+<td>Trust + Discovery</td>
+<td>HMAC signing, mDNS LAN discovery, context_id</td>
+</tr>
+<tr>
+<td>0.6.0</td>
+<td>2026-03-20</td>
+<td>Multi-peer + Reliability</td>
+<td>Peer registry, error codes, HTTP relay, Python SDK</td>
+</tr>
+<tr>
+<td>0.5.0</td>
+<td>2026-03-19</td>
+<td>Structure</td>
+<td>Task state machine, Part model, idempotency, QuerySkill</td>
+</tr>
+<tr>
+<td>0.4.0</td>
+<td>2026-03-18</td>
+<td>Safety</td>
+<td>AgentCard v2, max-msg-size, SKILL.md SOP</td>
+</tr>
+<tr>
+<td>0.3.0</td>
+<td>2026-03-18</td>
+<td>Modes</td>
+<td>4 communication modes, explicit lifecycle</td>
+</tr>
+<tr>
+<td>0.2.0</td>
+<td>2026-03-05</td>
+<td>P2P</td>
+<td>True P2P relay, Skill guide, zero-code-change</td>
+</tr>
+<tr>
+<td>0.1.0</td>
+<td>2026-03-05</td>
+<td>Foundation</td>
+<td>Initial spec, Python SDK, design principles</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+  <form class="md-feedback" name="feedback" hidden>
+    <fieldset>
+      <legend class="md-feedback__title">
+        Was this page helpful?
+      </legend>
+      <div class="md-feedback__inner">
+        <div class="md-feedback__list">
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page was helpful" data-md-value="1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m7 0c0 .8-.7 1.5-1.5 1.5S14 10.3 14 9.5 14.7 8 15.5 8s1.5.7 1.5 1.5m-5 7.73c-1.75 0-3.29-.73-4.19-1.81L9.23 14c.45.72 1.52 1.23 2.77 1.23s2.32-.51 2.77-1.23l1.42 1.42c-.9 1.08-2.44 1.81-4.19 1.81"/></svg>
+            </button>
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page could be improved" data-md-value="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10m-6.5-4c.8 0 1.5.7 1.5 1.5s-.7 1.5-1.5 1.5-1.5-.7-1.5-1.5.7-1.5 1.5-1.5M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m2 4.5c1.75 0 3.29.72 4.19 1.81l-1.42 1.42C14.32 16.5 13.25 16 12 16s-2.32.5-2.77 1.23l-1.42-1.42C8.71 14.72 10.25 14 12 14"/></svg>
+            </button>
+          
+        </div>
+        <div class="md-feedback__note">
+          
+            <div data-md-value="1" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+            <div data-md-value="0" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+        </div>
+      </div>
+    </fieldset>
+  </form>
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Kickflip73/agent-communication-protocol" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "search.highlight", "search.suggest", "content.code.copy", "content.code.annotate", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

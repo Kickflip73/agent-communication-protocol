@@ -1,0 +1,2968 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The missing link between AI Agents. P2P · Zero server · curl-compatible.">
+      
+      
+      
+        <link rel="canonical" href="https://kickflip73.github.io/agent-communication-protocol/integration-guide/">
+      
+      
+        <link rel="prev" href="../nat-traversal/">
+      
+      
+        <link rel="next" href="../security/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Integration Guide - ACP — Agent Communication Protocol</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#acp-integration-guide-v09" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ACP — Agent Communication Protocol" class="md-header__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ACP — Agent Communication Protocol
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Integration Guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../guides/two-agents/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../cli-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../whats-new/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../CHANGELOG/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../ROADMAP/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../blog/" class="md-tabs__link">
+          
+  
+  
+  Blog
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ACP — Agent Communication Protocol" class="md-nav__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    ACP — Agent Communication Protocol
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/two-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Two Agents in 60 Seconds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/team-collaboration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Team Collaboration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../nat-traversal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NAT Traversal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration Guide
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quickstart-2-minutes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quickstart (2 minutes)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transport-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transport Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transport Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#p2p-mode-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2P mode (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relay-mode-firewall-friendly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay mode (firewall-friendly)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lan-discovery-with-mdns-v07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LAN discovery with mDNS (v0.7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#port-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sending-receiving-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sending &amp; Receiving Messages
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sending &amp; Receiving Messages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#send-a-message-any-language-just-curl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Send a message (any language, just curl)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#send-structured-parts-v05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Send structured parts (v0.5+)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#receive-messages-sse-stream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Receive messages (SSE stream)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#synchronous-request-response-v06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synchronous request-response (v0.6+)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-management-v05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task Management (v0.5+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Task Management (v0.5+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#create-a-task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#poll-task-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll task status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subscribe-to-task-events-sse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscribe to task events (SSE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cancel-a-task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cancel a task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resume-from-input_required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume from input_required
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-peer-sessions-v06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Peer Sessions (v0.6+)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hmac-message-signing-v07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HMAC message signing (v0.7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ed25519-identity-signing-v08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ed25519 identity signing (v0.8)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agentcard-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AgentCard Discovery
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AgentCard Discovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#query-skills-at-runtime-v05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query skills at runtime (v0.5+)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#python-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python SDK
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Python SDK">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sync-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sync client
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#async-client-stdlib-only-no-aiohttp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Async client (stdlib-only, no aiohttp)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#python-sdk-langchain-integration-v180" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python SDK — LangChain Integration (v1.8.0+)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Python SDK — LangChain Integration (v1.8.0+)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick-start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nodejs-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node.js SDK
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#go-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go SDK
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rust-sdk-v12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rust SDK (v1.2)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Rust SDK (v1.2)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#send-a-message" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Send a message
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fetch-agentcard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fetch AgentCard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#heartbeat-agent-live-availability-update-v12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Heartbeat agent — live availability update (v1.2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get-session-link" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Get session link
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-file-v09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config File (v0.9)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#language-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Language Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Language Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#curl-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        curl (baseline)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#java" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Java
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rust
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extension-mechanism-v13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extension Mechanism (v1.3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Extension Mechanism (v1.3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#declare-at-startup-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declare at startup (CLI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#register-at-runtime-http" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register at runtime (HTTP)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extension-api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extension API reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#register-request-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register request body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checking-peer-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checking peer extensions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#design-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#did-identity-v13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DID Identity (v1.3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DID Identity (v1.3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#did-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DID format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentcard-identity-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AgentCard identity block
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#w3c-did-document-endpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W3C DID Document endpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verifying-a-peers-did" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying a peer's DID
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checking-inbound-message-did" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checking inbound message DID
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#design-notes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../whats-new/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What's New
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ROADMAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Blog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Blog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/2026-03-23-acp-v1-3-announcement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ACP v1.3 — did:acp:
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../blog/2026-03-24-hn-post-final/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Show HN Draft
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="acp-integration-guide-v09">ACP Integration Guide — v0.9<a class="headerlink" href="#acp-integration-guide-v09" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>TL;DR</strong> — Any agent, any language, any framework. Two steps:
+1. Start <code>acp_relay.py</code> → get an <code>acp://</code> link
+2. Share the link with the other agent → they connect</p>
+<p>No registration. No central server. No config files (unless you want one).</p>
+</blockquote>
+<hr />
+<h2 id="quickstart-2-minutes">Quickstart (2 minutes)<a class="headerlink" href="#quickstart-2-minutes" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Install (one dependency for WebSocket transport)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span>websockets
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Start your agent</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA<span class="w"> </span>--skills<span class="w"> </span><span class="s2">&quot;summarize,translate&quot;</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Output:</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1">#   Your link: acp://1.2.3.4:7801/tok_abc123</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="c1">#   Share this with the other Agent to connect</span>
+</span></code></pre></div>
+<p>The other agent (any language, any machine) connects with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentB<span class="w"> </span>--join<span class="w"> </span>acp://1.2.3.4:7801/tok_abc123
+</span></code></pre></div>
+<p>Now both agents can exchange messages via the HTTP API on <code>localhost</code>.</p>
+<hr />
+<h2 id="transport-options">Transport Options<a class="headerlink" href="#transport-options" title="Permanent link">&para;</a></h2>
+<p>ACP selects transport automatically based on network conditions:</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Transport</th>
+<th>Flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Both agents have public IPs / same LAN</td>
+<td><strong>P2P WebSocket</strong> (default)</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td>Behind firewall / NAT / K8s</td>
+<td><strong>HTTP Polling Relay</strong></td>
+<td><code>--relay</code></td>
+</tr>
+<tr>
+<td>LAN only, want auto-discovery</td>
+<td><strong>mDNS</strong> (v0.7)</td>
+<td><code>--advertise-mdns</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Auto-fallback</strong>: P2P connection attempt times out (10 s) → automatically switches to HTTP relay. The <code>acp://</code> link works for both.</p>
+<h3 id="p2p-mode-default">P2P mode (default)<a class="headerlink" href="#p2p-mode-default" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Host — creates a new session</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Guest — joins existing session</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentB<span class="w"> </span>--join<span class="w"> </span>acp://HOST_IP:7801/tok_xxx
+</span></code></pre></div>
+<h3 id="relay-mode-firewall-friendly">Relay mode (firewall-friendly)<a class="headerlink" href="#relay-mode-firewall-friendly" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Host — creates session on public relay</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA<span class="w"> </span>--relay
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Guest — same command, relay handles routing</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentB<span class="w"> </span>--join<span class="w"> </span>acp+relay://relay.example.com/tok_xxx
+</span></code></pre></div>
+<h3 id="lan-discovery-with-mdns-v07">LAN discovery with mDNS (v0.7)<a class="headerlink" href="#lan-discovery-with-mdns-v07" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Both agents on the same LAN, advertise themselves</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA<span class="w"> </span>--advertise-mdns
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Discover nearby agents (no link needed)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>curl<span class="w"> </span>http://localhost:7901/discover
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># → [{&quot;name&quot;: &quot;AgentA&quot;, &quot;link&quot;: &quot;acp://192.168.1.5:7801/tok_xxx&quot;, ...}]</span>
+</span></code></pre></div>
+<hr />
+<h2 id="port-layout">Port Layout<a class="headerlink" href="#port-layout" title="Permanent link">&para;</a></h2>
+<p>Each <code>acp_relay.py</code> instance occupies two ports:</p>
+<table>
+<thead>
+<tr>
+<th>Port</th>
+<th>Protocol</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--port</code> (default 7801)</td>
+<td>WebSocket</td>
+<td>P2P peer-to-peer transport</td>
+</tr>
+<tr>
+<td><code>--port + 100</code> (default 7901)</td>
+<td>HTTP</td>
+<td>Local control API (your agent talks here)</td>
+</tr>
+</tbody>
+</table>
+<p>Your agent code <strong>only uses the HTTP API</strong> on <code>localhost:7901</code>. The WebSocket port is for peer transport only.</p>
+<hr />
+<h2 id="sending-receiving-messages">Sending &amp; Receiving Messages<a class="headerlink" href="#sending-receiving-messages" title="Permanent link">&para;</a></h2>
+<h3 id="send-a-message-any-language-just-curl">Send a message (any language, just curl)<a class="headerlink" href="#send-a-message-any-language-just-curl" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="s1">    &quot;role&quot;: &quot;user&quot;,</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="s1">    &quot;text&quot;: &quot;Summarize this document: ...&quot;</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s1">  }&#39;</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="c1"># Response:</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="c1"># {&quot;ok&quot;: true, &quot;message_id&quot;: &quot;msg_abc123&quot;, &quot;server_seq&quot;: 42}</span>
+</span></code></pre></div>
+<p><strong>Required fields</strong> (v0.9 server-side validation):
+- <code>role</code> — <strong>required</strong>, must be <code>"user"</code> or <code>"agent"</code>
+- <code>text</code> OR <code>parts</code> — <strong>required</strong>, at least one must be present</p>
+<p>Optional fields:
+- <code>message_id</code> — client-generated UUID for idempotency; server auto-assigns if omitted
+- <code>context_id</code> — multi-turn conversation grouping (v0.7)
+- <code>task_id</code> — link message to an existing task
+- <code>create_task</code> — <code>true</code> to auto-create a task for this message
+- <code>sync</code> — <code>true</code> to block until peer replies (with <code>timeout</code> in seconds)</p>
+<h3 id="send-structured-parts-v05">Send structured parts (v0.5+)<a class="headerlink" href="#send-structured-parts-v05" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="s1">    &quot;role&quot;: &quot;user&quot;,</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="s1">    &quot;parts&quot;: [</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="s1">      {&quot;type&quot;: &quot;text&quot;,  &quot;content&quot;: &quot;Analyze this image:&quot;},</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="s1">      {&quot;type&quot;: &quot;file&quot;,  &quot;url&quot;: &quot;https://example.com/photo.png&quot;,</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="s1">                        &quot;media_type&quot;: &quot;image/png&quot;, &quot;filename&quot;: &quot;photo.png&quot;},</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="s1">      {&quot;type&quot;: &quot;data&quot;,  &quot;content&quot;: {&quot;invoice_id&quot;: 42, &quot;amount&quot;: 99.50}}</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="s1">    ]</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="s1">  }&#39;</span>
+</span></code></pre></div>
+<h3 id="receive-messages-sse-stream">Receive messages (SSE stream)<a class="headerlink" href="#receive-messages-sse-stream" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Subscribe to the real-time event stream</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>curl<span class="w"> </span>-N<span class="w"> </span>http://localhost:7901/stream
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Events:</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># data: {&quot;type&quot;: &quot;message&quot;, &quot;message_id&quot;: &quot;...&quot;, &quot;role&quot;: &quot;agent&quot;, &quot;parts&quot;: [...]}</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1"># data: {&quot;type&quot;: &quot;status&quot;,  &quot;status&quot;: &quot;working&quot;, &quot;task_id&quot;: &quot;task_xxx&quot;}</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="c1"># data: {&quot;type&quot;: &quot;artifact&quot;,&quot;task_id&quot;: &quot;task_xxx&quot;, &quot;parts&quot;: [...]}</span>
+</span></code></pre></div>
+<h3 id="synchronous-request-response-v06">Synchronous request-response (v0.6+)<a class="headerlink" href="#synchronous-request-response-v06" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="s1">    &quot;role&quot;: &quot;user&quot;,</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="s1">    &quot;text&quot;: &quot;What is 2 + 2?&quot;,</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="s1">    &quot;sync&quot;: true,</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="s1">    &quot;timeout&quot;: 30</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="s1">  }&#39;</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="c1"># Blocks until peer replies, then returns:</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="c1"># {&quot;ok&quot;: true, &quot;message_id&quot;: &quot;...&quot;, &quot;reply&quot;: {&quot;role&quot;: &quot;agent&quot;, &quot;parts&quot;: [...]}}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="task-management-v05">Task Management (v0.5+)<a class="headerlink" href="#task-management-v05" title="Permanent link">&para;</a></h2>
+<p>ACP has a built-in task state machine for async workflows:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>submitted → working → completed
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>                   → failed
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>                   → input_required  ← resumable
+</span></code></pre></div>
+<h3 id="create-a-task">Create a task<a class="headerlink" href="#create-a-task" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Create task alongside message</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;role&quot;:&quot;user&quot;,&quot;text&quot;:&quot;Process invoice #42&quot;,&quot;create_task&quot;:true}&#39;</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># Response includes task object:</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># {&quot;ok&quot;:true,&quot;message_id&quot;:&quot;msg_xxx&quot;,&quot;task&quot;:{&quot;id&quot;:&quot;task_yyy&quot;,&quot;status&quot;:&quot;submitted&quot;}}</span>
+</span></code></pre></div>
+<h3 id="poll-task-status">Poll task status<a class="headerlink" href="#poll-task-status" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>curl<span class="w"> </span>http://localhost:7901/tasks/task_yyy
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="c1"># → {&quot;id&quot;:&quot;task_yyy&quot;,&quot;status&quot;:&quot;working&quot;,&quot;created_at&quot;:...}</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Long-poll until terminal state</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>curl<span class="w"> </span><span class="s2">&quot;http://localhost:7901/tasks/task_yyy/wait?timeout=60&quot;</span>
+</span></code></pre></div>
+<h3 id="subscribe-to-task-events-sse">Subscribe to task events (SSE)<a class="headerlink" href="#subscribe-to-task-events-sse" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>curl<span class="w"> </span>-N<span class="w"> </span>http://localhost:7901/tasks/task_yyy:subscribe
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="c1"># data: {&quot;type&quot;:&quot;status&quot;,&quot;status&quot;:&quot;working&quot;}</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1"># data: {&quot;type&quot;:&quot;artifact&quot;,&quot;parts&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;content&quot;:&quot;Result: ...&quot;}]}</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># data: {&quot;type&quot;:&quot;status&quot;,&quot;status&quot;:&quot;completed&quot;}</span>
+</span></code></pre></div>
+<h3 id="cancel-a-task">Cancel a task<a class="headerlink" href="#cancel-a-task" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/tasks/task_yyy:cancel
+</span></code></pre></div>
+<h3 id="resume-from-input_required">Resume from <code>input_required</code><a class="headerlink" href="#resume-from-input_required" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/tasks/task_yyy/continue<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;role&quot;:&quot;user&quot;,&quot;text&quot;:&quot;Yes, proceed with option A&quot;}&#39;</span>
+</span></code></pre></div>
+<hr />
+<h2 id="multi-peer-sessions-v06">Multi-Peer Sessions (v0.6+)<a class="headerlink" href="#multi-peer-sessions-v06" title="Permanent link">&para;</a></h2>
+<p>One relay instance can maintain connections to multiple peers simultaneously:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># List all connected peers</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>curl<span class="w"> </span>http://localhost:7901/peers
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Send to a specific peer</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/peer/PEER_ID/send<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;role&quot;:&quot;user&quot;,&quot;text&quot;:&quot;Hello, peer!&quot;}&#39;</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="c1"># Connect to a new peer (adds to existing session)</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/peers/connect<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;link&quot;:&quot;acp://OTHER_HOST:7801/tok_yyy&quot;}&#39;</span>
+</span></code></pre></div>
+<hr />
+<h2 id="security-features">Security Features<a class="headerlink" href="#security-features" title="Permanent link">&para;</a></h2>
+<h3 id="hmac-message-signing-v07">HMAC message signing (v0.7)<a class="headerlink" href="#hmac-message-signing-v07" title="Permanent link">&para;</a></h3>
+<p>Both peers share a secret; every message includes a signature. Verification is warn-only (never drops) for graceful interop.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Both sides must use the same secret</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA<span class="w"> </span>--secret<span class="w"> </span><span class="s2">&quot;my-shared-key-32chars&quot;</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentB<span class="w"> </span>--join<span class="w"> </span>acp://...<span class="w"> </span>--secret<span class="w"> </span><span class="s2">&quot;my-shared-key-32chars&quot;</span>
+</span></code></pre></div>
+<p>Messages include:
+<div class="language-json highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="p">{</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nt">&quot;message_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;msg_xxx&quot;</span><span class="p">,</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span><span class="nt">&quot;sig&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a3f9b2...&quot;</span><span class="p">,</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">  </span><span class="nt">&quot;trust&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;scheme&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hmac-sha256&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<h3 id="ed25519-identity-signing-v08">Ed25519 identity signing (v0.8)<a class="headerlink" href="#ed25519-identity-signing-v08" title="Permanent link">&para;</a></h3>
+<p>Self-sovereign keypair; messages signed with your private key, verifiable by anyone with your public key.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Auto-generate keypair at ~/.acp/identity.json</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA<span class="w"> </span>--identity
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Or specify path</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA<span class="w"> </span>--identity<span class="w"> </span>/path/to/my-keypair.json
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="c1"># Requires: pip install cryptography</span>
+</span></code></pre></div>
+<p>Your AgentCard (<code>/.well-known/acp.json</code>) will include your public key:
+<div class="language-json highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="p">{</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">    </span><span class="nt">&quot;public_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;base64url-encoded-ed25519-pubkey&quot;</span><span class="p">,</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">    </span><span class="nt">&quot;algorithm&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ed25519&quot;</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<hr />
+<h2 id="agentcard-discovery">AgentCard Discovery<a class="headerlink" href="#agentcard-discovery" title="Permanent link">&para;</a></h2>
+<p>Every ACP agent exposes a standard card at <code>GET /.well-known/acp.json</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>curl<span class="w"> </span>http://localhost:7901/.well-known/acp.json
+</span></code></pre></div>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="p">{</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;AgentA&quot;</span><span class="p">,</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.8-dev&quot;</span><span class="p">,</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span><span class="nt">&quot;acp_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.8&quot;</span><span class="p">,</span>
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="w">    </span><span class="nt">&quot;streaming&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="w">    </span><span class="nt">&quot;tasks&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-21-8"><a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="w">    </span><span class="nt">&quot;multi_session&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-21-9"><a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="w">    </span><span class="nt">&quot;hmac_signing&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-21-10"><a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="w">    </span><span class="nt">&quot;lan_discovery&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-21-11"><a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a><span class="w">    </span><span class="nt">&quot;context_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-21-12"><a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-21-13"><a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a><span class="w">  </span><span class="nt">&quot;skills&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-21-14"><a id="__codelineno-21-14" name="__codelineno-21-14" href="#__codelineno-21-14"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;summarize&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Summarize documents&quot;</span><span class="p">},</span>
+</span><span id="__span-21-15"><a id="__codelineno-21-15" name="__codelineno-21-15" href="#__codelineno-21-15"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;translate&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Translate text&quot;</span><span class="p">}</span>
+</span><span id="__span-21-16"><a id="__codelineno-21-16" name="__codelineno-21-16" href="#__codelineno-21-16"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-21-17"><a id="__codelineno-21-17" name="__codelineno-21-17" href="#__codelineno-21-17"></a><span class="w">  </span><span class="nt">&quot;endpoints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-21-18"><a id="__codelineno-21-18" name="__codelineno-21-18" href="#__codelineno-21-18"></a><span class="w">    </span><span class="nt">&quot;send&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;/message:send&quot;</span><span class="p">,</span>
+</span><span id="__span-21-19"><a id="__codelineno-21-19" name="__codelineno-21-19" href="#__codelineno-21-19"></a><span class="w">    </span><span class="nt">&quot;stream&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/stream&quot;</span><span class="p">,</span>
+</span><span id="__span-21-20"><a id="__codelineno-21-20" name="__codelineno-21-20" href="#__codelineno-21-20"></a><span class="w">    </span><span class="nt">&quot;tasks&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;/tasks&quot;</span><span class="p">,</span>
+</span><span id="__span-21-21"><a id="__codelineno-21-21" name="__codelineno-21-21" href="#__codelineno-21-21"></a><span class="w">    </span><span class="nt">&quot;peers&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;/peers&quot;</span><span class="p">,</span>
+</span><span id="__span-21-22"><a id="__codelineno-21-22" name="__codelineno-21-22" href="#__codelineno-21-22"></a><span class="w">    </span><span class="nt">&quot;skills&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/.well-known/acp.json&quot;</span>
+</span><span id="__span-21-23"><a id="__codelineno-21-23" name="__codelineno-21-23" href="#__codelineno-21-23"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-21-24"><a id="__codelineno-21-24" name="__codelineno-21-24" href="#__codelineno-21-24"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="query-skills-at-runtime-v05">Query skills at runtime (v0.5+)<a class="headerlink" href="#query-skills-at-runtime-v05" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># List all skills</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/skills/query<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;{}&#39;</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="c1"># Filter by capability</span>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/skills/query<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;capability&quot;: &quot;summarize&quot;, &quot;limit&quot;: 5}&#39;</span>
+</span></code></pre></div>
+<hr />
+<h2 id="python-sdk">Python SDK<a class="headerlink" href="#python-sdk" title="Permanent link">&para;</a></h2>
+<p>The Python SDK wraps the HTTP API with both sync and async clients.</p>
+<h3 id="sync-client">Sync client<a class="headerlink" href="#sync-client" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sdk.python.relay_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">RelayClient</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="n">client</span> <span class="o">=</span> <span class="n">RelayClient</span><span class="p">(</span><span class="s2">&quot;http://localhost:7901&quot;</span><span class="p">)</span>
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="c1"># Send</span>
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;Hello from Python!&quot;</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">)</span>
+</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">resp</span><span class="p">[</span><span class="s2">&quot;message_id&quot;</span><span class="p">])</span>
+</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>
+</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="c1"># Send with context grouping (v0.7)</span>
+</span><span id="__span-23-10"><a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a><span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;Follow-up question&quot;</span><span class="p">,</span> <span class="n">context_id</span><span class="o">=</span><span class="s2">&quot;ctx_abc&quot;</span><span class="p">)</span>
+</span><span id="__span-23-11"><a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a>
+</span><span id="__span-23-12"><a id="__codelineno-23-12" name="__codelineno-23-12" href="#__codelineno-23-12"></a><span class="c1"># Task lifecycle</span>
+</span><span id="__span-23-13"><a id="__codelineno-23-13" name="__codelineno-23-13" href="#__codelineno-23-13"></a><span class="n">task</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">create_task</span><span class="p">({</span><span class="s2">&quot;parts&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Process this&quot;</span><span class="p">}]})</span>
+</span><span id="__span-23-14"><a id="__codelineno-23-14" name="__codelineno-23-14" href="#__codelineno-23-14"></a><span class="n">result</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">wait_for_task</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+</span><span id="__span-23-15"><a id="__codelineno-23-15" name="__codelineno-23-15" href="#__codelineno-23-15"></a>
+</span><span id="__span-23-16"><a id="__codelineno-23-16" name="__codelineno-23-16" href="#__codelineno-23-16"></a><span class="c1"># Receive SSE stream</span>
+</span><span id="__span-23-17"><a id="__codelineno-23-17" name="__codelineno-23-17" href="#__codelineno-23-17"></a><span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">client</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">):</span>
+</span><span id="__span-23-18"><a id="__codelineno-23-18" name="__codelineno-23-18" href="#__codelineno-23-18"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">],</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;parts&quot;</span><span class="p">))</span>
+</span></code></pre></div>
+<h3 id="async-client-stdlib-only-no-aiohttp">Async client (stdlib-only, no aiohttp)<a class="headerlink" href="#async-client-stdlib-only-no-aiohttp" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sdk.python.relay_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncRelayClient</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a>    <span class="n">client</span> <span class="o">=</span> <span class="n">AsyncRelayClient</span><span class="p">(</span><span class="s2">&quot;http://localhost:7901&quot;</span><span class="p">)</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a>
+</span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a>    <span class="c1"># Send</span>
+</span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a>    <span class="n">resp</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;Hello async!&quot;</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">)</span>
+</span><span id="__span-24-9"><a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a>
+</span><span id="__span-24-10"><a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a>    <span class="c1"># Stream events</span>
+</span><span id="__span-24-11"><a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a>    <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">client</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">):</span>
+</span><span id="__span-24-12"><a id="__codelineno-24-12" name="__codelineno-24-12" href="#__codelineno-24-12"></a>        <span class="k">if</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span>
+</span><span id="__span-24-13"><a id="__codelineno-24-13" name="__codelineno-24-13" href="#__codelineno-24-13"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Received:&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;parts&quot;</span><span class="p">))</span>
+</span><span id="__span-24-14"><a id="__codelineno-24-14" name="__codelineno-24-14" href="#__codelineno-24-14"></a>        <span class="k">elif</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;status&quot;</span><span class="p">:</span>
+</span><span id="__span-24-15"><a id="__codelineno-24-15" name="__codelineno-24-15" href="#__codelineno-24-15"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Task status:&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">))</span>
+</span><span id="__span-24-16"><a id="__codelineno-24-16" name="__codelineno-24-16" href="#__codelineno-24-16"></a>
+</span><span id="__span-24-17"><a id="__codelineno-24-17" name="__codelineno-24-17" href="#__codelineno-24-17"></a>    <span class="c1"># Query skills</span>
+</span><span id="__span-24-18"><a id="__codelineno-24-18" name="__codelineno-24-18" href="#__codelineno-24-18"></a>    <span class="n">skills</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">query_skills</span><span class="p">(</span><span class="n">capability</span><span class="o">=</span><span class="s2">&quot;summarize&quot;</span><span class="p">)</span>
+</span><span id="__span-24-19"><a id="__codelineno-24-19" name="__codelineno-24-19" href="#__codelineno-24-19"></a>
+</span><span id="__span-24-20"><a id="__codelineno-24-20" name="__codelineno-24-20" href="#__codelineno-24-20"></a>    <span class="c1"># Discover LAN peers (v0.7)</span>
+</span><span id="__span-24-21"><a id="__codelineno-24-21" name="__codelineno-24-21" href="#__codelineno-24-21"></a>    <span class="n">peers</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">discover</span><span class="p">()</span>
+</span><span id="__span-24-22"><a id="__codelineno-24-22" name="__codelineno-24-22" href="#__codelineno-24-22"></a>
+</span><span id="__span-24-23"><a id="__codelineno-24-23" name="__codelineno-24-23" href="#__codelineno-24-23"></a><span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</span></code></pre></div>
+<blockquote>
+<p><strong>Note:</strong> The legacy <code>sdk/python/acp_sdk/</code> package is still available for backward compatibility.
+For new projects, use the pip-installable <code>acp-client</code> package instead:
+<code>pip install acp-client</code></p>
+</blockquote>
+<hr />
+<h2 id="python-sdk-langchain-integration-v180">Python SDK — LangChain Integration (v1.8.0+)<a class="headerlink" href="#python-sdk-langchain-integration-v180" title="Permanent link">&para;</a></h2>
+<p><code>acp-client</code> v1.8.0 ships a first-class LangChain adapter that wraps any ACP Relay endpoint
+as a <code>BaseTool</code>, allowing any LangChain Agent to communicate with remote ACP peers with <strong>zero
+changes to the core SDK</strong> (LangChain remains an optional dependency).</p>
+<h3 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;acp-client[langchain]&quot;</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="c1"># equivalent to:</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>pip<span class="w"> </span>install<span class="w"> </span>acp-client<span class="w"> </span>langchain
+</span></code></pre></div>
+<h3 id="quick-start">Quick-start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">acp_client.integrations.langchain</span><span class="w"> </span><span class="kn">import</span> <span class="n">ACPTool</span><span class="p">,</span> <span class="n">ACPCallbackHandler</span><span class="p">,</span> <span class="n">create_acp_tool</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">initialize_agent</span><span class="p">,</span> <span class="n">AgentType</span>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">langchain_openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChatOpenAI</span>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="c1"># 1. Create the ACP tool pointing at a running relay + peer</span>
+</span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="n">tool</span> <span class="o">=</span> <span class="n">create_acp_tool</span><span class="p">(</span>
+</span><span id="__span-26-7"><a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a>    <span class="n">relay_url</span><span class="o">=</span><span class="s2">&quot;http://localhost:8765&quot;</span><span class="p">,</span>   <span class="c1"># local ACP Relay endpoint</span>
+</span><span id="__span-26-8"><a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a>    <span class="n">peer_id</span><span class="o">=</span><span class="s2">&quot;agent_b&quot;</span><span class="p">,</span>                   <span class="c1"># session-id of the remote peer</span>
+</span><span id="__span-26-9"><a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a>    <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>                          <span class="c1"># seconds to wait for a reply</span>
+</span><span id="__span-26-10"><a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a><span class="p">)</span>
+</span><span id="__span-26-11"><a id="__codelineno-26-11" name="__codelineno-26-11" href="#__codelineno-26-11"></a>
+</span><span id="__span-26-12"><a id="__codelineno-26-12" name="__codelineno-26-12" href="#__codelineno-26-12"></a><span class="c1"># 2. (Optional) Add a callback handler for audit logging</span>
+</span><span id="__span-26-13"><a id="__codelineno-26-13" name="__codelineno-26-13" href="#__codelineno-26-13"></a><span class="n">handler</span> <span class="o">=</span> <span class="n">ACPCallbackHandler</span><span class="p">()</span>
+</span><span id="__span-26-14"><a id="__codelineno-26-14" name="__codelineno-26-14" href="#__codelineno-26-14"></a>
+</span><span id="__span-26-15"><a id="__codelineno-26-15" name="__codelineno-26-15" href="#__codelineno-26-15"></a><span class="c1"># 3. Wire up a LangChain agent</span>
+</span><span id="__span-26-16"><a id="__codelineno-26-16" name="__codelineno-26-16" href="#__codelineno-26-16"></a><span class="n">llm</span> <span class="o">=</span> <span class="n">ChatOpenAI</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">&quot;gpt-4o&quot;</span><span class="p">)</span>
+</span><span id="__span-26-17"><a id="__codelineno-26-17" name="__codelineno-26-17" href="#__codelineno-26-17"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">initialize_agent</span><span class="p">(</span>
+</span><span id="__span-26-18"><a id="__codelineno-26-18" name="__codelineno-26-18" href="#__codelineno-26-18"></a>    <span class="p">[</span><span class="n">tool</span><span class="p">],</span>
+</span><span id="__span-26-19"><a id="__codelineno-26-19" name="__codelineno-26-19" href="#__codelineno-26-19"></a>    <span class="n">llm</span><span class="p">,</span>
+</span><span id="__span-26-20"><a id="__codelineno-26-20" name="__codelineno-26-20" href="#__codelineno-26-20"></a>    <span class="n">agent</span><span class="o">=</span><span class="n">AgentType</span><span class="o">.</span><span class="n">ZERO_SHOT_REACT_DESCRIPTION</span><span class="p">,</span>
+</span><span id="__span-26-21"><a id="__codelineno-26-21" name="__codelineno-26-21" href="#__codelineno-26-21"></a>    <span class="n">callbacks</span><span class="o">=</span><span class="p">[</span><span class="n">handler</span><span class="p">],</span>
+</span><span id="__span-26-22"><a id="__codelineno-26-22" name="__codelineno-26-22" href="#__codelineno-26-22"></a>    <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-26-23"><a id="__codelineno-26-23" name="__codelineno-26-23" href="#__codelineno-26-23"></a><span class="p">)</span>
+</span><span id="__span-26-24"><a id="__codelineno-26-24" name="__codelineno-26-24" href="#__codelineno-26-24"></a>
+</span><span id="__span-26-25"><a id="__codelineno-26-25" name="__codelineno-26-25" href="#__codelineno-26-25"></a><span class="c1"># 4. Run — the agent can now delegate to agent_b via ACP</span>
+</span><span id="__span-26-26"><a id="__codelineno-26-26" name="__codelineno-26-26" href="#__codelineno-26-26"></a><span class="n">result</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;Ask agent_b to summarise the latest AI news&quot;</span><span class="p">)</span>
+</span><span id="__span-26-27"><a id="__codelineno-26-27" name="__codelineno-26-27" href="#__codelineno-26-27"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="api-summary">API Summary<a class="headerlink" href="#api-summary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Class / Function</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ACPTool(relay_url, peer_id, timeout)</code></td>
+<td><code>BaseTool</code> subclass — <code>name="acp_send"</code>; <code>_run</code> sync, <code>_arun</code> async</td>
+</tr>
+<tr>
+<td><code>ACPCallbackHandler(log_level)</code></td>
+<td><code>BaseCallbackHandler</code> — logs tool start/end/error; accumulates <code>_calls</code> list</td>
+</tr>
+<tr>
+<td><code>create_acp_tool(relay_url, peer_id, timeout)</code></td>
+<td>Factory helper for <code>ACPTool</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Design highlights:</strong>
+- <strong>Lazy import</strong>: LangChain is never imported at module load time; <code>ImportError</code> with <code>pip install</code> hint raised only at first instantiation if absent.
+- <strong>Dynamic subclassing</strong>: builds a real <code>BaseTool</code> / <code>BaseCallbackHandler</code> subclass inside <code>__new__</code> — compatible with LangChain Pydantic v1 and v2.
+- <strong>Zero new mandatory deps</strong>: core <code>acp-client</code> remains stdlib-only.
+- <strong>Graceful errors</strong>: <code>_run</code> / <code>_arun</code> return descriptive error strings (never raise) so the LLM can observe and retry.</p>
+<p>See <a href="../sdk/python/README-sdk.md#langchain-integration">sdk/python/README-sdk.md</a> for the full API reference.</p>
+<hr />
+<h2 id="nodejs-sdk">Node.js SDK<a class="headerlink" href="#nodejs-sdk" title="Permanent link">&para;</a></h2>
+<div class="language-javascript highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">RelayClient</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;./sdk/node/relay_client.mjs&#39;</span><span class="p">;</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">RelayClient</span><span class="p">(</span><span class="s1">&#39;http://localhost:7901&#39;</span><span class="p">);</span>
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>
+</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="c1">// Send</span>
+</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="kd">const</span><span class="w"> </span><span class="nx">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="s1">&#39;Hello from Node!&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">role</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;user&#39;</span><span class="w"> </span><span class="p">});</span>
+</span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">resp</span><span class="p">.</span><span class="nx">message_id</span><span class="p">);</span>
+</span><span id="__span-27-8"><a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a>
+</span><span id="__span-27-9"><a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a><span class="c1">// Send with parts</span>
+</span><span id="__span-27-10"><a id="__codelineno-27-10" name="__codelineno-27-10" href="#__codelineno-27-10"></a><span class="k">await</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">sendParts</span><span class="p">([</span>
+</span><span id="__span-27-11"><a id="__codelineno-27-11" name="__codelineno-27-11" href="#__codelineno-27-11"></a><span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nx">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;text&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;Analyze this:&#39;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-27-12"><a id="__codelineno-27-12" name="__codelineno-27-12" href="#__codelineno-27-12"></a><span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nx">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;data&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="mf">42</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-27-13"><a id="__codelineno-27-13" name="__codelineno-27-13" href="#__codelineno-27-13"></a><span class="p">],</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">role</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;user&#39;</span><span class="w"> </span><span class="p">});</span>
+</span><span id="__span-27-14"><a id="__codelineno-27-14" name="__codelineno-27-14" href="#__codelineno-27-14"></a>
+</span><span id="__span-27-15"><a id="__codelineno-27-15" name="__codelineno-27-15" href="#__codelineno-27-15"></a><span class="c1">// Task management</span>
+</span><span id="__span-27-16"><a id="__codelineno-27-16" name="__codelineno-27-16" href="#__codelineno-27-16"></a><span class="kd">const</span><span class="w"> </span><span class="nx">task</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">createTask</span><span class="p">({</span><span class="w"> </span><span class="nx">parts</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nx">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;text&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;Do work&#39;</span><span class="w"> </span><span class="p">}]</span><span class="w"> </span><span class="p">});</span>
+</span><span id="__span-27-17"><a id="__codelineno-27-17" name="__codelineno-27-17" href="#__codelineno-27-17"></a><span class="kd">const</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">waitForTask</span><span class="p">(</span><span class="nx">task</span><span class="p">.</span><span class="nx">id</span><span class="p">,</span><span class="w"> </span><span class="mf">60</span><span class="p">);</span>
+</span><span id="__span-27-18"><a id="__codelineno-27-18" name="__codelineno-27-18" href="#__codelineno-27-18"></a>
+</span><span id="__span-27-19"><a id="__codelineno-27-19" name="__codelineno-27-19" href="#__codelineno-27-19"></a><span class="c1">// Stream events</span>
+</span><span id="__span-27-20"><a id="__codelineno-27-20" name="__codelineno-27-20" href="#__codelineno-27-20"></a><span class="k">for</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">event</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">stream</span><span class="p">(</span><span class="mf">30</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-27-21"><a id="__codelineno-27-21" name="__codelineno-27-21" href="#__codelineno-27-21"></a><span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">type</span><span class="p">,</span><span class="w"> </span><span class="nx">event</span><span class="p">.</span><span class="nx">parts</span><span class="p">);</span>
+</span><span id="__span-27-22"><a id="__codelineno-27-22" name="__codelineno-27-22" href="#__codelineno-27-22"></a><span class="p">}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="go-sdk">Go SDK<a class="headerlink" href="#go-sdk" title="Permanent link">&para;</a></h2>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="kn">import</span><span class="w"> </span><span class="s">&quot;github.com/Kickflip73/agent-communication-protocol/sdk/go/acprelay&quot;</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="nx">client</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">acprelay</span><span class="p">.</span><span class="nx">NewClient</span><span class="p">(</span><span class="s">&quot;http://localhost:8100&quot;</span><span class="p">)</span>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="c1">// Send a message</span>
+</span><span id="__span-28-6"><a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="nx">resp</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Send</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Hello from Go!&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;user&quot;</span><span class="p">)</span>
+</span><span id="__span-28-7"><a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a>
+</span><span id="__span-28-8"><a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="c1">// Fetch AgentCard</span>
+</span><span id="__span-28-9"><a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a><span class="nx">card</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">AgentCard</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+</span><span id="__span-28-10"><a id="__codelineno-28-10" name="__codelineno-28-10" href="#__codelineno-28-10"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="nx">card</span><span class="p">.</span><span class="nx">Self</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span>
+</span></code></pre></div>
+<hr />
+<h2 id="rust-sdk-v12">Rust SDK (v1.2)<a class="headerlink" href="#rust-sdk-v12" title="Permanent link">&para;</a></h2>
+<p>Add to <code>Cargo.toml</code>:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">[dependencies]</span>
+</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="n">acp-relay-sdk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;1.2&quot;</span>
+</span></code></pre></div>
+<h3 id="send-a-message">Send a message<a class="headerlink" href="#send-a-message" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">use</span><span class="w"> </span><span class="n">acp_relay_sdk</span><span class="p">::{</span><span class="n">RelayClient</span><span class="p">,</span><span class="w"> </span><span class="n">MessageRequest</span><span class="p">};</span>
+</span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>
+</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a><span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">acp_relay_sdk</span><span class="p">::</span><span class="n">AcpError</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-30-4"><a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">RelayClient</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="s">&quot;http://localhost:8100&quot;</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-30-5"><a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a>
+</span><span id="__span-30-6"><a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a><span class="w">    </span><span class="c1">// Simple text message</span>
+</span><span id="__span-30-7"><a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">MessageRequest</span><span class="p">::</span><span class="n">user</span><span class="p">(</span><span class="s">&quot;Hello, Agent!&quot;</span><span class="p">))</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-30-8"><a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;task_id: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">task_id</span><span class="p">.</span><span class="n">unwrap_or_default</span><span class="p">());</span>
+</span><span id="__span-30-9"><a id="__codelineno-30-9" name="__codelineno-30-9" href="#__codelineno-30-9"></a>
+</span><span id="__span-30-10"><a id="__codelineno-30-10" name="__codelineno-30-10" href="#__codelineno-30-10"></a><span class="w">    </span><span class="c1">// With idempotency key</span>
+</span><span id="__span-30-11"><a id="__codelineno-30-11" name="__codelineno-30-11" href="#__codelineno-30-11"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">send_message</span><span class="p">(</span>
+</span><span id="__span-30-12"><a id="__codelineno-30-12" name="__codelineno-30-12" href="#__codelineno-30-12"></a><span class="w">        </span><span class="n">MessageRequest</span><span class="p">::</span><span class="n">user</span><span class="p">(</span><span class="s">&quot;Idempotent message&quot;</span><span class="p">)</span>
+</span><span id="__span-30-13"><a id="__codelineno-30-13" name="__codelineno-30-13" href="#__codelineno-30-13"></a><span class="w">            </span><span class="p">.</span><span class="n">with_message_id</span><span class="p">(</span><span class="s">&quot;my-uuid-1234&quot;</span><span class="p">)</span>
+</span><span id="__span-30-14"><a id="__codelineno-30-14" name="__codelineno-30-14" href="#__codelineno-30-14"></a><span class="w">    </span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-30-15"><a id="__codelineno-30-15" name="__codelineno-30-15" href="#__codelineno-30-15"></a>
+</span><span id="__span-30-16"><a id="__codelineno-30-16" name="__codelineno-30-16" href="#__codelineno-30-16"></a><span class="w">    </span><span class="c1">// Synchronous request-response (block until complete)</span>
+</span><span id="__span-30-17"><a id="__codelineno-30-17" name="__codelineno-30-17" href="#__codelineno-30-17"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">send_message</span><span class="p">(</span>
+</span><span id="__span-30-18"><a id="__codelineno-30-18" name="__codelineno-30-18" href="#__codelineno-30-18"></a><span class="w">        </span><span class="n">MessageRequest</span><span class="p">::</span><span class="n">user</span><span class="p">(</span><span class="s">&quot;Summarise this document&quot;</span><span class="p">)</span>
+</span><span id="__span-30-19"><a id="__codelineno-30-19" name="__codelineno-30-19" href="#__codelineno-30-19"></a><span class="w">            </span><span class="p">.</span><span class="n">sync_timeout</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+</span><span id="__span-30-20"><a id="__codelineno-30-20" name="__codelineno-30-20" href="#__codelineno-30-20"></a><span class="w">    </span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-30-21"><a id="__codelineno-30-21" name="__codelineno-30-21" href="#__codelineno-30-21"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;status: {:?}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="p">);</span>
+</span><span id="__span-30-22"><a id="__codelineno-30-22" name="__codelineno-30-22" href="#__codelineno-30-22"></a>
+</span><span id="__span-30-23"><a id="__codelineno-30-23" name="__codelineno-30-23" href="#__codelineno-30-23"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(())</span>
+</span><span id="__span-30-24"><a id="__codelineno-30-24" name="__codelineno-30-24" href="#__codelineno-30-24"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="fetch-agentcard">Fetch AgentCard<a class="headerlink" href="#fetch-agentcard" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="kd">let</span><span class="w"> </span><span class="n">card</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">agent_card</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;agent: {:?}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">card</span><span class="p">.</span><span class="n">self_card</span><span class="p">.</span><span class="n">name</span><span class="p">);</span>
+</span><span id="__span-31-3"><a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">peer</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">card</span><span class="p">.</span><span class="n">peer</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-31-4"><a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;peer: {:?}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">peer</span><span class="p">.</span><span class="n">name</span><span class="p">);</span>
+</span><span id="__span-31-5"><a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">avail</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">peer</span><span class="p">.</span><span class="n">availability</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-31-6"><a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a><span class="w">        </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;next active: {:?}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">avail</span><span class="p">.</span><span class="n">next_active_at</span><span class="p">);</span>
+</span><span id="__span-31-7"><a id="__codelineno-31-7" name="__codelineno-31-7" href="#__codelineno-31-7"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-31-8"><a id="__codelineno-31-8" name="__codelineno-31-8" href="#__codelineno-31-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="heartbeat-agent-live-availability-update-v12">Heartbeat agent — live availability update (v1.2)<a class="headerlink" href="#heartbeat-agent-live-availability-update-v12" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">use</span><span class="w"> </span><span class="n">acp_relay_sdk</span><span class="p">::{</span><span class="n">RelayClient</span><span class="p">,</span><span class="w"> </span><span class="n">AvailabilityPatch</span><span class="p">};</span>
+</span><span id="__span-32-2"><a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>
+</span><span id="__span-32-3"><a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a><span class="k">fn</span><span class="w"> </span><span class="nf">on_cron_wake</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">acp_relay_sdk</span><span class="p">::</span><span class="n">AcpError</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-32-4"><a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">RelayClient</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="s">&quot;http://localhost:8100&quot;</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-32-5"><a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>
+</span><span id="__span-32-6"><a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a><span class="w">    </span><span class="n">client</span><span class="p">.</span><span class="n">patch_availability</span><span class="p">(</span><span class="n">AvailabilityPatch</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-32-7"><a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a><span class="w">        </span><span class="n">last_active_at</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="s">&quot;2026-03-22T13:00:00Z&quot;</span><span class="p">.</span><span class="n">into</span><span class="p">()),</span>
+</span><span id="__span-32-8"><a id="__codelineno-32-8" name="__codelineno-32-8" href="#__codelineno-32-8"></a><span class="w">        </span><span class="n">next_active_at</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="s">&quot;2026-03-22T14:00:00Z&quot;</span><span class="p">.</span><span class="n">into</span><span class="p">()),</span>
+</span><span id="__span-32-9"><a id="__codelineno-32-9" name="__codelineno-32-9" href="#__codelineno-32-9"></a><span class="w">        </span><span class="o">..</span><span class="nb">Default</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+</span><span id="__span-32-10"><a id="__codelineno-32-10" name="__codelineno-32-10" href="#__codelineno-32-10"></a><span class="w">    </span><span class="p">})</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-32-11"><a id="__codelineno-32-11" name="__codelineno-32-11" href="#__codelineno-32-11"></a>
+</span><span id="__span-32-12"><a id="__codelineno-32-12" name="__codelineno-32-12" href="#__codelineno-32-12"></a><span class="w">    </span><span class="c1">// ... do actual work ...</span>
+</span><span id="__span-32-13"><a id="__codelineno-32-13" name="__codelineno-32-13" href="#__codelineno-32-13"></a>
+</span><span id="__span-32-14"><a id="__codelineno-32-14" name="__codelineno-32-14" href="#__codelineno-32-14"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(())</span>
+</span><span id="__span-32-15"><a id="__codelineno-32-15" name="__codelineno-32-15" href="#__codelineno-32-15"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="get-session-link">Get session link<a class="headerlink" href="#get-session-link" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">link</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">link</span><span class="p">()</span><span class="o">?</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-33-2"><a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Share this link: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">link</span><span class="p">);</span>
+</span><span id="__span-33-3"><a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a><span class="w">    </span><span class="c1">// → acp://relay.acp.dev/&lt;session_id&gt;</span>
+</span><span id="__span-33-4"><a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="error-handling">Error handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">use</span><span class="w"> </span><span class="n">acp_relay_sdk</span><span class="p">::</span><span class="n">AcpError</span><span class="p">;</span>
+</span><span id="__span-34-2"><a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>
+</span><span id="__span-34-3"><a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a><span class="k">match</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">MessageRequest</span><span class="p">::</span><span class="n">user</span><span class="p">(</span><span class="s">&quot;hello&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-34-4"><a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span><span class="w">  </span><span class="o">=&gt;</span><span class="w"> </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;ok: {:?}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">task_id</span><span class="p">),</span>
+</span><span id="__span-34-5"><a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a><span class="w">    </span><span class="nb">Err</span><span class="p">(</span><span class="n">AcpError</span><span class="p">::</span><span class="n">Relay</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">code</span><span class="p">,</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="o">..</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="o">=&gt;</span>
+</span><span id="__span-34-6"><a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a><span class="w">        </span><span class="fm">eprintln!</span><span class="p">(</span><span class="s">&quot;relay error {}: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">code</span><span class="p">,</span><span class="w"> </span><span class="n">message</span><span class="p">),</span>
+</span><span id="__span-34-7"><a id="__codelineno-34-7" name="__codelineno-34-7" href="#__codelineno-34-7"></a><span class="w">    </span><span class="nb">Err</span><span class="p">(</span><span class="n">AcpError</span><span class="p">::</span><span class="n">Http</span><span class="p">(</span><span class="n">e</span><span class="p">))</span><span class="w"> </span><span class="o">=&gt;</span>
+</span><span id="__span-34-8"><a id="__codelineno-34-8" name="__codelineno-34-8" href="#__codelineno-34-8"></a><span class="w">        </span><span class="fm">eprintln!</span><span class="p">(</span><span class="s">&quot;connection error: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">),</span>
+</span><span id="__span-34-9"><a id="__codelineno-34-9" name="__codelineno-34-9" href="#__codelineno-34-9"></a><span class="w">    </span><span class="nb">Err</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="fm">eprintln!</span><span class="p">(</span><span class="s">&quot;other: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">),</span>
+</span><span id="__span-34-10"><a id="__codelineno-34-10" name="__codelineno-34-10" href="#__codelineno-34-10"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>pip<span class="w"> </span>install<span class="w"> </span>websockets
+</span><span id="__span-35-2"><a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span>--port<span class="w"> </span><span class="m">8000</span>
+</span><span id="__span-35-3"><a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a><span class="c1"># Rust SDK connects to HTTP port = WS port + 100 = 8100</span>
+</span></code></pre></div>
+<p>See <code>sdk/rust/</code> for the full source and <code>sdk/rust/README.md</code> for more examples.</p>
+<hr />
+<h2 id="config-file-v09">Config File (v0.9)<a class="headerlink" href="#config-file-v09" title="Permanent link">&para;</a></h2>
+<p>Instead of long command lines, use a config file:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="p">{</span>
+</span><span id="__span-36-2"><a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span><span class="p">,</span>
+</span><span id="__span-36-3"><a id="__codelineno-36-3" name="__codelineno-36-3" href="#__codelineno-36-3"></a><span class="w">  </span><span class="nt">&quot;port&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">7801</span><span class="p">,</span>
+</span><span id="__span-36-4"><a id="__codelineno-36-4" name="__codelineno-36-4" href="#__codelineno-36-4"></a><span class="w">  </span><span class="nt">&quot;skills&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;summarize,translate&quot;</span><span class="p">,</span>
+</span><span id="__span-36-5"><a id="__codelineno-36-5" name="__codelineno-36-5" href="#__codelineno-36-5"></a><span class="w">  </span><span class="nt">&quot;secret&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;optional-hmac-key&quot;</span><span class="p">,</span>
+</span><span id="__span-36-6"><a id="__codelineno-36-6" name="__codelineno-36-6" href="#__codelineno-36-6"></a><span class="w">  </span><span class="nt">&quot;verbose&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-36-7"><a id="__codelineno-36-7" name="__codelineno-36-7" href="#__codelineno-36-7"></a><span class="p">}</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--config<span class="w"> </span>agent.json
+</span><span id="__span-37-2"><a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a><span class="c1"># CLI flags override config file values</span>
+</span></code></pre></div>
+<p>See <code>relay/examples/</code> for JSON and YAML examples.</p>
+<hr />
+<h2 id="language-examples">Language Examples<a class="headerlink" href="#language-examples" title="Permanent link">&para;</a></h2>
+<p>ACP's HTTP API works from any language. The only requirement: send valid JSON.</p>
+<h3 id="curl-baseline">curl (baseline)<a class="headerlink" href="#curl-baseline" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-38-2"><a id="__codelineno-38-2" name="__codelineno-38-2" href="#__codelineno-38-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-38-3"><a id="__codelineno-38-3" name="__codelineno-38-3" href="#__codelineno-38-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;role&quot;:&quot;user&quot;,&quot;text&quot;:&quot;Hello&quot;}&#39;</span>
+</span></code></pre></div>
+<h3 id="go">Go<a class="headerlink" href="#go" title="Permanent link">&para;</a></h3>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="nx">payload</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="s">`{&quot;role&quot;:&quot;user&quot;,&quot;text&quot;:&quot;Hello from Go&quot;}`</span>
+</span><span id="__span-39-2"><a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a><span class="nx">resp</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">Post</span><span class="p">(</span><span class="s">&quot;http://localhost:7901/message:send&quot;</span><span class="p">,</span>
+</span><span id="__span-39-3"><a id="__codelineno-39-3" name="__codelineno-39-3" href="#__codelineno-39-3"></a><span class="w">    </span><span class="s">&quot;application/json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">NewReader</span><span class="p">(</span><span class="nx">payload</span><span class="p">))</span>
+</span></code></pre></div>
+<h3 id="java">Java<a class="headerlink" href="#java" title="Permanent link">&para;</a></h3>
+<div class="language-java highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="kd">var</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">HttpClient</span><span class="p">.</span><span class="na">newHttpClient</span><span class="p">();</span>
+</span><span id="__span-40-2"><a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a><span class="kd">var</span><span class="w"> </span><span class="n">req</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">HttpRequest</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
+</span><span id="__span-40-3"><a id="__codelineno-40-3" name="__codelineno-40-3" href="#__codelineno-40-3"></a><span class="w">    </span><span class="p">.</span><span class="na">uri</span><span class="p">(</span><span class="n">URI</span><span class="p">.</span><span class="na">create</span><span class="p">(</span><span class="s">&quot;http://localhost:7901/message:send&quot;</span><span class="p">))</span>
+</span><span id="__span-40-4"><a id="__codelineno-40-4" name="__codelineno-40-4" href="#__codelineno-40-4"></a><span class="w">    </span><span class="p">.</span><span class="na">header</span><span class="p">(</span><span class="s">&quot;Content-Type&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;application/json&quot;</span><span class="p">)</span>
+</span><span id="__span-40-5"><a id="__codelineno-40-5" name="__codelineno-40-5" href="#__codelineno-40-5"></a><span class="w">    </span><span class="p">.</span><span class="na">POST</span><span class="p">(</span><span class="n">HttpRequest</span><span class="p">.</span><span class="na">BodyPublishers</span><span class="p">.</span><span class="na">ofString</span><span class="p">(</span>
+</span><span id="__span-40-6"><a id="__codelineno-40-6" name="__codelineno-40-6" href="#__codelineno-40-6"></a><span class="w">        </span><span class="s">&quot;{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;text\&quot;:\&quot;Hello from Java\&quot;}&quot;</span><span class="p">))</span>
+</span><span id="__span-40-7"><a id="__codelineno-40-7" name="__codelineno-40-7" href="#__codelineno-40-7"></a><span class="w">    </span><span class="p">.</span><span class="na">build</span><span class="p">();</span>
+</span><span id="__span-40-8"><a id="__codelineno-40-8" name="__codelineno-40-8" href="#__codelineno-40-8"></a><span class="n">client</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="n">HttpResponse</span><span class="p">.</span><span class="na">BodyHandlers</span><span class="p">.</span><span class="na">ofString</span><span class="p">());</span>
+</span></code></pre></div>
+<h3 id="rust">Rust<a class="headerlink" href="#rust" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="kd">let</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reqwest</span><span class="p">::</span><span class="n">Client</span><span class="p">::</span><span class="n">new</span><span class="p">();</span>
+</span><span id="__span-41-2"><a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a><span class="n">client</span><span class="p">.</span><span class="n">post</span><span class="p">(</span><span class="s">&quot;http://localhost:7901/message:send&quot;</span><span class="p">)</span>
+</span><span id="__span-41-3"><a id="__codelineno-41-3" name="__codelineno-41-3" href="#__codelineno-41-3"></a><span class="w">    </span><span class="p">.</span><span class="n">json</span><span class="p">(</span><span class="o">&amp;</span><span class="n">serde_json</span><span class="p">::</span><span class="n">json</span><span class="o">!</span><span class="p">({</span><span class="s">&quot;role&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Hello from Rust&quot;</span><span class="p">}))</span>
+</span><span id="__span-41-4"><a id="__codelineno-41-4" name="__codelineno-41-4" href="#__codelineno-41-4"></a><span class="w">    </span><span class="p">.</span><span class="n">send</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<hr />
+<h2 id="extension-mechanism-v13">Extension Mechanism (v1.3)<a class="headerlink" href="#extension-mechanism-v13" title="Permanent link">&para;</a></h2>
+<p>Extensions allow agents to advertise custom capabilities beyond the core ACP spec — using URI-identified namespaces. They appear in the AgentCard and can be registered at startup or updated at runtime without restarting the relay.</p>
+<h3 id="declare-at-startup-cli">Declare at startup (CLI)<a class="headerlink" href="#declare-at-startup-cli" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="c1"># Single extension (required=false by default)</span>
+</span><span id="__span-42-2"><a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-42-3"><a id="__codelineno-42-3" name="__codelineno-42-3" href="#__codelineno-42-3"></a><span class="w">  </span>--extension<span class="w"> </span>https://acp.dev/ext/availability/v1
+</span><span id="__span-42-4"><a id="__codelineno-42-4" name="__codelineno-42-4" href="#__codelineno-42-4"></a>
+</span><span id="__span-42-5"><a id="__codelineno-42-5" name="__codelineno-42-5" href="#__codelineno-42-5"></a><span class="c1"># With params</span>
+</span><span id="__span-42-6"><a id="__codelineno-42-6" name="__codelineno-42-6" href="#__codelineno-42-6"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-42-7"><a id="__codelineno-42-7" name="__codelineno-42-7" href="#__codelineno-42-7"></a><span class="w">  </span>--extension<span class="w"> </span>https://corp.example.com/ext/billing,tier<span class="o">=</span>pro,version<span class="o">=</span><span class="m">2</span>
+</span><span id="__span-42-8"><a id="__codelineno-42-8" name="__codelineno-42-8" href="#__codelineno-42-8"></a>
+</span><span id="__span-42-9"><a id="__codelineno-42-9" name="__codelineno-42-9" href="#__codelineno-42-9"></a><span class="c1"># Required extension (peer must understand it)</span>
+</span><span id="__span-42-10"><a id="__codelineno-42-10" name="__codelineno-42-10" href="#__codelineno-42-10"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-42-11"><a id="__codelineno-42-11" name="__codelineno-42-11" href="#__codelineno-42-11"></a><span class="w">  </span>--extension<span class="w"> </span>https://example.com/ext/auth,required<span class="o">=</span><span class="nb">true</span>
+</span><span id="__span-42-12"><a id="__codelineno-42-12" name="__codelineno-42-12" href="#__codelineno-42-12"></a>
+</span><span id="__span-42-13"><a id="__codelineno-42-13" name="__codelineno-42-13" href="#__codelineno-42-13"></a><span class="c1"># Multiple extensions (repeat the flag)</span>
+</span><span id="__span-42-14"><a id="__codelineno-42-14" name="__codelineno-42-14" href="#__codelineno-42-14"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-42-15"><a id="__codelineno-42-15" name="__codelineno-42-15" href="#__codelineno-42-15"></a><span class="w">  </span>--extension<span class="w"> </span>https://acp.dev/ext/availability/v1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-42-16"><a id="__codelineno-42-16" name="__codelineno-42-16" href="#__codelineno-42-16"></a><span class="w">  </span>--extension<span class="w"> </span>https://acp.dev/ext/scheduling/v1,required<span class="o">=</span><span class="nb">false</span>
+</span></code></pre></div>
+<p>The extensions appear in the AgentCard:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="p">{</span>
+</span><span id="__span-43-2"><a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span><span class="p">,</span>
+</span><span id="__span-43-3"><a id="__codelineno-43-3" name="__codelineno-43-3" href="#__codelineno-43-3"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-43-4"><a id="__codelineno-43-4" name="__codelineno-43-4" href="#__codelineno-43-4"></a><span class="w">  </span><span class="nt">&quot;extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-43-5"><a id="__codelineno-43-5" name="__codelineno-43-5" href="#__codelineno-43-5"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-43-6"><a id="__codelineno-43-6" name="__codelineno-43-6" href="#__codelineno-43-6"></a><span class="w">      </span><span class="nt">&quot;uri&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://acp.dev/ext/availability/v1&quot;</span><span class="p">,</span>
+</span><span id="__span-43-7"><a id="__codelineno-43-7" name="__codelineno-43-7" href="#__codelineno-43-7"></a><span class="w">      </span><span class="nt">&quot;required&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-43-8"><a id="__codelineno-43-8" name="__codelineno-43-8" href="#__codelineno-43-8"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-43-9"><a id="__codelineno-43-9" name="__codelineno-43-9" href="#__codelineno-43-9"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-43-10"><a id="__codelineno-43-10" name="__codelineno-43-10" href="#__codelineno-43-10"></a><span class="w">      </span><span class="nt">&quot;uri&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://corp.example.com/ext/billing&quot;</span><span class="p">,</span>
+</span><span id="__span-43-11"><a id="__codelineno-43-11" name="__codelineno-43-11" href="#__codelineno-43-11"></a><span class="w">      </span><span class="nt">&quot;required&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-43-12"><a id="__codelineno-43-12" name="__codelineno-43-12" href="#__codelineno-43-12"></a><span class="w">      </span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;tier&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pro&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2&quot;</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-43-13"><a id="__codelineno-43-13" name="__codelineno-43-13" href="#__codelineno-43-13"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-43-14"><a id="__codelineno-43-14" name="__codelineno-43-14" href="#__codelineno-43-14"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-43-15"><a id="__codelineno-43-15" name="__codelineno-43-15" href="#__codelineno-43-15"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="register-at-runtime-http">Register at runtime (HTTP)<a class="headerlink" href="#register-at-runtime-http" title="Permanent link">&para;</a></h3>
+<p>No restart required — callers can register or unregister extensions while the relay is running.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="c1"># Register (upsert — re-registering the same URI updates, not duplicates)</span>
+</span><span id="__span-44-2"><a id="__codelineno-44-2" name="__codelineno-44-2" href="#__codelineno-44-2"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8100/extensions/register<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-44-3"><a id="__codelineno-44-3" name="__codelineno-44-3" href="#__codelineno-44-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-44-4"><a id="__codelineno-44-4" name="__codelineno-44-4" href="#__codelineno-44-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+</span><span id="__span-44-5"><a id="__codelineno-44-5" name="__codelineno-44-5" href="#__codelineno-44-5"></a><span class="s1">    &quot;uri&quot;:      &quot;https://acp.dev/ext/availability/v1&quot;,</span>
+</span><span id="__span-44-6"><a id="__codelineno-44-6" name="__codelineno-44-6" href="#__codelineno-44-6"></a><span class="s1">    &quot;required&quot;: false,</span>
+</span><span id="__span-44-7"><a id="__codelineno-44-7" name="__codelineno-44-7" href="#__codelineno-44-7"></a><span class="s1">    &quot;params&quot;:   { &quot;mode&quot;: &quot;cron&quot;, &quot;interval_seconds&quot;: 3600 }</span>
+</span><span id="__span-44-8"><a id="__codelineno-44-8" name="__codelineno-44-8" href="#__codelineno-44-8"></a><span class="s1">  }&#39;</span>
+</span><span id="__span-44-9"><a id="__codelineno-44-9" name="__codelineno-44-9" href="#__codelineno-44-9"></a>
+</span><span id="__span-44-10"><a id="__codelineno-44-10" name="__codelineno-44-10" href="#__codelineno-44-10"></a><span class="c1"># Unregister</span>
+</span><span id="__span-44-11"><a id="__codelineno-44-11" name="__codelineno-44-11" href="#__codelineno-44-11"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8100/extensions/unregister<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-44-12"><a id="__codelineno-44-12" name="__codelineno-44-12" href="#__codelineno-44-12"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-44-13"><a id="__codelineno-44-13" name="__codelineno-44-13" href="#__codelineno-44-13"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{ &quot;uri&quot;: &quot;https://acp.dev/ext/availability/v1&quot; }&#39;</span>
+</span><span id="__span-44-14"><a id="__codelineno-44-14" name="__codelineno-44-14" href="#__codelineno-44-14"></a>
+</span><span id="__span-44-15"><a id="__codelineno-44-15" name="__codelineno-44-15" href="#__codelineno-44-15"></a><span class="c1"># List current extensions</span>
+</span><span id="__span-44-16"><a id="__codelineno-44-16" name="__codelineno-44-16" href="#__codelineno-44-16"></a>curl<span class="w"> </span>http://localhost:8100/extensions
+</span></code></pre></div>
+<h3 id="extension-api-reference">Extension API reference<a class="headerlink" href="#extension-api-reference" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/extensions</code></td>
+<td>GET</td>
+<td>List all declared extensions</td>
+</tr>
+<tr>
+<td><code>/extensions/register</code></td>
+<td>POST</td>
+<td>Register or update an extension (upsert by URI)</td>
+</tr>
+<tr>
+<td><code>/extensions/unregister</code></td>
+<td>POST</td>
+<td>Remove an extension by URI</td>
+</tr>
+</tbody>
+</table>
+<h3 id="register-request-body">Register request body<a class="headerlink" href="#register-request-body" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>uri</code></td>
+<td>string</td>
+<td>✅</td>
+<td><code>http(s)://</code> URI uniquely identifying the extension</td>
+</tr>
+<tr>
+<td><code>required</code></td>
+<td>boolean</td>
+<td>—</td>
+<td>Whether peer must understand this extension (default: <code>false</code>)</td>
+</tr>
+<tr>
+<td><code>params</code></td>
+<td>object</td>
+<td>—</td>
+<td>Extension-specific parameters (arbitrary key-value)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="checking-peer-extensions">Checking peer extensions<a class="headerlink" href="#checking-peer-extensions" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="c1"># Python: inspect peer&#39;s extensions from AgentCard</span>
+</span><span id="__span-45-2"><a id="__codelineno-45-2" name="__codelineno-45-2" href="#__codelineno-45-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
+</span><span id="__span-45-3"><a id="__codelineno-45-3" name="__codelineno-45-3" href="#__codelineno-45-3"></a>
+</span><span id="__span-45-4"><a id="__codelineno-45-4" name="__codelineno-45-4" href="#__codelineno-45-4"></a><span class="n">card</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;http://localhost:8100/.well-known/acp.json&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</span><span id="__span-45-5"><a id="__codelineno-45-5" name="__codelineno-45-5" href="#__codelineno-45-5"></a><span class="n">peer</span> <span class="o">=</span> <span class="n">card</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;peer&quot;</span><span class="p">,</span> <span class="p">{})</span>
+</span><span id="__span-45-6"><a id="__codelineno-45-6" name="__codelineno-45-6" href="#__codelineno-45-6"></a><span class="n">exts</span> <span class="o">=</span> <span class="n">peer</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;extensions&quot;</span><span class="p">,</span> <span class="p">[])</span>
+</span><span id="__span-45-7"><a id="__codelineno-45-7" name="__codelineno-45-7" href="#__codelineno-45-7"></a>
+</span><span id="__span-45-8"><a id="__codelineno-45-8" name="__codelineno-45-8" href="#__codelineno-45-8"></a><span class="k">for</span> <span class="n">ext</span> <span class="ow">in</span> <span class="n">exts</span><span class="p">:</span>
+</span><span id="__span-45-9"><a id="__codelineno-45-9" name="__codelineno-45-9" href="#__codelineno-45-9"></a>    <span class="k">if</span> <span class="n">ext</span><span class="p">[</span><span class="s2">&quot;uri&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;https://acp.dev/ext/availability/v1&quot;</span><span class="p">:</span>
+</span><span id="__span-45-10"><a id="__codelineno-45-10" name="__codelineno-45-10" href="#__codelineno-45-10"></a>        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Peer supports availability extension:&quot;</span><span class="p">,</span> <span class="n">ext</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;params&quot;</span><span class="p">))</span>
+</span><span id="__span-45-11"><a id="__codelineno-45-11" name="__codelineno-45-11" href="#__codelineno-45-11"></a>    <span class="k">if</span> <span class="n">ext</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;required&quot;</span><span class="p">):</span>
+</span><span id="__span-45-12"><a id="__codelineno-45-12" name="__codelineno-45-12" href="#__codelineno-45-12"></a>        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;REQUIRED extension:&quot;</span><span class="p">,</span> <span class="n">ext</span><span class="p">[</span><span class="s2">&quot;uri&quot;</span><span class="p">])</span>
+</span></code></pre></div>
+<h3 id="design-notes">Design notes<a class="headerlink" href="#design-notes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>URI namespace</strong>: Use your own domain to avoid collisions (e.g. <code>https://example.com/ext/myfeature/v1</code>)</li>
+<li><strong>Opt-in</strong>: Extensions are absent from AgentCard when none are declared</li>
+<li><strong>Upsert semantics</strong>: Re-registering the same URI replaces the entry</li>
+<li><strong>Validation</strong>: URI must be <code>http://</code> or <code>https://</code>; <code>params</code> must be a JSON object</li>
+<li><strong>A2A compatibility</strong>: Mirrors A2A's proposed extension URI format, enabling future cross-protocol discovery</li>
+</ul>
+<hr />
+<h2 id="did-identity-v13">DID Identity (v1.3)<a class="headerlink" href="#did-identity-v13" title="Permanent link">&para;</a></h2>
+<p>When you start the relay with <code>--identity</code>, each agent gets a <strong>stable, persistent DID</strong> — a <code>did:acp:</code> identifier that stays the same across sessions (as long as the keypair file is not deleted).</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>Alice<span class="w"> </span>--identity
+</span><span id="__span-46-2"><a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a><span class="c1"># Logs:</span>
+</span><span id="__span-46-3"><a id="__codelineno-46-3" name="__codelineno-46-3" href="#__codelineno-46-3"></a><span class="c1">#   Ed25519 keypair generated and saved to ~/.acp/identity.json | did=did:acp:AAEC...</span>
+</span></code></pre></div>
+<p>The DID is included in:
+- <strong>AgentCard</strong> (<code>identity.did</code> field)
+- <strong>Every outbound message</strong> (<code>identity.did</code> field alongside the signature)
+- <strong><code>~/.acp/identity.json</code></strong> keypair file (persisted to disk)</p>
+<h3 id="did-format">DID format<a class="headerlink" href="#did-format" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a>did:acp:&lt;base64url-no-padding(32-byte-Ed25519-pubkey)&gt;
+</span></code></pre></div>
+<p>Example:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a>did:acp:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+</span></code></pre></div></p>
+<p>This is a <strong>key-based DID</strong>: the identifier <em>is</em> the public key. No registration, no DNS, no registry needed — fully P2P-native.</p>
+<h3 id="agentcard-identity-block">AgentCard identity block<a class="headerlink" href="#agentcard-identity-block" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="p">{</span>
+</span><span id="__span-49-2"><a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a><span class="w">  </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-49-3"><a id="__codelineno-49-3" name="__codelineno-49-3" href="#__codelineno-49-3"></a><span class="w">    </span><span class="nt">&quot;scheme&quot;</span><span class="p">:</span><span class="w">     </span><span class="s2">&quot;ed25519&quot;</span><span class="p">,</span>
+</span><span id="__span-49-4"><a id="__codelineno-49-4" name="__codelineno-49-4" href="#__codelineno-49-4"></a><span class="w">    </span><span class="nt">&quot;public_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;AAECAwQF...&quot;</span><span class="p">,</span>
+</span><span id="__span-49-5"><a id="__codelineno-49-5" name="__codelineno-49-5" href="#__codelineno-49-5"></a><span class="w">    </span><span class="nt">&quot;did&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;did:acp:AAECAwQF...&quot;</span>
+</span><span id="__span-49-6"><a id="__codelineno-49-6" name="__codelineno-49-6" href="#__codelineno-49-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-49-7"><a id="__codelineno-49-7" name="__codelineno-49-7" href="#__codelineno-49-7"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-49-8"><a id="__codelineno-49-8" name="__codelineno-49-8" href="#__codelineno-49-8"></a><span class="w">    </span><span class="nt">&quot;did_identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-49-9"><a id="__codelineno-49-9" name="__codelineno-49-9" href="#__codelineno-49-9"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-49-10"><a id="__codelineno-49-10" name="__codelineno-49-10" href="#__codelineno-49-10"></a><span class="w">  </span><span class="nt">&quot;endpoints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-49-11"><a id="__codelineno-49-11" name="__codelineno-49-11" href="#__codelineno-49-11"></a><span class="w">    </span><span class="nt">&quot;agent_card&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;/.well-known/acp.json&quot;</span><span class="p">,</span>
+</span><span id="__span-49-12"><a id="__codelineno-49-12" name="__codelineno-49-12" href="#__codelineno-49-12"></a><span class="w">    </span><span class="nt">&quot;did_document&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/.well-known/did.json&quot;</span>
+</span><span id="__span-49-13"><a id="__codelineno-49-13" name="__codelineno-49-13" href="#__codelineno-49-13"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-49-14"><a id="__codelineno-49-14" name="__codelineno-49-14" href="#__codelineno-49-14"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="w3c-did-document-endpoint">W3C DID Document endpoint<a class="headerlink" href="#w3c-did-document-endpoint" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a>curl<span class="w"> </span>http://localhost:8100/.well-known/did.json
+</span></code></pre></div>
+<p>Returns a W3C-compatible DID Document:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="p">{</span>
+</span><span id="__span-51-2"><a id="__codelineno-51-2" name="__codelineno-51-2" href="#__codelineno-51-2"></a><span class="w">  </span><span class="nt">&quot;@context&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-51-3"><a id="__codelineno-51-3" name="__codelineno-51-3" href="#__codelineno-51-3"></a><span class="w">    </span><span class="s2">&quot;https://www.w3.org/ns/did/v1&quot;</span><span class="p">,</span>
+</span><span id="__span-51-4"><a id="__codelineno-51-4" name="__codelineno-51-4" href="#__codelineno-51-4"></a><span class="w">    </span><span class="s2">&quot;https://w3id.org/security/suites/ed25519-2020/v1&quot;</span>
+</span><span id="__span-51-5"><a id="__codelineno-51-5" name="__codelineno-51-5" href="#__codelineno-51-5"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-51-6"><a id="__codelineno-51-6" name="__codelineno-51-6" href="#__codelineno-51-6"></a><span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;did:acp:AAECAwQF...&quot;</span><span class="p">,</span>
+</span><span id="__span-51-7"><a id="__codelineno-51-7" name="__codelineno-51-7" href="#__codelineno-51-7"></a><span class="w">  </span><span class="nt">&quot;verificationMethod&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+</span><span id="__span-51-8"><a id="__codelineno-51-8" name="__codelineno-51-8" href="#__codelineno-51-8"></a><span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w">                </span><span class="s2">&quot;did:acp:AAECAwQF...#key-1&quot;</span><span class="p">,</span>
+</span><span id="__span-51-9"><a id="__codelineno-51-9" name="__codelineno-51-9" href="#__codelineno-51-9"></a><span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w">              </span><span class="s2">&quot;Ed25519VerificationKey2020&quot;</span><span class="p">,</span>
+</span><span id="__span-51-10"><a id="__codelineno-51-10" name="__codelineno-51-10" href="#__codelineno-51-10"></a><span class="w">    </span><span class="nt">&quot;controller&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;did:acp:AAECAwQF...&quot;</span><span class="p">,</span>
+</span><span id="__span-51-11"><a id="__codelineno-51-11" name="__codelineno-51-11" href="#__codelineno-51-11"></a><span class="w">    </span><span class="nt">&quot;publicKeyMultibase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;zAAECAwQF...&quot;</span>
+</span><span id="__span-51-12"><a id="__codelineno-51-12" name="__codelineno-51-12" href="#__codelineno-51-12"></a><span class="w">  </span><span class="p">}],</span>
+</span><span id="__span-51-13"><a id="__codelineno-51-13" name="__codelineno-51-13" href="#__codelineno-51-13"></a><span class="w">  </span><span class="nt">&quot;authentication&quot;</span><span class="p">:</span><span class="w">  </span><span class="p">[</span><span class="s2">&quot;did:acp:AAECAwQF...#key-1&quot;</span><span class="p">],</span>
+</span><span id="__span-51-14"><a id="__codelineno-51-14" name="__codelineno-51-14" href="#__codelineno-51-14"></a><span class="w">  </span><span class="nt">&quot;assertionMethod&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;did:acp:AAECAwQF...#key-1&quot;</span><span class="p">],</span>
+</span><span id="__span-51-15"><a id="__codelineno-51-15" name="__codelineno-51-15" href="#__codelineno-51-15"></a><span class="w">  </span><span class="nt">&quot;service&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+</span><span id="__span-51-16"><a id="__codelineno-51-16" name="__codelineno-51-16" href="#__codelineno-51-16"></a><span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w">              </span><span class="s2">&quot;did:acp:AAECAwQF...#acp&quot;</span><span class="p">,</span>
+</span><span id="__span-51-17"><a id="__codelineno-51-17" name="__codelineno-51-17" href="#__codelineno-51-17"></a><span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w">            </span><span class="s2">&quot;ACPRelay&quot;</span><span class="p">,</span>
+</span><span id="__span-51-18"><a id="__codelineno-51-18" name="__codelineno-51-18" href="#__codelineno-51-18"></a><span class="w">    </span><span class="nt">&quot;serviceEndpoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;acp://relay.acp.dev/&lt;session-id&gt;&quot;</span>
+</span><span id="__span-51-19"><a id="__codelineno-51-19" name="__codelineno-51-19" href="#__codelineno-51-19"></a><span class="w">  </span><span class="p">}]</span>
+</span><span id="__span-51-20"><a id="__codelineno-51-20" name="__codelineno-51-20" href="#__codelineno-51-20"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Returns <strong>404</strong> if <code>--identity</code> is not enabled.</p>
+<h3 id="verifying-a-peers-did">Verifying a peer's DID<a class="headerlink" href="#verifying-a-peers-did" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">requests</span><span class="o">,</span><span class="w"> </span><span class="nn">base64</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span>
+</span><span id="__span-52-2"><a id="__codelineno-52-2" name="__codelineno-52-2" href="#__codelineno-52-2"></a>
+</span><span id="__span-52-3"><a id="__codelineno-52-3" name="__codelineno-52-3" href="#__codelineno-52-3"></a><span class="c1"># Fetch peer&#39;s AgentCard</span>
+</span><span id="__span-52-4"><a id="__codelineno-52-4" name="__codelineno-52-4" href="#__codelineno-52-4"></a><span class="n">card</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;http://peer-host:8100/.well-known/acp.json&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</span><span id="__span-52-5"><a id="__codelineno-52-5" name="__codelineno-52-5" href="#__codelineno-52-5"></a><span class="n">peer_did</span> <span class="o">=</span> <span class="n">card</span><span class="p">[</span><span class="s2">&quot;self&quot;</span><span class="p">][</span><span class="s2">&quot;identity&quot;</span><span class="p">][</span><span class="s2">&quot;did&quot;</span><span class="p">]</span>
+</span><span id="__span-52-6"><a id="__codelineno-52-6" name="__codelineno-52-6" href="#__codelineno-52-6"></a><span class="n">peer_pubkey_b64</span> <span class="o">=</span> <span class="n">card</span><span class="p">[</span><span class="s2">&quot;self&quot;</span><span class="p">][</span><span class="s2">&quot;identity&quot;</span><span class="p">][</span><span class="s2">&quot;public_key&quot;</span><span class="p">]</span>
+</span><span id="__span-52-7"><a id="__codelineno-52-7" name="__codelineno-52-7" href="#__codelineno-52-7"></a>
+</span><span id="__span-52-8"><a id="__codelineno-52-8" name="__codelineno-52-8" href="#__codelineno-52-8"></a><span class="c1"># Derive expected DID from public key</span>
+</span><span id="__span-52-9"><a id="__codelineno-52-9" name="__codelineno-52-9" href="#__codelineno-52-9"></a><span class="n">pub_raw</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">urlsafe_b64decode</span><span class="p">(</span><span class="n">peer_pubkey_b64</span> <span class="o">+</span> <span class="s2">&quot;==&quot;</span><span class="p">)</span>
+</span><span id="__span-52-10"><a id="__codelineno-52-10" name="__codelineno-52-10" href="#__codelineno-52-10"></a><span class="n">expected_did</span> <span class="o">=</span> <span class="s2">&quot;did:acp:&quot;</span> <span class="o">+</span> <span class="n">base64</span><span class="o">.</span><span class="n">urlsafe_b64encode</span><span class="p">(</span><span class="n">pub_raw</span><span class="p">)</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;=&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
+</span><span id="__span-52-11"><a id="__codelineno-52-11" name="__codelineno-52-11" href="#__codelineno-52-11"></a>
+</span><span id="__span-52-12"><a id="__codelineno-52-12" name="__codelineno-52-12" href="#__codelineno-52-12"></a><span class="k">assert</span> <span class="n">peer_did</span> <span class="o">==</span> <span class="n">expected_did</span><span class="p">,</span> <span class="s2">&quot;DID mismatch — possible spoofing&quot;</span>
+</span><span id="__span-52-13"><a id="__codelineno-52-13" name="__codelineno-52-13" href="#__codelineno-52-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Peer verified: </span><span class="si">{</span><span class="n">peer_did</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="checking-inbound-message-did">Checking inbound message DID<a class="headerlink" href="#checking-inbound-message-did" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="c1"># Inbound message from ACP relay WebSocket</span>
+</span><span id="__span-53-2"><a id="__codelineno-53-2" name="__codelineno-53-2" href="#__codelineno-53-2"></a><span class="n">msg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">ws</span><span class="o">.</span><span class="n">recv</span><span class="p">())</span>
+</span><span id="__span-53-3"><a id="__codelineno-53-3" name="__codelineno-53-3" href="#__codelineno-53-3"></a><span class="k">if</span> <span class="s2">&quot;identity&quot;</span> <span class="ow">in</span> <span class="n">msg</span><span class="p">:</span>
+</span><span id="__span-53-4"><a id="__codelineno-53-4" name="__codelineno-53-4" href="#__codelineno-53-4"></a>    <span class="n">sender_did</span> <span class="o">=</span> <span class="n">msg</span><span class="p">[</span><span class="s2">&quot;identity&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;did&quot;</span><span class="p">)</span>
+</span><span id="__span-53-5"><a id="__codelineno-53-5" name="__codelineno-53-5" href="#__codelineno-53-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Message from: </span><span class="si">{</span><span class="n">sender_did</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-53-6"><a id="__codelineno-53-6" name="__codelineno-53-6" href="#__codelineno-53-6"></a>    <span class="c1"># Cross-check: DID must match public_key</span>
+</span><span id="__span-53-7"><a id="__codelineno-53-7" name="__codelineno-53-7" href="#__codelineno-53-7"></a>    <span class="n">pub_raw</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">urlsafe_b64decode</span><span class="p">(</span><span class="n">msg</span><span class="p">[</span><span class="s2">&quot;identity&quot;</span><span class="p">][</span><span class="s2">&quot;public_key&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;==&quot;</span><span class="p">)</span>
+</span><span id="__span-53-8"><a id="__codelineno-53-8" name="__codelineno-53-8" href="#__codelineno-53-8"></a>    <span class="n">expected</span> <span class="o">=</span> <span class="s2">&quot;did:acp:&quot;</span> <span class="o">+</span> <span class="n">base64</span><span class="o">.</span><span class="n">urlsafe_b64encode</span><span class="p">(</span><span class="n">pub_raw</span><span class="p">)</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;=&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
+</span><span id="__span-53-9"><a id="__codelineno-53-9" name="__codelineno-53-9" href="#__codelineno-53-9"></a>    <span class="k">assert</span> <span class="n">sender_did</span> <span class="o">==</span> <span class="n">expected</span><span class="p">,</span> <span class="s2">&quot;DID/pubkey mismatch&quot;</span>
+</span></code></pre></div>
+<h3 id="design-notes_1">Design notes<a class="headerlink" href="#design-notes_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Persistent identity</strong>: The keypair (and thus the DID) persists in <code>~/.acp/identity.json</code> across relay restarts. To rotate identity, delete that file.</li>
+<li><strong>Backward compatible</strong>: Agents without <code>--identity</code> have <code>identity: null</code> and <code>did_identity: false</code>. Existing integrations are unaffected.</li>
+<li><strong>Combination with HMAC</strong>: <code>--identity</code> and <code>--hmac-secret</code> can be used simultaneously — HMAC covers transport-level authentication, Ed25519/DID covers message-level identity.</li>
+<li><strong>Cross-protocol</strong>: The <code>did:acp:</code> URI format uses the same <code>did:&lt;method&gt;:&lt;identifier&gt;</code> structure as W3C DID Core, making it readable to any W3C-compatible DID resolver (though resolution would require understanding the <code>acp</code> method).</li>
+</ul>
+<hr />
+<h2 id="integration-checklist">Integration Checklist<a class="headerlink" href="#integration-checklist" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a>□ Start acp_relay.py (get your acp:// link)
+</span><span id="__span-54-2"><a id="__codelineno-54-2" name="__codelineno-54-2" href="#__codelineno-54-2"></a>□ Share link with peer agent (they run --join)
+</span><span id="__span-54-3"><a id="__codelineno-54-3" name="__codelineno-54-3" href="#__codelineno-54-3"></a>□ POST /message:send to send (include role + text/parts)
+</span><span id="__span-54-4"><a id="__codelineno-54-4" name="__codelineno-54-4" href="#__codelineno-54-4"></a>□ GET /stream (SSE) to receive
+</span><span id="__span-54-5"><a id="__codelineno-54-5" name="__codelineno-54-5" href="#__codelineno-54-5"></a>□ Optional: --secret for HMAC signing
+</span><span id="__span-54-6"><a id="__codelineno-54-6" name="__codelineno-54-6" href="#__codelineno-54-6"></a>□ Optional: --identity for Ed25519 self-sovereign identity
+</span><span id="__span-54-7"><a id="__codelineno-54-7" name="__codelineno-54-7" href="#__codelineno-54-7"></a>□ Optional: --advertise-mdns for LAN discovery
+</span><span id="__span-54-8"><a id="__codelineno-54-8" name="__codelineno-54-8" href="#__codelineno-54-8"></a>□ Optional: --config for persistent settings
+</span></code></pre></div>
+<hr />
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely Cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>503 ERR_NOT_CONNECTED</code></td>
+<td>Peer not connected yet</td>
+<td>Wait for peer to join, then retry</td>
+</tr>
+<tr>
+<td><code>400 ERR_INVALID_REQUEST: missing required field: role</code></td>
+<td><code>role</code> field absent</td>
+<td>Add <code>"role": "user"</code> or <code>"role": "agent"</code></td>
+</tr>
+<tr>
+<td><code>400 ERR_INVALID_REQUEST: invalid role</code></td>
+<td><code>role</code> not <code>user</code>/<code>agent</code></td>
+<td>Use exactly <code>"user"</code> or <code>"agent"</code></td>
+</tr>
+<tr>
+<td><code>413 ERR_MSG_TOO_LARGE</code></td>
+<td>Message exceeds limit</td>
+<td>Use <code>--max-msg-size</code> or send file URL in parts</td>
+</tr>
+<tr>
+<td>P2P connection fails silently</td>
+<td>Firewall / NAT</td>
+<td>Use <code>--relay</code> flag; relay auto-fallback handles it</td>
+</tr>
+<tr>
+<td>WebSocket import error</td>
+<td><code>websockets</code> not installed</td>
+<td><code>pip install websockets</code></td>
+</tr>
+<tr>
+<td>Ed25519 import error</td>
+<td><code>cryptography</code> not installed</td>
+<td><code>pip install cryptography</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>Last updated: 2026-03-21 · ACP v0.9</em></p>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+  <form class="md-feedback" name="feedback" hidden>
+    <fieldset>
+      <legend class="md-feedback__title">
+        Was this page helpful?
+      </legend>
+      <div class="md-feedback__inner">
+        <div class="md-feedback__list">
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page was helpful" data-md-value="1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m7 0c0 .8-.7 1.5-1.5 1.5S14 10.3 14 9.5 14.7 8 15.5 8s1.5.7 1.5 1.5m-5 7.73c-1.75 0-3.29-.73-4.19-1.81L9.23 14c.45.72 1.52 1.23 2.77 1.23s2.32-.51 2.77-1.23l1.42 1.42c-.9 1.08-2.44 1.81-4.19 1.81"/></svg>
+            </button>
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page could be improved" data-md-value="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10m-6.5-4c.8 0 1.5.7 1.5 1.5s-.7 1.5-1.5 1.5-1.5-.7-1.5-1.5.7-1.5 1.5-1.5M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m2 4.5c1.75 0 3.29.72 4.19 1.81l-1.42 1.42C14.32 16.5 13.25 16 12 16s-2.32.5-2.77 1.23l-1.42-1.42C8.71 14.72 10.25 14 12 14"/></svg>
+            </button>
+          
+        </div>
+        <div class="md-feedback__note">
+          
+            <div data-md-value="1" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+            <div data-md-value="0" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+        </div>
+      </div>
+    </fieldset>
+  </form>
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Kickflip73/agent-communication-protocol" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "search.highlight", "search.suggest", "content.code.copy", "content.code.annotate", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2064 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The missing link between AI Agents. P2P · Zero server · curl-compatible.">
+      
+      
+      
+        <link rel="canonical" href="https://kickflip73.github.io/agent-communication-protocol/spec/core-v0.8/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>ACP Core Specification — v0.8 - ACP — Agent Communication Protocol</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#acp-core-specification-v08" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ACP — Agent Communication Protocol" class="md-header__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ACP — Agent Communication Protocol
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ACP Core Specification — v0.8
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/two-agents/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../cli-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../whats-new/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../CHANGELOG/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../ROADMAP/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../blog/" class="md-tabs__link">
+          
+  
+  
+  Blog
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ACP — Agent Communication Protocol" class="md-nav__button md-logo" aria-label="ACP — Agent Communication Protocol" data-md-component="logo">
+      
+  <img src="../../assets/logo.svg" alt="logo">
+
+    </a>
+    ACP — Agent Communication Protocol
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Kickflip73/agent-communication-protocol" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Kickflip73/agent-communication-protocol
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/two-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Two Agents in 60 Seconds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/team-collaboration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Team Collaboration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../nat-traversal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NAT Traversal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integration-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../whats-new/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What's New
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ROADMAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Blog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Blog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../blog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../blog/2026-03-23-acp-v1-3-announcement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ACP v1.3 — did:acp:
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../blog/2026-03-24-hn-post-final/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Show HN Draft
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="acp-core-specification-v08">ACP Core Specification — v0.8<a class="headerlink" href="#acp-core-specification-v08" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Stable<br />
+<strong>Authors:</strong> ACP Community<br />
+<strong>Date:</strong> 2026-03-21<br />
+<strong>License:</strong> Apache 2.0<br />
+<strong>Supersedes:</strong> <a href="core-v0.5.md">core-v0.5.md</a>, <a href="core-v0.1.md">core-v0.1.md</a><br />
+<strong>See also:</strong> <a href="../transports/">transports.md</a> · <a href="error-codes.md">error-codes.md</a> · <a href="identity-v0.8.md">identity-v0.8.md</a></p>
+<hr />
+<h2 id="0-design-principles">0. Design Principles<a class="headerlink" href="#0-design-principles" title="Permanent link">&para;</a></h2>
+<p>ACP is a lightweight, open protocol for direct Agent-to-Agent communication.</p>
+<table>
+<thead>
+<tr>
+<th>Principle</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Zero-server</strong></td>
+<td>No central relay, registry, or broker required</td>
+</tr>
+<tr>
+<td><strong>Zero-config</strong></td>
+<td>The <code>acp://</code> link <em>is</em> the connection — no setup beyond starting the process</td>
+</tr>
+<tr>
+<td><strong>Curl-compatible</strong></td>
+<td>Every endpoint is reachable with plain <code>curl</code>. No SDK required.</td>
+</tr>
+<tr>
+<td><strong>Single required dep</strong></td>
+<td><code>websockets</code> only. All other features are truly optional.</td>
+</tr>
+<tr>
+<td><strong>Forward-compatible</strong></td>
+<td>Unknown fields MUST be ignored by receivers</td>
+</tr>
+<tr>
+<td><strong>Warn-not-drop</strong></td>
+<td>Signature mismatches produce warnings, never message loss</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Design motto:</strong> MCP standardizes Agent↔Tool. ACP standardizes Agent↔Agent.</p>
+</blockquote>
+<hr />
+<h2 id="1-message-envelope">1. Message Envelope<a class="headerlink" href="#1-message-envelope" title="Permanent link">&para;</a></h2>
+<p>Every ACP message shares a common JSON envelope regardless of transport:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w">       </span><span class="s2">&quot;acp.message&quot;</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;message_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;msg_7a3f9c2b&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;server_seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;2026-03-21T07:00:00Z&quot;</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;from&quot;</span><span class="p">:</span><span class="w">       </span><span class="s2">&quot;AgentA&quot;</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">&quot;role&quot;</span><span class="p">:</span><span class="w">       </span><span class="s2">&quot;user&quot;</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">&quot;parts&quot;</span><span class="p">:</span><span class="w">      </span><span class="p">[</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">],</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">&quot;task_id&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;task_abc123&quot;</span><span class="p">,</span><span class="w">   </span><span class="c1">// optional — associate with a task</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">&quot;context_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ctx_xyz456&quot;</span><span class="p">,</span><span class="w">   </span><span class="c1">// optional — multi-turn context group (v0.7)</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">&quot;sig&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;a3f9...&quot;</span><span class="p">,</span><span class="w">      </span><span class="c1">// optional — HMAC-SHA256 hex (v0.7)</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w">   </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span><span class="w">         </span><span class="c1">// optional — Ed25519 identity block (v0.8)</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="11-required-fields">1.1 Required Fields<a class="headerlink" href="#11-required-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code></td>
+<td>string</td>
+<td>Always <code>"acp.message"</code> for user/agent messages</td>
+</tr>
+<tr>
+<td><code>message_id</code></td>
+<td>string</td>
+<td>Client-generated unique ID (format: <code>msg_&lt;random&gt;</code>). Auto-generated by server if omitted.</td>
+</tr>
+<tr>
+<td><code>ts</code></td>
+<td>string</td>
+<td>ISO 8601 UTC timestamp</td>
+</tr>
+<tr>
+<td><code>from</code></td>
+<td>string</td>
+<td>Sender agent name</td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td>string</td>
+<td><code>"user"</code> or <code>"agent"</code></td>
+</tr>
+<tr>
+<td><code>parts</code></td>
+<td>array</td>
+<td>One or more Part objects (see §2)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="12-optional-fields">1.2 Optional Fields<a class="headerlink" href="#12-optional-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Since</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server_seq</code></td>
+<td>integer</td>
+<td>v0.5</td>
+<td>Server-assigned monotonic sequence number (ordering guarantee)</td>
+</tr>
+<tr>
+<td><code>task_id</code></td>
+<td>string</td>
+<td>v0.5</td>
+<td>Associates message with a task</td>
+</tr>
+<tr>
+<td><code>context_id</code></td>
+<td>string</td>
+<td>v0.7</td>
+<td>Groups messages into a named multi-turn context</td>
+</tr>
+<tr>
+<td><code>sig</code></td>
+<td>string</td>
+<td>v0.7</td>
+<td>HMAC-SHA256 signature (see §6.1)</td>
+</tr>
+<tr>
+<td><code>identity</code></td>
+<td>object</td>
+<td>v0.8</td>
+<td>Ed25519 identity block (see §6.2)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="13-message_id-generation-strategy">1.3 message_id Generation Strategy<a class="headerlink" href="#13-message_id-generation-strategy" title="Permanent link">&para;</a></h3>
+<p><code>message_id</code> is intentionally <strong>optional on input</strong>:
+- If the client provides <code>message_id</code>: used as-is, enables client-side idempotency
+- If omitted: server auto-generates <code>msg_&lt;16 hex chars&gt;</code></p>
+<p>This differs from A2A where <code>messageId</code> is REQUIRED (and <a href="https://github.com/google-a2a/a2a-python/issues/876">not enforced in v1.0 SDK</a>). ACP's approach reduces friction for quick integrations while supporting full idempotency when needed.</p>
+<p><strong>Idempotency:</strong> A server MAY deduplicate messages with the same <code>message_id</code> within a session window.</p>
+<hr />
+<h2 id="2-part-model">2. Part Model<a class="headerlink" href="#2-part-model" title="Permanent link">&para;</a></h2>
+<p>A <strong>Part</strong> is the atomic unit of message content. Every message carries one or more Parts.</p>
+<h3 id="21-text-part">2.1 Text Part<a class="headerlink" href="#21-text-part" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;text&quot;</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;string content here&quot;</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<ul>
+<li><code>content</code> MUST be a string.</li>
+<li>Use for natural language, instructions, and plain-text data.</li>
+</ul>
+<h3 id="22-file-part">2.2 File Part<a class="headerlink" href="#22-file-part" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w">       </span><span class="s2">&quot;file&quot;</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;https://example.com/report.pdf&quot;</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">&quot;media_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;application/pdf&quot;</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">&quot;filename&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;report.pdf&quot;</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">}</span>
+</span></code></pre></div>
+<ul>
+<li><code>url</code> REQUIRED. Must be an accessible HTTP/HTTPS URL.</li>
+<li><code>media_type</code> RECOMMENDED. Standard MIME type.</li>
+<li><code>filename</code> OPTIONAL. Display name hint.</li>
+<li>ACP does <strong>not</strong> inline raw bytes. Use URL references only (keeps messages relay-friendly).</li>
+</ul>
+<h3 id="23-data-part">2.3 Data Part<a class="headerlink" href="#23-data-part" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;data&quot;</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;any&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<ul>
+<li><code>content</code> MUST be a JSON-serializable value (object, array, string, number, boolean, or null).</li>
+<li>Use for structured results, function call outputs, and machine-readable payloads.</li>
+</ul>
+<h3 id="24-shorthand">2.4 Shorthand<a class="headerlink" href="#24-shorthand" title="Permanent link">&para;</a></h3>
+<p>For convenience, <code>POST /message:send</code> accepts <code>"text": "..."</code> as shorthand for
+<code>"parts": [{"type": "text", "content": "..."}]</code>. The server normalizes to full Part form.</p>
+<hr />
+<h2 id="3-task-lifecycle">3. Task Lifecycle<a class="headerlink" href="#3-task-lifecycle" title="Permanent link">&para;</a></h2>
+<p>Tasks are units of delegated work. A task is created by the requesting agent and progresses through a 5-state machine.</p>
+<h3 id="31-state-machine">3.1 State Machine<a class="headerlink" href="#31-state-machine" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>            ┌─────────────────────────────────────────────────────┐
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>            │                                                     │
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  ──► submitted ──► working ──► completed (terminal)             │
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>                      │                                           │
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>                      ├──► failed (terminal)                     │
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>                      │                                           │
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>                      └──► input_required ──► working ──► ...    │
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>                                  │                               │
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>                                  └──► canceled (terminal) ◄─────┘
+</span></code></pre></div>
+<h3 id="32-states">3.2 States<a class="headerlink" href="#32-states" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Terminal?</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>submitted</code></td>
+<td>No</td>
+<td>Task created, not yet picked up by the peer</td>
+</tr>
+<tr>
+<td><code>working</code></td>
+<td>No</td>
+<td>Peer is actively processing</td>
+</tr>
+<tr>
+<td><code>completed</code></td>
+<td>✅ Yes</td>
+<td>Peer finished successfully; artifact may be attached</td>
+</tr>
+<tr>
+<td><code>failed</code></td>
+<td>✅ Yes</td>
+<td>Peer encountered an unrecoverable error</td>
+</tr>
+<tr>
+<td><code>input_required</code></td>
+<td>No</td>
+<td>Peer needs additional input to continue</td>
+</tr>
+<tr>
+<td><code>canceled</code></td>
+<td>✅ Yes</td>
+<td>Task was explicitly canceled</td>
+</tr>
+</tbody>
+</table>
+<h3 id="33-transition-rules">3.3 Transition Rules<a class="headerlink" href="#33-transition-rules" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Terminal states (<code>completed</code>, <code>failed</code>, <code>canceled</code>) cannot transition to any other state.</li>
+<li><code>input_required</code> → <code>working</code> resumes when the client sends a <code>/tasks/{id}/continue</code> message.</li>
+<li>A task in any non-terminal state may be moved to <code>canceled</code> via <code>POST /tasks/{id}:cancel</code>.</li>
+</ul>
+<h3 id="34-task-object">3.4 Task Object<a class="headerlink" href="#34-task-object" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w">          </span><span class="s2">&quot;task_abc123&quot;</span><span class="p">,</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w">      </span><span class="s2">&quot;working&quot;</span><span class="p">,</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;2026-03-21T07:00:00Z&quot;</span><span class="p">,</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">&quot;updated_at&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;2026-03-21T07:00:05Z&quot;</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">&quot;input&quot;</span><span class="p">:</span><span class="w">       </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;parts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="err">...</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">&quot;artifact&quot;</span><span class="p">:</span><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;parts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="err">...</span><span class="p">]</span><span class="w"> </span><span class="p">},</span><span class="w">   </span><span class="c1">// present when status=completed</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w">       </span><span class="s2">&quot;string&quot;</span><span class="p">,</span><span class="w">             </span><span class="c1">// present when status=failed</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="nt">&quot;message_id&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;msg_xyz&quot;</span><span class="w">             </span><span class="c1">// message_id that created this task</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="p">}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="4-agentcard">4. AgentCard<a class="headerlink" href="#4-agentcard" title="Permanent link">&para;</a></h2>
+<p>Every ACP agent exposes its capabilities via a well-known endpoint:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>GET /.well-known/acp.json
+</span></code></pre></div>
+<h3 id="41-agentcard-schema">4.1 AgentCard Schema<a class="headerlink" href="#41-agentcard-schema" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;MyAgent&quot;</span><span class="p">,</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;acp_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.8&quot;</span><span class="p">,</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;2026-03-21T07:00:00Z&quot;</span><span class="p">,</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;skills&quot;</span><span class="p">:</span><span class="w">      </span><span class="p">[{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;summarize&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;summarize&quot;</span><span class="p">}],</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="nt">&quot;streaming&quot;</span><span class="p">:</span><span class="w">          </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nt">&quot;push_notifications&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="nt">&quot;input_required&quot;</span><span class="p">:</span><span class="w">     </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="nt">&quot;part_types&quot;</span><span class="p">:</span><span class="w">         </span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;data&quot;</span><span class="p">],</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">    </span><span class="nt">&quot;max_msg_bytes&quot;</span><span class="p">:</span><span class="w">      </span><span class="mi">1048576</span><span class="p">,</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">    </span><span class="nt">&quot;query_skill&quot;</span><span class="p">:</span><span class="w">        </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">    </span><span class="nt">&quot;server_seq&quot;</span><span class="p">:</span><span class="w">         </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="nt">&quot;multi_session&quot;</span><span class="p">:</span><span class="w">      </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="nt">&quot;error_codes&quot;</span><span class="p">:</span><span class="w">        </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">    </span><span class="nt">&quot;hmac_signing&quot;</span><span class="p">:</span><span class="w">       </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">    </span><span class="nt">&quot;lan_discovery&quot;</span><span class="p">:</span><span class="w">      </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">    </span><span class="nt">&quot;context_id&quot;</span><span class="p">:</span><span class="w">         </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">    </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w">           </span><span class="s2">&quot;none&quot;</span>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-7-22"><a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>
+</span><span id="__span-7-23"><a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a><span class="w">  </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-7-24"><a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>
+</span><span id="__span-7-25"><a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a><span class="w">  </span><span class="nt">&quot;trust&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-26"><a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a><span class="w">    </span><span class="nt">&quot;scheme&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;none&quot;</span><span class="p">,</span>
+</span><span id="__span-7-27"><a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a><span class="w">    </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-7-28"><a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-7-29"><a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a>
+</span><span id="__span-7-30"><a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a><span class="w">  </span><span class="nt">&quot;auth&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-31"><a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a><span class="w">    </span><span class="nt">&quot;schemes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;none&quot;</span><span class="p">]</span>
+</span><span id="__span-7-32"><a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-7-33"><a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a>
+</span><span id="__span-7-34"><a id="__codelineno-7-34" name="__codelineno-7-34" href="#__codelineno-7-34"></a><span class="w">  </span><span class="nt">&quot;endpoints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-35"><a id="__codelineno-7-35" name="__codelineno-7-35" href="#__codelineno-7-35"></a><span class="w">    </span><span class="nt">&quot;send&quot;</span><span class="p">:</span><span class="w">          </span><span class="s2">&quot;/message:send&quot;</span><span class="p">,</span>
+</span><span id="__span-7-36"><a id="__codelineno-7-36" name="__codelineno-7-36" href="#__codelineno-7-36"></a><span class="w">    </span><span class="nt">&quot;stream&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;/stream&quot;</span><span class="p">,</span>
+</span><span id="__span-7-37"><a id="__codelineno-7-37" name="__codelineno-7-37" href="#__codelineno-7-37"></a><span class="w">    </span><span class="nt">&quot;tasks&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;/tasks&quot;</span><span class="p">,</span>
+</span><span id="__span-7-38"><a id="__codelineno-7-38" name="__codelineno-7-38" href="#__codelineno-7-38"></a><span class="w">    </span><span class="nt">&quot;agent_card&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;/.well-known/acp.json&quot;</span><span class="p">,</span>
+</span><span id="__span-7-39"><a id="__codelineno-7-39" name="__codelineno-7-39" href="#__codelineno-7-39"></a><span class="w">    </span><span class="nt">&quot;skills_query&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;/skills/query&quot;</span><span class="p">,</span>
+</span><span id="__span-7-40"><a id="__codelineno-7-40" name="__codelineno-7-40" href="#__codelineno-7-40"></a><span class="w">    </span><span class="nt">&quot;peers&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;/peers&quot;</span><span class="p">,</span>
+</span><span id="__span-7-41"><a id="__codelineno-7-41" name="__codelineno-7-41" href="#__codelineno-7-41"></a><span class="w">    </span><span class="nt">&quot;peer_send&quot;</span><span class="p">:</span><span class="w">     </span><span class="s2">&quot;/peer/{id}/send&quot;</span><span class="p">,</span>
+</span><span id="__span-7-42"><a id="__codelineno-7-42" name="__codelineno-7-42" href="#__codelineno-7-42"></a><span class="w">    </span><span class="nt">&quot;peers_connect&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/peers/connect&quot;</span>
+</span><span id="__span-7-43"><a id="__codelineno-7-43" name="__codelineno-7-43" href="#__codelineno-7-43"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-7-44"><a id="__codelineno-7-44" name="__codelineno-7-44" href="#__codelineno-7-44"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="42-capability-flags">4.2 Capability Flags<a class="headerlink" href="#42-capability-flags" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>streaming</code></td>
+<td>bool</td>
+<td>SSE <code>/stream</code> endpoint available</td>
+</tr>
+<tr>
+<td><code>push_notifications</code></td>
+<td>bool</td>
+<td>Agent can push unsolicited events</td>
+</tr>
+<tr>
+<td><code>input_required</code></td>
+<td>bool</td>
+<td>Agent supports <code>input_required</code> task state</td>
+</tr>
+<tr>
+<td><code>part_types</code></td>
+<td>string[]</td>
+<td>Supported Part types</td>
+</tr>
+<tr>
+<td><code>max_msg_bytes</code></td>
+<td>int</td>
+<td>Maximum message size in bytes (default: 1,048,576)</td>
+</tr>
+<tr>
+<td><code>query_skill</code></td>
+<td>bool</td>
+<td><code>/skills/query</code> endpoint available</td>
+</tr>
+<tr>
+<td><code>server_seq</code></td>
+<td>bool</td>
+<td>Outbound messages include <code>server_seq</code></td>
+</tr>
+<tr>
+<td><code>multi_session</code></td>
+<td>bool</td>
+<td>Multiple simultaneous peer connections supported</td>
+</tr>
+<tr>
+<td><code>error_codes</code></td>
+<td>bool</td>
+<td>Error responses include <code>error_code</code> field (v0.6)</td>
+</tr>
+<tr>
+<td><code>hmac_signing</code></td>
+<td>bool</td>
+<td>HMAC-SHA256 signing active (v0.7)</td>
+</tr>
+<tr>
+<td><code>lan_discovery</code></td>
+<td>bool</td>
+<td>mDNS LAN discovery active (v0.7)</td>
+</tr>
+<tr>
+<td><code>context_id</code></td>
+<td>bool</td>
+<td><code>context_id</code> field supported (v0.7)</td>
+</tr>
+<tr>
+<td><code>identity</code></td>
+<td>string</td>
+<td><code>"ed25519"</code> or <code>"none"</code> (v0.8)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-forward-compatibility">4.3 Forward Compatibility<a class="headerlink" href="#43-forward-compatibility" title="Permanent link">&para;</a></h3>
+<p>Receivers MUST ignore unknown capability fields. A flag value of <code>false</code> or absent is equivalent.</p>
+<hr />
+<h2 id="5-error-codes">5. Error Codes<a class="headerlink" href="#5-error-codes" title="Permanent link">&para;</a></h2>
+<p>All error responses follow a consistent envelope:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;ok&quot;</span><span class="p">:</span><span class="w">                </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;error_code&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;ERR_NOT_CONNECTED&quot;</span><span class="p">,</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w">             </span><span class="s2">&quot;No P2P connection&quot;</span><span class="p">,</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">&quot;failed_message_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;msg_abc123&quot;</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="p">}</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>HTTP</th>
+<th>Trigger</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ERR_NOT_CONNECTED</code></td>
+<td>503</td>
+<td>No peer WebSocket connection</td>
+</tr>
+<tr>
+<td><code>ERR_MSG_TOO_LARGE</code></td>
+<td>413</td>
+<td>Message exceeds <code>max_msg_bytes</code></td>
+</tr>
+<tr>
+<td><code>ERR_NOT_FOUND</code></td>
+<td>404</td>
+<td>Task, peer, or resource does not exist</td>
+</tr>
+<tr>
+<td><code>ERR_INVALID_REQUEST</code></td>
+<td>400</td>
+<td>Missing fields, malformed body, invalid state transition</td>
+</tr>
+<tr>
+<td><code>ERR_TIMEOUT</code></td>
+<td>408</td>
+<td>Sync wait timed out</td>
+</tr>
+<tr>
+<td><code>ERR_INTERNAL</code></td>
+<td>500</td>
+<td>Unexpected server-side exception</td>
+</tr>
+</tbody>
+</table>
+<p><code>failed_message_id</code> is present for <code>ERR_TIMEOUT</code> and <code>ERR_MSG_TOO_LARGE</code> only.</p>
+<p>See <a href="error-codes.md">error-codes.md</a> for retry guidance and full examples.</p>
+<hr />
+<h2 id="6-optional-extensions">6. Optional Extensions<a class="headerlink" href="#6-optional-extensions" title="Permanent link">&para;</a></h2>
+<p>Extensions are opt-in fields that can be combined freely. Absence of any extension
+has no effect on core protocol operation.</p>
+<h3 id="61-hmac-sha256-signing-v07">6.1 HMAC-SHA256 Signing (v0.7)<a class="headerlink" href="#61-hmac-sha256-signing-v07" title="Permanent link">&para;</a></h3>
+<p>For closed deployments where both peers share a secret out-of-band:</p>
+<p><strong>Outbound:</strong> server appends <code>sig</code> to every message:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sig = HMAC-SHA256(secret, &quot;{message_id}:{ts}&quot;).hexdigest()
+</span></code></pre></div></p>
+<p><strong>Inbound:</strong> if <code>sig</code> present and secret configured, verify with <code>hmac.compare_digest</code>.<br />
+Mismatch → log warning + set <code>_sig_invalid=true</code> on message object. Message is <strong>not dropped</strong>.</p>
+<p>AgentCard: <code>capabilities.hmac_signing = true</code>, <code>trust.scheme = "hmac-sha256"</code>.</p>
+<p>CLI: <code>--secret &lt;shared_key&gt;</code> (both peers must use the same key).</p>
+<h3 id="62-ed25519-identity-v08">6.2 Ed25519 Identity (v0.8)<a class="headerlink" href="#62-ed25519-identity-v08" title="Permanent link">&para;</a></h3>
+<p>For open scenarios where peer identity must be publicly verifiable:</p>
+<p><strong>Wire format:</strong>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">&quot;scheme&quot;</span><span class="p">:</span><span class="w">     </span><span class="s2">&quot;ed25519&quot;</span><span class="p">,</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">&quot;public_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;base64url 32-byte public key&gt;&quot;</span><span class="p">,</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">&quot;sig&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;&lt;base64url 64-byte Ed25519 signature&gt;&quot;</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>Signing input:</strong> canonical JSON of full message envelope, excluding <code>identity.sig</code>:
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">canonical</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">msg</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="o">!=</span> <span class="s2">&quot;identity&quot;</span><span class="p">}</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">payload</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">canonical</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">separators</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">,</span><span class="s2">&quot;:&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">encode</span><span class="p">()</span>
+</span></code></pre></div></p>
+<p><strong>Keypair storage:</strong> <code>~/.acp/identity.json</code> (auto-generated on first <code>--identity</code> run, chmod 0600).</p>
+<p><strong>Verification:</strong> warn-only on mismatch; accept if <code>cryptography</code> not installed.</p>
+<p>AgentCard: <code>capabilities.identity = "ed25519"</code>, <code>identity.{scheme, public_key}</code> block.</p>
+<p>CLI: <code>--identity [path]</code>. Requires: <code>pip install cryptography</code>.</p>
+<p>HMAC and Ed25519 may be active simultaneously — they serve different use cases.</p>
+<p>See <a href="identity-v0.8.md">identity-v0.8.md</a> for full spec including coexistence table and security properties.</p>
+<h3 id="63-context_id-v07">6.3 context_id (v0.7)<a class="headerlink" href="#63-context_id-v07" title="Permanent link">&para;</a></h3>
+<p>Groups messages across multiple turns into a named conversation context:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">&quot;context_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ctx_xyz456&quot;</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span>
+</span></code></pre></div>
+<p>Receivers SHOULD use <code>context_id</code> to correlate related messages in multi-turn workflows.
+No server-side enforcement is required — it is a hint field.</p>
+<h3 id="64-mdns-lan-discovery-v07">6.4 mDNS LAN Discovery (v0.7)<a class="headerlink" href="#64-mdns-lan-discovery-v07" title="Permanent link">&para;</a></h3>
+<p>When <code>--advertise-mdns</code> is set, the agent broadcasts its presence on the LAN via UDP multicast
+(<code>224.0.0.251:5354</code>). Nearby ACP agents appear at <code>GET /discover</code>.</p>
+<p>No external library required (raw UDP socket). AgentCard: <code>capabilities.lan_discovery = true</code>.</p>
+<hr />
+<h2 id="7-transport-bindings">7. Transport Bindings<a class="headerlink" href="#7-transport-bindings" title="Permanent link">&para;</a></h2>
+<p>ACP separates the message envelope (this document) from the transport layer.
+The same envelope is used across all bindings.</p>
+<table>
+<thead>
+<tr>
+<th>Binding</th>
+<th>Link Scheme</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A — WebSocket P2P</strong></td>
+<td><code>acp://</code></td>
+<td>Direct WebSocket (preferred)</td>
+</tr>
+<tr>
+<td><strong>B — stdio</strong></td>
+<td>n/a</td>
+<td>Subprocess pipe</td>
+</tr>
+<tr>
+<td><strong>C — HTTP Relay</strong></td>
+<td><code>acp+wss://</code></td>
+<td>Cloudflare Worker relay fallback</td>
+</tr>
+<tr>
+<td><strong>D — HTTP/SSE</strong></td>
+<td><code>http(s)://</code></td>
+<td>Standard HTTP with SSE streaming</td>
+</tr>
+<tr>
+<td><strong>E — TCP</strong></td>
+<td><code>tcp://</code></td>
+<td>Raw TCP (LAN)</td>
+</tr>
+</tbody>
+</table>
+<p>Binding A is the default and preferred transport. Use Binding C only when direct IP connectivity
+is blocked (firewalls, K8s NAT, etc.).</p>
+<p>See <a href="../transports/">transports.md</a> for full binding specifications including HMAC header handling.</p>
+<hr />
+<h2 id="8-multi-session-peer-registry-v06">8. Multi-Session Peer Registry (v0.6)<a class="headerlink" href="#8-multi-session-peer-registry-v06" title="Permanent link">&para;</a></h2>
+<p>An ACP agent can maintain simultaneous connections to multiple peers.</p>
+<h3 id="81-endpoints">8.1 Endpoints<a class="headerlink" href="#81-endpoints" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/peers</code></td>
+<td>GET</td>
+<td>List all connected peers with metadata</td>
+</tr>
+<tr>
+<td><code>/peer/{id}</code></td>
+<td>GET</td>
+<td>Get single peer info (agent_card, link, stats)</td>
+</tr>
+<tr>
+<td><code>/peer/{id}/send</code></td>
+<td>POST</td>
+<td>Send message to a specific peer (same body as <code>/message:send</code>)</td>
+</tr>
+<tr>
+<td><code>/peers/connect</code></td>
+<td>POST</td>
+<td>Establish a new peer connection <code>{"link": "acp://..."}</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="82-peer-object">8.2 Peer Object<a class="headerlink" href="#82-peer-object" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w">               </span><span class="s2">&quot;peer_001&quot;</span><span class="p">,</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w">             </span><span class="s2">&quot;AgentB&quot;</span><span class="p">,</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span><span class="nt">&quot;link&quot;</span><span class="p">:</span><span class="w">             </span><span class="s2">&quot;acp://1.2.3.4:7801/tok_xxx&quot;</span><span class="p">,</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span><span class="nt">&quot;connected&quot;</span><span class="p">:</span><span class="w">        </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">  </span><span class="nt">&quot;connected_at&quot;</span><span class="p">:</span><span class="w">     </span><span class="s2">&quot;2026-03-21T07:00:00Z&quot;</span><span class="p">,</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">  </span><span class="nt">&quot;messages_sent&quot;</span><span class="p">:</span><span class="w">    </span><span class="mi">12</span><span class="p">,</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">  </span><span class="nt">&quot;messages_received&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">  </span><span class="nt">&quot;agent_card&quot;</span><span class="p">:</span><span class="w">       </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="p">}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="9-skill-query-api-v05">9. Skill Query API (v0.5)<a class="headerlink" href="#9-skill-query-api-v05" title="Permanent link">&para;</a></h2>
+<p>Enables runtime capability discovery:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>POST /skills/query
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>{ &quot;query&quot;: &quot;summarize&quot;, &quot;limit&quot;: 5 }
+</span></code></pre></div>
+<p>Response:
+<div class="language-json highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="p">{</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">&quot;ok&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="nt">&quot;skills&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;summarize&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;summarize&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;match_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.95</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p>AgentCard declares available skills in <code>skills[]</code>. <code>query_skill: true</code> capability flag indicates
+this endpoint is available.</p>
+<hr />
+<h2 id="10-versioning">10. Versioning<a class="headerlink" href="#10-versioning" title="Permanent link">&para;</a></h2>
+<p>ACP uses semantic versioning. The <code>acp_version</code> field in AgentCard declares the implemented version.</p>
+<p><strong>Compatibility guarantee:</strong> An ACP v0.8 implementation MUST:
+1. Accept connections from v0.5+ peers (unknown extension fields are silently ignored)
+2. Include <code>acp_version: "0.8"</code> in its AgentCard
+3. Return <code>error_code</code> in all error responses if <code>capabilities.error_codes = true</code></p>
+<p><strong>Breaking changes</strong> (requiring major version bump): changes to required envelope fields,
+removal of existing endpoints, changes to HTTP status code semantics.</p>
+<p><strong>Non-breaking changes</strong> (minor/patch): new optional fields, new endpoints, new capability flags.</p>
+<hr />
+<h2 id="11-reference-implementation">11. Reference Implementation<a class="headerlink" href="#11-reference-implementation" title="Permanent link">&para;</a></h2>
+<p>The reference implementation is <code>relay/acp_relay.py</code> — a single Python file (~1900 lines)
+with one required dependency (<code>websockets</code>).</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Minimal start</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>pip<span class="w"> </span>install<span class="w"> </span>websockets
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="c1"># Full feature set</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>pip<span class="w"> </span>install<span class="w"> </span>websockets<span class="w"> </span>cryptography
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">  </span>--secret<span class="w"> </span><span class="s2">&quot;shared-key&quot;</span><span class="w"> </span><span class="se">\ </span><span class="w">   </span><span class="c1"># HMAC signing</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">  </span>--identity<span class="w"> </span><span class="se">\ </span><span class="w">              </span><span class="c1"># Ed25519 identity</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">  </span>--advertise-mdns<span class="w">           </span><span class="c1"># LAN discovery</span>
+</span></code></pre></div>
+<p>Compliance can be verified against any implementation using the compat test suite:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nv">ACP_BASE_URL</span><span class="o">=</span>http://localhost:7901<span class="w"> </span>python3<span class="w"> </span>tests/compat/run.py
+</span></code></pre></div></p>
+<hr />
+<h2 id="appendix-a-version-history">Appendix A: Version History<a class="headerlink" href="#appendix-a-version-history" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Version</th>
+<th>Date</th>
+<th>Key Features</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v0.1</td>
+<td>2026-03-05</td>
+<td>P2P WebSocket, AgentCard, basic send/recv, auto-reconnect</td>
+</tr>
+<tr>
+<td>v0.2</td>
+<td>2026-03-10</td>
+<td>JSONL persistence, SSE streaming, relay fallback</td>
+</tr>
+<tr>
+<td>v0.3</td>
+<td>2026-03-12</td>
+<td>Task lifecycle (3 states), multi-session, Cloudflare Worker</td>
+</tr>
+<tr>
+<td>v0.4</td>
+<td>2026-03-14</td>
+<td>Multimodal parts (text/file/data), relay v2</td>
+</tr>
+<tr>
+<td>v0.5</td>
+<td>2026-03-19</td>
+<td>QuerySkill API, <code>server_seq</code>, message idempotency, 5-state task machine</td>
+</tr>
+<tr>
+<td>v0.6</td>
+<td>2026-03-20</td>
+<td>Peer registry, standardized error codes (<code>ERR_*</code>), minimal agent spec</td>
+</tr>
+<tr>
+<td>v0.7</td>
+<td>2026-03-20</td>
+<td>HMAC-SHA256 signing, mDNS LAN discovery, <code>context_id</code></td>
+</tr>
+<tr>
+<td>v0.8</td>
+<td>2026-03-21</td>
+<td>Ed25519 identity, Node.js SDK, compat test suite</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="appendix-b-comparison-with-a2a-v10">Appendix B: Comparison with A2A v1.0<a class="headerlink" href="#appendix-b-comparison-with-a2a-v10" title="Permanent link">&para;</a></h2>
+<p>ACP and A2A target different deployment contexts:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>A2A v1.0</th>
+<th>ACP v0.8</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Target</strong></td>
+<td>Enterprise orchestration</td>
+<td>Personal / small teams</td>
+</tr>
+<tr>
+<td><strong>Server required</strong></td>
+<td>Yes (agent infrastructure)</td>
+<td>No (pure P2P)</td>
+</tr>
+<tr>
+<td><strong>Auth</strong></td>
+<td>OAuth 2.0 (mandatory)</td>
+<td>HMAC or Ed25519 (optional)</td>
+</tr>
+<tr>
+<td><strong>Required SDK deps</strong></td>
+<td>Many (incl. implicit SQLAlchemy)</td>
+<td><code>websockets</code> only</td>
+</tr>
+<tr>
+<td><strong>Identity</strong></td>
+<td>Agent Passport System (full PKI)</td>
+<td>Self-sovereign Ed25519 (no PKI)</td>
+</tr>
+<tr>
+<td><strong>message_id</strong></td>
+<td>REQUIRED by spec, <a href="https://github.com/google-a2a/a2a-python/issues/876">not enforced in SDK</a></td>
+<td>Optional, auto-generated if absent</td>
+</tr>
+<tr>
+<td><strong>Test suite</strong></td>
+<td>✅ ITK (Issue #868)</td>
+<td>✅ <code>tests/compat/</code></td>
+</tr>
+<tr>
+<td><strong>Streaming</strong></td>
+<td>SSE</td>
+<td>SSE</td>
+</tr>
+<tr>
+<td><strong>Task states</strong></td>
+<td>6</td>
+<td>5 (no separate <code>unknown</code> state)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>Spec version: v0.8 | Supersedes: core-v0.5.md | Reference impl: relay/acp_relay.py</em></p>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+  <form class="md-feedback" name="feedback" hidden>
+    <fieldset>
+      <legend class="md-feedback__title">
+        Was this page helpful?
+      </legend>
+      <div class="md-feedback__inner">
+        <div class="md-feedback__list">
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page was helpful" data-md-value="1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m7 0c0 .8-.7 1.5-1.5 1.5S14 10.3 14 9.5 14.7 8 15.5 8s1.5.7 1.5 1.5m-5 7.73c-1.75 0-3.29-.73-4.19-1.81L9.23 14c.45.72 1.52 1.23 2.77 1.23s2.32-.51 2.77-1.23l1.42 1.42c-.9 1.08-2.44 1.81-4.19 1.81"/></svg>
+            </button>
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page could be improved" data-md-value="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10m-6.5-4c.8 0 1.5.7 1.5 1.5s-.7 1.5-1.5 1.5-1.5-.7-1.5-1.5.7-1.5 1.5-1.5M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m2 4.5c1.75 0 3.29.72 4.19 1.81l-1.42 1.42C14.32 16.5 13.25 16 12 16s-2.32.5-2.77 1.23l-1.42-1.42C8.71 14.72 10.25 14 12 14"/></svg>
+            </button>
+          
+        </div>
+        <div class="md-feedback__note">
+          
+            <div data-md-value="1" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+            <div data-md-value="0" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+        </div>
+      </div>
+    </fieldset>
+  </form>
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Kickflip73/agent-communication-protocol" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "search.highlight", "search.suggest", "content.code.copy", "content.code.annotate", "toc.integrate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

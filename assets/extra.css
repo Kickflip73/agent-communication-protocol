@@ -1,0 +1,42 @@
+/* ACP Documentation — Custom Styles */
+
+:root {
+  --acp-primary: #3f51b5;
+  --acp-accent: #2196f3;
+}
+
+/* Hero section on index */
+.md-content h1 + p strong {
+  font-size: 1.1em;
+}
+
+/* Badge alignment in hero */
+div[align="center"] p img {
+  margin: 2px;
+}
+
+/* Code block enhancements */
+.highlight pre {
+  border-radius: 6px;
+}
+
+/* Grid cards */
+.md-typeset .grid.cards > ul > li {
+  border-radius: 8px;
+  transition: box-shadow 0.2s;
+}
+
+.md-typeset .grid.cards > ul > li:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Comparison table */
+.md-typeset table th {
+  white-space: nowrap;
+}
+
+/* Version badge */
+.md-header__version {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
