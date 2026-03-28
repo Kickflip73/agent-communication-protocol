@@ -1407,6 +1407,23 @@ def _on_message(raw):
         card = msg.get("card") or {}
         _status["peer_card"] = card
         peer_name = card.get("name", "?")
+        # BUG-037 fix: store remote agent_name in peer registry so that
+        # messages_received counter can match by agent_name (not peer_id).
+        # Find the most-recently connected peer that has no agent_name yet,
+        # or update an existing peer whose agent_name matches peer_name.
+        if peer_name and peer_name != "?":
+            matched = False
+            for pinfo in _peers.values():
+                if pinfo.get("agent_name") == peer_name:
+                    matched = True
+                    break
+            if not matched:
+                # Assign to the newest connected peer without an agent_name
+                candidates = [p for p in _peers.values()
+                              if p.get("connected") and not p.get("agent_name")]
+                if candidates:
+                    newest = max(candidates, key=lambda p: p.get("connected_at") or 0)
+                    newest["agent_name"] = peer_name
         # v1.9: Auto-verify peer AgentCard self-signature on receipt
         if card.get("identity") and card["identity"].get("card_sig"):
             vr = _verify_agent_card(card)
@@ -1479,12 +1496,29 @@ def _on_message(raw):
         _persist(entry)
         _status["messages_received"] += 1
         # BUG-005 fix: update per-peer messages_received counter
+        # BUG-037 fix: match by agent_name (stored at acp.agent_card handshake).
+        # Lazy-bind: if no peer has agent_name yet (timing race between HTTP relay
+        # and P2P channel — acp.agent_card may arrive before peer is registered),
+        # bind _from to the newest connected peer without an agent_name, then credit it.
         _from = msg.get("from", "")
+        credited = False
         for pid, pinfo in _peers.items():
-            if pinfo.get("name") == _from or pinfo.get("id") == _from:
+            if (pinfo.get("agent_name") == _from
+                    or pinfo.get("name") == _from
+                    or pinfo.get("id") == _from):
                 pinfo["messages_received"] = pinfo.get("messages_received", 0) + 1
+                credited = True
                 break
-        else:
+        if not credited and _from:
+            # Lazy-bind: assign agent_name to the newest unbound connected peer
+            unbound = [p for p in _peers.values()
+                       if p.get("connected") and not p.get("agent_name")]
+            if unbound:
+                target = max(unbound, key=lambda p: p.get("connected_at") or 0)
+                target["agent_name"] = _from
+                target["messages_received"] = target.get("messages_received", 0) + 1
+                credited = True
+        if not credited:
             # fallback: credit the first connected peer (single-peer common case)
             connected = [p for p in _peers.values() if p.get("connected")]
             if len(connected) == 1:
