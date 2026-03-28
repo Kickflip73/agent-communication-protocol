@@ -1,12 +1,12 @@
 {
   "last_research_scan": "2026-03-28T12:51:00+08:00",
-  "next_round": "docs",
-  "notes": "开发轮（2026-03-28 14:44）：v2.10.0 Skills-lite — GET /skills + 结构化 AgentCard skills, SK1-SK6 6/6 PASS，commit f303c5e",
-  "last_updated": "2026-03-28T14:44:00+08:00",
+  "next_round": "test",
+  "notes": "docs轮已完成(0ffe000) — ROADMAP/README/whats-new v2.10.0更新。下轮: 测试(场景G断线重连+场景H并发)",
+  "last_updated": "2026-03-28T14:53:00+08:00",
   "last_test_run": "2026-03-28T14:33:00+08:00",
   "last_dev_run": "2026-03-28T14:44:00+08:00",
   "last_fix_run": "2026-03-28T13:51:00+08:00",
-  "last_docs_run": "2026-03-28T14:36:00+08:00",
+  "last_docs_run": "2026-03-28T14:51:00+08:00",
   "last_research_run": "2026-03-28T12:51:00+08:00",
   "test_summary": {
     "scenario_e_nat": "14/14 PASS",
