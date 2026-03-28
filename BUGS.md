@@ -1182,3 +1182,38 @@ w1_orch_peer = max(
 **根本修复方向**（不修改测试，需改 relay 源码）：
 - `_connect_with_nat_traversal` Level 1 成功后，应直接 `return (peer_id, "direct")` **而不打开新的** `guest_mode`
 - 或者：Level 1 的测试连接应在 `guest_mode` 接管后关闭（手动传递 ws 给 guest_mode）
+
+
+---
+
+### BUG-043 ✅ P2 — `test_scenario_d_stress.py` fixture 使用 `wait_link=True` + `/peers/connect` 在沙箱中全部失败
+
+**发现**：2026-03-28 测试轮（场景D压力测试）
+**优先级**：P2（测试层 bug，场景D 10 个用例全失败）
+**状态**：✅ 已修复（同 session，同批次）
+
+**现象**：
+`pytest tests/test_scenario_d_stress.py` 10 个用例全部 ERROR：
+```
+AssertionError: Peer peer_001 not ready within 10s
+  (last: 503 {'ok': False, 'error_code': 'ERR_NOT_CONNECTED', 'error': "peer 'peer_001' is not connected"})
+```
+
+**根因**：
+`relay_pair` fixture 使用了两层错误机制的组合：
+1. `_start_relay(BETA_WS, "StressBeta", wait_link=True)` — 等待 Beta 的 `/status` 返回 `link` 字段
+2. 沙箱无公网 IP → relay 的 `link` 字段永远为 `null` → `_start_relay` 在 60s 后超时（进程被 kill）
+3. 即使 Beta 进程侥幸未被 kill，后续 `POST /peers/connect` 触发 BUG-042 竞态，probe-send 全部 503
+
+**与 BUG-042 的关系**：
+BUG-043 是 BUG-042 的测试层体现——`wait_link=True` 分支本身是为公网 P2P 设计的，在沙箱中根本无法工作；即使绕过该等待，`/peers/connect` 的 BUG-042 竞态依然会导致 probe-send 失败。
+
+**修复方案**（与 BUG-038 相同）：
+将 `relay_pair` fixture 改为 host+guest `--join` 模式：
+- Alpha：`_start_relay_host()` + `_wait_host_link()`（等待 tok_xxx token，从 stdout/HTTP 提取）
+- Beta：`_start_relay_guest(ws_port, name, alpha_link)`（`--join acp://127.0.0.1:<alpha_ws>/<token>`）
+- 直接调用 `guest_mode()`，跳过 `_connect_with_nat_traversal`，无 Level-1 测试 WS，无竞态
+
+新增辅助函数：`_start_relay_host()`, `_wait_host_link()`, `_start_relay_guest()`, `_wait_connected()`
+
+**验证**：`python3 -m pytest tests/test_scenario_d_stress.py -v --timeout=120`（见本轮测试报告）

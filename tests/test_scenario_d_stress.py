@@ -2,11 +2,20 @@
 """
 ACP Scenario D — Stress Test
 100 messages, concurrent sends, reconnect after disconnect
+
+BUG-043 fix (2026-03-28): Replaced wait_link=True / /peers/connect P2P mode with
+host+guest --join mode (same as BUG-038 reconnect fix).
+Root cause: /peers/connect triggers _connect_with_nat_traversal Level-1 test WS,
+which races with guest_mode's actual WS and is rejected by BUG-041 dedup (BUG-042).
+In sandbox there's no public IP so link=null and wait_link never returns.
+Fix: Alpha starts in host mode (stdout=PIPE), captures tok_xxx via stdout/HTTP,
+Beta starts with --join acp://127.0.0.1:<alpha_ws>/<token> (direct guest_mode call).
 """
 
 import http.client as _http_client
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -64,37 +73,129 @@ def post(port, path, b=None):    return http_req("POST", port, path, b)
 
 # ── Relay management ──────────────────────────────────────────────────────────
 
-def _start_relay(ws_port, name, wait_link=False):
+def _start_relay_host(ws_port, name):
+    """Start relay in host mode (WS server). Returns (proc, stdout_pipe)."""
     http_port = ws_port + 100
     proc = subprocess.Popen(
-        [sys.executable, RELAY_PATH, "--port", str(ws_port), "--name", name,
+        [sys.executable, "-u", RELAY_PATH,
+         "--port", str(ws_port), "--name", name,
+         "--http-host", "127.0.0.1",
          "--inbox", f"/tmp/acp_stress_{name}"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, bufsize=1,
         env=clean_subprocess_env(),
     )
+    # Wait for HTTP to be ready (no need to wait for public IP)
     deadline = time.time() + 60
     while time.time() < deadline:
         try:
             conn = _http_client.HTTPConnection("127.0.0.1", http_port, timeout=1)
             conn.request("GET", "/status")
             resp = conn.getresponse()
-            raw  = resp.read()
+            resp.read()
             if resp.status == 200:
-                if not wait_link:
-                    return proc
-                # Also wait for the P2P link (public IP detection) to be ready
-                import json as _json
-                try:
-                    data = _json.loads(raw)
-                    if data.get("link"):
-                        return proc
-                except Exception:
-                    pass
+                return proc
         except Exception:
             pass
         time.sleep(0.3)
     proc.kill()
-    raise RuntimeError(f"Relay {name}:{ws_port} did not start within 60s")
+    raise RuntimeError(f"Host relay {name}:{ws_port} did not start within 60s")
+
+
+def _wait_host_link(proc, http_port, timeout=60):
+    """
+    Wait for host relay to emit acp:// link (stdout + HTTP fallback).
+    Returns 'acp://127.0.0.1:<ws_port>/tok_xxx' or None.
+    Handles both public-IP and local-IP link formats.
+    """
+    token_holder = {"link": None}
+    lock = threading.Lock()
+
+    def _stdout_reader():
+        try:
+            for line in proc.stdout:
+                m = re.search(r"acp://[^\s/]+:(\d+)/(tok_[a-f0-9]+)", line)
+                if m and not token_holder["link"]:
+                    with lock:
+                        token_holder["link"] = f"acp://127.0.0.1:{m.group(1)}/{m.group(2)}"
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_stdout_reader, daemon=True)
+    t.start()
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with lock:
+            if token_holder["link"]:
+                return token_holder["link"]
+        for endpoint in ("/link", "/status"):
+            try:
+                conn = _http_client.HTTPConnection("127.0.0.1", http_port, timeout=2)
+                conn.request("GET", endpoint)
+                resp = conn.getresponse()
+                raw = resp.read()
+                if resp.status == 200:
+                    d = json.loads(raw)
+                    raw_link = d.get("link") or ""
+                    if raw_link:
+                        local = re.sub(r"acp://[^:]+:", "acp://127.0.0.1:", raw_link)
+                        with lock:
+                            token_holder["link"] = local
+                        return local
+            except Exception:
+                pass
+        time.sleep(0.3)
+    return None
+
+
+def _start_relay_guest(ws_port, name, join_link):
+    """Start relay in guest mode (--join <link>). Directly calls guest_mode()."""
+    http_port = ws_port + 100
+    proc = subprocess.Popen(
+        [sys.executable, "-u", RELAY_PATH,
+         "--port", str(ws_port), "--name", name,
+         "--http-host", "127.0.0.1",
+         "--inbox", f"/tmp/acp_stress_{name}",
+         "--join", join_link],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, bufsize=1,
+        env=clean_subprocess_env(),
+    )
+    # Wait for HTTP to be ready
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            conn = _http_client.HTTPConnection("127.0.0.1", http_port, timeout=1)
+            conn.request("GET", "/status")
+            resp = conn.getresponse()
+            resp.read()
+            if resp.status == 200:
+                return proc
+        except Exception:
+            pass
+        time.sleep(0.3)
+    proc.kill()
+    raise RuntimeError(f"Guest relay {name}:{ws_port} did not start within 30s")
+
+
+def _wait_connected(http_port, timeout=20):
+    """Poll /status until connected=True or peer_count >= 1."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            conn = _http_client.HTTPConnection("127.0.0.1", http_port, timeout=2)
+            conn.request("GET", "/status")
+            resp = conn.getresponse()
+            raw = resp.read()
+            if resp.status == 200:
+                d = json.loads(raw)
+                if d.get("connected") is True or d.get("peer_count", 0) >= 1:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return False
 
 def _stop_relay(proc):
     try:
@@ -111,8 +212,14 @@ _PEER_ID  = [None]      # shared peer_id set during setup
 
 @pytest.fixture(scope="module", autouse=True)
 def relay_pair():
-    """Start Alpha + Beta, establish P2P connection, share peer_id via _PEER_ID."""
-    # Clean stale inbox files
+    """
+    Start Alpha (host) + Beta (guest --join Alpha), share peer_id via _PEER_ID.
+
+    BUG-043 fix: Use host+guest --join mode instead of /peers/connect P2P mode.
+    Alpha starts as host (emits acp:// token via stdout/HTTP).
+    Beta starts with --join acp://127.0.0.1:<alpha_ws>/<token>, directly calling
+    guest_mode() without NAT traversal (no Level-1 test WS, no BUG-042 race).
+    """
     import glob
     for pattern in ["/tmp/acp_stress_StressAlpha*", "/tmp/acp_stress_StressBeta*"]:
         for f in glob.glob(pattern):
@@ -121,24 +228,35 @@ def relay_pair():
             except OSError:
                 pass
 
-    proc_a = _start_relay(ALPHA_WS, "StressAlpha")
-    proc_b = _start_relay(BETA_WS,  "StressBeta", wait_link=True)
-    _PROCS.extend([proc_a, proc_b])
+    proc_a = _start_relay_host(ALPHA_WS, "StressAlpha")
+    _PROCS.append(proc_a)
 
-    # Beta link is guaranteed ready by wait_link=True in _start_relay
-    s, r = get(BETA_PORT, "/status")
-    beta_link = r.get("link") if isinstance(r, dict) else None
-    assert beta_link, f"Beta link not available after relay startup: status={s}"
+    # Wait for Alpha to emit its acp:// link (token)
+    alpha_link = _wait_host_link(proc_a, ALPHA_PORT, timeout=60)
+    assert alpha_link, "StressAlpha did not produce acp:// link within 60s"
 
-    s2, r2 = post(ALPHA_PORT, "/peers/connect", {"link": beta_link, "role": "agent"})
-    assert s2 == 200 and r2.get("ok"), f"P2P connect failed: {s2} {r2}"
-    _PEER_ID[0] = r2.get("peer_id")
+    # Start Beta in guest mode (--join Alpha's link)
+    proc_b = _start_relay_guest(BETA_WS, "StressBeta", alpha_link)
+    _PROCS.append(proc_b)
 
-    # Wait for WS to fully establish — check connected=True AND ws is ready (BUG-030 fix)
-    # connected=True is set immediately by _register_peer(), but ws handshake may still be
-    # in progress. Probe-send a test message to confirm the channel is truly ready.
-    deadline = time.time() + 10
+    # Wait for both sides to report connected
+    alpha_conn = _wait_connected(ALPHA_PORT, timeout=20)
+    beta_conn  = _wait_connected(BETA_PORT,  timeout=20)
+    assert alpha_conn, "StressAlpha did not become connected within 20s"
+    assert beta_conn,  "StressBeta did not become connected within 20s"
+
+    # Discover peer_id from Alpha's /peers list
+    s, r = get(ALPHA_PORT, "/peers")
+    peers = r.get("peers", []) if isinstance(r, dict) else (r if isinstance(r, list) else [])
+    connected_peers = [p for p in peers if p.get("connected")]
+    assert connected_peers, f"No connected peer found on Alpha after connect: {peers}"
+    _PEER_ID[0] = connected_peers[0].get("id") or connected_peers[0].get("peer_id")
+    assert _PEER_ID[0], f"Could not determine peer_id from Alpha peers: {connected_peers}"
+
+    # Probe-send to confirm WS channel is truly ready
+    deadline = time.time() + 15
     peer_ready = False
+    ps, pr = None, None
     while time.time() < deadline:
         ps, pr = post(ALPHA_PORT, f"/peer/{_PEER_ID[0]}/send", {
             "role": "agent",
@@ -148,7 +266,7 @@ def relay_pair():
             peer_ready = True
             break
         time.sleep(0.3)
-    assert peer_ready, f"Peer {_PEER_ID[0]} not ready within 10s (last: {ps} {pr})"
+    assert peer_ready, f"Peer {_PEER_ID[0]} not ready within 15s (last: {ps} {pr})"
 
     yield
 
@@ -316,14 +434,18 @@ if __name__ == "__main__":
             try: os.remove(f)
             except OSError: pass
 
-    proc_a = _start_relay(ALPHA_WS, "StressAlpha")
-    proc_b = _start_relay(BETA_WS,  "StressBeta", wait_link=True)
+    proc_a = _start_relay_host(ALPHA_WS, "StressAlpha")
+    alpha_link = _wait_host_link(proc_a, ALPHA_PORT, timeout=60)
+    assert alpha_link, "Alpha did not produce acp:// link"
+    proc_b = _start_relay_guest(BETA_WS, "StressBeta", alpha_link)
     try:
-        s, r  = get(BETA_PORT, "/status")
-        beta_link = r.get("link") if isinstance(r, dict) else None
-        s2, r2 = post(ALPHA_PORT, "/peers/connect", {"link": beta_link, "role": "agent"})
-        _PEER_ID[0] = r2.get("peer_id")
-        time.sleep(2)
+        assert _wait_connected(ALPHA_PORT, 20), "Alpha not connected"
+        assert _wait_connected(BETA_PORT,  20), "Beta not connected"
+        s, r = get(ALPHA_PORT, "/peers")
+        peers = r.get("peers", []) if isinstance(r, dict) else []
+        connected_peers = [p for p in peers if p.get("connected")]
+        _PEER_ID[0] = connected_peers[0].get("id") or connected_peers[0].get("peer_id")
+        time.sleep(1)
 
         tests = [
             test_d1_alpha_beta_startup,
