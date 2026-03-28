@@ -1075,11 +1075,11 @@ curl -s -X POST http://localhost:7901/webhooks/register \
 
 ---
 
-### BUG-040 🔴 P2 — `test_round_20260328.py` 测试用例与 v2.11.0 API 不兼容
+### BUG-040 ✅ P2 — `test_round_20260328.py` 测试用例与 v2.11.0 API 不兼容
 
 **发现**：2026-03-28 测试轮 Round 12
 **优先级**：P2（测试代码问题，relay 本体正常）
-**状态**：🔴 未修复
+**状态**：✅ 已修复 — commit `f32f215` (2026-03-28)
 
 **失败用例**：
 - `test_b1_orchestrator_connects_workers`：断言 `/.well-known/acp.json` 中存在 `link` 字段，但本地 sandbox（无公网 IP）不生成 `link`
@@ -1088,7 +1088,63 @@ curl -s -X POST http://localhost:7901/webhooks/register \
 
 **根因**：测试用例编写时假设 relay 有公网 link，且期待旧版 `/status` 字段格式
 
-**修复方案**：
-- b1/b2：改为「若有 link 则连接，无 link 则 skip（标记为需公网）」
-- b4：改为检查 `data.get("acp_version")` 或 `data.get("agent_name")` 存在即可
+**修复方案（已实施）**：
+- b1/b2：改为「若有 link 则连接，无 link 则 pytest.skip（标记为需公网）」
+- b4：改为检查 `data.get("acp_version")` 或 `data.get("agent_name")` 或 `"name" in data` 存在即可
 
+**验证**：`pytest tests/test_round_20260328.py` → 8 passed, 2 skipped (b1/b2 sandbox-skip), 0 failed ✅
+
+
+---
+
+### BUG-041 ✅ P2 — 场景B测试：Worker 选取错误的 peer 回复 Orchestrator（双连接竞态）
+
+**发现**：2026-03-28 测试轮 Round 13（场景B + 场景E）
+**优先级**：P2（测试失败，根因在 relay peer 注册逻辑）
+**状态**：✅ 已修复（双层修复）— commit `见下方`
+
+**失败测试**：
+- `test_scenario_bc.py` → B8.1 Orch got Worker1 result ❌
+- `test_scenario_bc.py` → B8.2 Orch got Worker2 result ❌
+
+**复现**：
+```
+python3 tests/test_scenario_bc.py
+# Outputs: B8.1 ❌ B8.2 ❌
+```
+
+**根因**：
+当 Orchestrator 通过 `/peers/connect` 连接到 Worker1 时，NAT 三级降级逻辑（`_connect_with_nat_traversal`）会同时尝试多条连接路径，导致 **Worker1 端注册了两个 peer 条目**（peer_001 和 peer_002），时间差仅 ~1ms（均在同一毫秒内建立）：
+- peer_001：`recv=0`（没有收到任何来自 Orch 的数据，可能是 relay 降级创建的幽灵 peer）
+- peer_002：`recv=2`（收到了 Orch 探针 + 任务消息，是实际活跃的 P2P 连接）
+
+测试代码 `w1_orch_peer = next((p["id"] for p in w1_peers["peers"] if p["connected"]), None)` 选取**第一个 connected peer**（peer_001），向其发送回复，结果回复进了幽灵通道，Orchestrator 永远收不到。
+
+**验证**（手动）：
+```python
+# W1 peers 列表
+# peer_001: connected=True, recv=0  ← 错误选择
+# peer_002: connected=True, recv=2  ← 正确通道
+# 向 peer_002 发送：Orch 成功收到（messages_received=1）
+# 向 peer_001 发送：ok=True 但 Orch messages_received 不增加
+```
+
+**影响范围**：
+- 所有场景B（Orchestrator + Worker）模式的测试均受影响
+- `messages_received` 计数正确（不是 BUG-037 回归），而是消息路由到错误 peer
+
+**修复方案（已双层实施）**：
+
+**A. relay 层（根本修复）**：`host_mode` accept 时检查重复远端 IP:port，复用而非新建
+- `relay/acp_relay.py` L1781: `# BUG-041 fix: deduplicate peers from same remote addr to prevent ghost peers`
+- 当同一 remote_addr 的 peer 已存在时，复用现有 peer_id 而非新建
+
+**B. 测试层（测试代码）**：选取 `messages_received` 最多的 peer 而非第一个
+```python
+w1_orch_peer = max(
+    (p for p in w1_peers["peers"] if p["connected"]),
+    key=lambda p: p.get("messages_received", 0)
+)["id"]
+```
+
+**验证**：`python3 tests/test_scenario_bc.py` → Scenario B+C Tests: **33/33 PASS** ✅

@@ -202,8 +202,14 @@ def run_bc_tests():
         ok("B6.2 Worker2 received task", inbox_has("Worker2", "TASK:B-W2:generate final report"))
 
         # B7: Workers reply back to Orchestrator
+        # BUG-041 fix: select most-active peer (max messages_received) to handle
+        # duplicate peer registration from _connect_with_nat_traversal race condition.
         w1_peers, _ = get(7951, "/peers")
-        w1_orch_peer = next((p["id"] for p in w1_peers["peers"] if p["connected"]), None)
+        w1_connected = [p for p in w1_peers["peers"] if p["connected"]]
+        if w1_connected:
+            w1_orch_peer = max(w1_connected, key=lambda p: p.get("messages_received", 0))["id"]
+        else:
+            w1_orch_peer = None
         if w1_orch_peer:
             r, _ = post(7951, f"/peer/{w1_orch_peer}/send", {"text": "RESULT:B-W1:analysis complete"})
             ok("B7.1 Worker1 replies to Orch", r.get("ok"))
@@ -211,7 +217,11 @@ def run_bc_tests():
             ok("B7.1 Worker1 replies to Orch", False, "no connected peer found")
 
         w2_peers, _ = get(7952, "/peers")
-        w2_orch_peer = next((p["id"] for p in w2_peers["peers"] if p["connected"]), None)
+        w2_connected = [p for p in w2_peers["peers"] if p["connected"]]
+        if w2_connected:
+            w2_orch_peer = max(w2_connected, key=lambda p: p.get("messages_received", 0))["id"]
+        else:
+            w2_orch_peer = None
         if w2_orch_peer:
             r, _ = post(7952, f"/peer/{w2_orch_peer}/send", {"text": "RESULT:B-W2:report ready"})
             ok("B7.2 Worker2 replies to Orch", r.get("ok"))

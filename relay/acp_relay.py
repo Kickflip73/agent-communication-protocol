@@ -522,7 +522,7 @@ def _make_peer_id():
     _peer_id_counter += 1
     return f"peer_{_peer_id_counter:03d}"
 
-def _register_peer(peer_id=None, link=None, ws=None):
+def _register_peer(peer_id=None, link=None, ws=None, link_token=None):
     """Register or update a peer connection. Returns peer_id."""
     pid = peer_id or _make_peer_id()
     existing = _peers.get(pid, {})
@@ -530,6 +530,7 @@ def _register_peer(peer_id=None, link=None, ws=None):
         "id":               pid,
         "name":             existing.get("name", pid),
         "link":             link or existing.get("link"),
+        "link_token":       link_token or existing.get("link_token"),
         "ws":               ws or existing.get("ws"),
         "connected":        True,
         "connected_at":     existing.get("connected_at") or _now(),
@@ -1778,7 +1779,30 @@ async def host_mode(token, ws_port, http_port):
         _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
 
         # v0.6: register in multi-session peer registry
-        peer_id = _register_peer(ws=websocket)
+        # BUG-041 fix (enhanced): deduplicate peers by incoming token to prevent ghost peers
+        # when _connect_with_nat_traversal races multiple connection paths (Level1/2/3)
+        # simultaneously. All NAT levels use the same token, so token-based dedup is
+        # more reliable than remote_address-based dedup (NAT paths may have different addrs).
+        #
+        # Strategy: if there is already a connected=True peer registered via this token,
+        # close the new WS immediately and reuse the existing peer (idempotent).
+        incoming_token = token  # token is in closure scope from host_mode()
+        existing_pid = next(
+            (pid for pid, pinfo in _peers.items()
+             if pinfo.get("link_token") == incoming_token and pinfo.get("connected")),
+            None
+        )
+        if existing_pid:
+            # A peer with this token is already connected — close the duplicate WS
+            log.info(f"[host_mode] Duplicate WS for token {incoming_token[:8]}… "
+                     f"already have peer {existing_pid} (connected=True). Closing duplicate.")
+            try:
+                await websocket.close(1000, "duplicate_connection")
+            except Exception:
+                pass
+            return
+        # No existing connected peer for this token — register new peer
+        peer_id = _register_peer(ws=websocket, link_token=incoming_token)
         _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
 
         # v2.0: flush offline queue for this peer (and "default" bucket) on reconnect
