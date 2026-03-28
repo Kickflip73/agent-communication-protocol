@@ -1190,10 +1190,10 @@
 
 <h1 id="show-hn-draft-acp-agent-communication-protocol">Show HN Draft — ACP (Agent Communication Protocol)<a class="headerlink" href="#show-hn-draft-acp-agent-communication-protocol" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p><strong>Status</strong>: Draft, pending review<br />
+<p><strong>Status</strong>: Draft, pending Stark 先生 review before posting<br />
 <strong>Target</strong>: Hacker News — Show HN<br />
-<strong>Date</strong>: 2026-03-24 (last updated: 2026-03-25)
-<strong>Timing note</strong>: A2A has been quiet for 10+ days post-v1.0 (last merge: 2026-03-16). Window is open.</p>
+<strong>Date</strong>: 2026-03-24 (last updated: <strong>2026-03-28</strong>)
+<strong>Timing note</strong>: A2A v1.0 released 2026-03-12. We've shipped 6 major versions since then. Window is still open.</p>
 </blockquote>
 <hr />
 <h2 id="title-options">Title Options<a class="headerlink" href="#title-options" title="Permanent link">&para;</a></h2>
@@ -1238,16 +1238,21 @@ small teams.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;role&quot;:&quot;agent&quot;,&quot;parts&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;content&quot;:&quot;Hello Bob&quot;}]}&#39;</span>
 </span></code></pre></div>
-<p><strong>What's shipping</strong>:</p>
+<p><strong>What's shipping (v3.0.0)</strong>:</p>
 <ul>
 <li>Core protocol v1.3 with task state machine, structured messages, idempotency</li>
+<li><strong>Automatic NAT traversal</strong> — 3-level: P2P direct → DCUtR hole-punch → Relay fallback. Zero user config.</li>
 <li>Multi-peer routing (<code>/peer/{id}/send</code>) for orchestrator patterns</li>
 <li>Identity: <code>did:acp:&lt;base58(pubkey)&gt;</code> — self-sovereign DID, zero external resolver</li>
-<li>HMAC-SHA256 message signing (optional)</li>
-<li>LAN peer discovery via mDNS</li>
+<li>HMAC-SHA256 message signing + Ed25519 AgentCard self-signatures (<code>POST /verify/card</code>)</li>
+<li>LAN peer discovery: mDNS + <code>GET /peers/discover</code> TCP subnet scan (no mDNS required)</li>
+<li>Offline delivery queue: messages buffered when peer is offline, auto-flushed on reconnect</li>
+<li><strong>Extension mechanism</strong>: URI-identified AgentCard extensions (e.g. <code>acp:ext:did_identity</code>)</li>
 <li>Availability metadata for heartbeat/cron agents (A2A is still discussing this in issue #1667)</li>
-<li>SDKs: Python, Node.js, Go, Rust, Java</li>
-<li>Cloudflare Worker as public relay fallback (handles NAT traversal)</li>
+<li><code>GET /messages</code>: history message list with filtering + pagination</li>
+<li>SDKs: Python (<code>acp-client</code> pip), Node.js (npm <code>acp-relay-client</code>), Go, Rust</li>
+<li>LangChain adapter: <code>ACPTool</code> + <code>ACPCallbackHandler</code></li>
+<li>Cloudflare Worker as automatic Level-3 relay fallback</li>
 <li>Compatibility certification test suite (Level 1: 24/24 ✅)</li>
 </ul>
 <p><strong>Why not just use A2A?</strong></p>
@@ -1307,7 +1312,35 @@ even <em>looks like</em>. ACP spec §10 has had a complete, tested cancel contra
 <li>"A2A spec is more thorough?" → A2A issue #1683: their spec contradicts itself on SSE contextId (mandatory per §4.2.2, absent in §6.2 example). ACP spec = code; we ship tests alongside every spec change.</li>
 </ul>
 <hr />
-<p><em>Draft by J.A.R.V.I.S. · 2026-03-24 · Awaiting Stark 先生 review before posting</em></p>
+<hr />
+<h2 id="v300-changelog-key-since-v13-last-draft">v3.0.0 Changelog (key since v1.3 / last draft)<a class="headerlink" href="#v300-changelog-key-since-v13-last-draft" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Version</th>
+<th>Theme</th>
+<th>Key Feature</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v2.8</td>
+<td>Extensions + LangChain</td>
+<td>URI-identified AgentCard extensions, <code>ACPTool</code> LangChain adapter, Node SDK v2.1.0</td>
+</tr>
+<tr>
+<td>v2.9</td>
+<td>Message History</td>
+<td><code>GET /messages</code> history list with filtering + pagination</td>
+</tr>
+<tr>
+<td>v3.0</td>
+<td><strong>NAT Traversal Complete</strong></td>
+<td><code>_connect_with_nat_traversal()</code> — automatic L1/L2/L3, zero user config</td>
+</tr>
+</tbody>
+</table>
+<p><em>Draft by J.A.R.V.I.S. · 2026-03-24 · Updated 2026-03-28 · Awaiting Stark 先生 review before posting</em></p>
 
 
 
