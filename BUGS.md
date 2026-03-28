@@ -872,3 +872,48 @@ def wait_all_links(ports, timeout=60):
 **影响**: `test_scenario_bc.py` 场景 B 和场景 C 中所有依赖 `link` 的连接测试
 
 *最后更新：2026-03-27 by J.A.R.V.I.S.*
+
+---
+
+## Round 10 — 场景 C/D 心跳测试 (2026-03-28 12:18)
+
+### BUG-036 🟢 P2 — `/peer/{id}/send` 响应缺少 `server_seq` 字段（与 `/message:send` 不一致）
+
+**发现时间**: 2026-03-28 场景D压力测试
+**状态**: ✅ 已修复（本轮 commit）
+
+**现象**:
+- `POST /peer/{id}/send` 响应体为 `{"ok": true, "message_id": "...", "peer_id": "..."}`
+- `server_seq` 字段**缺失**（返回 `None`）
+- 对比：`POST /message:send`（非 sync 模式）返回 `{"ok": true, "message_id": "...", "server_seq": <int>, "task": null}`
+
+**根因**:
+- `/peer/{id}/send` handler（约 L2806）在构造响应时漏掉了 `server_seq`
+- 消息对象 `msg["server_seq"] = _next_seq()` 已正确赋值（约 L2758），但最终 `self._json(...)` 未包含该字段
+- `/message:send` handler 正确返回了 `server_seq`
+
+**影响**:
+- 客户端通过 `/peer/{id}/send` 无法获取 `server_seq`，无法进行 seq 单调性验证
+- 场景D压力测试中 100 条消息 `server_seq` 全部为 None
+
+**修复**:
+- `relay/acp_relay.py`：`/peer/{id}/send` 响应添加 `"server_seq": msg["server_seq"]`
+
+---
+
+### Round 10 测试结果汇总
+
+**测试时间**: 2026-03-28 12:18
+**Relay 版本**: v2.8.0
+
+| 场景 | 结果 |
+|------|------|
+| C — 环形流水线 A→B→C→A | **9/9 ✅** |
+| D — 压力测试 100 消息 | **6/6 ✅**（发现 BUG-036 并修复）|
+
+**场景D统计**:
+- 发送: 100/100 成功（发送速率: ~1570 msg/s）
+- 接收: 100/100（零丢包，0.00% loss）
+- server_seq 单调性: 修复 BUG-036 后可验证
+
+*最后更新：2026-03-28 by J.A.R.V.I.S.*

@@ -2803,7 +2803,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
                 peer_info["messages_sent"] = peer_info.get("messages_sent", 0) + 1
                 _status["messages_sent"] += 1
-                self._json({"ok": True, "message_id": message_id, "peer_id": peer_id})
+                self._json({"ok": True, "message_id": message_id, "peer_id": peer_id,
+                            "server_seq": msg["server_seq"]})
 
             except ConnectionError as e:
                 _fmid = locals().get("message_id") or locals().get("_client_msg_id")
