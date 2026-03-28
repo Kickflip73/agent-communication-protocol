@@ -387,6 +387,74 @@ async def main():
 asyncio.run(main())
 ```
 
+> **Note:** The legacy `sdk/python/acp_sdk/` package is still available for backward compatibility.
+> For new projects, use the pip-installable `acp-client` package instead:
+> `pip install acp-client`
+
+---
+
+## Python SDK — LangChain Integration (v1.8.0+)
+
+`acp-client` v1.8.0 ships a first-class LangChain adapter that wraps any ACP Relay endpoint
+as a `BaseTool`, allowing any LangChain Agent to communicate with remote ACP peers with **zero
+changes to the core SDK** (LangChain remains an optional dependency).
+
+### Install
+
+```bash
+pip install "acp-client[langchain]"
+# equivalent to:
+pip install acp-client langchain
+```
+
+### Quick-start
+
+```python
+from acp_client.integrations.langchain import ACPTool, ACPCallbackHandler, create_acp_tool
+from langchain.agents import initialize_agent, AgentType
+from langchain_openai import ChatOpenAI
+
+# 1. Create the ACP tool pointing at a running relay + peer
+tool = create_acp_tool(
+    relay_url="http://localhost:8765",   # local ACP Relay endpoint
+    peer_id="agent_b",                   # session-id of the remote peer
+    timeout=30,                          # seconds to wait for a reply
+)
+
+# 2. (Optional) Add a callback handler for audit logging
+handler = ACPCallbackHandler()
+
+# 3. Wire up a LangChain agent
+llm = ChatOpenAI(model="gpt-4o")
+agent = initialize_agent(
+    [tool],
+    llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    callbacks=[handler],
+    verbose=True,
+)
+
+# 4. Run — the agent can now delegate to agent_b via ACP
+result = agent.run("Ask agent_b to summarise the latest AI news")
+print(result)
+```
+
+### API Summary
+
+| Class / Function | Description |
+|-----------------|-------------|
+| `ACPTool(relay_url, peer_id, timeout)` | `BaseTool` subclass — `name="acp_send"`; `_run` sync, `_arun` async |
+| `ACPCallbackHandler(log_level)` | `BaseCallbackHandler` — logs tool start/end/error; accumulates `_calls` list |
+| `create_acp_tool(relay_url, peer_id, timeout)` | Factory helper for `ACPTool` |
+
+**Design highlights:**
+- **Lazy import**: LangChain is never imported at module load time; `ImportError` with `pip install` hint raised only at first instantiation if absent.
+- **Dynamic subclassing**: builds a real `BaseTool` / `BaseCallbackHandler` subclass inside `__new__` — compatible with LangChain Pydantic v1 and v2.
+- **Zero new mandatory deps**: core `acp-client` remains stdlib-only.
+- **Graceful errors**: `_run` / `_arun` return descriptive error strings (never raise) so the LLM can observe and retry.
+
+See [sdk/python/README-sdk.md](../sdk/python/README-sdk.md#langchain-integration) for the full API reference.
+
 ---
 
 ## Node.js SDK
