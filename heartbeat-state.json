@@ -1,13 +1,13 @@
 {
-  "last_research_scan": "2026-03-28T12:51:00+08:00",
-  "next_round": "research",
-  "notes": "修复轮完成(6b49fce) — BUG-038 test_reconnect.py GR1-GR3全部通过。下轮: 研究轮(A2A/ANP扫描)",
-  "last_updated": "2026-03-28T15:44:00+08:00",
+  "last_research_scan": "2026-03-28T15:44:00+08:00",
+  "next_round": "dev",
+  "notes": "研究轮R2完成 — A2A新：PR#1655(QuerySkill), Issue#1696(身份验证指引), OIXA经济层合作。下轮: dev(能力发现/QuerySkill纳入规划)",
+  "last_updated": "2026-03-28T15:47:00+08:00",
   "last_test_run": "2026-03-28T15:14:00+08:00",
   "last_dev_run": "2026-03-28T14:44:00+08:00",
   "last_fix_run": "2026-03-28T15:44:00+08:00",
   "last_docs_run": "2026-03-28T14:51:00+08:00",
-  "last_research_run": "2026-03-28T12:51:00+08:00",
+  "last_research_run": "2026-03-28T15:47:00+08:00",
   "test_summary": {
     "scenario_g_reconnect": "3/3 PASS (GR1/GR2/GR3)",
     "scenario_h_concurrent": "1/1 PASS",
@@ -21,6 +21,6 @@
     "dev": "2026-03-28T14:44:00+08:00",
     "fix": "2026-03-28T15:44:00+08:00",
     "docs": "2026-03-28T14:51:00+08:00",
-    "research": "2026-03-28T12:51:00+08:00"
+    "research": "2026-03-28T15:47:00+08:00"
   }
 }
