@@ -7,7 +7,52 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.10.0] — 2026-03-28 (Skills-lite — Structured Skill Declaration + GET /skills)
+
+### Added
+- **Structured `skills` field in AgentCard** — upgraded from plain string array to structured object array
+  - Fields per skill: `id` (required), `name` (required), `description`, `tags[]`, `examples[]`, `input_modes[]`, `output_modes[]`
+  - `--skills` CLI: accepts JSON array string (parsed directly) or plain comma-separated string (auto-converted: `"summarize,translate"` → `[{id: "summarize", name: "summarize"}, ...]`)
+- **`GET /skills`** — new skills list endpoint with filtering + pagination
+  - `?tag=<tag>` — exact tag match filter
+  - `?q=<keyword>` — case-insensitive keyword search across `id`/`name`/`description`
+  - `?limit=<N>&offset=<N>` — pagination (default limit 50, max 200)
+  - Response: `{"skills": [...], "total": N, "has_more": bool, "next_offset": N|null}`
+  - Non-integer `limit`/`offset` → 400 `ERR_INVALID_REQUEST`
+- **`POST /skills/query` enhanced** — structured matching when skills are objects (fallback to old string logic for legacy format)
+- **`endpoints.skills: "/skills"`** declared in AgentCard
+- **`tests/test_skills_list.py`** — SK1–SK6, 6 tests, all pass
+  - SK1: basic list, SK2: tag filter, SK3: keyword search, SK4: pagination, SK5: error handling, SK6: AgentCard structured fields
+
+### Changed
+- VERSION: `2.9.0` → `2.10.0`
+- AgentCard `skills` field: backward-compatible (old plain-string arrays still accepted via auto-conversion)
+
+### Design
+- Inspired by A2A v1.0 Skills mechanism (2026-03-12), ACP "Skills-lite" ships lighter: no `inputSchema`/`outputSchema` JSON Schema overhead, focus on discoverability via tags + keyword search
+- `GET /skills` complements `POST /skills/query`: list-and-filter vs targeted match
+
+---
+
 ## [Unreleased] — post-v2.0-offline
+
+---
+
+## [2.9.0] — 2026-03-28 (GET /messages — History Message List with Pagination + Filtering)
+### Added
+- **`GET /messages` endpoint** (`relay/acp_relay.py`):
+  - Non-destructive read from `_recv_queue` (unlike `GET /recv` which pops items)
+  - Query parameters:
+    - `limit` — page size, default 20, clamped to max 100
+    - `offset` — offset-based pagination, default 0
+    - `peer_id` — filter by source peer (matches `raw.from` field or `_peers` registry agent_name)
+    - `role` — filter by role (`agent`/`user`)
+    - `sort` — sort direction: `asc` (oldest→newest) or `desc` (newest→oldest, default)
+    - `received_after` — Unix timestamp; only messages received after this time
+  - Response schema: `{ messages, total, has_more, next_offset }`
+  - Returns 400 `ERR_INVALID_REQUEST` for non-integer `limit`/`offset`
+  - Inspired by A2A v1.0 `tasks/list` pattern, consistent with ACP `GET /tasks` (v2.2)
+- **Tests** (`tests/test_messages_list.py`): 8 test cases (ML1–ML8) covering all parameters
 
 ---
 

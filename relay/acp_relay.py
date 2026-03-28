@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ACP P2P Relay v2.7.0
+ACP P2P Relay v3.0.0
 ====================
 Zero-server, zero-code-change P2P Agent communication.
 
@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.8.0"  # v2.8: Extension mechanism — URI-identified extensions in AgentCard
+VERSION = "2.10.0"  # v2.10: Skills-lite structured skill declaration + GET /skills
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -946,7 +946,47 @@ def _make_supported_interfaces() -> list:
     return sorted(ifaces)
 
 
+def _parse_skill_obj(s):
+    """Normalise a single skill entry to a structured dict.
+
+    Accepts either a plain string ("summarize") or a dict with at least
+    {"id": ..., "name": ...}.  Returns a canonical skill object:
+    {id, name, description?, tags?, examples?, input_modes?, output_modes?}
+    """
+    if isinstance(s, dict):
+        sid = str(s.get("id", s.get("name", "unknown"))).strip()
+        obj = {
+            "id":           sid,
+            "name":         str(s.get("name", sid)),
+            "description":  s.get("description", ""),
+            "tags":         list(s.get("tags") or []),
+            "examples":     list(s.get("examples") or []),
+            "input_modes":  list(s.get("input_modes") or []),
+            "output_modes": list(s.get("output_modes") or []),
+        }
+    else:
+        sid = str(s).strip()
+        obj = {
+            "id":           sid,
+            "name":         sid,
+            "description":  "",
+            "tags":         [],
+            "examples":     [],
+            "input_modes":  [],
+            "output_modes": [],
+        }
+    return obj
+
+
 def _make_agent_card(name, skills):
+    """Build the AgentCard dict.
+
+    *skills* may be:
+      - a list of plain strings (legacy) → auto-converted to structured objects
+      - a list of dicts (v2.10+ structured)
+      - mixed list
+    """
+    structured_skills = [_parse_skill_obj(s) for s in skills]
     card = {
         "name":            name,
         "version":         VERSION,
@@ -957,7 +997,7 @@ def _make_agent_card(name, skills):
         "transport_modes": list(_transport_modes),          # v2.4: routing modes ["p2p", "relay"] or subset
         "supported_interfaces": _make_supported_interfaces(), # v2.3: declared interface groups
         "limitations": list(_limitations),                   # v2.7: what this agent CANNOT do (capability boundary declaration)
-        "skills":      [{"id": s, "name": s} for s in skills],
+        "skills":      structured_skills,
         "capabilities": {
             "streaming":          True,
             "push_notifications": True,
@@ -1005,6 +1045,7 @@ def _make_agent_card(name, skills):
             "agent_card":   "/.well-known/acp.json",
             "did_document": "/.well-known/did.json",   # v1.3: W3C DID Document (requires --identity)
             "skills_query": "/skills/query",
+            "skills":       "/skills",                 # v2.10: structured skill list + filtering
             "peers":        "/peers",                  # v0.6
             "peer_send":    "/peer/{id}/send",         # v0.6
             "peers_connect": "/peers/connect",         # v0.6
@@ -1967,6 +2008,128 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# _connect_with_nat_traversal — v1.4 three-level automatic connection strategy
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _connect_with_nat_traversal(link: str, name: str, role: str) -> tuple:
+    """
+    三级连接策略（自动选择）：
+      Level 1: 直连 ws://IP:port/token（3s 超时）
+      Level 2: DCUtR TCP 打洞（交换 signaling → SYN 打洞）
+      Level 3: HTTP Relay 降级（Cloudflare Worker 转发，兜底）
+
+    返回：(peer_id, transport_level_used)
+      transport_level_used: "direct" | "dcutr" | "relay"
+
+    调用方负责将 transport_level_used 写入 _peers[peer_id]["transport_level"]。
+
+    参数:
+      link  — acp:// 格式链接（parse_link 负责解析）
+      name  — 本地 agent 名（用于 relay join 请求体）
+      role  — 保留参数，供上层标注 peer 角色
+    """
+    global _peers, _status, _loop
+
+    _DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+    DIRECT_TIMEOUT = 3.0   # Level 1: 3s 直连超时
+    DCUTR_TIMEOUT  = 12.0  # Level 2: 打洞超时
+
+    result = parse_link(link)
+    host, port, token, scheme = result
+    http_port = _status.get("http_port", 7901)
+
+    # ── If link is already an HTTP relay link, skip to Level 3 directly ──────
+    if scheme == "http_relay":
+        log.info("[NAT] link is http_relay scheme → Level 3 directly")
+        asyncio.ensure_future(_http_relay_guest(host, token, http_port))
+        return (token, "relay")
+
+    # ── Check --relay flag: force Level 3 (v1.4 semantic change) ─────────────
+    # Prior to v1.4, --relay meant "user explicitly chose relay".
+    # From v1.4 onward, --relay means "force Level 3 (skip L1+L2)".
+    _force_relay = _status.get("force_relay", False)
+    if _force_relay:
+        log.info("[NAT] --relay flag set → forcing Level 3 relay (skip L1+L2)")
+        relay_base = _status.get("relay_base_url") or _DEFAULT_RELAY
+        asyncio.ensure_future(_http_relay_guest(relay_base, token, http_port))
+        return (token, "relay")
+
+    uri = f"ws://{host}:{port}/{token}"
+
+    # ── Level 1: Direct WebSocket connection (3s timeout) ─────────────────────
+    log.info(f"[NAT L1] Attempting direct connect: {uri}")
+    try:
+        ws = await asyncio.wait_for(
+            _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10),
+            timeout=DIRECT_TIMEOUT,
+        )
+        # Success: hand off to guest_mode (same event-loop) via coroutine
+        log.info(f"[NAT L1] Direct connect succeeded: {uri}")
+        # We don't block here; guest_mode runs the message loop.
+        asyncio.ensure_future(guest_mode(host, port, token, http_port))
+        return (token, "direct")
+    except (asyncio.TimeoutError, ConnectionRefusedError, OSError,
+            Exception) as e:
+        log.info(f"[NAT L1] Direct connect failed ({type(e).__name__}): {e} → trying Level 2")
+
+    # ── Level 2: DCUtR TCP/UDP hole punch ─────────────────────────────────────
+    log.info("[NAT L2] Attempting DCUtR hole punch...")
+    _broadcast_sse_event("peer", {"event": "dcutr_started"})
+    relay_base_url = _status.get("relay_base_url") or _DEFAULT_RELAY
+    _dcutr_direct_addr = None
+
+    try:
+        relay_ws_url = relay_base_url.replace("https://", "wss://") + f"/acp/{token}/ws"
+        async with await asyncio.wait_for(
+            _proxy_ws_connect(relay_ws_url, open_timeout=5),
+            timeout=6.0,
+        ) as _sig_ws:
+            log.info(f"[NAT L2] signaling WS established: {relay_ws_url}")
+            _status["dcutr_state"] = "punching"
+            puncher = DCUtRPuncher()
+            _dcutr_direct_addr = await asyncio.wait_for(
+                puncher.attempt(_sig_ws, local_udp_port=0),
+                timeout=DCUTR_TIMEOUT,
+            )
+    except asyncio.TimeoutError:
+        log.info("[NAT L2] hole punch timed out → falling back to Level 3")
+    except Exception as e:
+        log.info(f"[NAT L2] hole punch error ({type(e).__name__}): {e} → falling back to Level 3")
+    finally:
+        _status.pop("dcutr_state", None)
+
+    if _dcutr_direct_addr is not None:
+        direct_host, direct_port = _dcutr_direct_addr
+        log.info(f"[NAT L2] hole punch succeeded → {direct_host}:{direct_port}")
+        _broadcast_sse_event("peer", {"event": "dcutr_connected",
+                                       "peer_addr": f"{direct_host}:{direct_port}"})
+        asyncio.ensure_future(guest_mode(direct_host, direct_port, token, http_port))
+        return (token, "dcutr")
+
+    # ── Level 3: Relay fallback (Cloudflare Worker) ───────────────────────────
+    log.warning("[NAT L3] Both L1 and L2 failed. Falling back to HTTP relay (Level 3).")
+    _broadcast_sse_event("peer", {"event": "relay_fallback", "reason": "l1_l2_failed"})
+    _status["connection_type"] = "relay"
+
+    relay_base = relay_base_url
+    # Join relay session so messages can flow
+    import subprocess as _sp_nat
+    try:
+        _sp_nat.run(
+            ["curl", "-s", "--max-time", "10", "-X", "POST",
+             f"{relay_base}/acp/{token}/join",
+             "-H", "Content-Type: application/json",
+             "-d", json.dumps({"name": name or _status.get("agent_name", "ACP-Agent")})],
+            capture_output=True,
+        )
+    except Exception as _e:
+        log.warning(f"[NAT L3] relay join failed: {_e}")
+
+    asyncio.ensure_future(_http_relay_guest(relay_base, token, http_port))
+    return (token, "relay")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Local HTTP interface
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2018,7 +2181,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         if p in ("/card", "/.well-known/acp.json"):  # [stable] AgentCard
             # Rebuild dynamically so capabilities like lan_discovery reflect runtime state
-            skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
+            # v2.10: pass full structured skill objects (preserve description/tags/examples)
+            skills = list((_status.get("agent_card") or {}).get("skills", []))
             live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
             # v1.8: attach Ed25519 self-signature when identity is enabled
             live_card = _sign_agent_card(live_card)
@@ -2180,6 +2344,80 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "count":      len(_extensions),
             })
 
+        # ── GET /skills — Skills-lite structured skill list (v2.10) ──────────
+        elif p == "/skills":  # [stable] structured skill discovery + filtering (v2.10)
+            # Query parameters:
+            #   tag=<tag>      filter by tag (exact match)
+            #   q=<keyword>    keyword search in id/name/description (case-insensitive)
+            #   limit=<n>      page size (default 50, max 200)
+            #   offset=<n>     offset-based pagination (default 0)
+            # Response: {skills, total, has_more, next_offset}
+            # Errors: 400 ERR_INVALID_REQUEST for non-integer limit/offset
+
+            # ── Parameter parsing ─────────────────────────────────────────
+            try:
+                raw_limit = qs.get("limit", ["50"])[0]
+                if not raw_limit.lstrip("-").isdigit():
+                    raise ValueError("non-integer limit")
+                limit = int(raw_limit)
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "limit must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+            try:
+                raw_offset = qs.get("offset", ["0"])[0]
+                if not raw_offset.lstrip("-").isdigit():
+                    raise ValueError("non-integer offset")
+                offset = int(raw_offset)
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "offset must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+
+            if limit < 0 or offset < 0:
+                body, sc = _err(ERR_INVALID_REQUEST, "limit and offset must be non-negative integers", 400)
+                self._json(body, sc)
+                return
+
+            # Clamp limit to max 200; default when 0 is 50
+            limit = min(limit, 200)
+            if limit == 0:
+                limit = 50
+
+            tag_filter = qs.get("tag", [None])[0]
+            q_filter   = (qs.get("q", [None])[0] or "").strip().lower()
+
+            # ── Fetch skill list from agent card ──────────────────────────
+            agent_card = _status.get("agent_card") or {}
+            all_skills = list(agent_card.get("skills", []))
+
+            # ── Apply filters ─────────────────────────────────────────────
+            if tag_filter:
+                all_skills = [s for s in all_skills if tag_filter in s.get("tags", [])]
+
+            if q_filter:
+                def _skill_matches(s):
+                    return (
+                        q_filter in (s.get("id",          "") or "").lower() or
+                        q_filter in (s.get("name",        "") or "").lower() or
+                        q_filter in (s.get("description", "") or "").lower()
+                    )
+                all_skills = [s for s in all_skills if _skill_matches(s)]
+
+            # ── Pagination ────────────────────────────────────────────────
+            total    = len(all_skills)
+            sliced   = all_skills[offset:]
+            has_more = len(sliced) > limit
+            page     = sliced[:limit]
+            next_offset = (offset + limit) if has_more else None
+
+            self._json({
+                "skills":      page,
+                "total":       total,
+                "has_more":    has_more,
+                "next_offset": next_offset,
+            })
+
         # ── GET /offline-queue — inspect offline delivery buffer (v2.0) ─────────
         elif p == "/offline-queue":
             """
@@ -2238,7 +2476,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         # ── GET /verify/card — return self-verification result (v1.8) ─────────
         elif p == "/verify/card":
-            skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
+            # v2.10: pass full structured skill objects
+            skills = list((_status.get("agent_card") or {}).get("skills", []))
             live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
             signed_card = _sign_agent_card(live_card)
             result = _verify_agent_card(signed_card)
@@ -2298,6 +2537,101 @@ class LocalHTTP(BaseHTTPRequestHandler):
             limit = int(qs.get("limit", ["50"])[0])
             msgs  = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
             self._json({"messages": msgs, "count": len(msgs), "remaining": len(_recv_queue)})
+
+        elif p == "/messages":  # [stable] history message list — filtering + pagination (v2.9)
+            # Query params:
+            #   limit=<n>              page size (default 20, max 100)
+            #   offset=<n>             offset-based page start (default 0)
+            #   peer_id=<id>           filter by source peer (matches raw.from or _peers lookup)
+            #   role=<agent|user>      filter by role
+            #   sort=asc|desc          sort direction: asc=oldest first, desc=newest first (default desc)
+            #   received_after=<ts>    filter messages received after this Unix timestamp
+
+            # ── Parameter parsing ──────────────────────────────────────────────
+            try:
+                raw_limit = qs.get("limit", ["20"])[0]
+                limit = int(raw_limit)
+                if not raw_limit.lstrip("-").isdigit():
+                    raise ValueError("non-integer")
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "limit must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+            try:
+                raw_offset = qs.get("offset", ["0"])[0]
+                offset = int(raw_offset)
+                if not raw_offset.lstrip("-").isdigit():
+                    raise ValueError("non-integer")
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "offset must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+
+            if limit < 0 or offset < 0:
+                body, sc = _err(ERR_INVALID_REQUEST, "limit and offset must be non-negative integers", 400)
+                self._json(body, sc)
+                return
+
+            # Clamp limit to max 100
+            limit = min(limit, 100)
+            # Default when 0: treat as 20 (caller should pass explicit limit)
+            if limit == 0:
+                limit = 20
+
+            peer_filter     = qs.get("peer_id",        [None])[0]
+            role_filter     = qs.get("role",            [None])[0]
+            sort_raw        = qs.get("sort",            ["desc"])[0]
+            received_after  = qs.get("received_after",  [None])[0]
+
+            sort_asc = (sort_raw == "asc")
+
+            # ── Build snapshot from _recv_queue (non-destructive) ──────────────
+            msgs = list(_recv_queue)
+
+            # ── Apply filters ──────────────────────────────────────────────────
+            if role_filter:
+                msgs = [m for m in msgs if m.get("role") == role_filter]
+
+            if peer_filter:
+                # Match by raw.from field (direct name) OR via _peers registry
+                # Build a set of matching peer names/ids
+                def _msg_matches_peer(m):
+                    raw_from = (m.get("raw") or {}).get("from", "")
+                    if raw_from == peer_filter:
+                        return True
+                    # Also check if peer_filter is a peer_id in _peers that maps to this agent_name
+                    pinfo = _peers.get(peer_filter)
+                    if pinfo:
+                        aname = pinfo.get("agent_name") or pinfo.get("name") or ""
+                        if raw_from == aname:
+                            return True
+                    return False
+                msgs = [m for m in msgs if _msg_matches_peer(m)]
+
+            if received_after is not None:
+                try:
+                    ra_ts = float(received_after)
+                    msgs = [m for m in msgs if m.get("received_at", 0) > ra_ts]
+                except (ValueError, TypeError):
+                    pass  # ignore unparseable received_after
+
+            # ── Sort ──────────────────────────────────────────────────────────
+            msgs.sort(key=lambda m: m.get("received_at", 0), reverse=not sort_asc)
+
+            # ── Pagination ────────────────────────────────────────────────────
+            total = len(msgs)
+            sliced   = msgs[offset:]
+            has_more = len(sliced) > limit
+            page     = sliced[:limit]
+            next_offset = offset + limit if has_more else None
+
+            resp = {
+                "messages":    page,
+                "total":       total,
+                "has_more":    has_more,
+                "next_offset": next_offset if next_offset is not None else offset + len(page),
+            }
+            self._json(resp)
 
         elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2)
             # Query params:
@@ -2907,18 +3241,21 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 _register_peer(peer_id=peer_id, link=peer_link)
                 if peer_name:
                     _peers[peer_id]["name"] = peer_name
-                # Connect in background
-                def _do_connect():
-                    result = parse_link(peer_link)
-                    host, port, token, scheme = result
-                    http_port = _status.get("http_port", 7901)
-                    if scheme == "http_relay":
-                        asyncio.run_coroutine_threadsafe(
-                            _http_relay_guest(host, token, http_port), _loop)
-                    else:
-                        asyncio.run_coroutine_threadsafe(
-                            guest_mode(host, port, token, http_port), _loop)
-                threading.Thread(target=_do_connect, daemon=True).start()
+                # v1.4: connect via automatic 3-level NAT traversal strategy
+                # Level 1 (direct) → Level 2 (DCUtR hole punch) → Level 3 (relay)
+                # transport_level field is written to peer info after resolution.
+                agent_name = _status.get("agent_name", "ACP-Agent")
+                def _do_connect_nat():
+                    async def _run():
+                        _pid, transport_level = await _connect_with_nat_traversal(
+                            peer_link, agent_name, role="guest"
+                        )
+                        # Write transport_level into the pre-registered peer entry
+                        if peer_id in _peers:
+                            _peers[peer_id]["transport_level"] = transport_level
+                        log.info(f"[NAT] peer {peer_id} connected via transport_level={transport_level}")
+                    asyncio.run_coroutine_threadsafe(_run(), _loop)
+                threading.Thread(target=_do_connect_nat, daemon=True).start()
                 self._json({"ok": True, "peer_id": peer_id,
                             "connecting_to": peer_link, "name": peer_name or peer_id})
             except Exception as e:
@@ -3057,10 +3394,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
-        # /skills/query — QuerySkill: runtime capability introspection (v0.6, inspired by A2A PR#1655)
+        # /skills/query — QuerySkill: runtime capability introspection (v0.6, enhanced v2.10)
         # Request:  {"skill_id": "summarize", "constraints": {"file_size_bytes": 52428800}}
         # Response: {"skill_id": "...", "support_level": "supported|partial|unsupported",
         #            "reason": "...", "constraints_applied": {...}, "agent": {...}}
+        # v2.10: when skills are structured objects, uses id/name/description for keyword matching
         elif p == "/skills/query":  # [stable] QuerySkill runtime capability discovery
             try:
                 body = self._read_body()
@@ -3068,20 +3406,39 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 constraints = body.get("constraints") or {}
 
                 agent_card  = _status.get("agent_card") or {}
-                known_skills = {s["id"] for s in agent_card.get("skills", [])}
+                raw_skills  = agent_card.get("skills", [])
                 capabilities = agent_card.get("capabilities", {})
+
+                # v2.10: structured matching — skills are dicts with id/name/description
+                # Fallback: if skills are plain strings (legacy), use original logic
+                _is_structured = raw_skills and isinstance(raw_skills[0], dict)
+
+                if _is_structured:
+                    known_skill_ids  = {s["id"] for s in raw_skills}
+                    known_skills_str = sorted(known_skill_ids)
+                else:
+                    # Legacy: list of plain strings
+                    known_skill_ids  = set(raw_skills)
+                    known_skills_str = sorted(known_skill_ids)
 
                 # Determine support level
                 if not skill_id:
                     # No skill_id: return full skill list
-                    self._json({
-                        "skills": list(known_skills),
-                        "capabilities": capabilities,
-                        "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
-                    })
+                    if _is_structured:
+                        self._json({
+                            "skills":       raw_skills,
+                            "capabilities": capabilities,
+                            "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                        })
+                    else:
+                        self._json({
+                            "skills":       list(known_skill_ids),
+                            "capabilities": capabilities,
+                            "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                        })
                     return
 
-                if skill_id in known_skills:
+                if skill_id in known_skill_ids:
                     # Check constraints against known capabilities
                     violations = []
                     if "file_size_bytes" in constraints:
@@ -3098,8 +3455,20 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         reason = f"Skill '{skill_id}' is available"
                         constraints_applied = {}
                 else:
+                    # v2.10: try keyword match in id/name/description for fuzzy discovery
+                    matched = []
+                    if _is_structured:
+                        _kw = skill_id.lower()
+                        matched = [
+                            s for s in raw_skills
+                            if (_kw in (s.get("id", "") or "").lower() or
+                                _kw in (s.get("name", "") or "").lower() or
+                                _kw in (s.get("description", "") or "").lower())
+                        ]
                     support_level = "unsupported"
                     reason = f"Skill '{skill_id}' not registered on this agent"
+                    if matched:
+                        reason += f"; similar skills found: {[s['id'] for s in matched]}"
                     constraints_applied = {}
 
                 self._json({
@@ -3107,7 +3476,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "support_level":       support_level,
                     "reason":              reason,
                     "constraints_applied": constraints_applied,
-                    "known_skills":        sorted(known_skills),
+                    "known_skills":        known_skills_str,
                     "agent": {
                         "name":        agent_card.get("name"),
                         "acp_version": VERSION,
@@ -3292,7 +3661,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
         log.info(f"📅 AgentCard availability updated via PATCH: {_availability}")
 
         # Return the updated live card
-        skills = [s["id"] for s in (_status.get("agent_card") or {}).get("skills", [])]
+        # v2.10: pass full structured skill objects
+        skills = list((_status.get("agent_card") or {}).get("skills", []))
         live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
         self._json({"ok": True, "availability": live_card.get("availability", {})})
 
@@ -3691,7 +4061,7 @@ Examples:
     # ── Core ──────────────────────────────────────────────────────────────────
     parser.add_argument("--name",         default=None,  help="Agent name (default: ACP-Agent)")
     parser.add_argument("--join",         default=None,  help="acp:// link to connect to")
-    parser.add_argument("--relay",        action="store_true", help="Use public HTTP relay instead of P2P")
+    parser.add_argument("--relay",        action="store_true", help="(v1.4) Force Level 3 relay transport (skip L1 direct + L2 hole punch). Previously 'use relay instead of P2P'; now means auto-degradation last resort.")
     parser.add_argument("--relay-url",    default=None,
                         help="Relay endpoint URL (default: public Cloudflare Worker)")
     parser.add_argument("--port",         type=int, default=None,
@@ -3922,7 +4292,27 @@ Examples:
 
     ws_port   = args.port
     http_port = args.port + 100
-    skills    = [s.strip() for s in args.skills.split(",") if s.strip()] if args.skills else []
+    # v2.10: Skills-lite — support both plain CSV ("summarize,translate") and
+    # JSON array ('[{"id":"summarize","name":"Text Summarization","tags":["nlp"]}]').
+    if args.skills:
+        _raw_skills = args.skills.strip()
+        if _raw_skills.startswith("["):
+            # JSON array of structured skill objects
+            try:
+                import json as _json
+                _parsed = _json.loads(_raw_skills)
+                if isinstance(_parsed, list):
+                    skills = [_parse_skill_obj(s) for s in _parsed]
+                else:
+                    skills = [_parse_skill_obj(_raw_skills)]
+            except Exception:
+                # Fallback: treat as plain CSV
+                skills = [_parse_skill_obj(s.strip()) for s in _raw_skills.split(",") if s.strip()]
+        else:
+            # Plain comma-separated strings → structured objects (backward compat)
+            skills = [_parse_skill_obj(s.strip()) for s in _raw_skills.split(",") if s.strip()]
+    else:
+        skills = []
 
     _status["agent_name"] = args.name
     _status["ws_port"]    = ws_port
@@ -3986,6 +4376,13 @@ Examples:
     else:
         _limitations = []
     _status["limitations"] = list(_limitations)
+
+    # v1.4: --relay flag now means "force Level 3" (skip L1+L2 NAT traversal)
+    # Previously: "use relay instead of P2P"
+    # Now: _connect_with_nat_traversal() reads this flag to skip directly to L3
+    _status["force_relay"] = bool(use_relay)
+    if use_relay:
+        log.info("⚡ --relay flag: Level 3 relay forced (L1+L2 NAT traversal skipped)")
 
     # Rebuild card to reflect transport_modes + supported_interfaces + limitations
     _status["agent_card"] = _make_agent_card(args.name, skills)
