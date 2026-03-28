@@ -1,17 +1,20 @@
 {
   "last_research_scan": "2026-03-28T01:36:00Z",
-  "next_round": "test",
-  "notes": "开发轮（2026-03-28 11:34）：GitHub Pages 文档站完成。MkDocs Material 配置，docs/ 新增 index.md、Getting Started（quickstart/installation/concepts）、Guides（two-agents/team-collaboration）、blog/index.md、assets/extra.css、CHANGELOG.md；.github/workflows/docs.yml 自动部署 workflow；构建通过（0 errors，仅 warnings for spec 子链接）；push e6a7cc2 触发 GitHub Actions 部署到 https://kickflip73.github.io/agent-communication-protocol/",
-  "last_updated": "2026-03-28T11:34:00+08:00",
-  "last_test_run": "2026-03-28T11:35:00+08:00",
+  "next_round": "dev",
+  "notes": "测试轮（2026-03-28 12:17）场景 C/D：场景 C（test_scenario_bc.py）1 skipped（需要 P2P）；场景 D（test_scenario_d + test_scenario_d_stress）16/16 PASS，耗时 40.82s；无新 Bug",
+  "last_updated": "2026-03-28T12:17:00+08:00",
+  "last_test_run": "2026-03-28T12:17:00+08:00",
   "last_dev_run": "2026-03-28T11:34:00+08:00",
   "test_summary": {
+    "scenario_c_pipeline": "0 passed, 0 failed, 1 skipped (P2P required)",
+    "scenario_d_load": "6/6 PASS (test_scenario_d.py)",
+    "scenario_d_stress": "10/10 PASS (test_scenario_d_stress.py)",
     "extensions_spec": "39/39 PASS",
     "sdk_spec": "183/183 PASS",
     "full_suite_no_p2p": "323 passed, 4 skipped, 8 errors (peer_card_verify port timeout, infra issue)"
   },
   "lastChecks": {
-    "test": "2026-03-28T11:35:00+08:00",
+    "test": "2026-03-28T12:17:00+08:00",
     "dev": "2026-03-28T11:34:00+08:00"
   }
 }
