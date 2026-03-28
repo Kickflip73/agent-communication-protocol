@@ -1,10 +1,11 @@
 {
   "last_research_scan": "2026-03-28T12:51:00+08:00",
-  "next_round": "fix",
-  "notes": "研究轮（2026-03-28 12:51）：扫描 A2A/ANP/MCP 最新动态，生成报告 2026-03-28-scan.md",
-  "last_updated": "2026-03-28T12:51:00+08:00",
-  "last_test_run": "2026-03-28T12:19:00+08:00",
+  "next_round": "dev",
+  "notes": "修复轮（2026-03-28 13:51）：BUG-037 已修复 — messages_received 多 peer 懒绑定，12/12 单元测试通过，commit ced26b3",
+  "last_updated": "2026-03-28T13:51:00+08:00",
+  "last_test_run": "2026-03-28T12:17:00+08:00",
   "last_dev_run": "2026-03-28T12:21:00+08:00",
+  "last_fix_run": "2026-03-28T13:51:00+08:00",
   "last_research_run": "2026-03-28T12:51:00+08:00",
   "test_summary": {
     "scenario_c_pipeline": "PASS — A→B→C→A 闭环",
@@ -12,11 +13,13 @@
     "scenario_d_stress": "10/10 PASS",
     "extensions_spec": "39/39 PASS",
     "sdk_spec": "183/183 PASS",
-    "node_sdk": "32/32 PASS (v2.1.0)"
+    "node_sdk": "32/32 PASS (v2.1.0)",
+    "bug037_regression": "12/12 PASS"
   },
   "lastChecks": {
-    "test": "2026-03-28T12:19:00+08:00",
+    "test": "2026-03-28T12:17:00+08:00",
     "dev": "2026-03-28T12:21:00+08:00",
+    "fix": "2026-03-28T13:51:00+08:00",
     "research": "2026-03-28T12:51:00+08:00"
   }
 }
