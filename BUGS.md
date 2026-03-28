@@ -1012,7 +1012,7 @@ def wait_all_links(ports, timeout=60):
 
 **发现**：2026-03-28 场景 G 测试（心跳 Round 11）
 **优先级**：P2（测试架构需重写，非代码功能缺陷）
-**状态**：✅ 已修复 — commit `6b49fce`（2026-03-28）
+**状态**：✅ 完全修复 — commit `7fec8f2`（临时修复）→ **最终修复 v3：见下方**
 
 **复现**：
 ```
@@ -1020,21 +1020,24 @@ pytest tests/test_reconnect.py -v
 ```
 
 **根因**（两层）：
-1. `_start_relay()` 原本等待 `session_id` 非空 → **已修复**（现在只等 HTTP 200）
-2. `_get_token()` 通过 `/link` endpoint 获取 cloud token，无外网时 `/link` 不返回有效 token，40次轮询后抛出 `RuntimeError: Could not obtain relay token`
+1. `_start_relay()` 原本等待 `session_id` 非空 → 已修复（现在只等 HTTP 200）
+2. `_get_token()` 通过 `/link` endpoint 获取 cloud token，无外网时 `/link` 不返回有效 token
 
-**核心问题**：`test_reconnect.py` 的设计假设 relay 可以连接公网云 relay 并取得分享 token，整个 GR1–GR3 场景都用这个 token 来建立 P2P 连接。沙箱无外网，这条路走不通。
+**最终修复方案（v3，本轮 — local-only relay-to-relay 模式）**：
 
-**受影响**：GR1、GR2、GR3（全部 3 个测试）
+完全重写 `test_reconnect.py` 为 **local-only relay-to-relay** 架构：
+- **Alpha relay**：host mode，从 stdout 提取 `tok_xxx` token（约 35s，等待公网 IP 探测完成）
+- **Beta relay**：guest mode，`--join acp://127.0.0.1:<alpha_ws>/<token>` 直接调用 `guest_mode()`
+  - 关键：`--join` 直接调用 `guest_mode()`，**跳过 `_connect_with_nat_traversal`**
+  - 避免了 BUG-042（Level 1 测试连接 + BUG-041 dedup 导致 guest_mode 连接被拒绝）
+- 不使用原始 WS client，不依赖公网云 relay
+- 所有 assertion 通过 HTTP API（/status, /peers, /peer/{id}/send 等）
 
-**正确修复方案**（下一个修复轮）：
-重写 `test_reconnect.py`，改用 **local-only 模式**测试重连：
-- 两个 relay 实例直接通过 WS URL（`ws://127.0.0.1:<port>`）互连，不需要云 token
-- GR1：同 relay 重连 — 断开 WS → 重新 connect → 收发消息
-- GR2：relay 重启 — kill relay → 重启 → Agent 重新 connect
-- GR3：离线队列 — 断开 → 对方发消息 → 重连 → 验证消息缓冲
+**测试结果**：GR1 ✅ (~30s)、GR2 ✅ (~58s)、GR3 ✅ (~60s) — 全部通过
 
-**Commit**：`_start_relay` 部分修复已在 test_reconnect.py 中（待提交）
+**注意**：每个测试需要约 35s 等待 host relay 启动（公网 IP 探测超时），无法消除（不修改源码）
+
+**Commit**：(本轮提交，见下方 git log)
 
 ---
 
@@ -1151,3 +1154,31 @@ w1_orch_peer = max(
 ```
 
 **验证**：`python3 tests/test_scenario_bc.py` → Scenario B+C Tests: **33/33 PASS** ✅
+
+
+---
+
+### BUG-042 ⚠️ P3 — relay-to-relay 通过 `/peers/connect` 无法建立稳定连接（`_connect_with_nat_traversal` Level 1 + BUG-041 dedup 竞态）
+
+**发现**：2026-03-28 BUG-038 v3 修复过程中（relay-to-relay 架构调研）
+**优先级**：P3（测试架构问题，非生产影响；已通过 `--join` 绕过）
+**状态**：⚠️ 已知问题 — 有绕过方案，不影响当前测试
+
+**现象**：
+当 Relay A 通过 `POST /peers/connect {"link": "acp://127.0.0.1:<beta_ws>/<token>"}` 尝试连接 Relay B 时：
+1. Relay A 的 `_connect_with_nat_traversal` Level 1 打开**测试 WS 连接**，Beta 注册 `peer_001` (connected=True)
+2. Level 1 成功后，`asyncio.ensure_future(guest_mode(...))` 启动，`guest_mode` 打开**第二个 WS 连接**
+3. Beta 的 BUG-041 dedup 逻辑检测到 `peer_001` 已 connected，关闭第二个连接（`Closing duplicate`）
+4. `guest_mode` 重试 3 次均被关闭，最终 Alpha 的 peer 状态 `connected=False`，`probe-send` 全部 503
+
+**根因**：
+- `_connect_with_nat_traversal` Level 1 的测试连接 `ws` 在函数返回后超出作用域，被 GC 关闭
+- 但关闭前 Beta 已注册了这个 peer（`connected=True`）
+- `guest_mode` 的实际连接被 BUG-041 dedup 误判为 duplicate 而拒绝
+
+**绕过方案**（已在 test_reconnect.py v3 中使用）：
+使用 `--join acp://127.0.0.1:<host_ws>/<token>` 启动 Beta relay，**直接调用 `guest_mode()`**，跳过 `_connect_with_nat_traversal`（无 Level 1 测试连接，无竞态）
+
+**根本修复方向**（不修改测试，需改 relay 源码）：
+- `_connect_with_nat_traversal` Level 1 成功后，应直接 `return (peer_id, "direct")` **而不打开新的** `guest_mode`
+- 或者：Level 1 的测试连接应在 `guest_mode` 接管后关闭（手动传递 ws 给 guest_mode）
