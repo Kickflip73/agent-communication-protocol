@@ -3482,6 +3482,12 @@ class LocalHTTP(BaseHTTPRequestHandler):
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # 比 SSE subscribe 更简单，适合 Agent 调用
         elif p == "/webhooks/register":
+            # BUG-039 fix: restrict webhook registration to localhost only
+            # Webhook URLs receive all SSE events — must not allow remote registration
+            client_ip = (self.client_address or ("", 0))[0]
+            if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                self._json({"error": "webhook registration restricted to localhost"}, 403)
+                return
             try:
                 body = self._read_body()
                 url  = body.get("url", "").strip()
@@ -3495,6 +3501,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)}, 500)
 
         elif p == "/webhooks/deregister":
+            # BUG-039 fix: same localhost restriction for deregister
+            client_ip = (self.client_address or ("", 0))[0]
+            if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                self._json({"error": "webhook deregistration restricted to localhost"}, 403)
+                return
             try:
                 body = self._read_body()
                 url  = body.get("url", "").strip()

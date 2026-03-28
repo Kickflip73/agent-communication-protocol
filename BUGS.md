@@ -1038,11 +1038,13 @@ pytest tests/test_reconnect.py -v
 
 ---
 
-### BUG-039 🔴 P1 — `/webhooks/register` 无需认证，任意客户端可注册 webhook 接收所有 SSE 事件
+### BUG-039 ✅ P1 — `/webhooks/register` 无需认证，任意客户端可注册 webhook 接收所有 SSE 事件
 
 **发现**：2026-03-28 安全自查（心跳研究轮发现 A2A Issue #1681 同类问题）
 **优先级**：P1（安全漏洞，可导致消息内容泄露给第三方）
-**状态**：🔴 未修复
+**状态**：✅ 已修复 — commit `待提交`（2026-03-28）
+
+**修复方案**：在 `/webhooks/register` 和 `/webhooks/deregister` 两个端点前加 `client_address` 来源检查，仅允许 `127.0.0.1` / `::1` / `localhost` 注册，远程客户端返回 403。
 
 **复现**：
 ```bash
