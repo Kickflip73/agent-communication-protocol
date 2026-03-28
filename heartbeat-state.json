@@ -1,20 +1,21 @@
 {
   "last_research_scan": "2026-03-28T01:36:00Z",
   "next_round": "dev",
-  "notes": "心跳测试轮（2026-03-28 12:18）：场景C环形流水线 9/9 ✅，场景D压力测试100条消息 6/6 ✅。零丢包（0.00%），发送速率~1570 msg/s。发现并修复 BUG-036：/peer/{id}/send 响应缺少 server_seq 字段，修复后 seq 单调递增验证通过（[2,3,4,5,6]）。Relay v2.8.0。",
-  "last_updated": "2026-03-28T12:18:00+08:00",
-  "last_test_run": "2026-03-28T12:18:00+08:00",
+  "notes": "测试轮（2026-03-28 12:19）场景 C + F：场景 C 手动环形流水线 A→B→C→A PASS（消息闭环完整）；场景 F 错误处理 PASS（4类错误边界全部正确）；发现 BUG-037（messages_received 计数在多 peer 场景为 0，BUG-005 修复不完整，P2）",
+  "last_updated": "2026-03-28T12:19:00+08:00",
+  "last_test_run": "2026-03-28T12:19:00+08:00",
   "last_dev_run": "2026-03-28T11:34:00+08:00",
   "test_summary": {
-    "scenario_c_ring_pipeline": "9/9 PASS (3-agent A→B→C→A, all messages delivered)",
-    "scenario_d_stress_100": "6/6 PASS (100 msgs sent+received, 0% loss, seq monotonic after BUG-036 fix)",
-    "bug_036_fix": "BUG-036 /peer/{id}/send server_seq missing — FIXED & VERIFIED",
+    "scenario_c_pipeline": "PASS — 手动验证 7/7 步骤全通，A→B→C→A 闭环",
+    "scenario_f_errors": "PASS — F1 无效peer_id(404), F2 超大消息(413 at 1MB), F3 非法JSON(400), F4 无效link(400)",
+    "new_bugs": "BUG-037 P2 — messages_received 多 peer 场景计数为 0",
+    "scenario_d_load": "6/6 PASS (test_scenario_d.py)",
+    "scenario_d_stress": "10/10 PASS (test_scenario_d_stress.py)",
     "extensions_spec": "39/39 PASS",
-    "sdk_spec": "183/183 PASS",
-    "full_suite_no_p2p": "323 passed, 4 skipped, 8 errors (peer_card_verify port timeout, infra issue)"
+    "sdk_spec": "183/183 PASS"
   },
   "lastChecks": {
-    "test": "2026-03-28T12:18:00+08:00",
+    "test": "2026-03-28T12:19:00+08:00",
     "dev": "2026-03-28T11:34:00+08:00"
   }
 }

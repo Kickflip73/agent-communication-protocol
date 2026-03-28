@@ -917,3 +917,91 @@ def wait_all_links(ports, timeout=60):
 - server_seq 单调性: 修复 BUG-036 后可验证
 
 *最后更新：2026-03-28 by J.A.R.V.I.S.*
+
+---
+
+## Round 11 — 测试轮：场景 C（手动流水线）+ 场景 F（错误处理）(2026-03-28 12:19)
+
+### BUG-037 🟡 P2 — `messages_received` 计数器在多 peer 场景下始终为 0（BUG-005 修复不完整）
+
+**发现时间**: 2026-03-28 场景C手动流水线测试
+**状态**: 🔴 未修复
+
+**现象**:
+- 三 Agent 环形流水线（A→B→C→A）测试中，消息传递全部成功
+- 但所有 peer 的 `messages_received` 字段在收到消息后仍为 0
+- 例：A 收到来自 C 的消息（`from=Pipeline-C`），但 `peer_002.messages_received` = 0
+
+**根因**:
+- BUG-005 修复（commit 643450c）使用 `pinfo.get("name") == _from` 匹配，
+  其中 `_from = msg.get("from")` = 发送方 **agent name**（如 "Pipeline-C"）
+- 但 peer registry 中 `pinfo.get("name")` = 自动生成的 peer ID（如 "peer_002"）
+- 二者不匹配 → for-else 分支进入 fallback（单 peer 场景）
+- fallback 条件：`len(connected) == 1`，多 peer 场景（≥2 peers）不满足 → 无计数更新
+
+**影响范围**:
+- 所有拥有 ≥2 个 peer 的 relay 实例（单 peer 场景 fallback 可工作）
+- 团队协作（场景B）、流水线（场景C）等多 peer 拓扑全部受影响
+
+**复现条件**:
+- 至少 2 个 peer 同时 connected=True
+- 收到来自某 peer 的消息（`from` = 对方 agent_name，非 peer_id）
+
+**修复方向**:
+1. 在 peer registry 中存储对方的 `agent_name`（从握手消息或 AgentCard 中解析）
+2. 匹配逻辑改为同时检查 `pinfo.get("agent_name") == _from`
+3. 或：在消息中加入 `from_peer_id` 字段，直接按 peer_id 更新计数器
+
+**测试验证**:
+```
+# 三 Agent 场景 C：每个 Agent 发/收各 1 条消息
+# 预期：peer_001/peer_002 的 messages_received 对应更新
+# 实际：全部为 0
+```
+
+---
+
+### Round 11 测试结果汇总
+
+**测试时间**: 2026-03-28 12:19
+**Relay 版本**: v2.8.0（v2.8 新增 limitations 字段）
+
+#### 场景 C：三 Agent 环形流水线（手动验证）
+
+| 步骤 | 操作 | 结果 |
+|------|------|------|
+| 步骤1 | 启动三个 relay（Pipeline-A/B/C，端口 7911/12/13） | ✅ 所有 relay 就绪 |
+| 步骤2 | 获取各 relay link（等待公网 IP 探测 ~31s） | ✅ 三个 acp:// link 均可用 |
+| 步骤3 | B→A 连接、C→B 连接、A→C 连接（环形拓扑） | ✅ 6 个 peer 连接全部 connected=true |
+| 步骤4 | A 发送 `{"content": "Pipeline Start: step=1"}` 到 B | ✅ 发送成功，msg_id 返回 |
+| 步骤5 | B 接收消息（GET /recv），确认收到 step=1 | ✅ B.recv 含 "Pipeline Start: step=1" |
+| 步骤5 | B 转发 `{"content": "step=2"}` 到 C | ✅ 发送成功 |
+| 步骤6 | C 接收消息（GET /recv），确认收到 step=2 | ✅ C.recv 含 "step=2" |
+| 步骤6 | C 回传 `{"content": "step=3 completed"}` 到 A | ✅ 发送成功 |
+| 步骤7 | A 接收消息（GET /recv），确认收到 step=3 | ✅ A.recv 含 "step=3 completed" |
+
+**最终结论：场景 C — PASS ✅**（消息闭环完整传递，A→B→C→A 链路全通）
+
+**附加观察**：`messages_received` 计数在多 peer 场景为 0（BUG-037，新发现，P2）
+
+#### 场景 F：错误处理
+
+| 测试 | 描述 | HTTP 码 | error_code | 结果 |
+|------|------|---------|------------|------|
+| F1 | 无效 peer_id（`/peer/nonexistent_peer/send`） | 404 | ERR_NOT_FOUND | ✅ 正确错误响应 |
+| F2a | 超大消息（~100KB via `/message:send`，无 peer） | 503 | ERR_NOT_CONNECTED | ⚠️ 未触发大小校验 |
+| F2b | 超大消息（110KB via `/peer/{id}/send`，有连接） | 200 | — | ⚠️ 未拒绝（100KB < max 1MB） |
+| F2c | 超大消息（1.1MB via `/peer/{id}/send`） | 413 | ERR_MSG_TOO_LARGE | ✅ 正确拒绝 |
+| F3a | 非法 JSON body（`/message:send`） | 400 | ERR_INVALID_REQUEST | ✅ 正确 |
+| F3b | 非法 JSON body（`/peer/{id}/send`） | 400 | ERR_INVALID_REQUEST | ✅ 正确 |
+| F4a | 无效 link 格式（纯文本） | 400 | ERR_INVALID_REQUEST | ✅ 正确 |
+| F4b | http:// 协议 link（非 acp://） | 400 | ERR_INVALID_REQUEST | ✅ 正确 |
+| F4c | acp:// 无 token | 400 | ERR_INVALID_REQUEST | ✅ 正确 |
+| F4d | 端口越界（port=99999） | 400 | ERR_INVALID_REQUEST | ✅ 正确 |
+
+**最终结论：场景 F — PASS ✅**（所有错误边界均正确处理；F2 超大消息以 1MB 为阈值，符合 `max_msg_bytes=1048576` 规格）
+
+**说明（F2）**: 任务描述要求测试"超过 100KB 的消息"，而 relay 的 `max_msg_bytes` 为 1MB（1048576 bytes）。
+100KB 消息被接受（正确行为），1.1MB 消息被正确拒绝（413 ERR_MSG_TOO_LARGE）。无新 Bug。
+
+*最后更新：2026-03-28 by J.A.R.V.I.S.*
