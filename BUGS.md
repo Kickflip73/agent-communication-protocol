@@ -1008,11 +1008,11 @@ def wait_all_links(ports, timeout=60):
 
 ---
 
-### BUG-038 🟡 P2 — `test_reconnect.py` 整体架构依赖外网云 relay 注册（`session_id` + `/link` token），沙箱环境全部失败
+### BUG-038 ✅ P2 — `test_reconnect.py` 整体架构依赖外网云 relay 注册（`session_id` + `/link` token），沙箱环境全部失败
 
 **发现**：2026-03-28 场景 G 测试（心跳 Round 11）
 **优先级**：P2（测试架构需重写，非代码功能缺陷）
-**状态**：🟡 部分修复（`_start_relay` 已去除 session_id 等待，但 `_get_token` 仍依赖外网）
+**状态**：✅ 已修复 — commit `6b49fce`（2026-03-28）
 
 **复现**：
 ```
