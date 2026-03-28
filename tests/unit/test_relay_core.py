@@ -798,9 +798,11 @@ class TestExtensions(unittest.TestCase):
     # ── AgentCard inclusion ─────────────────────────────────────────────────
 
     def test_extensions_absent_when_empty(self):
-        """AgentCard must NOT include 'extensions' key when none declared."""
+        """v2.8: AgentCard ALWAYS includes 'extensions' key (empty list when none declared)."""
         card = relay._make_agent_card("TestAgent", [])
-        self.assertNotIn("extensions", card)
+        self.assertIn("extensions", card)
+        # No built-in capabilities active and no user-declared extensions → empty list
+        self.assertEqual(card["extensions"], [])
 
     def test_extensions_present_when_declared(self):
         relay._extensions.append({"uri": "https://example.com/ext/v1", "required": False})

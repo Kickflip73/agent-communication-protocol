@@ -2,7 +2,7 @@
 
 **Status:** Release Candidate  
 **Authors:** ACP Community  
-**Date:** 2026-03-27 (v2.6: Task `cancelling` intermediate state — ACP leads A2A on cancel semantics)  
+**Date:** 2026-03-28 (v2.8: Extension mechanism — URI-identified extensions in AgentCard)  
 **License:** Apache 2.0  
 **Supersedes:** [core-v0.8.md](core-v0.8.md)  
 **See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v0.8.md](identity-v0.8.md)
@@ -273,10 +273,15 @@ GET /.well-known/acp.json   [stable]
 ```json
 {
   "name":            "MyAgent",
-  "acp_version":     "2.4.0",
-  "timestamp":       "2026-03-27T07:00:00Z",
+  "acp_version":     "2.8.0",
+  "timestamp":       "2026-03-28T07:00:00Z",
   "skills":          [{"id": "summarize", "name": "summarize"}],
   "transport_modes": ["p2p", "relay"],
+  "extensions": [
+    {"uri": "acp:ext:hmac-v1",  "required": false, "params": {"scheme": "hmac-sha256"}},
+    {"uri": "acp:ext:mdns-v1",  "required": false, "params": {}},
+    {"uri": "acp:ext:h2c-v1",   "required": false, "params": {}}
+  ],
 
   "capabilities": {
     "streaming":             true,
@@ -334,7 +339,9 @@ GET /.well-known/acp.json   [stable]
 | `auth` | object | **stable** | Supported auth schemes |
 | `endpoints` | object | **stable** | Endpoint path map |
 | `availability` | object | **experimental** | v1.2+ heartbeat/cron availability metadata |
-| `extensions` | object[] | **experimental** | v1.3+ declared protocol extensions |
+| `extensions` | object[] | **stable** | **v2.8+** URI-identified extension declarations. Always present (empty `[]` when none). See §5.5. |
+| `limitations` | string[] | **experimental** | v2.7+ declared limitations (what the agent CANNOT do) |
+| `supported_interfaces` | string[] | **experimental** | v2.5+ interface groups implemented |
 
 ### 5.3 Capability Flags
 
@@ -395,7 +402,97 @@ GET /.well-known/acp.json   [stable]
 
 Receivers MUST treat `transport_modes` as advisory. Unknown values in the list MUST be ignored.
 
-### 5.5 Forward Compatibility
+### 5.5 Extension Mechanism (v2.8+) — `stable`
+
+ACP supports a lightweight, declarative extension system inspired by A2A's extension model but
+designed to remain minimal and registry-free.
+
+#### 5.5.1 Extension Object Schema
+
+Each entry in the top-level `extensions` array is an **Extension Object**:
+
+```json
+{
+  "uri":      "acp:ext:hmac-v1",
+  "required": false,
+  "params":   {"scheme": "hmac-sha256"}
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `uri` | string | **yes** | Unique URI identifying the extension |
+| `required` | bool | no | If `true`, clients that don't support this extension SHOULD abort. Default: `false`. |
+| `params` | object | no | Arbitrary key-value parameters for the extension. Default: `{}`. |
+
+#### 5.5.2 URI Naming Convention
+
+| Namespace | Format | Example |
+|-----------|--------|---------|
+| ACP built-in | `acp:ext:<name>-v<version>` | `acp:ext:hmac-v1` |
+| External / vendor | Full HTTPS URL | `https://corp.example.com/ext/billing` |
+
+Custom URIs SHOULD use a full HTTPS URL to ensure global uniqueness and documentation discoverability.
+Short `acp:ext:` URIs are reserved for officially defined ACP extensions.
+
+#### 5.5.3 Well-Known Built-in Extensions
+
+| URI | Description | Auto-registered when |
+|-----|-------------|---------------------|
+| `acp:ext:hmac-v1` | HMAC-SHA256 message signing | `--secret` flag is set |
+| `acp:ext:mdns-v1` | mDNS LAN peer discovery | `--advertise-mdns` flag is set |
+| `acp:ext:h2c-v1` | HTTP/2 cleartext transport | `--http2` flag is set |
+
+Built-in extensions are **automatically registered** in the relay based on runtime configuration.
+No explicit declaration is needed; they appear in the `extensions` array when the corresponding
+feature is active.
+
+#### 5.5.4 Semantics and Compatibility Rules
+
+1. **Always present**: The `extensions` array MUST always be present in the AgentCard response, even
+   when empty (`[]`). This makes extension discovery unambiguous.
+
+2. **Non-required default**: `required: false` is the default. Receivers that do not recognise an
+   extension MUST ignore it. This preserves full backward compatibility.
+
+3. **Required extensions**: When `required: true`, a receiver that does not understand the extension
+   SHOULD treat the connection as incompatible (e.g. abort task submission). This is opt-in and
+   not enforced by the relay itself.
+
+4. **No registry**: ACP does not maintain a central extension registry. URI uniqueness is the
+   responsibility of the extension definer.
+
+5. **Deduplication**: If the same URI appears multiple times (e.g. from `--extension` and
+   auto-registration), implementations MUST deduplicate by URI, keeping the first occurrence.
+
+#### 5.5.5 Discovery
+
+Extensions are visible via:
+- `GET /.well-known/acp.json` — AgentCard's `extensions` array
+- `GET /extensions` — dedicated extensions list endpoint (same data)
+
+```bash
+curl http://localhost:7901/extensions
+# {"extensions": [{"uri": "acp:ext:hmac-v1", "required": false, "params": {"scheme": "hmac-sha256"}}]}
+```
+
+#### 5.5.6 CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--extension URI[,required=true][,key=val...]` | Declare a single extension (repeatable). Supports per-extension params. |
+| `--extensions URI[,URI,...]` | Shorthand: declare multiple extensions by URI (comma-separated, no per-extension params). |
+
+**Example:**
+```bash
+# Declare a single custom extension with params
+python3 acp_relay.py --name Agent --extension "https://corp.example.com/ext/billing,required=true,tier=pro"
+
+# Declare multiple extensions shorthand
+python3 acp_relay.py --name Agent --extensions "acp:ext:custom-v1,https://corp.example.com/ext/audit"
+```
+
+### 5.6 Forward Compatibility
 
 Receivers MUST ignore unknown capability fields. A flag value of `false` or absent is equivalent.
 

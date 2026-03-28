@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.7.0"  # v2.7: AgentCard limitations field (ACP-exclusive, ref A2A #1694)
+VERSION = "2.8.0"  # v2.8: Extension mechanism — URI-identified extensions in AgentCard
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1029,11 +1029,54 @@ def _make_agent_card(name, skills):
             else:
                 card["availability"]["last_active_at"] = _now()
 
-    # v1.3: attach extensions list only when declared (opt-in)
-    if _extensions:
-        card["extensions"] = list(_extensions)  # shallow copy
+    # v2.8: always include extensions field (empty list when none declared)
+    # Auto-register built-in extensions based on runtime capabilities
+    builtin_extensions = _make_builtin_extensions()
+    # Merge: built-in first, then user-declared (deduplicate by URI)
+    seen_uris = set()
+    merged_extensions = []
+    for ext in builtin_extensions + list(_extensions):
+        uri = ext.get("uri", "")
+        if uri and uri not in seen_uris:
+            seen_uris.add(uri)
+            merged_extensions.append(dict(ext))
+    card["extensions"] = merged_extensions
 
     return card
+
+
+def _make_builtin_extensions() -> list:
+    """
+    v2.8: Auto-derive built-in extension declarations from runtime configuration.
+
+    Returns a list of extension dicts for capabilities that are already active:
+      - acp:ext:hmac-v1   — HMAC-SHA256 message signing (--secret)
+      - acp:ext:mdns-v1   — mDNS LAN peer discovery (--advertise-mdns)
+      - acp:ext:h2c-v1    — HTTP/2 cleartext transport (--http2)
+
+    URI naming convention: acp:ext:<name>-v<version>
+    External extensions use a full URL (https://…).
+    """
+    exts = []
+    if _hmac_secret:
+        exts.append({
+            "uri":      "acp:ext:hmac-v1",
+            "required": False,
+            "params":   {"scheme": "hmac-sha256"},
+        })
+    if _mdns_running:
+        exts.append({
+            "uri":      "acp:ext:mdns-v1",
+            "required": False,
+            "params":   {},
+        })
+    if _http2_enabled:
+        exts.append({
+            "uri":      "acp:ext:h2c-v1",
+            "required": False,
+            "params":   {},
+        })
+    return exts
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3662,6 +3705,13 @@ Examples:
                              "Format: URI  or  URI,required=true,param_key=param_val. "
                              "Example: --extension https://acp.dev/ext/availability/v1,required=false "
                              "         --extension https://corp.example.com/ext/billing,tier=pro")
+    parser.add_argument("--extensions", default=None, metavar="URI[,URI...]",
+                        help="(v2.8) Comma-separated list of extension URIs to declare in AgentCard. "
+                             "Shorthand for --extension when no per-extension params are needed. "
+                             "Built-in extensions (hmac, mdns, h2c) are auto-registered based on "
+                             "runtime config; this flag appends custom/external extensions. "
+                             "URI format: acp:ext:<name>-v<version> or https://... "
+                             "Example: --extensions acp:ext:custom-v1,https://corp.example.com/ext/billing")
     parser.add_argument("--http-host", default="127.0.0.1", metavar="HOST",
                         help="Host/IP the HTTP interface binds to (default: 127.0.0.1). "
                              "Use 0.0.0.0 for Docker/container deployments so port mapping works.")
@@ -3785,8 +3835,8 @@ Examples:
     elif avail_mode == "persistent":
         _availability = {"mode": "persistent"}
 
-    # v1.3: parse --extension flags into _extensions list
-    raw_extensions = _get(getattr(args, "extension", []) or [], "extensions", [])
+    # v1.3 / v2.8: parse --extension and --extensions flags into _extensions list
+    raw_extensions = _get(getattr(args, "extension", []) or [], "extension", [])
     if isinstance(raw_extensions, str):
         raw_extensions = [raw_extensions]
     for raw_ext in raw_extensions:
@@ -3809,8 +3859,20 @@ Examples:
         if ext_entry["params"] == {}:
             del ext_entry["params"]
         _extensions.append(ext_entry)
+
+    # v2.8: --extensions shorthand (comma-separated URIs, no per-extension params)
+    raw_extensions_bulk = _get(getattr(args, "extensions", None), "extensions", None)
+    if raw_extensions_bulk:
+        if isinstance(raw_extensions_bulk, str):
+            uris = [u.strip() for u in raw_extensions_bulk.split(",") if u.strip()]
+            for uri in uris:
+                # Avoid duplicating URIs already added via --extension
+                if not any(e["uri"] == uri for e in _extensions):
+                    _extensions.append({"uri": uri, "required": False, "params": {}})
+
     if _extensions:
-        log.info(f"🔌 Extensions declared: {[e['uri'] for e in _extensions]}")
+        log.info(f"🔌 User-declared extensions: {[e['uri'] for e in _extensions]}")
+    log.info("🔌 Built-in extensions will be auto-registered from runtime capabilities")
 
     # Rebuild args-like namespace for the rest of main() to consume
     # (avoids rewriting all downstream args.xxx references)

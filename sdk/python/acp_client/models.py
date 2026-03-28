@@ -271,6 +271,67 @@ class Task:
 
 
 # ─────────────────────────────────────────────────────────────
+# Extension — AgentCard extension descriptor (v2.8)
+# ─────────────────────────────────────────────────────────────
+
+@dataclass
+class Extension:
+    """
+    ACP AgentCard extension descriptor (v2.8).
+
+    Each extension is identified by a unique URI and carries optional metadata.
+    Clients that do not recognise an extension MUST ignore it (non-required)
+    or MAY refuse the connection (required=True).
+
+    URI naming convention:
+      - Built-in:  ``acp:ext:<name>-v<version>``  (e.g. ``acp:ext:hmac-v1``)
+      - External:  full HTTPS URL                  (e.g. ``https://corp.example.com/ext/billing``)
+
+    Well-known built-in URIs
+    ~~~~~~~~~~~~~~~~~~~~~~~~
+    ``acp:ext:hmac-v1``
+        HMAC-SHA256 message signing.  Activated by ``--secret``.
+    ``acp:ext:mdns-v1``
+        mDNS LAN peer discovery.  Activated by ``--advertise-mdns``.
+    ``acp:ext:h2c-v1``
+        HTTP/2 cleartext transport.  Activated by ``--http2``.
+
+    Attributes:
+        uri:      Unique extension identifier URI (required).
+        required: If True, clients that don't support this extension SHOULD
+                  abort the connection.  Default: False.
+        params:   Arbitrary key-value parameters for the extension.
+    """
+
+    uri: str
+    required: bool = False
+    params: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        d: dict = {"uri": self.uri, "required": self.required}
+        if self.params:
+            d["params"] = dict(self.params)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Extension":
+        if not isinstance(d, dict):
+            raise ValueError(f"Extension.from_dict expects a dict, got {type(d).__name__}")
+        uri = d.get("uri")
+        if not uri:
+            raise ValueError("Extension dict missing required 'uri' field")
+        return cls(
+            uri=uri,
+            required=bool(d.get("required", False)),
+            params=dict(d.get("params", {})),
+        )
+
+    def __repr__(self) -> str:
+        req_flag = " required" if self.required else ""
+        return f"<Extension uri={self.uri!r}{req_flag}>"
+
+
+# ─────────────────────────────────────────────────────────────
 # AgentCard
 # ─────────────────────────────────────────────────────────────
 
@@ -290,6 +351,11 @@ class AgentCard:
         transport_modes:   Routing topology modes (v2.4+): "p2p" | "relay".
         availability:      Scheduling availability descriptor (v2.1+).
         limitations:       List of limitation strings (v2.7+).
+        extensions:        List of Extension objects (v2.8+). URI-identified extension
+                           declarations.  Built-in extensions (hmac, mdns, h2c) are
+                           auto-registered; additional ones added via --extensions CLI flag.
+                           Clients that don't recognise an extension MUST ignore it unless
+                           required=True.
         identity:          DID identity block (v1.3+).
         metadata:          Arbitrary extra top-level fields.
     """
@@ -304,6 +370,7 @@ class AgentCard:
     transport_modes: List[str] = field(default_factory=lambda: ["p2p", "relay"])
     availability: Dict[str, Any] = field(default_factory=dict)
     limitations: List[str] = field(default_factory=list)
+    extensions: List[Extension] = field(default_factory=list)
     identity: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -329,6 +396,21 @@ class AgentCard:
         """Return True if relay routing mode is supported."""
         return "relay" in self.transport_modes
 
+    def has_extension(self, uri: str) -> bool:
+        """Return True if the agent declares the given extension URI (v2.8+)."""
+        return any(e.uri == uri for e in self.extensions)
+
+    def get_extension(self, uri: str) -> Optional["Extension"]:
+        """Return the Extension object for the given URI, or None (v2.8+)."""
+        for e in self.extensions:
+            if e.uri == uri:
+                return e
+        return None
+
+    def required_extensions(self) -> List["Extension"]:
+        """Return all extensions where required=True (v2.8+)."""
+        return [e for e in self.extensions if e.required]
+
     def to_dict(self) -> dict:
         d: dict = {
             "name": self.name,
@@ -336,6 +418,8 @@ class AgentCard:
             "description": self.description,
             "acp_version": self.acp_version,
             "capabilities": self.capabilities,
+            # v2.8: always emit extensions (empty list when none)
+            "extensions": [e.to_dict() for e in self.extensions],
         }
         if self.skills:
             d["skills"] = self.skills
@@ -358,7 +442,7 @@ class AgentCard:
             "name", "version", "description", "acp_version",
             "capabilities", "skills", "supported_interfaces",
             "transport_modes", "availability", "limitations",
-            "identity", "self",
+            "extensions", "identity", "self",
         }
         # Some relays nest the card under "self"
         if "self" in d and isinstance(d["self"], dict):
@@ -366,6 +450,17 @@ class AgentCard:
             d = {**inner, **{k: v for k, v in d.items() if k != "self"}}
 
         metadata = {k: v for k, v in d.items() if k not in known_keys}
+
+        # v2.8: parse extensions list; tolerate missing field (backward compat)
+        raw_extensions = d.get("extensions", [])
+        extensions: List[Extension] = []
+        if isinstance(raw_extensions, list):
+            for item in raw_extensions:
+                if isinstance(item, dict):
+                    try:
+                        extensions.append(Extension.from_dict(item))
+                    except (ValueError, KeyError):
+                        pass  # skip malformed entries; forward-compat
 
         return cls(
             name=d.get("name", "unnamed-agent"),
@@ -378,6 +473,7 @@ class AgentCard:
             transport_modes=d.get("transport_modes", ["p2p", "relay"]),
             availability=d.get("availability", {}),
             limitations=d.get("limitations", []),
+            extensions=extensions,
             identity=d.get("identity", {}),
             metadata=metadata,
         )

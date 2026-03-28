@@ -11,6 +11,55 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.8.0] — 2026-03-28 (Extension Mechanism — URI-Identified Extensions in AgentCard)
+### Added
+- **Extension mechanism** (`relay/acp_relay.py`):
+  - `_make_builtin_extensions()` — auto-registers built-in extensions based on runtime config:
+    - `acp:ext:hmac-v1` when `--secret` is set (HMAC-SHA256 signing)
+    - `acp:ext:mdns-v1` when `--advertise-mdns` is set (mDNS LAN discovery)
+    - `acp:ext:h2c-v1` when `--http2` is set (HTTP/2 cleartext transport)
+  - `_make_agent_card()` now **always emits `extensions: []`** (empty list when none declared) — was opt-in before v2.8
+  - Deduplication by URI: if same URI appears in built-in and user-declared, kept once (first occurrence)
+  - `--extensions URI[,URI,...]` new CLI flag — shorthand for declaring multiple extensions by URI
+  - Built-in + user-declared extensions merged in card; built-ins first, then user-declared
+- **Python SDK** (`sdk/python/acp_client/models.py`):
+  - `Extension` dataclass — `uri` (str, required), `required` (bool, default `False`), `params` (dict, default `{}`)
+    - `Extension.to_dict()` — serialises to dict; omits `params` when empty
+    - `Extension.from_dict(d)` — parses dict; validates `uri` required; forward-compat (skips malformed entries)
+    - `__repr__` — human-readable with `required` indicator
+  - `AgentCard.extensions: List[Extension]` field (default `[]`)
+  - `AgentCard.has_extension(uri)` — bool check by URI
+  - `AgentCard.get_extension(uri)` → `Extension | None`
+  - `AgentCard.required_extensions()` → `List[Extension]`
+  - `AgentCard.from_dict()` — handles missing/null `extensions` field (backward compat)
+  - `AgentCard.to_dict()` — always emits `extensions` key
+- **Spec** (`spec/core-v1.0.md`):
+  - New §5.5 "Extension Mechanism (v2.8+)" with full schema, URI naming convention,
+    well-known built-in URIs table, semantics/compat rules, discovery, CLI flags
+  - AgentCard schema example updated to show `extensions` array
+  - Top-level fields table updated: `extensions` → **stable**
+- **Tests** (`tests/test_extensions.py`): 39 test cases (all passing):
+  - Extension dataclass defaults, serialisation, round-trip
+  - AgentCard `extensions` field: default empty, to_dict/from_dict
+  - Backward compat: old responses without `extensions` field
+  - Convenience methods: `has_extension`, `get_extension`, `required_extensions`
+  - Relay: `_make_builtin_extensions` for all 3 built-ins
+  - Relay: `_make_agent_card` always emits extensions key
+  - Relay: user-declared merge, deduplication
+  - `--extensions` CLI bulk URI parsing
+
+### Changed
+- `relay/acp_relay.py` VERSION: `2.7.0` → `2.8.0`
+- `tests/unit/test_relay_core.py`: updated `test_extensions_absent_when_empty` to assert extensions key always present (v2.8 semantics)
+
+### Design
+- Inspired by A2A extension model; designed to remain minimal and registry-free
+- URI naming: `acp:ext:<name>-v<version>` for built-ins; full HTTPS URL for external/vendor extensions
+- **Non-required default**: `required: false` — clients that don't recognise an extension MUST ignore it
+- No registry, no central authority — URI uniqueness is the extension definer's responsibility
+
+---
+
 ## [1.8.0] — 2026-03-28 (acp-client LangChain Tool Adapter)
 ### Added
 - `sdk/python/acp_client/integrations/` — new optional integrations sub-package

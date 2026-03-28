@@ -1,6 +1,16 @@
 {
   "last_research_scan": "2026-03-28T01:36:00Z",
-  "next_round": "test",
-  "notes": "Scan #18: A2A 近7天2个commit（OIXA经济协议加入生态 #1692，Python tutorial更新至v1.0.0-alpha.0 #1678）；trust.signals[] #1628 提案活跃（ECDSA统一信任信号框架）；A2A spec冻结第12天。ANP近7天0 commit，issue #75 AgentID提案无响应，ANP实质停更。ACP行动项：P2-AgentCard limitations字段，P3-behavioral信任信号研究。",
-  "last_updated": "2026-03-28T01:37:00Z"
+  "next_round": "dev",
+  "notes": "测试轮 D+H（2026-03-28 Round 2）：SDK 183/183 PASS；全套回归 318 passed 6 skipped 0 failed；场景D压测（100条消息/并发/断线重连）10/10 PASS；场景H并发压力 1/1 PASS。无新 Bug，ACP 全链路健康。",
+  "last_updated": "2026-03-28T10:25:00+08:00",
+  "last_test_run": "2026-03-28T10:25:00+08:00",
+  "test_summary": {
+    "sdk": {"passed": 183, "failed": 0},
+    "scenario_d_stress": {"passed": 10, "failed": 0, "note": "100 sequential msgs, concurrent sends, disconnect-reconnect, large msg, malformed JSON all pass"},
+    "scenario_h": {"passed": 1, "failed": 0, "note": "Multi-agent concurrent relay stress test pass"},
+    "full_regression": {"passed": 318, "skipped": 6, "failed": 0}
+  },
+  "lastChecks": {
+    "test": "2026-03-28T10:25:00+08:00"
+  }
 }

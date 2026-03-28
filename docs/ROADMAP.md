@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-28（v2.7 文档轮：AgentCard `limitations` 字段完成；三元能力边界声明；relay v2.7.0 上线）
+> 最后更新：2026-03-28（v2.8：Extension 机制 — URI 标识扩展点，内置扩展自动注册，SDK Extension 数据类，39 测试用例全绿）
 
 ---
 
@@ -453,6 +453,30 @@ Client                          Server
 
 ---
 
+### ✅ v2.8（已完成，2026-03-28）
+**主题：Extension 机制 — URI 标识扩展点，向 A2A 靠拢**
+
+| 特性 | 优先级 | 状态 | Commit |
+|------|--------|------|--------|
+| `_make_builtin_extensions()` — 内置扩展自动注册（hmac/mdns/h2c 对应 `acp:ext:*-v1` URI） | P0 | ✅ 已完成 | — |
+| `_make_agent_card()` 始终输出 `extensions: []`（v2.8 前为 opt-in，现强制包含） | P0 | ✅ 已完成 | — |
+| `--extensions URI[,URI,...]` 新 CLI flag（批量声明自定义扩展） | P1 | ✅ 已完成 | — |
+| URI 去重：相同 URI 在内置+用户声明中只保留一次 | P1 | ✅ 已完成 | — |
+| SDK：`Extension` 数据类（uri/required/params，to_dict/from_dict，__repr__） | P0 | ✅ 已完成 | — |
+| SDK：`AgentCard.extensions: List[Extension]` 字段（默认 `[]`） | P0 | ✅ 已完成 | — |
+| SDK：`has_extension(uri)` / `get_extension(uri)` / `required_extensions()` 便捷方法 | P1 | ✅ 已完成 | — |
+| SDK：向后兼容——旧响应无 `extensions` 字段时正常解析为 `[]` | P0 | ✅ 已完成 | — |
+| spec/core-v1.0.md §5.5：完整 Extension 机制说明（Schema/URI 规范/well-known 表/语义规则） | P0 | ✅ 已完成 | — |
+| `tests/test_extensions.py`：39 个测试用例（全通过，无回归） | P1 | ✅ 已完成 | — |
+
+**差异化亮点：**
+- URI 命名约定：`acp:ext:<name>-v<version>`（内置）/ HTTPS URL（外部）
+- 非强制默认：`required: false` — 客户端不认识的扩展直接忽略，完全向后兼容
+- 无注册中心：轻量设计，URI 唯一性由扩展定义方负责
+- 内置扩展（hmac/mdns/h2c）自动注册，无需用户手动声明
+
+---
+
 ### 🔮 v2.0（目标：2026-06）
 **主题：生产可用 + 生态**
 
@@ -461,7 +485,10 @@ Client                          Server
   - ✅ `ACPCallbackHandler` — LangChain CallbackHandler（tool 通信日志）
   - ✅ `create_acp_tool()` — 工厂辅助函数（顶层导出）
   - ✅ `sdk/python/acp_client/integrations/langchain.py` — acp_client v1.8.0 发布
-- [ ] Extension 机制（URI 标识扩展点，向 A2A 靠拢）
+- [x] Extension 机制（URI 标识扩展点，向 A2A 靠拢）
+  - ✅ `acp:ext:hmac-v1` / `acp:ext:mdns-v1` / `acp:ext:h2c-v1` 内置扩展自动注册
+  - ✅ `Extension` 数据类 + `AgentCard.extensions` 字段 + 向后兼容
+  - ✅ relay v2.8.0 上线
 - [ ] 完整 DID 文档站 + 合规认证工具公开
 
 ---
