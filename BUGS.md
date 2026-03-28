@@ -1135,9 +1135,12 @@ python3 tests/test_scenario_bc.py
 
 **修复方案（已双层实施）**：
 
-**A. relay 层（根本修复）**：`host_mode` accept 时检查重复远端 IP:port，复用而非新建
-- `relay/acp_relay.py` L1781: `# BUG-041 fix: deduplicate peers from same remote addr to prevent ghost peers`
-- 当同一 remote_addr 的 peer 已存在时，复用现有 peer_id 而非新建
+**A. relay 层（根本修复）**：`host_mode` accept 时基于 **link token** 检查重复 peer，有则直接关闭新 WS（幂等）
+- `relay/acp_relay.py` `_register_peer` 新增 `link_token` 字段
+- `host_mode.on_guest()` 验证 token 后，先检查 `_peers` 中是否已有 `link_token==incoming_token` 且 `connected=True` 的 peer
+- 若已存在：立即 `await websocket.close(1000, "duplicate_connection")` 并 return，防止幽灵 peer 注册
+- 若不存在：正常 `_register_peer(ws=websocket, link_token=incoming_token)` 注册新 peer
+- 相比旧方案（remote_address 匹配），token-based 去重在 NAT 三级降级路径（不同 remote_addr）下更可靠
 
 **B. 测试层（测试代码）**：选取 `messages_received` 最多的 peer 而非第一个
 ```python
