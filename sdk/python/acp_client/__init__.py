@@ -32,7 +32,7 @@ Quick-start (async)
 
 from .client import RelayClient
 from .async_client import AsyncRelayClient
-from .models import AgentCard, Message, Task, TaskStatus, Part, PartType
+from .models import AgentCard, Message, Task, TaskStatus, Part, PartType, Extension
 from .exceptions import (
     ACPError,
     PeerNotFoundError,
@@ -42,7 +42,7 @@ from .exceptions import (
     AuthError,
 )
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 # ── Optional integrations (lazy import; framework not required) ───────────────
 # LangChain integration is available when langchain is installed:
@@ -66,6 +66,7 @@ __all__ = [
     "TaskStatus",
     "Part",
     "PartType",
+    "Extension",
     # Exceptions
     "ACPError",
     "PeerNotFoundError",
