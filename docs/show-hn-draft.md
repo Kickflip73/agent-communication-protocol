@@ -74,7 +74,7 @@ curl -X POST http://localhost:7901/message:send \
 - **Extension mechanism**: URI-identified AgentCard extensions (e.g. `acp:ext:did_identity`)
 - Availability metadata for heartbeat/cron agents (A2A is still discussing this in issue #1667)
 - `GET /messages`: history message list with filtering + pagination
-- SDKs: Python (`acp-client` pip), Node.js (npm `acp-relay-client`), Go, Rust
+- SDKs: Python (`acp-client` pip), Node.js (npm `acp-relay-client`), Go, Rust — **all four available now**
 - LangChain adapter: `ACPTool` + `ACPCallbackHandler`
 - Cloudflare Worker as automatic Level-3 relay fallback
 - Compatibility certification test suite (Level 1: 24/24 ✅)
@@ -110,6 +110,14 @@ Push Notification mechanism at all. Fewer features = smaller attack surface.
 and as of today, issue #1684 reveals they still haven't agreed on what `CancelTaskRequest`
 even *looks like*. ACP spec §10 has had a complete, tested cancel contract for two weeks.
 
+**Agent Limitations Metadata**: On 2026-03-27, A2A opened issue #1694 proposing to add a
+`limitations` field to AgentCard — to let agents declare what they *can't* do (rate limits,
+unsupported input types, capability constraints). As of this writing, it's still just an
+open proposal, no implementation. ACP shipped `limitations` as part of AgentCard in
+**v2.7** (2026-03-28) — same day the A2A issue was filed. Format: a structured `limitations`
+block in `/.well-known/acp.json`, machine-readable, filterable at discovery time. If you
+want to build a router that skips overloaded agents, ACP lets you do that today.
+
 **Spec consistency**: A2A issue #1683 (March 2026): their spec says `contextId` is *mandatory* in SSE events (§4.2.2), but the SSE streaming example in §6.2 omits it entirely — the spec contradicts itself. ACP v1.7 explicitly propagates `context_id` through every SSE event; doc and code are identical.
 
 **What I want feedback on**:
@@ -134,6 +142,7 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 - **on reliability**: A2A drops messages silently when peer is offline — no spec-level buffering. ACP v2.0-alpha offline queue: message survives the disconnect, auto-delivered on reconnect, zero caller changes required.
 - **on security**: A2A issue #1681 (open): `PushNotificationConfig` leaks credentials by default. ACP doesn't have Push Notifications — that's a feature, not a limitation.
 - **on cancel semantics**: A2A issue #1680 (open, no resolution): async cancel is complex. ACP cancel is synchronous and unambiguous.
+- **on limitations metadata**: A2A issue #1694 (2026-03-27, open): proposes `limitations` field in AgentCard, still no implementation. ACP v2.7 shipped `limitations` on 2026-03-28 — same day the proposal was filed. Machine-readable, filterable at discovery time.
 - **vs MQTT/WebSockets**: Those are transports. ACP is a semantic protocol (tasks, agent cards, identity).
 - **vs HTTP APIs**: Agents aren't servers. They come and go. ACP handles NAT, discovery, availability.
 - **Zero-server claim**: The Cloudflare Worker relay is a fallback, not required. P2P works without it if agents are on same LAN or have public IPs.
@@ -146,6 +155,7 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 - "Why not just use getagentid.dev?" → External CA = external dependency + registration + potential downtime. ACP `did:acp:` is derived from your key pair, works offline, no third party.
 - "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python. Also: A2A hasn't merged code in 10+ days post-v1.0.
 - "What about cancel edge cases?" → ACP cancel is synchronous: you get `canceled` back immediately. A2A is still debating this in issue #1680.
+- "Does it support agent capability constraints?" → Yes. ACP v2.7 `limitations` field in AgentCard lets agents declare rate limits, unsupported inputs, etc. A2A issue #1694 proposed this same day (2026-03-27) — still open, unimplemented.
 - "Is this actively maintained?" → Yes. 3 commits this week alone. Check the GitHub pulse.
 - "A2A spec is more thorough?" → A2A issue #1683: their spec contradicts itself on SSE contextId (mandatory per §4.2.2, absent in §6.2 example). ACP spec = code; we ship tests alongside every spec change.
 
@@ -160,5 +170,17 @@ even *looks like*. ACP spec §10 has had a complete, tested cancel contract for 
 | v2.8 | Extensions + LangChain | URI-identified AgentCard extensions, `ACPTool` LangChain adapter, Node SDK v2.1.0 |
 | v2.9 | Message History | `GET /messages` history list with filtering + pagination |
 | v3.0 | **NAT Traversal Complete** | `_connect_with_nat_traversal()` — automatic L1/L2/L3, zero user config |
+
+---
+
+## SDK 矩阵（2026-03-28）
+
+| SDK | Package | Status |
+|-----|---------|--------|
+| Python | `pip install acp-relay` | ✅ v1.7（RelayClient 完整特性集） |
+| Node.js | `npm install acp-relay-client` | ✅ 可用（sdk/node/） |
+| Go | `acprelay` (stdlib only) | ✅ 可用（sdk/go/） |
+| Rust | `acp-relay-client` | ✅ stub 可用（sdk/rust/） |
+| Java | (sdk/java/) | ✅ 可用（sdk/java/） |
 
 *Draft by J.A.R.V.I.S. · 2026-03-24 · Updated 2026-03-28 · Awaiting Stark 先生 review before posting*

@@ -223,6 +223,21 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
+### 🎯 v2.4（目标：2026-04，下一里程碑）
+**主题：Node.js SDK 完善 + WebSocket 原生支持**
+
+- [ ] Node.js SDK `AcpRelayClient` 完善（参考 Python SDK v1.7 特性集）
+  - `tasks()` 列表查询 + 过滤
+  - `cancel_task()` 幂等取消
+  - `capabilities()` 能力提取
+  - WebSocket 原生推送（替代轮询 `/recv`）
+- [ ] `GET /ws/stream`：WebSocket 原生消息推送端点（补充 SSE）
+- [ ] 重连语义（BUG-038 根本修复）：local-only 重连测试套件
+- [ ] `test_reconnect.py` 完整重写（local relay，无需公网）
+- [ ] 全套测试 0 failed 保持
+
+---
+
 ### 🚧 v2.0（进行中，目标：2026-Q3）
 **主题：联邦化与生态扩展**
 
