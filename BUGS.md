@@ -1072,3 +1072,23 @@ curl -s -X POST http://localhost:7901/webhooks/register \
 选项 C：添加 `--allow-webhooks` 显式开关，默认关闭。
 
 **Commit**：待修复（下一个修复轮）
+
+---
+
+### BUG-040 🔴 P2 — `test_round_20260328.py` 测试用例与 v2.11.0 API 不兼容
+
+**发现**：2026-03-28 测试轮 Round 12
+**优先级**：P2（测试代码问题，relay 本体正常）
+**状态**：🔴 未修复
+
+**失败用例**：
+- `test_b1_orchestrator_connects_workers`：断言 `/.well-known/acp.json` 中存在 `link` 字段，但本地 sandbox（无公网 IP）不生成 `link`
+- `test_b2_orchestrator_sends_to_worker1`：依赖 b1 fixture 中的 link，b1 失败则 b2 也失败
+- `test_b4_worker2_status`：断言 `/status` 返回 `status in ('ok','online','ready')`，但 v2.11.0 `/status` 无此字段（有 `acp_version`/`connected`）
+
+**根因**：测试用例编写时假设 relay 有公网 link，且期待旧版 `/status` 字段格式
+
+**修复方案**：
+- b1/b2：改为「若有 link 则连接，无 link 则 skip（标记为需公网）」
+- b4：改为检查 `data.get("acp_version")` 或 `data.get("agent_name")` 存在即可
+
