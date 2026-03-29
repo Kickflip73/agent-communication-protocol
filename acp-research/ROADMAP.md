@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-29 06:29（文档轮：v2.4 完成标记，竞品表更新至 2026-03-29，v2.5 里程碑规划）
+> 最后更新：2026-03-29 11:09（文档轮：v2.12/v2.13 完成标记，A2A 迁移更新，event_replay 差异化记录，ADR 目录初始化）
 
 ---
 
@@ -24,7 +24,7 @@
 | 协议 | Stars | 活跃度 | 定位 | 身份认证 | 态度 |
 |------|-------|--------|------|----------|------|
 | **ACP** (本项目) | — | ✅ 持续开发 | 轻量 P2P Agent 通信 | ✅ Ed25519+`did:acp:` DID（v1.3，**领先 A2A 2-3 月**） | — |
-| **A2A** (Google) | 22,643+ | ✅ 活跃 | 企业级 Agent 总线 | 🔴 Issue #1672 讨论中（83 评论，未合并） | 借鉴概念，不复制复杂度 |
+| **A2A** (a2aproject) | 22,643+ | ✅ 活跃 | 企业级 Agent 总线 | 🔴 Issue #1672 讨论中（未合并）| 借鉴概念，不复制复杂度；**仓库已从 google/ 迁移到 a2aproject/** |
 | **ANP** (社区) | 1,240 | 🔴 已归档 | 去中心化身份 | ✅ 理论设计（停更）| 停更，不再追踪 |
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
 | **MCP** (Anthropic) | — | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
@@ -33,10 +33,12 @@
 
 | 功能 | ACP | A2A | 领先方 |
 |------|-----|-----|--------|
-| Agent 身份认证（Ed25519/DID） | ✅ v1.3 已实现 | 🔴 #1672 讨论中（83 评论） | **ACP 领先 2-3 月** |
+| Agent 身份认证（Ed25519/DID） | ✅ v1.3 已实现 | 🔴 #1672 讨论中（未合并）| **ACP 领先 ~2 月** |
 | `limitations` 字段 | ✅ v2.7 已实现 | 🔴 #1694 提案未合并 | **ACP 领先** |
 | WebSocket 原生推送 | ✅ v2.12 已实现 | 🔴 #1029 提案中 | **ACP 领先** |
+| **事件回放 `?since=<seq>`** | ✅ **v2.13 已实现** | ❌ 无 | **ACP 领先（首创）** |
 | `trust.signals[]` 格式 | 🟡 间接（identity 字段）| 🟡 #1628 提案中 | 持平 |
+| `tasks/list` 分页过滤 | ✅ v2.11 | ✅ v1.0.0 | 持平（ACP 超前实现）|
 | Python SDK | ✅ v1.7+ | 🟡 v1.0.0-alpha.0 | 版本号差距，ACP 更轻量 |
 
 ---
@@ -241,17 +243,32 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - ✅ `GET /ws/stream`：WebSocket 原生消息推送端点（commit `1de1a96`，2026-03-29）
   - RFC 6455 握手，ThreadingHTTPServer worker 模式
   - `capabilities.ws_stream: true` + `endpoints.ws_stream: "/ws/stream"`
-  - 测试：WS1/WS4/WS5 PASS，WS2/WS3（P2P广播）沙箱 skip
-- [ ] 重连语义（BUG-038 根本修复）：local-only 重连测试套件 →（移至 v2.5）
-- [ ] `test_reconnect.py` 完整重写（local relay，无需公网）→（移至 v2.5）
-- ✅ 全套测试 0 failed 保持（快速回归 15 passed 2 skipped）
+  - WS2/WS3 根因修复（proxy bypass + acp.peer 过滤），5/5 PASS（commit `e60c6fa`，2026-03-29）
+- ✅ 全套测试 0 failed 保持（快速回归 17 passed in 31.47s）
+
+---
+
+### ✅ v2.13（完成，2026-03-29）
+**主题：断线重连无数据丢失（Event Replay）**
+
+- ✅ `GET /stream?since=<seq>`：SSE 断线重连回放（commit `4aa78ce`，2026-03-29）
+  - 立即交付所有 `seq > since` 的历史事件，然后切换为 live 流
+  - `_event_log` 环形缓冲区（500 条，线程安全）
+- ✅ `GET /ws/stream?since=<seq>`：WebSocket 版本相同语义
+- ✅ `capabilities.event_replay: true` 声明到 AgentCard
+- ✅ 测试：RP1~RP6 6/6 PASS，快速回归 23/23 PASS
+- **Bug fix**：`client.send_ws_text()` → `client.send()`（方法名拼写错误，WS replay 从未执行）
+- **差异化**：A2A 完全无此概念，ACP 首创
+
+---
 
 ### 🎯 v2.5（目标：2026-04，下一里程碑）
-**主题：测试稳定性 + trust.signals 兼容**
+**主题：测试稳定性 + trust.signals 兼容 + ADR 规范化**
 
 - [ ] `test_reconnect.py` 完整重写（local relay，无需公网 IP）
 - [ ] WS2/WS3 本地 peer 测试（消除 P2P skip）
 - [ ] `trust.signals[]` 兼容格式（参考 A2A Issue #1628，与 ACP `identity` 字段对齐）
+- [ ] `adrs/` 目录初始化（参考 A2A ADR 格式，记录 ACP 关键设计决策）
 - [ ] 全套测试 0 failed 稳定化
 
 ---
