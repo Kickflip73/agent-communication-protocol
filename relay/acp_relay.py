@@ -1106,7 +1106,8 @@ def _make_agent_card(name, skills):
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
             "public_key": _ed25519_public_b64,
             "pubkey_b64": _ed25519_public_b64,   # v0.8: alias — base64url-encoded 32-byte Ed25519 public key
-            "did":        _did_key,              # v0.8: W3C did:key:z6Mk... identifier (base58btc multibase)
+            "did":        _did_acp or _did_key,    # v1.3: primary DID — did:acp: preferred, fallback did:key:
+            "did_key":    _did_key,              # v0.8: W3C did:key:z6Mk... identifier (base58btc multibase)
             "did_acp":    _did_acp,              # v1.3: did:acp:<base64url> — ACP-native identifier
             **( {"ca_cert": _ca_cert_pem} if _ca_cert_pem else {} ),  # v1.5: CA-signed cert (hybrid model)
         } if _ed25519_private else None),

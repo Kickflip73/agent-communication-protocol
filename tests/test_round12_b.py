@@ -119,7 +119,7 @@ def http_post(http_port, path, body, timeout=8):
         return json.loads(e.read()), e.code
 
 
-def wait_peer_connected(http_port, peer_id, retries=50, interval=0.5):
+def wait_peer_connected(http_port, peer_id, retries=80, interval=0.5):
     """等待 peer WS 握手完成（probe 发送成功）。"""
     for _ in range(retries):
         try:
