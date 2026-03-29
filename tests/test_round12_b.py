@@ -370,7 +370,12 @@ class TestScenarioB:
         assert r.get("ok") and sc == 200, f"Worker2→Orch connect failed: {sc} {r}"
         TestScenarioB._orch_peer_from_w2 = r.get("peer_id")
 
-        connected = wait_peer_connected(W2_HTTP, TestScenarioB._orch_peer_from_w2)
+        # Give the asyncio event loop time to complete the WS handshake before polling.
+        # Three concurrent relay instances share the sandbox; the third connection
+        # sometimes needs extra time for L1 direct connect to complete.
+        time.sleep(1.0)
+        connected = wait_peer_connected(W2_HTTP, TestScenarioB._orch_peer_from_w2,
+                                        retries=120, interval=0.5)
         assert connected, "Worker2→Orch WS handshake timeout"
 
     def test_B12_worker1_reply_to_orch(self, relay_cluster):
