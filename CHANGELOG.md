@@ -30,6 +30,27 @@ Dates: Asia/Shanghai (UTC+8)
   - Unit: entry fields, sig validity, tamper detection, dedup, expiry, AgentCard integration
   - HTTP: POST /identity/delegate, GET /identity/delegation, POST /identity/delegation/verify
 
+### Fixed — BUG-041 dedup regression (v2.16)
+
+- **BUG-041 (original, v0.7)**: Token-only `duplicate_connection` guard prevented ghost peers from
+  NAT traversal Level1/2/3 racing multiple WS paths simultaneously.
+- **BUG-041 regression (v2.16)**: Token-only dedup incorrectly rejected a second *different* agent
+  connecting to the same `link/token` — e.g. Worker1 and Worker2 both connecting to the same
+  Orchestrator link. The second WS was closed as `"duplicate_connection"`, causing B11 scenario
+  (Worker2→Orch reverse connect) to always timeout.
+- **Fix**: Dedup now requires **both** `link_token AND remote_address` to match.
+  - Same token + same remote addr → NAT race duplicate → close
+  - Same token + different remote addr → two legitimate agents → both registered
+- `_register_peer()` now accepts and stores `remote_address` parameter.
+
+### Added — ws_ready field in GET /peers (v2.16)
+
+- **`ws_ready`** field added to each peer entry in `GET /peers` response.
+  - `ws_ready = connected AND ws is not None` — only `True` after WS handshake completes.
+  - Previously `connected=True` was set at `/peers/connect` request time (before WS handshake),
+    causing `wait_peer_connected` fast-path to prematurely signal readiness.
+  - Tests updated to use `ws_ready` for definitive handshake confirmation.
+
 ### Differentiation
 
 - A2A Issue #1696 (2026-03-28) lists "delegation chains" under **Future Considerations** — not yet
@@ -1511,6 +1532,8 @@ Six bugs discovered during first live AlphaAgent↔BetaAgent P2P communication s
 
 | Version | Date | Theme | Key Feature |
 |---------|------|-------|-------------|
+| 2.16.0 | 2026-03-30 | Delegation Chain | Signed identity delegation in AgentCard; ws_ready dedup fix (BUG-041) |
+| 2.15.0 | 2026-03-29 | Context Query | GET /context/<id>/messages multi-turn conversation history |
 | 0.9.0-dev | 2026-03-21 | Developer UX + Distribution | CLI flags, async SDK stdlib-only, unit tests, `pip install acp-relay`, `acp-relay-client` npm |
 | 0.8.0 | 2026-03-21 | Ecosystem | Ed25519 identity, Node.js SDK, compat test suite |
 | 0.7.0 | 2026-03-20 | Trust + Discovery | HMAC signing, mDNS LAN discovery, context_id |
