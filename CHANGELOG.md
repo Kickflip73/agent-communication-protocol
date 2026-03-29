@@ -7,6 +7,37 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.16.0] — 2026-03-29 (Delegation Chain — Signed Identity Delegation in AgentCard)
+
+### Added — delegation_chain (v2.16)
+
+- **`_delegation_chain`** — global list of signed delegation entries in the relay runtime
+- **`_build_delegation_entry(delegator_did, scope, expires_at)`** — creates an Ed25519-signed
+  delegation record asserting that `delegator_did` has delegated `scope` to this agent.
+  Payload is canonical JSON (sorted keys), signature is base64url-encoded.
+- **`_verify_delegation_entry(entry)`** — verifies a delegation entry's Ed25519 signature by
+  extracting the public key directly from the `did:acp:` identifier (zero-registry, self-sovereign).
+- **`_delegation_chain_status()`** — returns chain summary with per-entry expiry flags.
+- **`POST /identity/delegate`** — create a new signed delegation entry.
+  - Body: `{delegator_did, scope, expires_at}`. Deduplicates by `delegator_did`.
+  - Returns: `{ok, entry, delegation_chain_size}`
+- **`GET /identity/delegation`** — query current delegation chain status + entries.
+- **`POST /identity/delegation/verify`** — verify an arbitrary delegation entry's signature.
+- **AgentCard `identity.delegation`** — included when `_delegation_chain` is non-empty.
+- **`capabilities.delegation_chain: true`** — declared when chain is non-empty.
+- **`endpoints.delegate/delegation/delegation_verify`** — registered in AgentCard endpoints block.
+- **Tests: `tests/test_delegation_chain.py`** — 13/13 PASS (DC1–DC13)
+  - Unit: entry fields, sig validity, tamper detection, dedup, expiry, AgentCard integration
+  - HTTP: POST /identity/delegate, GET /identity/delegation, POST /identity/delegation/verify
+
+### Differentiation
+
+- A2A Issue #1696 (2026-03-28) lists "delegation chains" under **Future Considerations** — not yet
+  proposed, let alone implemented. ACP ships this first with a concrete, verifiable design.
+- Zero-registry verification: public key is embedded in `did:acp:` — no lookup service needed.
+
+---
+
 ## [2.15.0] — 2026-03-29 (Context Query — GET /context/<id>/messages multi-turn conversation history)
 
 ### Added

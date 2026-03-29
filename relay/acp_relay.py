@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.15.0"  # v2.15: GET /context/<id>/messages — multi-turn conversation context query
+VERSION = "2.16.0"  # v2.16: delegation_chain — signed identity delegation in AgentCard
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -396,6 +396,7 @@ _ed25519_public_b64: str = None   # base64url-encoded 32-byte public key
 _did_acp: str = None              # v1.3: did:acp:<base64url(pubkey)> — stable Agent identifier
 _did_key: str = None              # v0.8: did:key:z6Mk... W3C did:key identifier (base58btc multibase)
 _ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certificate (hybrid identity)
+_delegation_chain: list = []      # v2.16: signed delegation entries [{delegator_did, scope, expires_at, sig}]
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -1049,6 +1050,87 @@ def _parse_skill_obj(s):
     return obj
 
 
+# ── v2.16: Delegation Chain helpers ───────────────────────────────────────────
+
+def _build_delegation_entry(delegator_did: str, scope: list, expires_at: float) -> dict:
+    """Create a signed delegation entry for the local agent's identity.
+
+    The local agent (delegatee) signs a canonical payload asserting that
+    *delegator_did* has delegated *scope* to it, expiring at *expires_at*.
+
+    Payload (JSON-canonical, sorted keys):
+        {"delegatee_did": <our did>, "delegator_did": <their did>,
+         "expires_at": <unix float>, "scope": <sorted list>}
+
+    The signature covers the UTF-8 encoding of that canonical JSON.
+    Returns a dict with: delegator_did, delegatee_did, scope, expires_at, sig, scheme.
+    Raises RuntimeError if no Ed25519 identity is loaded.
+    """
+    import json as _json
+    if not _ed25519_private or not _did_acp:
+        raise RuntimeError("delegation_chain requires --identity (Ed25519 keypair)")
+    payload = _json.dumps({
+        "delegatee_did": _did_acp,
+        "delegator_did": delegator_did,
+        "expires_at":    expires_at,
+        "scope":         sorted(scope),
+    }, sort_keys=True, separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload)
+    sig_b64   = _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+    return {
+        "delegator_did": delegator_did,
+        "delegatee_did": _did_acp,
+        "scope":         sorted(scope),
+        "expires_at":    expires_at,
+        "sig":           sig_b64,
+        "scheme":        "ed25519",
+    }
+
+
+def _verify_delegation_entry(entry: dict) -> bool:
+    """Verify a delegation entry's signature.
+
+    Verifies that the *delegatee* (identified by entry['delegatee_did']) signed
+    the canonical payload using their Ed25519 key.  For local entries this
+    re-derives the public key from the DID.  Returns True if valid, False otherwise.
+    """
+    import json as _json
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        payload = _json.dumps({
+            "delegatee_did": entry["delegatee_did"],
+            "delegator_did": entry["delegator_did"],
+            "expires_at":    entry["expires_at"],
+            "scope":         sorted(entry["scope"]),
+        }, sort_keys=True, separators=(",", ":")).encode()
+        sig_bytes = _base64.urlsafe_b64decode(entry["sig"] + "==")
+        # Extract pubkey from did:acp:<base64url>
+        did = entry["delegatee_did"]
+        if not did.startswith("did:acp:"):
+            return False
+        pub_bytes = _base64.urlsafe_b64decode(did[len("did:acp:"):] + "==")
+        pub_key   = Ed25519PublicKey.from_public_bytes(pub_bytes)
+        pub_key.verify(sig_bytes, payload)
+        return True
+    except Exception:
+        return False
+
+
+def _delegation_chain_status() -> dict:
+    """Return a summary of the current delegation chain for status/debug."""
+    import time as _time
+    now = _time.time()
+    entries = []
+    for e in _delegation_chain:
+        expired = e.get("expires_at", 0) < now
+        entries.append({**e, "expired": expired})
+    return {
+        "count":    len(_delegation_chain),
+        "entries":  entries,
+        "has_valid": any(not e["expired"] for e in entries),
+    }
+
+
 def _make_agent_card(name, skills):
     """Build the AgentCard dict.
 
@@ -1101,6 +1183,7 @@ def _make_agent_card(name, skills):
             "event_replay":       True,                         # v2.13: ?since=<seq> replay on /stream and /ws/stream
             "trust_signals":      True,                         # v2.14: trust.signals[] structured evidence in AgentCard
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
+            "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1110,6 +1193,7 @@ def _make_agent_card(name, skills):
             "did_key":    _did_key,              # v0.8: W3C did:key:z6Mk... identifier (base58btc multibase)
             "did_acp":    _did_acp,              # v1.3: did:acp:<base64url> — ACP-native identifier
             **( {"ca_cert": _ca_cert_pem} if _ca_cert_pem else {} ),  # v1.5: CA-signed cert (hybrid model)
+            **( {"delegation": _delegation_chain} if _delegation_chain else {} ),  # v2.16: signed delegation chain
         } if _ed25519_private else None),
         "trust": {
             "scheme":  "hmac-sha256" if _hmac_secret else "none",
@@ -1135,6 +1219,9 @@ def _make_agent_card(name, skills):
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
+            "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
+            "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
+            "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -3130,6 +3217,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json(resp)
 
 
+        # ── v2.16: GET /identity/delegation ──────────────────────────────────
+        elif p == "/identity/delegation":
+            # GET /identity/delegation
+            # Returns current delegation chain status + entries.
+            self._json({
+                "ok":     True,
+                "did":    _did_acp,
+                "chain":  _delegation_chain_status(),
+            })
+
         elif p.startswith("/context/") and p.endswith("/messages"):  # [stable] context message query (v2.15)
             # GET /context/<context_id>/messages
             # Query params:
@@ -3466,6 +3563,52 @@ class LocalHTTP(BaseHTTPRequestHandler):
         global _extensions
         parsed = urlparse(self.path)
         p = parsed.path
+
+        # ── v2.16: Delegation Chain POST endpoints ────────────────────────────
+        if p == "/identity/delegate":
+            # POST /identity/delegate
+            # Body: {"delegator_did": "did:acp:...", "scope": [...], "expires_at": <unix>}
+            import time as _time2
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            except Exception:
+                body = {}
+            delegator_did = body.get("delegator_did", "")
+            scope         = body.get("scope", ["send", "receive"])
+            expires_at    = float(body.get("expires_at", _time2.time() + 86400))
+            if not delegator_did.startswith("did:"):
+                self._json({"ok": False, "error": "delegator_did must be a valid DID"}, 400)
+            elif not _ed25519_private:
+                self._json({"ok": False, "error": "identity not loaded; start with --identity"}, 400)
+            else:
+                try:
+                    entry = _build_delegation_entry(delegator_did, scope, expires_at)
+                    global _delegation_chain
+                    _delegation_chain = [e for e in _delegation_chain
+                                         if e.get("delegator_did") != delegator_did]
+                    _delegation_chain.append(entry)
+                    log.info(f"[v2.16] delegation added: delegator={delegator_did} scope={scope}")
+                    self._json({"ok": True, "entry": entry,
+                                "delegation_chain_size": len(_delegation_chain)})
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        elif p == "/identity/delegation/verify":
+            # POST /identity/delegation/verify
+            # Body: {"entry": {...}} — verify a single delegation entry's Ed25519 signature.
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            except Exception:
+                body = {}
+            entry = body.get("entry", {})
+            if not entry:
+                self._json({"ok": False, "error": "entry required"}, 400)
+            else:
+                valid = _verify_delegation_entry(entry)
+                self._json({"ok": True, "valid": valid, "entry": entry})
+            return
+        # ── end v2.16 ─────────────────────────────────────────────────────────
 
         # /message:send  — primary v0.5 endpoint (A2A-aligned)  [stable]
         # Accepts: {message_id?, role, parts|text, task_id?, context_id?, sync?, timeout?}

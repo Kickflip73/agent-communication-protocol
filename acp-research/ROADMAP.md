@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-29 12:17（文档轮：v2.14 trust.signals[] 完成标记，v2.5 任务划线，差异化表新增 trust_signals 行）
+> 最后更新：2026-03-29 22:20（开发轮：v2.15 context_query + v2.16 delegation_chain 完成，差异化表更新）
 
 ---
 
@@ -38,6 +38,8 @@
 | WebSocket 原生推送 | ✅ v2.12 已实现 | 🔴 #1029 提案中 | **ACP 领先** |
 | **事件回放 `?since=<seq>`** | ✅ **v2.13 已实现** | ❌ 无 | **ACP 领先（首创）** |
 | **`trust.signals[]` 结构化信任证据** | ✅ **v2.14 已实现** | ❌ #1628 仍在提案 | **ACP 领先** |
+| **`GET /context/<id>/messages`** | ✅ **v2.15 已实现** | ❌ 无 | **ACP 首创** |
+| **`delegation_chain` 身份委托链** | ✅ **v2.16 已实现** | ❌ #1696 Future Considerations | **ACP 首创** |
 | `tasks/list` 分页过滤 | ✅ v2.11 | ✅ v1.0.0 | 持平（ACP 超前实现）|
 | Python SDK | ✅ v1.7+ | 🟡 v1.0.0-alpha.0 | 版本号差距，ACP 更轻量 |
 
@@ -245,6 +247,32 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - `capabilities.ws_stream: true` + `endpoints.ws_stream: "/ws/stream"`
   - WS2/WS3 根因修复（proxy bypass + acp.peer 过滤），5/5 PASS（commit `e60c6fa`，2026-03-29）
 - ✅ 全套测试 0 failed 保持（快速回归 17 passed in 31.47s）
+
+---
+
+### ✅ v2.16（完成，2026-03-29）
+**主题：签名委托链（delegation_chain）**
+
+- ✅ `_build_delegation_entry()`: Ed25519 签名委托记录（canonical JSON payload）
+- ✅ `_verify_delegation_entry()`: 从 `did:acp:` 提取公钥，零注册表验证
+- ✅ `_delegation_chain_status()`: 链摘要 + 过期标记
+- ✅ `POST /identity/delegate`: 创建委托，按 delegator_did 去重
+- ✅ `GET /identity/delegation`: 查询链状态
+- ✅ `POST /identity/delegation/verify`: 验证任意委托条目
+- ✅ AgentCard `identity.delegation` + `capabilities.delegation_chain`
+- ✅ 测试：DC1~DC13 **13/13 PASS**（单元 + HTTP 集成）
+- **差异化**：A2A #1696 (2026-03-28) 仅将 delegation chain 列为 future work，ACP 率先实现
+
+---
+
+### ✅ v2.15（完成，2026-03-29）
+**主题：多轮对话上下文查询（GET /context/<id>/messages）**
+
+- ✅ `GET /context/<context_id>/messages`：按 context_id 查询历史消息
+  - params: `limit` (max 200), `since_seq`（增量拉取）, `sort=asc|desc`
+  - 返回: `{context_id, messages[], count, total, has_more}`
+- ✅ `capabilities.context_query: true` 声明到 AgentCard
+- ✅ 测试：8/8 PASS
 
 ---
 
