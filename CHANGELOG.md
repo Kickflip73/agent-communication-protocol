@@ -7,6 +7,42 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.13.0] — 2026-03-29 (Event Replay — `?since=<seq>` Reconnect Without Data Loss)
+
+### Added — Event Replay for SSE + WebSocket (v2.13)
+
+- **`GET /stream?since=<seq>`** — SSE reconnect replay: immediately delivers all
+  buffered events with `seq > since` before joining the live stream.  Clients that
+  disconnect and reconnect can resume exactly where they left off without data loss.
+- **`GET /ws/stream?since=<seq>`** — same replay semantics over WebSocket; replayed
+  events are delivered as `{"event":"acp.message","data":{...}}` frames before the
+  connection enters the live-push loop.
+- **`_event_log` ring buffer** — last `_EVENT_LOG_MAX` (500) events kept in-memory,
+  thread-safe (`_event_log_lock`), populated by `_broadcast_sse_event()` on every
+  dispatch (SSE + WS).
+- **`capabilities.event_replay: true`** in AgentCard — advertises replay support to
+  peers; discoverable via `GET /.well-known/acp.json`.
+- **`tests/test_event_replay.py`** — 6 new tests (RP1–RP6):
+  - RP1: `/stream?since=0` replays all stored events
+  - RP2: `/stream?since=<mid>` replays only events after mid seq
+  - RP3: `/stream` (no `?since`) — no regression, live events still arrive
+  - RP4: `/ws/stream?since=0` replays events over WebSocket
+  - RP5: `capabilities.event_replay` declared in AgentCard
+  - RP6: `?since=<last_seq>` returns nothing (correct no-op)
+
+### Fixed
+
+- **`_handle_ws_stream` replay**: `client.send_ws_text()` → `client.send()` (method
+  name typo silently suppressed by `except Exception: break`; replay never executed).
+
+### Changed
+
+- VERSION: `2.12.0` → `2.13.0`
+- `_broadcast_sse_event()`: appends each event to `_event_log` before distributing
+  to SSE subscribers and WS clients.
+
+---
+
 ## [2.12.0] — 2026-03-29 (GET /ws/stream — WebSocket Native Push Endpoint)
 
 ### Added

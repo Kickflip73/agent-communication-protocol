@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.12.0"  # v2.12: GET /ws/stream WebSocket native push endpoint
+VERSION = "2.13.0"  # v2.13: ?since=<seq> event replay for SSE + WS reconnect
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -316,6 +316,12 @@ _ws_stream_lock = threading.Lock()
 # Clients use seq to detect out-of-order or dropped events without relying on wall-clock timestamps.
 _sse_seq_lock = threading.Lock()
 _sse_seq: int = 0
+
+# v2.13: Event replay log — last _EVENT_LOG_MAX events kept in-memory for ?since= replay.
+# Allows clients to recover missed events after reconnect without data loss.
+_EVENT_LOG_MAX = 500                    # ring buffer capacity
+_event_log: list = []                  # list of event dicts, ordered by seq
+_event_log_lock = threading.Lock()
 
 # Idempotency cache (bounded)
 _seen_message_ids: dict = {}
@@ -1087,6 +1093,7 @@ def _make_agent_card(name, skills):
             "sse_seq":            True,                         # v2.3: SSE events carry global seq + named event types
             "task_cancelling":    True,                         # v2.6: `cancelling` intermediate state before `canceled` (ACP-unique, fills A2A #1684/#1680 gap)
             "ws_stream":          True,                         # v2.12: GET /ws/stream WebSocket native push endpoint
+            "event_replay":       True,                         # v2.13: ?since=<seq> replay on /stream and /ws/stream
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1344,6 +1351,11 @@ def _broadcast_sse_event(event_type, payload):
         _sse_seq += 1
         seq = _sse_seq
     event = {"type": event_type, "ts": _now(), "seq": seq, **payload}
+    # v2.13: append to replay log (ring buffer)
+    with _event_log_lock:
+        _event_log.append(event)
+        if len(_event_log) > _EVENT_LOG_MAX:
+            del _event_log[0]
     for q in _sse_subscribers:
         q.append(event)
     _sse_notify.set()   # BUG-009 fix: wake up SSE polling handlers immediately
@@ -1580,9 +1592,11 @@ def _broadcast_ws_stream_event(event_type: str, event: dict):
 
 def _handle_ws_stream(handler):
     """
-    v2.12: Handle a /ws/stream WebSocket connection lifecycle.
+    v2.12/v2.13: Handle a /ws/stream WebSocket connection lifecycle.
     Called from do_GET when path == /ws/stream and Upgrade: websocket.
     Runs in the ThreadingHTTPServer worker thread for this connection.
+
+    v2.13: supports ?since=<seq> for missed-event replay on reconnect.
     """
     try:
         sock = _ws_handshake(handler)
@@ -1590,9 +1604,29 @@ def _handle_ws_stream(handler):
         log.warning(f"/ws/stream handshake failed: {e}")
         return
 
+    # v2.13: parse ?since=<seq> from request path before completing handshake
+    since_seq = None
+    try:
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(handler.path).query)
+        since_seq = int(qs.get("since", [None])[0])
+    except (TypeError, ValueError):
+        pass
+
     client = _WsStreamClient(sock)
     with _ws_stream_lock:
         _ws_stream_clients.add(client)
+
+    # v2.13: replay missed events before joining live stream
+    if since_seq is not None:
+        with _event_log_lock:
+            replay = [e for e in _event_log if e.get("seq", 0) > since_seq]
+        for evt in replay:
+            event_type = evt.get("type", "message")
+            ws_evt = {"event": f"acp.{event_type}", "data": evt}
+            try:
+                client.send(json.dumps(ws_evt, ensure_ascii=False))
+            except Exception:
+                break
 
     log.info(f"/ws/stream client connected (total={len(_ws_stream_clients)})")
 
@@ -3191,7 +3225,26 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self.send_header("X-Accel-Buffering", "no")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
+            # v2.13: ?since=<seq> replay — send missed events before joining live stream
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            since_seq = None
+            try:
+                since_seq = int(qs.get("since", [None])[0])
+            except (TypeError, ValueError):
+                pass
             q = deque()
+            if since_seq is not None:
+                with _event_log_lock:
+                    replay = [e for e in _event_log if e.get("seq", 0) > since_seq]
+                for evt in replay:
+                    try:
+                        self.wfile.write(_sse_format(evt))
+                    except Exception:
+                        break
+                try:
+                    self.wfile.flush()
+                except Exception:
+                    return
             _sse_subscribers.append(q)
             try:
                 while True:
