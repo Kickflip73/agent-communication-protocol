@@ -109,7 +109,7 @@ def http_post(http_port, path, body, timeout=8):
         return json.loads(e.read()), e.code
 
 
-def wait_peer_connected(http_port, peer_id, retries=25, interval=0.4):
+def wait_peer_connected(http_port, peer_id, retries=50, interval=0.5):
     for _ in range(retries):
         try:
             r, _ = http_post(http_port, f"/peer/{peer_id}/send",

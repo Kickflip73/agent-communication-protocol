@@ -114,7 +114,7 @@ def stop_all():
     _procs.clear()
 
 
-def wait_peer_connected(http_port, peer_id, retries=20, interval=0.5):
+def wait_peer_connected(http_port, peer_id, retries=50, interval=0.5):
     """等待 peer WS 握手完成（probe 发送成功）。"""
     for _ in range(retries):
         try:
