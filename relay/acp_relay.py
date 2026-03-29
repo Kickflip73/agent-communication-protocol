@@ -323,6 +323,11 @@ _EVENT_LOG_MAX = 500                    # ring buffer capacity
 _event_log: list = []                  # list of event dicts, ordered by seq
 _event_log_lock = threading.Lock()
 
+# BUG-045: global threading.Lock for legacy _peer_ws path.
+# Using threading.Lock (not asyncio.Lock) because multiple HTTP threads call
+# _ws_send_sync() concurrently and we need cross-thread serialisation.
+_ws_send_global_lock = threading.Lock()
+
 # Idempotency cache (bounded)
 _seen_message_ids: dict = {}
 _SEEN_MAX = 2000
@@ -2087,8 +2092,12 @@ async def _ws_send(msg, peer_id=None):
     If peer_id is provided, route to that specific peer's WS connection.
     Falls back to legacy _peer_ws for single-peer / backward-compat.
     On ConnectionError: buffers to offline queue (v2.0).
+
+    v2.14 fix (BUG-045): serialise concurrent writes per-peer with an asyncio.Lock
+    to prevent websockets protocol violations (code 1011) under concurrent _ws_send.
     """
     ws = None
+    send_lock = None
     if peer_id and peer_id in _peers:
         ws = _peers[peer_id].get("ws")
         if ws is None:
@@ -2097,13 +2106,33 @@ async def _ws_send(msg, peer_id=None):
             raise ConnectionError(f"Peer '{peer_id}' offline — message queued for delivery on reconnect")
         # Update per-peer counter
         _peers[peer_id]["messages_sent"] = _peers[peer_id].get("messages_sent", 0) + 1
+        # BUG-045: per-peer asyncio.Lock to serialise WS writes.
+        # Use setdefault for atomic creation — all callers in the same event loop
+        # thread, so dict.setdefault is effectively atomic (no threading.Lock needed).
+        lock = _peers[peer_id].setdefault("_send_lock", asyncio.Lock())
+        send_lock = lock
     else:
         ws = _peer_ws
     if ws is None:
         # v2.0: no peer at all — buffer under "default" key
         _offline_enqueue(msg, peer_id=peer_id or "default")
         raise ConnectionError("No P2P connection — message queued for delivery on reconnect")
-    await ws.send(json.dumps(_attach_sig(msg), ensure_ascii=False))
+    payload = json.dumps(_attach_sig(msg), ensure_ascii=False)
+    if send_lock:
+        # Per-peer asyncio.Lock: all callers are in the same event loop thread, safe.
+        async with send_lock:
+            await ws.send(payload)
+    else:
+        # Legacy path (_peer_ws): serialise across HTTP threads using threading.Lock.
+        # _ws_send runs in the event loop thread, but _ws_send_sync is called from
+        # multiple HTTP handler threads → the loop thread sends one message at a time,
+        # but the threading.Lock prevents concurrent *scheduling* of ws.send coroutines.
+        # BUG-045: acquire the thread lock synchronously before awaiting ws.send.
+        _ws_send_global_lock.acquire()
+        try:
+            await ws.send(payload)
+        finally:
+            _ws_send_global_lock.release()
     _status["messages_sent"] += 1
 
 def _ws_send_sync(msg, peer_id=None):
@@ -5016,6 +5045,8 @@ Examples:
 
     _loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_loop)
+
+    # BUG-045: _ws_send_global_lock is initialised lazily inside _ws_send (first async call)
 
     def _shutdown(sig, frame):
         print("\nACP P2P shutting down")
