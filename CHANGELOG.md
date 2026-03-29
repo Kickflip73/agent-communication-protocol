@@ -7,6 +7,34 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.17.0] — 2026-03-30 (Availability Schedule — CRON-based Agent Scheduling)
+
+### Added — availability_schedule (v2.17)
+
+- **`_parse_cron_field(field, lo, hi)`** — stdlib-only CRON field parser (supports `*`, `/`, `-`, `,`)
+- **`_next_cron_datetime(expr, after_dt)`** — computes next UTC datetime matching a 5-field CRON expression
+- **`_availability_with_schedule(avail)`** — returns availability dict with auto-computed `next_active_at`
+- **`availability.schedule`** field in AgentCard: CRON expression string (e.g. `"0 */4 * * *"`)
+- **`availability.timezone`** field: IANA timezone for schedule interpretation (default UTC)
+- **`GET /availability`** — dedicated endpoint returning full availability status + `has_schedule` flag
+- **`POST /availability/heartbeat`** — stamps `last_active_at = now`, recomputes `next_active_at` from schedule; accepts body to update schedule
+- **`capabilities.availability_schedule: bool`** — capability flag (True when schedule is configured)
+- AgentCard `endpoints.availability` and `endpoints.heartbeat` declared
+- PATCH `/.well-known/acp.json` now accepts `schedule` + `timezone` in whitelist
+
+### Tests
+
+- `tests/test_availability_schedule.py` — AS1~AS15: 22/22 PASS (10 unit + 12 HTTP integration)
+- Full regression: 171/171 PASS
+
+### Differentiation
+
+- A2A IS#1667 (2026-03-21) proposes `availability_metadata` for heartbeat agents — still under discussion, no implementation planned
+- ACP ships CRON scheduling with **zero dependencies** (stdlib-only pure-Python parser)
+- ACP already has `offline_queue` + flush-on-reconnect, completing the "offline-first" picture IS#1667 describes
+
+---
+
 ## [2.16.0] — 2026-03-29 (Delegation Chain — Signed Identity Delegation in AgentCard)
 
 ### Added — delegation_chain (v2.16)

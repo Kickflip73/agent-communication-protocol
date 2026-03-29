@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.16.0"  # v2.16: delegation_chain — signed identity delegation in AgentCard
+VERSION = "2.17.0"  # v2.17: availability_schedule — CRON-based agent scheduling in AgentCard
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -979,9 +979,11 @@ def _validate_parts(parts):
 # Fields (all optional):
 #   mode: "persistent" | "heartbeat" | "cron" | "manual"
 #   interval_seconds: int         # heartbeat/cron wake interval
-#   next_active_at:   ISO-8601 Z  # next scheduled wake (agent-maintained)
-#   last_active_at:   ISO-8601 Z  # last wake time (auto-set on startup)
+#   schedule:         str         # v2.17: CRON expression (e.g. "0 */4 * * *") — auto-computes next_active_at
+#   next_active_at:   ISO-8601 Z  # next scheduled wake (agent-maintained or auto-computed from schedule)
+#   last_active_at:   ISO-8601 Z  # last wake time (auto-set on startup / POST /availability/heartbeat)
 #   task_latency_max_seconds: int # worst-case task processing latency
+#   timezone:         str         # v2.17: IANA timezone for schedule interpretation (default "UTC")
 _availability: dict  = {}         # empty = persistent (default behaviour)
 _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension list (opt-in)
 _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
@@ -1132,6 +1134,115 @@ def _delegation_chain_status() -> dict:
     }
 
 
+# ── v2.17: Availability Schedule (CRON) helpers ──────────────────────────────
+
+def _parse_cron_field(field: str, lo: int, hi: int) -> list:
+    """Parse a single cron field into a sorted list of integers.
+    Supports: * / , -  (no names).  Returns sorted list of valid values in [lo, hi].
+    """
+    values = set()
+    for part in field.split(","):
+        part = part.strip()
+        if "/" in part:
+            rng, step_str = part.split("/", 1)
+            step = int(step_str)
+            if rng == "*":
+                start, end = lo, hi
+            elif "-" in rng:
+                s, e = rng.split("-", 1)
+                start, end = int(s), int(e)
+            else:
+                start = int(rng)
+                end = hi
+            values.update(range(start, end + 1, step))
+        elif "-" in part:
+            s, e = part.split("-", 1)
+            values.update(range(int(s), int(e) + 1))
+        elif part == "*":
+            values.update(range(lo, hi + 1))
+        else:
+            values.add(int(part))
+    return sorted(v for v in values if lo <= v <= hi)
+
+
+def _next_cron_datetime(expr: str, after_dt=None) -> "datetime.datetime | None":
+    """Compute the next UTC datetime matching the 5-field cron expression.
+    Fields: minute hour dom month dow  (all 0-indexed except month/dom).
+    Returns a UTC-aware datetime or None if parsing fails.
+    """
+    import datetime as _dt
+    try:
+        fields = expr.strip().split()
+        if len(fields) != 5:
+            return None
+        minutes = _parse_cron_field(fields[0],  0, 59)
+        hours   = _parse_cron_field(fields[1],  0, 23)
+        days    = _parse_cron_field(fields[2],  1, 31)
+        months  = _parse_cron_field(fields[3],  1, 12)
+        dows    = _parse_cron_field(fields[4],  0,  6)  # 0=Sun
+    except Exception:
+        return None
+
+    base = after_dt or _dt.datetime.now(_dt.timezone.utc)
+    # Advance 1 minute so next > now
+    candidate = (base + _dt.timedelta(minutes=1)).replace(second=0, microsecond=0)
+
+    # Iterate up to 4 years to find a match
+    limit = base + _dt.timedelta(days=4 * 366)
+    while candidate < limit:
+        if candidate.month not in months:
+            # Jump to next valid month
+            candidate = candidate.replace(day=1, hour=0, minute=0)
+            candidate += _dt.timedelta(days=1)
+            continue
+        if candidate.day not in days or candidate.weekday() not in [d if d != 0 else 6 for d in dows]:
+            # Weekday mapping: cron 0=Sun → Python 6=Sun
+            # Check both dom and dow
+            dom_ok  = candidate.day in days
+            dow_val = (candidate.weekday() + 1) % 7  # Python Mon=0 → cron Mon=1; Sun: Python 6 → cron 0
+            dow_ok  = dow_val in dows
+            # Standard cron: if both dom and dow are restricted, either match suffices (OR)
+            # If only one is restricted (not *), use that one
+            dom_star = fields[2] == "*"
+            dow_star = fields[4] == "*"
+            if dom_star and not dow_ok:
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+            if dow_star and not dom_ok:
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+            if not dom_star and not dow_star and not (dom_ok or dow_ok):
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+        if candidate.hour not in hours:
+            next_h = next((h for h in hours if h > candidate.hour), None)
+            if next_h is None:
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+            candidate = candidate.replace(hour=next_h, minute=0); continue
+        if candidate.minute not in minutes:
+            next_m = next((m for m in minutes if m > candidate.minute), None)
+            if next_m is None:
+                candidate = candidate.replace(minute=0) + _dt.timedelta(hours=1); continue
+            candidate = candidate.replace(minute=next_m); continue
+        # All fields match
+        return candidate
+    return None
+
+
+def _availability_with_schedule(avail: dict) -> dict:
+    """Return a copy of the availability dict, auto-computing next_active_at
+    from schedule if present and next_active_at is not already set.
+    """
+    import datetime as _dt
+    result = dict(avail)
+    schedule = result.get("schedule")
+    if schedule and not result.get("next_active_at"):
+        nxt = _next_cron_datetime(schedule)
+        if nxt:
+            result["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return result
+
+
+# ── end v2.17 helpers ─────────────────────────────────────────────────────────
+
+
 def _make_agent_card(name, skills):
     """Build the AgentCard dict.
 
@@ -1185,6 +1296,7 @@ def _make_agent_card(name, skills):
             "trust_signals":      True,                         # v2.14: trust.signals[] structured evidence in AgentCard
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
+            "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1223,6 +1335,8 @@ def _make_agent_card(name, skills):
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
             "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
+            "availability":   "/availability",          # v2.17: GET — full availability status
+            "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -1237,6 +1351,12 @@ def _make_agent_card(name, skills):
                 )
             else:
                 card["availability"]["last_active_at"] = _now()
+        # v2.17: auto-compute next_active_at from CRON schedule if not explicitly set
+        schedule = card["availability"].get("schedule")
+        if schedule and not card["availability"].get("next_active_at"):
+            nxt = _next_cron_datetime(schedule)
+            if nxt:
+                card["availability"]["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # v2.8: always include extensions field (empty list when none declared)
     # Auto-register built-in extensions based on runtime capabilities
@@ -2933,6 +3053,25 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "count":      len(_extensions),
             })
 
+        # ── v2.17: GET /availability — dedicated availability status endpoint ──
+        elif p == "/availability":
+            avail = _availability_with_schedule(dict(_availability)) if _availability else {}
+            # Always include last_active_at
+            if avail and "last_active_at" not in avail:
+                started = _status.get("started_at")
+                if started and isinstance(started, (int, float)):
+                    avail["last_active_at"] = (
+                        datetime.datetime.utcfromtimestamp(started).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    )
+                else:
+                    avail["last_active_at"] = _now()
+            self._json({
+                "ok":           True,
+                "availability": avail,
+                "mode":         avail.get("mode", "persistent"),
+                "has_schedule": bool(avail.get("schedule")),
+            })
+
         # ── GET /skills — Skills-lite structured skill list (v2.10) ──────────
         elif p == "/skills":  # [stable] structured skill discovery + filtering (v2.10)
             # Query parameters:
@@ -3615,6 +3754,44 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": True, "valid": valid, "entry": entry})
             return
         # ── end v2.16 ─────────────────────────────────────────────────────────
+
+        # ── v2.17: POST /availability/heartbeat ───────────────────────────────
+        if p == "/availability/heartbeat":
+            global _availability
+            # Stamp last_active_at = now; recompute next_active_at from schedule if present
+            now_str = _now()
+            _availability = {**_availability, "last_active_at": now_str}
+            # If caller provided a body, merge allowed fields
+            try:
+                body = self._read_body()
+                allowed_fields = {"mode", "interval_seconds", "schedule",
+                                  "next_active_at", "task_latency_max_seconds", "timezone"}
+                for k, v in body.items():
+                    if k in allowed_fields:
+                        _availability[k] = v
+            except Exception:
+                pass  # No body or invalid JSON — just stamp last_active_at
+            # Auto-compute next_active_at from schedule
+            schedule = _availability.get("schedule")
+            if schedule and not _availability.get("next_active_at"):
+                nxt = _next_cron_datetime(schedule)
+                if nxt:
+                    _availability["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            elif schedule:
+                # Recompute next even if previously set (heartbeat = new cycle starts)
+                nxt = _next_cron_datetime(schedule)
+                if nxt:
+                    _availability["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            log.info(f"[v2.17] heartbeat stamped: last_active_at={now_str} "
+                     f"next_active_at={_availability.get('next_active_at')}")
+            self._json({
+                "ok":            True,
+                "last_active_at": now_str,
+                "next_active_at": _availability.get("next_active_at"),
+                "availability":   dict(_availability),
+            })
+            return
+        # ── end v2.17 ─────────────────────────────────────────────────────────
 
         # /message:send  — primary v0.5 endpoint (A2A-aligned)  [stable]
         # Accepts: {message_id?, role, parts|text, task_id?, context_id?, sync?, timeout?}
@@ -4502,7 +4679,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         # Allowed fields for PATCH (whitelist to avoid injection)
         ALLOWED = {"mode", "interval_seconds", "next_active_at",
-                   "last_active_at", "task_latency_max_seconds"}
+                   "last_active_at", "task_latency_max_seconds",
+                   "schedule", "timezone"}   # v2.17: added schedule + timezone
         unknown = set(patch.keys()) - ALLOWED
         if unknown:
             self._json({"error": f"unknown availability fields: {sorted(unknown)}"}, 400)
