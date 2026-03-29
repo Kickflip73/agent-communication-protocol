@@ -2824,6 +2824,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "name":             info["name"],
                     "link":             info.get("link"),
                     "connected":        info["connected"],
+                    "ws_ready":         info["connected"] and info.get("ws") is not None,  # v2.16: true only after WS handshake
                     "connected_at":     info.get("connected_at"),
                     "disconnected_at":  info.get("disconnected_at"),
                     "messages_sent":    info.get("messages_sent", 0),
