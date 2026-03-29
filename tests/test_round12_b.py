@@ -120,8 +120,25 @@ def http_post(http_port, path, body, timeout=8):
 
 
 def wait_peer_connected(http_port, peer_id, retries=80, interval=0.5):
-    """等待 peer WS 握手完成（probe 发送成功）。"""
+    """等待 peer WS 握手完成。
+
+    Strategy (v2.16 fix): first probe GET /peers for connected=True flag (fast,
+    no side-effects), then fall back to probe-send if the peers endpoint does not
+    list the peer (older relay versions or peer_id mismatch).
+    """
     for _ in range(retries):
+        try:
+            # Fast path: check connected flag via GET /peers
+            with __import__("urllib").request.urlopen(
+                    f"http://127.0.0.1:{http_port}/peers", timeout=3) as resp:
+                peers = __import__("json").loads(resp.read())
+                peer_list = peers if isinstance(peers, list) else peers.get("peers", [])
+                for p in peer_list:
+                    if p.get("id") == peer_id and p.get("connected"):
+                        return True
+        except Exception:
+            pass
+        # Fallback: probe send
         try:
             r, _ = http_post(http_port, f"/peer/{peer_id}/send",
                              {"parts": [{"type": "text", "content": "__probe__"}],
