@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-26 15:54（开发轮；VERSION 1.3.0→2.1.0；补充 v1.8/v1.9/v2.0/v2.1 历史记录；新增 v2.2/v3.0 规划）
+> 最后更新：2026-03-30 05:24（研究轮；v2.17 availability_schedule 完成；新增 v2.18 待办：trust.signals JWKS、data_handling_policy、v1.4 NAT 主流程集成）
 
 ---
 
@@ -399,6 +399,34 @@ Key commit: TBD（本轮）
   - 测试套件运行指南（本地/远程/Docker/CI）
   - 实现者参考（必须端点、AgentCard 字段、错误格式）
   - 自认证 badge 方案（Shields.io 静态 + 动态 endpoint）
+
+---
+
+## 🔭 v2.18 候选待办（2026-03-30 研究轮识别）
+
+> 更新时间：2026-03-30 05:24 研究轮
+
+### [ ] P0 — v1.4 NAT 穿透主流程集成（遗留）
+- `_connect_with_nat_traversal()` 替换现有直连逻辑（Level 1/2/3 自动切换）
+- 目标：Show HN 发布前完成
+- 参考：`spec/nat-traversal-v1.4.md`
+
+### [ ] P2 — trust.signals JWKS 兼容层
+- **背景**: A2A IS#1628 趋向使用 ECDSA P-256 / JWKS 标准；ACP 使用 Ed25519
+- **方向**: 提供 JWKS 验证适配器，使 ACP `trust.signals` 可接受来自第三方 ECDSA 签名方的信号
+- **影响**: 提升 ACP 与 A2A 生态的可互通性
+- **来源**: 2026-03-30 扫描，IS#1628 已有 18 评论，方案趋于收敛
+
+### [ ] P3 — data_handling_policy（GDPR 字段，轻量 Extensions）
+- **背景**: A2A IS#1606 提议 AgentCard 声明数据处理政策（retention, processing_locations, model_training）
+- **方向**: 作为 ACP Extension 实现，`urn:acp:ext:data-handling/v1`，可选字段，零破坏性
+- **优先级低原因**: ACP 定位个人/小团队，监管合规压力较小；但中期可跟进增强企业可信度
+- **来源**: 2026-03-30 扫描，IS#1606
+
+### ❌ 暂不跟进 — 原生 Pub/Sub（A2A PR#1196）
+- A2A 探索将 Kafka/SQS 纳入协议原语，属企业消息总线赛道
+- ACP 定位轻量 P2P，Pub/Sub 引入会增加复杂度，违反设计原则
+- 持续观察 TSC 结论，若成 A2A 核心特性再评估
 
 ---
 
