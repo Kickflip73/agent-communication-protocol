@@ -7,6 +7,23 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.15.0] — 2026-03-29 (Context Query — GET /context/<id>/messages multi-turn conversation history)
+
+### Added
+- `GET /context/<context_id>/messages` — query all messages belonging to a multi-turn conversation thread
+  - Filters `_recv_queue` (inbound) + outbound messages by `context_id`
+  - Query params: `limit` (max 200), `since_seq` (incremental fetch), `sort=asc|desc`
+  - Returns: `{context_id, messages[], count, total, has_more}`
+- Outbound messages now persisted to `_recv_queue` with `direction: outbound` (enables full conversation history)
+- `capabilities.context_query: true` declared in AgentCard
+- Tests: `tests/test_context_query.py` — 8/8 PASS
+
+### Changed
+- `/message:send` success path: outbound message appended to `_recv_queue` for local history tracking
+- SSE broadcast payload includes `context_id` field for outbound messages
+
+---
+
 ## [2.14.0] — 2026-03-29 (Trust Signals — Structured Trust Evidence in AgentCard)
 
 ### Added — trust.signals[] (v2.14)

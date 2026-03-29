@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.14.0"  # v2.14: trust.signals[] — structured trust evidence (A2A #1628 compatible)
+VERSION = "2.15.0"  # v2.15: GET /context/<id>/messages — multi-turn conversation context query
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1100,6 +1100,7 @@ def _make_agent_card(name, skills):
             "ws_stream":          True,                         # v2.12: GET /ws/stream WebSocket native push endpoint
             "event_replay":       True,                         # v2.13: ?since=<seq> replay on /stream and /ws/stream
             "trust_signals":      True,                         # v2.14: trust.signals[] structured evidence in AgentCard
+            "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -3127,6 +3128,75 @@ class LocalHTTP(BaseHTTPRequestHandler):
             }
             self._json(resp)
 
+
+        elif p.startswith("/context/") and p.endswith("/messages"):  # [stable] context message query (v2.15)
+            # GET /context/<context_id>/messages
+            # Query params:
+            #   limit=<n>          max messages to return (default 50, max 200)
+            #   since_seq=<n>      only return messages with server_seq > n (incremental fetch)
+            #   sort=asc|desc      asc=oldest first (default), desc=newest first
+            _ctx_parts = p.split("/")
+            # Expect exactly: ['', 'context', '<ctx_id>', 'messages']
+            if len(_ctx_parts) != 4:
+                self._json({"error": "not found"}, 404)
+            else:
+                ctx_id = _ctx_parts[2]
+                if not ctx_id:
+                    body, sc = _err(ERR_INVALID_REQUEST, "context_id must not be empty", 400)
+                    self._json(body, sc)
+                else:
+                    # Parse query params
+                    try:
+                        _ctx_lim = int(qs.get("limit", ["50"])[0])
+                        if _ctx_lim <= 0:
+                            raise ValueError
+                        _ctx_lim = min(_ctx_lim, 200)
+                    except (ValueError, TypeError):
+                        self._json(_err(ERR_INVALID_REQUEST, "limit must be a positive integer", 400)[0], 400)
+                        return
+                    try:
+                        ctx_since = int(qs.get("since_seq", ["0"])[0])
+                        if ctx_since < 0:
+                            raise ValueError
+                    except (ValueError, TypeError):
+                        self._json(_err(ERR_INVALID_REQUEST, "since_seq must be non-negative", 400)[0], 400)
+                        return
+                    ctx_sort = qs.get("sort", ["asc"])[0]
+                    if ctx_sort not in ("asc", "desc"):
+                        self._json(_err(ERR_INVALID_REQUEST, "sort must be asc or desc", 400)[0], 400)
+                        return
+                    # Filter _recv_queue by context_id (non-destructive snapshot)
+                    _snap = list(_recv_queue)
+                    matched = []
+                    for _m in _snap:
+                        _raw = _m.get("raw", _m)
+                        _m_ctx = _raw.get("context_id") or _m.get("context_id")
+                        if _m_ctx != ctx_id:
+                            continue
+                        _m_seq = int(_raw.get("server_seq") or _m.get("server_seq") or 0)
+                        if _m_seq <= ctx_since:
+                            continue
+                        matched.append({
+                            "message_id": _raw.get("message_id") or _m.get("message_id"),
+                            "server_seq": _m_seq,
+                            "ts":         _raw.get("ts") or _m.get("ts") or _m.get("received_at"),
+                            "from":       _raw.get("from") or _m.get("peer_id"),
+                            "role":       _raw.get("role"),
+                            "parts":      _raw.get("parts", []),
+                            "task_id":    _raw.get("task_id") or _m.get("task_id"),
+                            "context_id": _m_ctx,
+                        })
+                    matched.sort(key=lambda x: x.get("server_seq") or 0,
+                                 reverse=(ctx_sort == "desc"))
+                    _ctx_page = matched[:_ctx_lim]
+                    self._json({
+                        "context_id": ctx_id,
+                        "messages":   _ctx_page,
+                        "count":      len(_ctx_page),
+                        "total":      len(matched),
+                        "has_more":   len(matched) > _ctx_lim,
+                    })
+
         elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2)
             # Query params:
             #   status=<status>        filter by status (v2.2 alias; state= still accepted)
@@ -3578,8 +3648,27 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "role":       role_raw,
                         "parts":      parts,
                         "task_id":    msg.get("task_id"),
+                        "context_id": msg.get("context_id"),   # v2.15: include context_id for context query
                         "direction":  "outbound",
                     })
+                    # v2.15: persist outbound message to _recv_queue so /context/<id>/messages
+                    # and /messages can surface sent messages (enables full conversation history).
+                    _outbound_entry = {
+                        "peer_id":    "local",
+                        "direction":  "outbound",
+                        "received_at": _now(),
+                        "raw": {
+                            "message_id":  message_id,
+                            "server_seq":  seq,
+                            "ts":          _now(),
+                            "from":        _status.get("agent_name", "local"),
+                            "role":        role_raw,
+                            "parts":       parts,
+                            "task_id":     msg.get("task_id"),
+                            "context_id":  msg.get("context_id"),
+                        },
+                    }
+                    _recv_queue.append(_outbound_entry)
                     self._json({"ok": True, "message_id": message_id, "server_seq": seq, "task": task})
 
             except ConnectionError as e:
