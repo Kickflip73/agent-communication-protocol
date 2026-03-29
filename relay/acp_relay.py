@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.17.0"  # v2.17: availability_schedule — CRON-based agent scheduling in AgentCard
+VERSION = "2.18.0"  # v2.18: trust.signals JWKS compatibility layer — /.well-known/jwks.json + jwks signal
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1297,6 +1297,7 @@ def _make_agent_card(name, skills):
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
+            "trust_jwks":         True,                                      # v2.18: JWKS compatibility layer — /.well-known/jwks.json
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1337,6 +1338,7 @@ def _make_agent_card(name, skills):
             "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
+            "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
         },
     }
     # v1.2: attach availability block only when configured (opt-in)
@@ -1491,7 +1493,64 @@ def _build_trust_signals() -> list:
         "details":     {"endpoint": "/.well-known/did.json", "did": _did_acp} if _did_acp else {},
     })
 
+    # 7. JWKS compatibility layer (v2.18)
+    signals.append({
+        "type":        "jwks",
+        "enabled":     bool(_ed25519_private),
+        "description": "Ed25519 public key published as JWK Set at /.well-known/jwks.json (v2.18, RFC 7517). Enables JWKS-based key discovery compatible with A2A IS#1628.",
+        "jwks_uri":    "/.well-known/jwks.json",
+        "alg":         "EdDSA",
+        "details":     {"endpoint": "/.well-known/jwks.json", "alg": "EdDSA", "kty": "OKP", "crv": "Ed25519"} if _ed25519_private else {},
+    })
+
     return signals
+
+
+# ── v2.18: JWKS helpers ────────────────────────────────────────────────────────
+
+def _build_jwks(agent_name: str = "ACP-Agent") -> dict:
+    """
+    Build a JWK Set (RFC 7517) from the ACP Ed25519 identity (v2.18).
+
+    Returns a standard JWKS dict:
+      {
+        "keys": [
+          {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x":   "<base64url-encoded 32-byte public key>",
+            "use": "sig",
+            "alg": "EdDSA",
+            "kid": "<agent_name>:<pubkey_prefix_8chars>"
+          }
+        ]
+      }
+
+    If no Ed25519 identity is loaded (--identity not provided), returns {"keys": []}.
+
+    Notes:
+      - Only the public key is included; the private key is NEVER exported.
+      - 'x' is the raw 32-byte Ed25519 public key encoded as base64url (no padding).
+      - 'kid' is derived from agent_name and first 8 chars of the base64url pubkey.
+      - The endpoint is unauthenticated (well-known public key discovery).
+
+    Test IDs: JW1 ~ JW6
+    """
+    if not _ed25519_private or not _ed25519_public_b64:
+        return {"keys": []}
+
+    # kid = "<agent_name>:<pubkey_prefix>" — first 8 chars of base64url pubkey
+    kid = f"{agent_name}:{_ed25519_public_b64[:8]}"
+
+    jwk = {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x":   _ed25519_public_b64,   # raw 32-byte pubkey, base64url no-padding
+        "use": "sig",
+        "alg": "EdDSA",
+        "kid": kid,
+    }
+    return {"keys": [jwk]}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2933,6 +2992,35 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 }] if link else []),
             }
             self._json(did_doc)
+
+        # ── GET /.well-known/jwks.json — JWKS endpoint (v2.18) ────────────────
+        elif p == "/.well-known/jwks.json":
+            """Return a JWK Set (RFC 7517) containing this Agent's Ed25519 public key.
+
+            v2.18: JWKS compatibility layer for A2A IS#1628 interoperability.
+
+            Returns:
+              200 + {"keys": [<JWK>]}   when --identity is enabled (Ed25519 keypair loaded)
+              200 + {"keys": []}         when --identity is NOT provided
+
+            This endpoint is unauthenticated (public well-known key discovery).
+            The JWK contains only the public key; the private key is never exported.
+
+            JWK format:
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "x":   "<base64url 32-byte pubkey>",
+                "use": "sig",
+                "alg": "EdDSA",
+                "kid": "<agent_name>:<pubkey_prefix>"
+              }
+
+            Test IDs: JW1 ~ JW6
+            """
+            agent_name = _status.get("agent_name", "ACP-Agent")
+            jwks = _build_jwks(agent_name)
+            self._json(jwks)
 
         elif p == "/status":  # [stable] relay status
             self._json(_status)

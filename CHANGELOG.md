@@ -7,6 +7,35 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.18.0] — 2026-03-30 (trust.signals JWKS Compatibility Layer)
+
+### Added — trust_jwks (v2.18)
+
+- **`_build_jwks(agent_name)`** — builds a JWK Set (RFC 7517) from the ACP Ed25519 identity.
+  Returns `{"keys": [<JWK>]}` when `--identity` is enabled; `{"keys": []}` otherwise.
+  JWK format: `{"kty": "OKP", "crv": "Ed25519", "x": "<base64url_pubkey>", "use": "sig", "alg": "EdDSA", "kid": "<agent_name>:<pubkey_prefix_8>"}`
+- **`GET /.well-known/jwks.json`** — public JWK Set endpoint (unauthenticated, well-known).
+  Always returns 200; returns empty keys when `--identity` not provided.
+- **`capabilities.trust_jwks: True`** — declared in AgentCard (always true; endpoint always available).
+- **`endpoints.jwks: "/.well-known/jwks.json"`** — declared in AgentCard endpoints block.
+- **`trust.signals[]` type `"jwks"`** — new signal when `--identity` enabled:
+  `{"type": "jwks", "enabled": true, "jwks_uri": "/.well-known/jwks.json", "alg": "EdDSA", "description": "...", "details": {...}}`
+- Backward compatible: existing `type=ed25519_identity` raw signal preserved; `type=jwks` added alongside.
+
+### Tests
+
+- `tests/test_jwks.py` — JW1~JW10: **13/13 PASS** (2 no-identity + 8 with-identity + 3 always-declared)
+- Full regression: `test_trust_signals.py` 8/8 PASS (no regressions)
+
+### Differentiation vs A2A IS#1628
+
+- A2A IS#1628 proposes `trust.signals[]` with JWKS-format key discovery — ACP now ships a complete implementation.
+- ACP's `/.well-known/jwks.json` is a strict RFC 7517 JWK Set; discoverable via both `endpoints.jwks` and `trust.signals[type=jwks].jwks_uri`.
+- Ed25519 key type uses `kty=OKP`, `crv=Ed25519`, `alg=EdDSA` per RFC 8037 (CFRG Elliptic Curves for JOSE).
+- Both raw Ed25519 identity (`type=ed25519_identity`) and JWKS signal (`type=jwks`) coexist for maximum interoperability.
+
+---
+
 ## [2.17.0] — 2026-03-30 (Availability Schedule — CRON-based Agent Scheduling)
 
 ### Added — availability_schedule (v2.17)
