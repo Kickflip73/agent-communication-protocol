@@ -1589,6 +1589,8 @@ Six bugs discovered during first live AlphaAgent↔BetaAgent P2P communication s
 
 | Version | Date | Theme | Key Feature |
 |---------|------|-------|-------------|
+| 2.18.0 | 2026-03-30 | JWKS Compat Layer | `trust.signals[type=jwks]`; `GET /.well-known/jwks.json` RFC 7517; `capabilities.trust_jwks`; 13/13 PASS |
+| 2.17.0 | 2026-03-30 | Availability Schedule | CRON-based `availability.schedule`; `GET /availability`; `POST /availability/heartbeat`; 22/22 PASS |
 | 2.16.0 | 2026-03-30 | Delegation Chain | Signed identity delegation in AgentCard; ws_ready dedup fix (BUG-041) |
 | 2.15.0 | 2026-03-29 | Context Query | GET /context/<id>/messages multi-turn conversation history |
 | 0.9.0-dev | 2026-03-21 | Developer UX + Distribution | CLI flags, async SDK stdlib-only, unit tests, `pip install acp-relay`, `acp-relay-client` npm |

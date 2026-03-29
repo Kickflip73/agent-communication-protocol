@@ -276,6 +276,8 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Agent capability boundaries** | ❌ `limitations[]` open proposal (issue #1694, not merged) | **✅ `limitations[]` — 透明能力边界（A2A v1.0 同期推出，ACP 已支持 v2.7）** |
 | **Trust signals / provenance** | ❌ `trust.signals[]` open spec proposal (#1628, still in discussion — no merged schema) | **✅ `trust.signals[]` — 4-type structured trust evidence in AgentCard (v2.14): `self_attested` / `third_party_vouched` / `onchain_credentials` / `behavioral`; Ed25519-signed; A2A-compatible schema** |
 | **Multi-turn conversation context** | ❌ `contextId` still proposal-stage — no query API in spec | **✅ `GET /context/<id>/messages` — query full conversation history by `context_id` (v2.15); supports `since_seq` incremental fetch, `sort=asc\|desc`, `limit`; outbound + inbound messages unified** |
+| **Availability scheduling (CRON)** | ❌ #1667 heartbeat agent support still in discussion — no schedule field | **✅ `availability.schedule` CRON expression + `availability.timezone`; `GET /availability`; `POST /availability/heartbeat`; `capabilities.availability_schedule` (v2.17)** |
+| **JWKS key discovery** | ❌ IS#1628 proposes JWKS-format key discovery — still proposal stage, no merged implementation | **✅ `GET /.well-known/jwks.json` — RFC 7517 JWK Set; `kty=OKP`, `crv=Ed25519`, `alg=EdDSA` per RFC 8037; discoverable via `endpoints.jwks` + `trust.signals[type=jwks].jwks_uri`; `capabilities.trust_jwks: true` (v2.18)** |
 
 > A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) has 62 comments and three competing third-party implementations (AgentID, APS, qntm) racing to fill the gap — still nothing merged into A2A spec. ACP v1.8+v1.9 ships the complete identity story today: agents sign their own card (v1.8), and when two agents connect, each side **automatically** verifies the other's card at handshake (v1.9). `GET /peer/verify` → `{verified: true}`. No CA. No registration. No extra calls.
 
@@ -498,6 +500,9 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | v2.13 | ✅ | SSE + WebSocket 事件重放（`?since=<seq>`）— 断线重连零数据丢失；`_event_log` 环形缓冲区 |
 | **v2.14** | ✅ | **`trust.signals[]`** — AgentCard 结构化信任证据（4种类型：`self_attested`/`third_party_vouched`/`onchain_credentials`/`behavioral`）；Ed25519签名；A2A #1628 兼容 |
 | **v2.15** | ✅ | **`GET /context/<id>/messages`** — 多轮对话上下文查询；outbound消息持久化到 `_recv_queue`；`since_seq`/`sort`/`limit` 参数；`capabilities.context_query: true`；领先 A2A contextId 提案 |
+| **v2.16** | ✅ | **`delegation_chain` 身份委托链** — Ed25519 签名委托记录；`POST /identity/delegate`；`GET /identity/delegation`；`capabilities.delegation_chain: true`；领先 A2A #1696 |
+| **v2.17** | ✅ | **`availability.schedule` CRON 调度** — 5字段 CRON 表达式；`GET /availability`；`POST /availability/heartbeat`；`capabilities.availability_schedule: true`；领先 A2A #1667 |
+| **v2.18** | ✅ | **JWKS 兼容层** — `GET /.well-known/jwks.json` RFC 7517；`trust.signals[type=jwks]`；`capabilities.trust_jwks: true`；ACP 率先实现，对比 A2A IS#1628 仍在提案阶段 |
 
 ---
 

@@ -40,6 +40,8 @@
 | **`trust.signals[]` 结构化信任证据** | ✅ **v2.14 已实现** | ❌ #1628 仍在提案 | **ACP 领先** |
 | **`GET /context/<id>/messages`** | ✅ **v2.15 已实现** | ❌ 无 | **ACP 首创** |
 | **`delegation_chain` 身份委托链** | ✅ **v2.16 已实现** | ❌ #1696 Future Considerations | **ACP 首创** |
+| **`availability.schedule` CRON 调度** | ✅ **v2.17 已实现** | ❌ #1667 heartbeat 仍在提案 | **ACP 首创** |
+| **`/.well-known/jwks.json` JWKS 密钥发现** | ✅ **v2.18 已实现（RFC 7517/8037）** | ❌ IS#1628 仍在提案阶段 | **ACP 领先** |
 | `tasks/list` 分页过滤 | ✅ v2.11 | ✅ v1.0.0 | 持平（ACP 超前实现）|
 | Python SDK | ✅ v1.7+ | 🟡 v1.0.0-alpha.0 | 版本号差距，ACP 更轻量 |
 
@@ -302,14 +304,27 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 🎯 v2.5（目标：2026-04，下一里程碑）
+### ✅ v2.5（目标：2026-04，下一里程碑）
 **主题：测试稳定性 + ADR 规范化**
 
-- [ ] `test_reconnect.py` 完整重写（local relay，无需公网 IP）
+- [x] `test_reconnect.py` 完整重写（local relay，无需公网 IP）（✅ BUG-038 已修复，2026-03-30）
 - [ ] WS2/WS3 本地 peer 测试（消除 P2P skip）
 - [x] `trust.signals[]` 兼容格式（✅ v2.14 已实现，commit `06f82cd`）
 - [x] `adrs/` 目录初始化（✅ v2.13 文档轮已完成：ADR-001/002/003 + template）
+- [x] JWKS 兼容层（✅ v2.18 已实现：`trust.signals[type=jwks]` + `/.well-known/jwks.json`）
 - [ ] 全套测试 0 failed 稳定化
+
+---
+
+### 🔮 v2.19（候选特性，目标：2026-Q2，Show HN 前必须完成）
+**主题：NAT 穿透主流程集成**
+
+- [ ] **v1.4 NAT 穿透主流程集成**（P0，Show HN 前必须完成）
+  - 将 v1.4 NAT traversal signaling layer（Cloudflare Worker v2.1）集成到主流程
+  - 实现自动直连→打洞→中继三阶段降级策略（当前仅 signaling 层，主流程未集成）
+  - `--nat-traversal` CLI 标志启用主流程集成
+  - E2E 测试：跨 NAT 环境 Agent 直连，无需手动端口转发
+  - 完成后更新 README Why ACP 对比表中 "NAT / firewall" 行的描述
 
 ---
 
