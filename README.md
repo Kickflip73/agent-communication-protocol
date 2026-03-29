@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.6.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.15.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-279%2F279_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-232%2F232_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -274,6 +274,8 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **AgentCard limitations field** | ❌ Open proposal — issue #1694 (2026-03-27), not yet merged | **✅ `limitations: string[]` — AgentCard top-level field ships in v2.7; completes 3-part boundary: `capabilities` + `availability` + `limitations`** |
 | **Skills / capability discovery** | ❌ No structured skill discovery in spec | **✅ `GET /skills` — Skills-lite 能力发现（轻量，无 JSON Schema 开销）；AgentCard `skills[]` 结构化对象数组（v2.10.0）；每个 skill 含 `input_modes`/`output_modes`/`examples` 字段（v2.11.0）；`/skills/query` 支持 `constraints.input_mode` 按输入模式过滤（v2.11.0）** |
 | **Agent capability boundaries** | ❌ `limitations[]` open proposal (issue #1694, not merged) | **✅ `limitations[]` — 透明能力边界（A2A v1.0 同期推出，ACP 已支持 v2.7）** |
+| **Trust signals / provenance** | ❌ `trust.signals[]` open spec proposal (#1628, still in discussion — no merged schema) | **✅ `trust.signals[]` — 4-type structured trust evidence in AgentCard (v2.14): `self_attested` / `third_party_vouched` / `onchain_credentials` / `behavioral`; Ed25519-signed; A2A-compatible schema** |
+| **Multi-turn conversation context** | ❌ `contextId` still proposal-stage — no query API in spec | **✅ `GET /context/<id>/messages` — query full conversation history by `context_id` (v2.15); supports `since_seq` incremental fetch, `sort=asc\|desc`, `limit`; outbound + inbound messages unified** |
 
 > A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) has 62 comments and three competing third-party implementations (AgentID, APS, qntm) racing to fill the gap — still nothing merged into A2A spec. ACP v1.8+v1.9 ships the complete identity story today: agents sign their own card (v1.8), and when two agents connect, each side **automatically** verifies the other's card at handshake (v1.9). `GET /peer/verify` → `{verified: true}`. No CA. No registration. No extra calls.
 
@@ -292,7 +294,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **279/279 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes)
+- **232/232 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query)
 - **184+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
@@ -488,6 +490,14 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | v2.5 | ✅ | Task 事件序列规范 (spec §8) — SSE Envelope 必填字段、7 MUST + 2 SHOULD 合规、Named event 行、10 个集成测试 |
 | v2.6 | ✅ | Task `cancelling` 中间状态 — 两阶段取消协议、AgentCard `capabilities.task_cancelling`、spec §3.3.1 时序图、A2A #1684/#1680 差异化 |
 | **v2.7** | ✅ | **AgentCard `limitations: string[]`** — 三元能力边界完整声明（`capabilities` + `availability` + `limitations`）；`--limitations` CLI flag；向后兼容；ref A2A #1694 |
+| v2.8 | ✅ | `GET /skills/query` — constraints 过滤（`input_mode`/`output_mode`/`tag`/`name`）；skill examples 字段；SkillCard v2 schema |
+| v2.9 | ✅ | DID 身份文档（`did:acp:` + `did:key:`）；`/.well-known/did.json`；Ed25519 身份持久化；`GET /identity` |
+| v2.10 | ✅ | structured skills objects (AgentCard `skills[]` 结构化数组)；`/skills` 端点；skill `input_modes`/`output_modes`/`examples` |
+| v2.11 | ✅ | `/skills/query` constraints 过滤；`capabilities.skill_query: true`；15 项 skill 测试 |
+| v2.12 | ✅ | `GET /ws/stream` — WebSocket 原生 Push 端点（SSE 替代方案）；`capabilities.ws_stream: true` |
+| v2.13 | ✅ | SSE + WebSocket 事件重放（`?since=<seq>`）— 断线重连零数据丢失；`_event_log` 环形缓冲区 |
+| **v2.14** | ✅ | **`trust.signals[]`** — AgentCard 结构化信任证据（4种类型：`self_attested`/`third_party_vouched`/`onchain_credentials`/`behavioral`）；Ed25519签名；A2A #1628 兼容 |
+| **v2.15** | ✅ | **`GET /context/<id>/messages`** — 多轮对话上下文查询；outbound消息持久化到 `_recv_queue`；`since_seq`/`sort`/`limit` 参数；`capabilities.context_query: true`；领先 A2A contextId 提案 |
 
 ---
 

@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square">
   <img src="https://img.shields.io/badge/依赖-仅_websockets-orange?style=flat-square">
   <img src="https://img.shields.io/badge/延迟-0.6ms_avg-brightgreen?style=flat-square">
-  <img src="https://img.shields.io/badge/测试-279%2F279_PASS-success?style=flat-square">
+  <img src="https://img.shields.io/badge/测试-232%2F232_PASS-success?style=flat-square">
 </p>
 
 <p>
@@ -236,7 +236,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** 均值发送延迟 · **2.8ms** P99
 - **1,100+ req/s** 顺序吞吐 · **1,200+ req/s** 并发（10 线程）
 - **< 50ms** SSE 推送延迟（threading.Event，非轮询）
-- **279/279 单元 + 集成测试通过**（错误处理 · 压力测试 · NAT 穿透 · 环形流水线 · transport_modes）
+- **232/232 单元 + 集成测试通过**（错误处理 · 压力测试 · NAT 穿透 · 环形流水线 · transport_modes）
 - **184+ commits** · **3,300+ 行** · **零已知 P0/P1 Bug**
 
 ---
