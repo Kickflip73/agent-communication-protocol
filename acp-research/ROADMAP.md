@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-29 11:09（文档轮：v2.12/v2.13 完成标记，A2A 迁移更新，event_replay 差异化记录，ADR 目录初始化）
+> 最后更新：2026-03-29 12:17（文档轮：v2.14 trust.signals[] 完成标记，v2.5 任务划线，差异化表新增 trust_signals 行）
 
 ---
 
@@ -37,7 +37,7 @@
 | `limitations` 字段 | ✅ v2.7 已实现 | 🔴 #1694 提案未合并 | **ACP 领先** |
 | WebSocket 原生推送 | ✅ v2.12 已实现 | 🔴 #1029 提案中 | **ACP 领先** |
 | **事件回放 `?since=<seq>`** | ✅ **v2.13 已实现** | ❌ 无 | **ACP 领先（首创）** |
-| `trust.signals[]` 格式 | 🟡 间接（identity 字段）| 🟡 #1628 提案中 | 持平 |
+| **`trust.signals[]` 结构化信任证据** | ✅ **v2.14 已实现** | ❌ #1628 仍在提案 | **ACP 领先** |
 | `tasks/list` 分页过滤 | ✅ v2.11 | ✅ v1.0.0 | 持平（ACP 超前实现）|
 | Python SDK | ✅ v1.7+ | 🟡 v1.0.0-alpha.0 | 版本号差距，ACP 更轻量 |
 
@@ -248,6 +248,18 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
+### ✅ v2.14（完成，2026-03-29）
+**主题：结构化信任证据（trust.signals[]）**
+
+- ✅ `_build_trust_signals()`: 6 个 signal 类型（commit `06f82cd`，2026-03-29）
+  - `hmac_message_signing`、`ed25519_identity`、`agent_card_signature`
+  - `peer_card_verification`（始终启用）、`replay_window`、`did_document`
+- ✅ `capabilities.trust_signals: true` 声明到 AgentCard
+- ✅ 测试：TS1~TS8 8/8 PASS，回归 41/41 PASS 5 SKIPPED
+- **差异化**：A2A #1628 提案仍未合并，ACP 率先实现结构化信任证据
+
+---
+
 ### ✅ v2.13（完成，2026-03-29）
 **主题：断线重连无数据丢失（Event Replay）**
 
@@ -263,12 +275,12 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 ---
 
 ### 🎯 v2.5（目标：2026-04，下一里程碑）
-**主题：测试稳定性 + trust.signals 兼容 + ADR 规范化**
+**主题：测试稳定性 + ADR 规范化**
 
 - [ ] `test_reconnect.py` 完整重写（local relay，无需公网 IP）
 - [ ] WS2/WS3 本地 peer 测试（消除 P2P skip）
-- [ ] `trust.signals[]` 兼容格式（参考 A2A Issue #1628，与 ACP `identity` 字段对齐）
-- [ ] `adrs/` 目录初始化（参考 A2A ADR 格式，记录 ACP 关键设计决策）
+- [x] `trust.signals[]` 兼容格式（✅ v2.14 已实现，commit `06f82cd`）
+- [x] `adrs/` 目录初始化（✅ v2.13 文档轮已完成：ADR-001/002/003 + template）
 - [ ] 全套测试 0 failed 稳定化
 
 ---

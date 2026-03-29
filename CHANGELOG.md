@@ -7,6 +7,45 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.14.0] — 2026-03-29 (Trust Signals — Structured Trust Evidence in AgentCard)
+
+### Added — trust.signals[] (v2.14)
+
+- **`trust.signals[]`** in AgentCard (`/.well-known/acp.json`) — structured, enumerable
+  trust evidence block.  Each signal entry has `type`, `enabled`, `description`, and
+  `details` fields.  Inspired by A2A Issue #1628 (proposal, not yet merged); ACP ships
+  this first with a concrete, per-capability design.
+- **`_build_trust_signals()`** — generates the array at AgentCard build time from the
+  current runtime state (HMAC secret present? Ed25519 keypair loaded? DID generated?).
+  Six signal types:
+  | Signal type | Enabled when |
+  |---|---|
+  | `hmac_message_signing` | `--secret` provided |
+  | `ed25519_identity` | `--identity` loaded |
+  | `agent_card_signature` | `--identity` loaded |
+  | `peer_card_verification` | **always** (built-in v1.9) |
+  | `replay_window` | `--secret` provided |
+  | `did_document` | DID generated (`--identity`) |
+- **`capabilities.trust_signals: true`** in AgentCard — machine-readable flag for
+  capability negotiation.
+- **`tests/test_trust_signals.py`** — 8 tests (TS1–TS8):
+  - TS1: `trust` block present in AgentCard
+  - TS2: `trust.signals` is a non-empty list
+  - TS3: each signal has required fields (`type`, `enabled`, `description`, `details`)
+  - TS4: all 6 expected signal types present
+  - TS5: ed25519-related signals disabled without `--identity`
+  - TS6: HMAC-related signals disabled without `--secret`
+  - TS7: `trust_signals` capability declared
+  - TS8: `peer_card_verification` always enabled
+
+### Differentiation
+
+- A2A Issue #1628 proposes `trust.signals[]` but remains unmerged as of 2026-03-29.
+  ACP v2.14 is the first protocol implementation to ship this feature with a concrete,
+  capability-mapped design.
+
+---
+
 ## [2.13.0] — 2026-03-29 (Event Replay — `?since=<seq>` Reconnect Without Data Loss)
 
 ### Added — Event Replay for SSE + WebSocket (v2.13)
