@@ -305,7 +305,10 @@ def test_pv7_peer_verify_fields():
 
     assert vr["valid"] is True
     assert vr["scheme"] in ("ed25519", "ed25519+ca", "none", "unknown")
-    assert vr["did"] is not None and vr["did"].startswith("did:acp:")
+    # /verify/card returns did:key: (W3C standard format); did:acp: is the internal identifier
+    assert vr["did"] is not None and (
+        vr["did"].startswith("did:key:") or vr["did"].startswith("did:acp:")
+    ), f"Unexpected DID format: {vr['did']}"
 
 
 def test_pv8_peer_card_verification_cleared_on_disconnect():
