@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.13.0"  # v2.13: ?since=<seq> event replay for SSE + WS reconnect
+VERSION = "2.14.0"  # v2.14: trust.signals[] — structured trust evidence (A2A #1628 compatible)
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1094,6 +1094,7 @@ def _make_agent_card(name, skills):
             "task_cancelling":    True,                         # v2.6: `cancelling` intermediate state before `canceled` (ACP-unique, fills A2A #1684/#1680 gap)
             "ws_stream":          True,                         # v2.12: GET /ws/stream WebSocket native push endpoint
             "event_replay":       True,                         # v2.13: ?since=<seq> replay on /stream and /ws/stream
+            "trust_signals":      True,                         # v2.14: trust.signals[] structured evidence in AgentCard
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1106,6 +1107,7 @@ def _make_agent_card(name, skills):
         "trust": {
             "scheme":  "hmac-sha256" if _hmac_secret else "none",
             "enabled": bool(_hmac_secret),
+            "signals": _build_trust_signals(),   # v2.14: structured trust evidence (A2A #1628 compatible)
         },
         "auth":      {"schemes": ["none"]},
         "endpoints": {
@@ -1189,6 +1191,92 @@ def _make_builtin_extensions() -> list:
             "params":   {},
         })
     return exts
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Trust Signals (v2.14) — A2A Issue #1628 compatible
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _build_trust_signals() -> list:
+    """
+    Build trust.signals[] for the AgentCard (v2.14).
+
+    Each signal is a dict:
+      {
+        "type":        str,   # signal category (see below)
+        "enabled":     bool,  # whether this signal is currently active
+        "description": str,   # human-readable explanation
+        "details":     dict,  # optional type-specific metadata
+      }
+
+    Signal types:
+      - "hmac_message_signing":   HMAC-SHA256 per-message signing (v0.7/v1.1)
+      - "ed25519_identity":       Ed25519 keypair with DID (v0.8/v1.3)
+      - "agent_card_signature":   AgentCard self-signed with Ed25519 key (v1.8)
+      - "peer_card_verification": Auto-verify peer AgentCard on connect (v1.9)
+      - "replay_window":          HMAC replay-window protection (v1.1)
+      - "did_document":           W3C DID Document published (v1.3)
+
+    Rationale (A2A #1628):
+      A2A's trust.signals[] proposal aims to enumerate verifiable trust evidence in the
+      AgentCard. ACP already implements most of these as concrete features; this field
+      makes them discoverable in a structured, interoperable way.
+    """
+    signals = []
+
+    # 1. HMAC-SHA256 per-message signing
+    signals.append({
+        "type":        "hmac_message_signing",
+        "enabled":     bool(_hmac_secret),
+        "description": "HMAC-SHA256 message signing (v0.7). Each message carries an `identity.sig` field signed with a shared secret.",
+        "details":     {"algorithm": "hmac-sha256"} if _hmac_secret else {},
+    })
+
+    # 2. Ed25519 self-sovereign identity
+    signals.append({
+        "type":        "ed25519_identity",
+        "enabled":     bool(_ed25519_private),
+        "description": "Ed25519 keypair with self-sovereign DID (v0.8/v1.3). Identity is generated locally, never shared with a central authority.",
+        "details": ({
+            "scheme":  "ed25519+ca" if _ca_cert_pem else "ed25519",
+            "did_acp": _did_acp,
+            "did":     _did_key,
+        } if _ed25519_private else {}),
+    })
+
+    # 3. AgentCard self-signature
+    signals.append({
+        "type":        "agent_card_signature",
+        "enabled":     bool(_ed25519_private),
+        "description": "AgentCard is self-signed with Ed25519 private key (v1.8). Receivers can verify card authenticity without a CA.",
+        "details":     {"algorithm": "ed25519", "field": "identity.card_sig"} if _ed25519_private else {},
+    })
+
+    # 4. Auto peer AgentCard verification on connect
+    signals.append({
+        "type":        "peer_card_verification",
+        "enabled":     True,   # always active (v1.9); verification result in /peer/verify
+        "description": "Peer's AgentCard is automatically verified on connection (v1.9). Result available at GET /peer/verify.",
+        "details":     {"endpoint": "/peer/verify"},
+    })
+
+    # 5. HMAC replay-window protection
+    signals.append({
+        "type":        "replay_window",
+        "enabled":     bool(_hmac_secret),
+        "description": "HMAC replay-window: messages with duplicate nonces within 60s window are dropped (v1.1).",
+        "details":     {"window_seconds": 60} if _hmac_secret else {},
+    })
+
+    # 6. W3C DID Document
+    signals.append({
+        "type":        "did_document",
+        "enabled":     bool(_did_acp),
+        "description": "W3C DID Document published at /.well-known/did.json (v1.3). Contains Ed25519VerificationKey2020 and ACPRelay service endpoint.",
+        "details":     {"endpoint": "/.well-known/did.json", "did": _did_acp} if _did_acp else {},
+    })
+
+    return signals
 
 
 # ══════════════════════════════════════════════════════════════════════════════
