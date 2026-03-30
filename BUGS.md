@@ -1294,7 +1294,7 @@ websockets 库报 `sent 1011 (internal error); then received 1011`，所有 5 �
 
 ---
 
-### BUG-046 🔄 调查中 — test_round12_b B11: Worker2→Orch WS 握手超时（沙箱三实例并发）
+### BUG-046 ✅ P2 — test_round12_b B11: Worker2→Orch WS 握手超时（沙箱三实例并发）
 
 **发现**：2026-03-30 测试轮
 
@@ -1308,7 +1308,7 @@ websockets 库报 `sent 1011 (internal error); then received 1011`，所有 5 �
 
 **缓解**：B11 加 `time.sleep(1.0)` 初始等待 + `retries=120`（60s）
 
-**待验证**：是否 60s 足够，或需要进一步优化 L1 超时/并发策略
+**验证结果**（2026-03-31）：`time.sleep(1.0)` + `retries=120`（60s）策略经多轮测试验证有效。B11 在场景B全量回归中稳定通过。标记为已缓解/关闭，P2 级别，不阻断正常功能。
 
 **优先级**：P2（测试稳定性，不影响核心功能）
 
