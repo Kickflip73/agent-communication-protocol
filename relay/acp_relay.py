@@ -597,7 +597,7 @@ _status: dict = {
     "peer_count":        0,    # v0.6: active peer count
     "p2p_enabled":       False, # v2.3: set True when P2P WebSocket listener is active
     "limitations":       [],    # v2.7: what this agent CANNOT do (top-level capability boundary)
-    "connection_type":   None,  # v2.19: NAT traversal result — "p2p_direct" | "dcutr_direct" | "relay" | None (not yet connected)
+    "connection_type":   "host",  # v2.19: NAT traversal result — "host" (default) | "p2p_direct" | "dcutr_direct" | "relay"
 }
 
 def _now():
@@ -2503,6 +2503,7 @@ async def host_mode(token, ws_port, http_port):
             _status["peer_card"] = None
             _status["peer_card_verification"] = None   # v1.9: clear on disconnect
             _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+            _status["connection_type"] = "host"        # BUG-047: reset to "host" on disconnect
             _broadcast_sse_event("peer", {"event": "disconnected", "peer_id": peer_id})
 
     log.info("Detecting public IP...")
@@ -2662,6 +2663,7 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None, _exis
             _status["peer_card"] = None
             _status["peer_card_verification"] = None   # v1.9: clear on disconnect
             _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+            _status["connection_type"] = "host"        # BUG-047: reset to "host" on disconnect
             _broadcast_sse_event("peer", {"event": "disconnected"})
 
         retry += 1

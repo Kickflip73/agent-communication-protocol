@@ -8,7 +8,7 @@ and that GET /status returns connection_type.
 Note: HTTP port = WS port + 100 (no --http-port flag in acp_relay.py).
 
 Test matrix:
-  NI1  GET /status includes connection_type field (None before any connect)
+  NI1  GET /status includes connection_type field ("host" before any connect, BUG-047)
   NI2  connection_type is set after /peers/connect (any valid value)
   NI3  connection_type = "relay" for force_relay path (module-level unit test)
   NI4  _broadcast_sse_event appends dcutr_started to _sse_subscribers
@@ -172,7 +172,11 @@ def _load_relay_module(alias: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_ni1_status_connection_type():
-    """NI1: GET /status includes connection_type field (None before any connect)."""
+    """NI1: GET /status includes connection_type field (valid string before any connect).
+
+    BUG-047 fix: connection_type is initialized to 'host' (not None) so that
+    the field always holds a valid transport string.
+    """
     wp = _free_ws_port()
     proc = _start_relay(wp, "NI1-Relay")
     try:
@@ -184,7 +188,7 @@ def test_ni1_status_connection_type():
             f"GET /status missing 'connection_type'. Keys: {list(status.keys())}"
         )
         ct = status["connection_type"]
-        assert ct is None or ct in ("p2p_direct", "dcutr_direct", "relay"), (
+        assert ct in ("host", "p2p_direct", "dcutr_direct", "relay"), (
             f"Unexpected connection_type before connect: {ct!r}"
         )
     finally:
