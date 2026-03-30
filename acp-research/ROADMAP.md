@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-29 22:20（开发轮：v2.15 context_query + v2.16 delegation_chain 完成，差异化表更新）
+> 最后更新：2026-03-31 07:50（文档轮：v2.19 NAT traversal + v2.20 structured limitations[] 完成；v2.21 候选特性规划）
 
 ---
 
@@ -34,7 +34,7 @@
 | 功能 | ACP | A2A | 领先方 |
 |------|-----|-----|--------|
 | Agent 身份认证（Ed25519/DID） | ✅ v1.3 已实现 | 🔴 #1672 讨论中（未合并）| **ACP 领先 ~2 月** |
-| `limitations` 字段 | ✅ v2.7 已实现 | 🔴 #1694 提案未合并 | **ACP 领先** |
+| `limitations` 结构化字段 | ✅ v2.7(string[]) → **v2.20(LimitationObject[])** | 🔴 #1694 提案未合并 | **ACP 领先（stable/runtime 分离，机器可路由）** |
 | WebSocket 原生推送 | ✅ v2.12 已实现 | 🔴 #1029 提案中 | **ACP 领先** |
 | **事件回放 `?since=<seq>`** | ✅ **v2.13 已实现** | ❌ 无 | **ACP 领先（首创）** |
 | **`trust.signals[]` 结构化信任证据** | ✅ **v2.14 已实现** | ❌ #1628 仍在提案 | **ACP 领先** |
@@ -316,15 +316,44 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 🔮 v2.19（候选特性，目标：2026-Q2，Show HN 前必须完成）
+### ✅ v2.20（完成，2026-03-31）
+**主题：结构化 limitations[] — LimitationObject**
+
+- ✅ `LimitationObject` schema：`kind(capability|modality|scale|domain|access|other)` + `code` + `message` + `permanent`
+- ✅ **stable/runtime 分离**：`permanent=true` = 持久约束（路由决策）；`permanent=false` = 运行时降级（重试/降级）
+- ✅ `_parse_limitation()` 工具函数：string/dict 统一归一化，invalid kind → `"other"`
+- ✅ `--limitations-json` CLI：完整 JSON array 输入，优先级高于 `--limitations`
+- ✅ `--limitations` CSV（v2.7 兼容）：string 自动提升为 `LimitationObject`
+- ✅ `capabilities.limitations_structured: true` 能力标志
+- ✅ 18/18 新测试 + 48/48 回归全 PASS（commit `14831b4`，2026-03-31）
+- **对比 A2A IS#1694**：A2A 提案仍在讨论（2026-03-27 开启，未合并）；ACP 已率先发布完整实现
+
+---
+
+### ✅ v2.19（完成，2026-03-31）
 **主题：NAT 穿透主流程集成**
 
-- [ ] **v1.4 NAT 穿透主流程集成**（P0，Show HN 前必须完成）
-  - 将 v1.4 NAT traversal signaling layer（Cloudflare Worker v2.1）集成到主流程
-  - 实现自动直连→打洞→中继三阶段降级策略（当前仅 signaling 层，主流程未集成）
-  - `--nat-traversal` CLI 标志启用主流程集成
-  - E2E 测试：跨 NAT 环境 Agent 直连，无需手动端口转发
-  - 完成后更新 README Why ACP 对比表中 "NAT / firewall" 行的描述
+- ✅ **`connection_type`** 字段集成到 `/status` + `/peers/connect` 响应
+  - 值：`"host"` (默认) | `"p2p_direct"` | `"dcutr_direct"` | `"relay"`
+  - 三级自动降级：L1直连 → L2 dCUTR打洞 → L3 Relay兜底
+- ✅ `availability-cron` CLI 参数（CRON 可直接通过 `--availability-cron` 传入）
+- ✅ `test_nat_integration.py` NI1~NI6：6/6 PASS（commit `175e7ad`）
+- **对比 A2A**：A2A 无 NAT 穿透策略；ACP 自动三级降级，零手动端口转发
+
+---
+
+### 🔮 v2.21（候选特性，目标：2026-Q2）
+**主题：AgentCard 可验证性增强**
+
+- [ ] **limitations[] PATCH 支持**（运行时动态更新 limitations）
+  - `PATCH /.well-known/acp.json` 支持 `limitations` 字段（结构化或 CSV）
+  - 支持运行时切换 `permanent=false` 条目（降级/恢复）
+- [ ] **limitations 过滤查询**
+  - `GET /.well-known/acp.json?filter_limitations=permanent` — 只返回 stable 条目
+  - 帮助 orchestrator 路由决策时过滤掉 transient 降级条目
+- [ ] **Show HN 发布**（P0，待 Stark 先生确认）
+  - 草稿：`docs/show-hn-draft.md`（2026-03-25，已更新）
+  - 发布时机窗口：✅ 已开启（A2A 10天无合并，生态活跃但规范滞后）
 
 ---
 

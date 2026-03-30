@@ -7,6 +7,67 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.20.0] — 2026-03-31 (Structured limitations[] — LimitationObject)
+
+### Added — structured limitations (v2.20)
+
+- **`_parse_limitation(raw)`** — normalizes a string or dict to `LimitationObject`.
+  - `str` input → `{"kind": "capability", "code": raw, "message": raw, "permanent": True}` (backward-compatible promotion)
+  - `dict` input → validated and defaulted `LimitationObject`
+  - Invalid `kind` values coerced to `"other"`
+  - `permanent` defaults to `True` when omitted
+- **`LimitationObject` schema** (ref: A2A IS#1694 stable/runtime split):
+  - `kind: str` — one of `capability | modality | scale | domain | access | other`
+  - `code: str` — machine-readable identifier (e.g. `"image-input-unsupported"`, `"max-10mb"`)
+  - `message: str` — human-readable description
+  - `permanent: bool` — `True` = stable/static constraint (routing-time filtering); `False` = runtime/transient degradation (retry/fallback)
+- **`_VALID_LIMITATION_KINDS`** — set constant for valid kind values
+- **`capabilities.limitations_structured: True`** — declared in AgentCard; signals that `limitations[]` uses `LimitationObject` format (v2.20+)
+- **`--limitations-json <JSON_ARRAY>`** — new CLI flag accepting a full `LimitationObject[]` JSON array. Takes precedence over `--limitations` when both are provided.
+- **`--limitations <csv>`** (existing, v2.7) — now auto-promotes each CSV string to `LimitationObject{kind=capability, permanent=True}`. Output format changed from `string[]` to `LimitationObject[]`.
+
+### Changed
+
+- `AgentCard.limitations[]` format: upgraded from `string[]` → `LimitationObject[]`
+- `_status["limitations"]` stores normalized `LimitationObject[]` at parse time
+- `--limitations` CSV strings are auto-promoted at startup; no breaking change for existing users
+
+### Stable vs Runtime Split
+
+Inspired by A2A IS#1694 community discussion (Agent Exchange Hub v0.4.0 implementation):
+- **Stable limitations** (`permanent: true`): durable constraints declared in AgentCard, cached by registries, used for routing decisions at discovery time
+- **Runtime limitations** (`permanent: false`): transient degradation (quota exhausted, service unavailable), distinct caching semantics from stable constraints
+
+### Tests
+
+- `tests/test_limitations_structured.py` — LIM-01~LIM-18: **18/18 PASS**
+  - TestNoLimitations (LIM-01~03): empty array, capabilities flag
+  - TestCSVLimitations (LIM-04~09): promotion, fields, kind, permanent, codes
+  - TestJSONLimitations (LIM-10~15): count, kinds, permanent, messages, stable/runtime split, JSON overrides CSV
+  - TestLimitationKinds (LIM-16~18): valid kinds, invalid kind coercion, permanent default
+- Full regression: 48/48 PASS (jwks + availability_schedule + nat_integration + scenario_a)
+
+### Differentiation vs A2A IS#1694
+
+- A2A IS#1694 ("Add 'limitations' field to AgentCard") opened 2026-03-27, still in discussion (no merged PR)
+- ACP ships working `LimitationObject[]` with stable/runtime split, machine-readable kind taxonomy, and `capabilities.limitations_structured` flag
+- Agent Exchange Hub v0.4.0 independently shipped similar split on 2026-03-29; ACP formalizes the pattern in protocol spec
+
+---
+
+## [2.19.0] — 2026-03-31 (NAT Auto-Traversal Integration in /peers/connect)
+
+> *Released as documentation/version bump — v2.19 feature (NAT traversal connection_type) was implemented in the preceding dev cycle and committed at 175e7ad.*
+
+### Added — connection_type NAT result (v2.19)
+
+- **`connection_type`** field in `/status` and `/peers/connect` response: `"host"` (default) | `"p2p_direct"` | `"dcutr_direct"` | `"relay"`
+- NAT traversal three-tier auto-negotiation integrated into `/peers/connect` main flow
+- `capabilities.nat_traversal: true` — capability flag
+- `test_nat_integration.py` — NI1~NI6: **6/6 PASS**
+
+---
+
 ## [2.18.0] — 2026-03-30 (trust.signals JWKS Compatibility Layer)
 
 ### Added — trust_jwks (v2.18)
