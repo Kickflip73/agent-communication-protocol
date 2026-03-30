@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.18.0"  # v2.18: trust.signals JWKS compatibility layer — /.well-known/jwks.json + jwks signal
+VERSION = "2.19.0"  # v2.19: NAT auto-traversal integration in /peers/connect — p2p_direct/dcutr_direct/relay connection_type; availability-cron CLI param
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -597,6 +597,7 @@ _status: dict = {
     "peer_count":        0,    # v0.6: active peer count
     "p2p_enabled":       False, # v2.3: set True when P2P WebSocket listener is active
     "limitations":       [],    # v2.7: what this agent CANNOT do (top-level capability boundary)
+    "connection_type":   None,  # v2.19: NAT traversal result — "p2p_direct" | "dcutr_direct" | "relay" | None (not yet connected)
 }
 
 def _now():
@@ -2830,6 +2831,7 @@ async def _connect_with_nat_traversal(link: str, name: str, role: str) -> tuple:
         # asyncio.ensure_future(guest_mode(...)) which opened a NEW WS, triggering
         # BUG-041 dedup on the host side and immediately closing the second connection.
         log.info(f"[NAT L1] Direct connect succeeded: {uri} — handing off to guest_mode")
+        _status["connection_type"] = "p2p_direct"
         asyncio.ensure_future(guest_mode(host, port, token, http_port, _existing_ws=ws))
         return (token, "direct")
     except (asyncio.TimeoutError, ConnectionRefusedError, OSError,
@@ -2865,6 +2867,7 @@ async def _connect_with_nat_traversal(link: str, name: str, role: str) -> tuple:
     if _dcutr_direct_addr is not None:
         direct_host, direct_port = _dcutr_direct_addr
         log.info(f"[NAT L2] hole punch succeeded → {direct_host}:{direct_port}")
+        _status["connection_type"] = "dcutr_direct"
         _broadcast_sse_event("peer", {"event": "dcutr_connected",
                                        "peer_addr": f"{direct_host}:{direct_port}"})
         asyncio.ensure_future(guest_mode(direct_host, direct_port, token, http_port))
@@ -5236,6 +5239,12 @@ Examples:
     parser.add_argument("--next-active-at", default=None, metavar="ISO8601",
                         help="(v1.2) ISO-8601 UTC timestamp of next scheduled wake "
                              "(e.g. 2026-03-22T07:00:00Z). Written into AgentCard availability block.")
+    parser.add_argument("--availability-cron", default=None, metavar="CRON_EXPR",
+                        help="(v2.19) CRON expression for scheduled availability. Sets availability.scheduleType='cron', "
+                             "availability.cron=<expr>, and auto-computes nextActiveAt. "
+                             "Implies --availability-mode cron. "
+                             "Example: --availability-cron '*/30 * * * *' (every 30 minutes). "
+                             "Populates AgentCard 'availability' block with scheduleType/cron/nextActiveAt/taskLatencyMaxSeconds.")
     parser.add_argument("--extension", action="append", default=[], metavar="URI[,required=true][,key=val...]",
                         help="(v1.3) Declare an AgentCard extension. May be repeated. "
                              "Format: URI  or  URI,required=true,param_key=param_val. "
@@ -5375,10 +5384,33 @@ Examples:
 
     # Availability metadata (v1.2) — opt-in AgentCard block for heartbeat/cron agents
     global _availability
-    avail_mode     = _get(getattr(args, "availability_mode",    None), "availability-mode",    None)
-    hb_interval    = _get(getattr(args, "heartbeat_interval",   None), "heartbeat-interval",   None)
-    next_active_at = _get(getattr(args, "next_active_at",       None), "next-active-at",       None)
-    if avail_mode and avail_mode != "persistent":
+    avail_mode        = _get(getattr(args, "availability_mode",  None), "availability-mode",    None)
+    hb_interval       = _get(getattr(args, "heartbeat_interval", None), "heartbeat-interval",   None)
+    next_active_at    = _get(getattr(args, "next_active_at",     None), "next-active-at",       None)
+    # v2.19: --availability-cron shorthand — sets scheduleType=cron + CRON expression + auto-computes nextActiveAt
+    avail_cron_expr   = _get(getattr(args, "availability_cron",  None), "availability-cron",    None)
+    if avail_cron_expr:
+        # --availability-cron implies mode=cron; compute next_active_at from expression
+        avail_mode = "cron"
+        nxt_from_cron = None
+        try:
+            nxt_from_cron = _next_cron_datetime(avail_cron_expr)
+        except Exception:
+            pass
+        _availability = {
+            "mode":                    "cron",
+            "scheduleType":            "cron",
+            "cron":                    avail_cron_expr,
+            "schedule":                avail_cron_expr,   # alias used by _availability_with_schedule
+            "taskLatencyMaxSeconds":   60,
+            "task_latency_max_seconds": 60,
+        }
+        if nxt_from_cron:
+            _availability["nextActiveAt"]   = nxt_from_cron.strftime("%Y-%m-%dT%H:%M:%SZ")
+            _availability["next_active_at"] = _availability["nextActiveAt"]
+        log.info(f"📅 Availability mode: cron (expr={avail_cron_expr!r}, "
+                 f"nextActiveAt={_availability.get('nextActiveAt')})")
+    elif avail_mode and avail_mode != "persistent":
         _availability = {"mode": avail_mode}
         if hb_interval is not None:
             _availability["interval_seconds"]        = int(hb_interval)
