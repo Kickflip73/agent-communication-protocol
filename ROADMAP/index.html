@@ -1417,6 +1417,39 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#v2172026-03-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.17（已完成，2026-03-30）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v2182026-03-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.18（已完成，2026-03-30）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v2192026-03-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.19（已完成，2026-03-30）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#v30-nat-auto-traversal-2026-03-28" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1630,7 +1663,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-03-28（v2.10.0：Skills-lite — GET /skills 结构化能力发现端点，AgentCard skills[] 对象数组，6/6 测试全绿）</p>
+最后更新：2026-03-31（v2.19.0：Auto NAT Traversal Integration — POST /peers/connect 自动三级穿透，connection_type 字段，BUG-047 修复）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -2835,6 +2868,132 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>向后兼容：旧版 <code>/recv</code> 端点继续支持</li>
 <li>AgentCard <code>capabilities.message_history: true</code> 声明</li>
 </ul>
+<hr />
+<h3 id="v2172026-03-30">✅ v2.17（已完成，2026-03-30）<a class="headerlink" href="#v2172026-03-30" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Availability Schedule — CRON 调度 Agent 在线窗口</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>stdlib-only CRON 解析器（<code>*</code>, <code>/</code>, <code>-</code>, <code>,</code>）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>_next_cron_datetime()</code> 计算下次在线时刻</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>AgentCard <code>availability.schedule</code> 字段（CRON 表达式）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>AgentCard <code>availability.timezone</code> 字段（IANA 时区）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET /availability</code> 专用端点（返回 <code>has_schedule</code> + <code>next_active_at</code>）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>POST /availability/heartbeat</code> 端点（更新 <code>last_active_at</code>）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>capabilities.availability_schedule: bool</code> 能力声明</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>tests/test_availability_schedule.py</code> AS1–AS15：22/22 PASS</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>全量回归：171/171 PASS</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化：</strong> A2A IS#1667 <code>availability_metadata</code> 提案仍在讨论中，ACP 以零外部依赖纯 stdlib 实现抢先落地。</p>
+<hr />
+<h3 id="v2182026-03-30">✅ v2.18（已完成，2026-03-30）<a class="headerlink" href="#v2182026-03-30" title="Permanent link">&para;</a></h3>
+<p><strong>主题：trust.signals JWKS 兼容层（对齐 A2A IS#1628）</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /.well-known/jwks.json</code> — RFC 7517 JWK Set 端点</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>_build_jwks()</code> — Ed25519 公钥转 JWK（kty=OKP, crv=Ed25519, alg=EdDSA, RFC 8037）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>trust.signals[]</code> 新增 <code>type=jwks</code> 信号</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>AgentCard <code>capabilities.trust_jwks: true</code> + <code>endpoints.jwks</code> 声明</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>旧信号 <code>type=ed25519_identity</code> 保留，双信号并存向后兼容</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>tests/test_jwks.py</code> JW1–JW10：13/13 PASS</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_trust_signals.py</code> 回归：8/8 PASS</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化：</strong> A2A IS#1628（JWKS 密钥发现）仍在讨论，ACP 率先交付可运行实现。</p>
+<hr />
+<h3 id="v2192026-03-30">✅ v2.19（已完成，2026-03-30）<a class="headerlink" href="#v2192026-03-30" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Auto NAT Traversal Integration + BUG-047 修复</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /peers/connect</code> 自动三级 NAT 穿透（Level1 → Level2 → Level3）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET /status</code> 返回 <code>connection_type</code> 字段（<code>host</code> / <code>p2p_direct</code> / <code>dcutr_direct</code> / <code>relay</code>）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>SSE 事件：<code>dcutr_started</code> / <code>dcutr_connected</code> / <code>relay_fallback</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>connection_type</code> 初始值修复（BUG-047：null → <code>"host"</code>）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>tests/test_nat_integration.py</code>：9 项全通过</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>主要修复（BUG-047）：</strong> <code>GET /status</code> 在 host 模式启动时 <code>connection_type</code> 由 <code>null</code> 正确初始化为 <code>"host"</code>，peer 断开时自动重置。</p>
 <hr />
 <h3 id="v30-nat-auto-traversal-2026-03-28">🔮 v3.0 — NAT Auto-Traversal（✅ 2026-03-28）<a class="headerlink" href="#v30-nat-auto-traversal-2026-03-28" title="Permanent link">&para;</a></h3>
 <p><strong>主题：零配置 NAT 穿透完整方案</strong></p>
