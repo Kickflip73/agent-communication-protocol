@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-28（v2.10.0：Skills-lite — GET /skills 结构化能力发现端点，AgentCard skills[] 对象数组，6/6 测试全绿）
+> 最后更新：2026-03-31（v2.19.0：Auto NAT Traversal Integration — POST /peers/connect 自动三级穿透，connection_type 字段，BUG-047 修复）
 
 ---
 
@@ -512,6 +512,57 @@ Client                          Server
 - 消息 envelope 标准化：每条消息携带 `message_id`、`seq`、`ts`、`from` 字段
 - 向后兼容：旧版 `/recv` 端点继续支持
 - AgentCard `capabilities.message_history: true` 声明
+
+---
+
+### ✅ v2.17（已完成，2026-03-30）
+**主题：Availability Schedule — CRON 调度 Agent 在线窗口**
+
+| 特性 | 状态 |
+|------|------|
+| stdlib-only CRON 解析器（`*`, `/`, `-`, `,`）| ✅ |
+| `_next_cron_datetime()` 计算下次在线时刻 | ✅ |
+| AgentCard `availability.schedule` 字段（CRON 表达式）| ✅ |
+| AgentCard `availability.timezone` 字段（IANA 时区）| ✅ |
+| `GET /availability` 专用端点（返回 `has_schedule` + `next_active_at`）| ✅ |
+| `POST /availability/heartbeat` 端点（更新 `last_active_at`）| ✅ |
+| `capabilities.availability_schedule: bool` 能力声明 | ✅ |
+| `tests/test_availability_schedule.py` AS1–AS15：22/22 PASS | ✅ |
+| 全量回归：171/171 PASS | ✅ |
+
+**差异化：** A2A IS#1667 `availability_metadata` 提案仍在讨论中，ACP 以零外部依赖纯 stdlib 实现抢先落地。
+
+---
+
+### ✅ v2.18（已完成，2026-03-30）
+**主题：trust.signals JWKS 兼容层（对齐 A2A IS#1628）**
+
+| 特性 | 状态 |
+|------|------|
+| `GET /.well-known/jwks.json` — RFC 7517 JWK Set 端点 | ✅ |
+| `_build_jwks()` — Ed25519 公钥转 JWK（kty=OKP, crv=Ed25519, alg=EdDSA, RFC 8037）| ✅ |
+| `trust.signals[]` 新增 `type=jwks` 信号 | ✅ |
+| AgentCard `capabilities.trust_jwks: true` + `endpoints.jwks` 声明 | ✅ |
+| 旧信号 `type=ed25519_identity` 保留，双信号并存向后兼容 | ✅ |
+| `tests/test_jwks.py` JW1–JW10：13/13 PASS | ✅ |
+| `test_trust_signals.py` 回归：8/8 PASS | ✅ |
+
+**差异化：** A2A IS#1628（JWKS 密钥发现）仍在讨论，ACP 率先交付可运行实现。
+
+---
+
+### ✅ v2.19（已完成，2026-03-30）
+**主题：Auto NAT Traversal Integration + BUG-047 修复**
+
+| 特性 | 状态 |
+|------|------|
+| `POST /peers/connect` 自动三级 NAT 穿透（Level1 → Level2 → Level3）| ✅ |
+| `GET /status` 返回 `connection_type` 字段（`host` / `p2p_direct` / `dcutr_direct` / `relay`）| ✅ |
+| SSE 事件：`dcutr_started` / `dcutr_connected` / `relay_fallback` | ✅ |
+| `connection_type` 初始值修复（BUG-047：null → `"host"`）| ✅ |
+| `tests/test_nat_integration.py`：9 项全通过 | ✅ |
+
+**主要修复（BUG-047）：** `GET /status` 在 host 模式启动时 `connection_type` 由 `null` 正确初始化为 `"host"`，peer 断开时自动重置。
 
 ---
 
