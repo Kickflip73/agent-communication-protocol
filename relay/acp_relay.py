@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.19.0"  # v2.19: NAT auto-traversal integration in /peers/connect — p2p_direct/dcutr_direct/relay connection_type; availability-cron CLI param
+VERSION = "2.20.0"  # v2.20: structured limitations[] — LimitationObject {kind,code,message,permanent}; string[] backward-compat; --limitations-json CLI; capabilities.limitations_structured=true
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -596,7 +596,7 @@ _status: dict = {
     "server_seq":        0,
     "peer_count":        0,    # v0.6: active peer count
     "p2p_enabled":       False, # v2.3: set True when P2P WebSocket listener is active
-    "limitations":       [],    # v2.7: what this agent CANNOT do (top-level capability boundary)
+    "limitations":       [],    # v2.20: LimitationObject[] — what this agent CANNOT do (structured capability boundary)
     "connection_type":   "host",  # v2.19: NAT traversal result — "host" (default) | "p2p_direct" | "dcutr_direct" | "relay"
 }
 
@@ -989,7 +989,35 @@ _availability: dict  = {}         # empty = persistent (default behaviour)
 _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension list (opt-in)
 _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
 _transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
-_limitations: list = []  # v2.7: top-level AgentCard field — what this agent CANNOT do (e.g. ["no_file_access", "no_internet"])
+_limitations: list = []  # v2.20: top-level AgentCard field — LimitationObject[] (structured) or string[] (legacy compat)
+# LimitationObject schema (v2.20, ref A2A #1694):
+#   kind:      str  — "capability" | "modality" | "scale" | "domain" | "access" | "other"
+#   code:      str  — machine-readable code (e.g. "no_file_access", "image-input-unsupported")
+#   message:   str  — human-readable description
+#   permanent: bool — True = stable/static constraint; False = runtime/transient degradation
+
+_VALID_LIMITATION_KINDS = {"capability", "modality", "scale", "domain", "access", "other"}
+
+def _parse_limitation(raw) -> dict:
+    """Normalize a limitation entry to LimitationObject.
+    Accepts:
+      - str  → {"kind": "capability", "code": raw, "message": raw, "permanent": True}
+      - dict → validated/defaulted LimitationObject
+    """
+    if isinstance(raw, str):
+        code = raw.strip()
+        return {"kind": "capability", "code": code, "message": code, "permanent": True}
+    if isinstance(raw, dict):
+        kind = raw.get("kind", "other")
+        if kind not in _VALID_LIMITATION_KINDS:
+            kind = "other"
+        code = str(raw.get("code", raw.get("message", "unknown"))).strip()
+        message = str(raw.get("message", code)).strip()
+        permanent = bool(raw.get("permanent", True))
+        obj = {"kind": kind, "code": code, "message": message, "permanent": permanent}
+        return obj
+    # Fallback: coerce to string
+    return _parse_limitation(str(raw))
 
 # v2.3: supported_interfaces — top-level AgentCard field declaring which ACP interface groups
 # this agent implements.  Values:
@@ -1262,7 +1290,7 @@ def _make_agent_card(name, skills):
         "timestamp":       _now(),
         "transport_modes": list(_transport_modes),          # v2.4: routing modes ["p2p", "relay"] or subset
         "supported_interfaces": _make_supported_interfaces(), # v2.3: declared interface groups
-        "limitations": list(_limitations),                   # v2.7: what this agent CANNOT do (capability boundary declaration)
+        "limitations": [_parse_limitation(lim) for lim in _limitations],  # v2.20: LimitationObject[] (structured, backward-compat)
         "skills":      structured_skills,
         "capabilities": {
             "streaming":          True,
@@ -1299,6 +1327,7 @@ def _make_agent_card(name, skills):
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
             "trust_jwks":         True,                                      # v2.18: JWKS compatibility layer — /.well-known/jwks.json
+            "limitations_structured": True,                                  # v2.20: limitations[] uses LimitationObject format
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -5279,12 +5308,21 @@ Examples:
                              "Example: --supported-interfaces core,task,stream. "
                              "Advertised as top-level 'supported_interfaces' in AgentCard.")
     parser.add_argument("--limitations", default=None, metavar="LIMITATIONS",
-                        help="(v2.7) Comma-separated list of things this agent CANNOT do. "
+                        help="(v2.7/v2.20) Comma-separated list of things this agent CANNOT do. "
                              "Completes the 3-part capability boundary: capabilities (can-do) + "
                              "availability (current state) + limitations (cannot-do). "
                              "Example: --limitations no_file_access,no_internet. "
-                             "Advertised as top-level 'limitations' array in AgentCard. "
+                             "Each string is auto-promoted to LimitationObject{kind=capability, permanent=True}. "
+                             "Advertised as structured LimitationObject[] in AgentCard. "
                              "Defaults to [] (empty) when not specified. Ref: A2A #1694.")
+    parser.add_argument("--limitations-json", default=None, metavar="LIMITATIONS_JSON",
+                        help="(v2.20) JSON array of LimitationObject entries. Takes precedence over --limitations. "
+                             "Each object: {\"kind\": \"modality\", \"code\": \"image-input-unsupported\", "
+                             "\"message\": \"Cannot process images\", \"permanent\": true}. "
+                             "Valid kinds: capability|modality|scale|domain|access|other. "
+                             "Example: --limitations-json '[{\"kind\":\"scale\",\"code\":\"max-10mb\","
+                             "\"message\":\"Max 10MB files\",\"permanent\":true}]'. "
+                             "Ref: A2A IS#1694 stable/runtime split.")
 
     args = parser.parse_args()
 
@@ -5549,17 +5587,31 @@ Examples:
         else:
             log.warning("⚠️  --supported-interfaces resulted in empty list; using auto-derived value")
 
-    # v2.7: limitations — top-level AgentCard field (what this agent CANNOT do)
+    # v2.20: limitations — structured LimitationObject[] (what this agent CANNOT do)
     global _limitations
-    raw_limitations = _get(getattr(args, "limitations", None), "limitations", None)
-    if raw_limitations is not None:
-        parsed_limitations = [lim.strip() for lim in raw_limitations.split(",") if lim.strip()]
-        _limitations = parsed_limitations
+    raw_limitations_json = _get(getattr(args, "limitations_json", None), "limitations_json", None)
+    raw_limitations_csv  = _get(getattr(args, "limitations", None), "limitations", None)
+    if raw_limitations_json is not None:
+        # --limitations-json takes precedence: parse JSON array of LimitationObject
+        try:
+            parsed_raw = json.loads(raw_limitations_json)
+            if not isinstance(parsed_raw, list):
+                log.warning("⚠️  --limitations-json must be a JSON array; ignoring")
+                parsed_raw = []
+            _limitations = [_parse_limitation(item) for item in parsed_raw]
+            log.info(f"🚫 Limitations (structured JSON): {len(_limitations)} entries")
+        except json.JSONDecodeError as e:
+            log.warning(f"⚠️  --limitations-json invalid JSON ({e}); ignoring")
+            _limitations = []
+    elif raw_limitations_csv is not None:
+        # --limitations: comma-separated strings → auto-promote to LimitationObject
+        raw_strings = [lim.strip() for lim in raw_limitations_csv.split(",") if lim.strip()]
+        _limitations = [_parse_limitation(s) for s in raw_strings]
         if _limitations:
-            log.info(f"🚫 Limitations declared: {_limitations}")
+            log.info(f"🚫 Limitations (csv→structured): {[l['code'] for l in _limitations]}")
     else:
         _limitations = []
-    _status["limitations"] = list(_limitations)
+    _status["limitations"] = list(_limitations)  # already normalized LimitationObject[]
 
     # v1.4: --relay flag now means "force Level 3" (skip L1+L2 NAT traversal)
     # Previously: "use relay instead of P2P"
