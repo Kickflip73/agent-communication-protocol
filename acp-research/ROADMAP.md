@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-31 07:50（文档轮：v2.19 NAT traversal + v2.20 structured limitations[] 完成；v2.21 候选特性规划）
+> 最后更新：2026-03-31 09:45（文档轮：v2.21 limitations PATCH + filter_limitations 完成，13/13 PASS，commit b85a0b9）
 
 ---
 
@@ -34,7 +34,7 @@
 | 功能 | ACP | A2A | 领先方 |
 |------|-----|-----|--------|
 | Agent 身份认证（Ed25519/DID） | ✅ v1.3 已实现 | 🔴 #1672 讨论中（未合并）| **ACP 领先 ~2 月** |
-| `limitations` 结构化字段 | ✅ v2.7(string[]) → **v2.20(LimitationObject[])** | 🔴 #1694 提案未合并 | **ACP 领先（stable/runtime 分离，机器可路由）** |
+| `limitations` 结构化字段 | ✅ v2.20(LimitationObject[]) + **v2.21 运行时PATCH+过滤** | 🔴 #1694 提案未合并 | **ACP 领先（stable/runtime 分离 + 动态更新 + 过滤查询）** |
 | WebSocket 原生推送 | ✅ v2.12 已实现 | 🔴 #1029 提案中 | **ACP 领先** |
 | **事件回放 `?since=<seq>`** | ✅ **v2.13 已实现** | ❌ 无 | **ACP 领先（首创）** |
 | **`trust.signals[]` 结构化信任证据** | ✅ **v2.14 已实现** | ❌ #1628 仍在提案 | **ACP 领先** |
@@ -342,18 +342,33 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 🔮 v2.21（候选特性，目标：2026-Q2）
-**主题：AgentCard 可验证性增强**
+### ✅ v2.21（完成，2026-03-31）
+**主题：limitations 运行时动态管理**
 
-- [ ] **limitations[] PATCH 支持**（运行时动态更新 limitations）
-  - `PATCH /.well-known/acp.json` 支持 `limitations` 字段（结构化或 CSV）
-  - 支持运行时切换 `permanent=false` 条目（降级/恢复）
-- [ ] **limitations 过滤查询**
-  - `GET /.well-known/acp.json?filter_limitations=permanent` — 只返回 stable 条目
-  - 帮助 orchestrator 路由决策时过滤掉 transient 降级条目
+- ✅ **limitations[] PATCH 支持**（commit `b85a0b9`）
+  - `PATCH /.well-known/acp.json {"limitations":[...]}` — 替换整个 limitations 列表
+  - `PATCH ... {"limitations":[...], "limitations_merge":true}` — 按 (kind,code) 合并/追加
+  - dict 条目 kind 严格校验；纯字符串向后兼容自动提升
+  - 可在同一请求中同时 patch availability + limitations
+- ✅ **limitations 过滤查询**（commit `b85a0b9`）
+  - `GET /.well-known/acp.json?filter_limitations=permanent` — 只返回 permanent=true 条目
+  - `GET ...?filter_limitations=transient` — 只返回非永久条目（降级状态感知）
+  - `GET ...?filter_limitations=<kind>` — 按 kind 精准过滤
+  - 无效 filter 值 → HTTP 400
+- ✅ **capabilities 声明**：`limitations_patch=true` + `limitations_filter=true`
+- ✅ **13 新测试** LP1-LP13，全部 PASS
 - [ ] **Show HN 发布**（P0，待 Stark 先生确认）
   - 草稿：`docs/show-hn-draft.md`（2026-03-25，已更新）
-  - 发布时机窗口：✅ 已开启（A2A 10天无合并，生态活跃但规范滞后）
+  - 发布时机窗口：✅ 已开启（A2A 规范滞后，ACP 多项特性领先）
+
+### 🔮 v2.22（候选特性，目标：2026-Q2）
+**主题：QuerySkill 增强 + trust.signals vouch_chain**
+
+- [ ] **QuerySkill constraints 扩展**：支持 `max_file_size_bytes`、`concurrent_tasks`、`context_window` 约束查询
+  - 对标 A2A PR#1655（QuerySkill RPC，仍在 open 状态）—— 抢先落地
+- [ ] **trust.signals vouch_chain** — 补充 vouch_chain 语义字段（来自 A2A IS#1628 收敛方案）
+  - `{"type":"vouch_chain","voucher_did":"...","vouched_at":"...","sig":"..."}`
+- [ ] **`/peers/broadcast`** — 向所有已连接 peers 广播消息（对标 A2A PR#1196 Pub/Sub）
 
 ---
 

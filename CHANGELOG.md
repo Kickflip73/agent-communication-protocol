@@ -7,6 +7,49 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.21.0] — 2026-03-31 (limitations PATCH + filter_limitations query)
+
+### Added — runtime limitations management (v2.21)
+
+- **`PATCH /.well-known/acp.json` — `limitations` key support**
+  - Agents can now update their `limitations[]` at runtime without restarting
+  - **Replace mode** (default): `{"limitations": [...]}` overwrites the entire list
+  - **Merge mode**: `{"limitations": [...], "limitations_merge": true}` appends/updates entries, de-duplicating by `(kind, code)` pair
+  - Accepts the same input formats as `--limitations-json`: structured `LimitationObject[]` or backward-compat plain strings
+  - Dict entries with explicit `kind` field are strictly validated (must be in `_VALID_LIMITATION_KINDS`); invalid kind → HTTP 400
+  - Can patch `availability` and `limitations` in the same request body
+  - Response includes `"updated": ["availability", "limitations"]` list and the resulting values
+- **`GET /.well-known/acp.json?filter_limitations=<value>`** — filter limitations by permanence or kind
+  - `?filter_limitations=permanent` → only entries with `permanent: true`
+  - `?filter_limitations=transient` → only entries with `permanent: false/null`
+  - `?filter_limitations=<kind>` (e.g. `capability`, `scale`, `domain`, …) → only entries matching that kind
+  - Unknown filter value → HTTP 400 with helpful error message
+- **`capabilities.limitations_patch: true`** — declared in AgentCard; signals PATCH limitations support
+- **`capabilities.limitations_filter: true`** — declared in AgentCard; signals filter_limitations query support
+
+### Changed
+
+- `VERSION`: `2.20.0` → `2.21.0`
+- `PATCH /.well-known/acp.json` body: `availability` key is no longer required; `limitations` alone is now valid
+- Response from `PATCH /card` now returns `{"ok": true, "updated": [...], "availability": {...}, "limitations": [...]}` (updated keys only)
+
+### Use Cases
+
+- **Runtime degradation**: agent under memory pressure → `PATCH {"limitations":[{"kind":"scale","code":"low_memory","permanent":false}], "limitations_merge":true}` → orchestrators see the transient limit, apply retry/fallback
+- **Recovery**: agent recovers → `PATCH {"limitations":[], "limitations_merge":false}` → clears all transient limitations
+- **Orchestrator routing**: `GET /.well-known/acp.json?filter_limitations=permanent` → fetch only stable routing constraints, ignoring transient state
+
+### Tests
+
+- `tests/test_limitations_patch.py` — LP1~LP13: **13/13 PASS**
+  - LP1: replace mode; LP2: merge mode; LP3: string backward-compat; LP4: invalid kind → 400
+  - LP5: non-array → 400; LP6: empty body → 400; LP7: both fields in one request
+  - LP8: filter=permanent; LP9: filter=transient; LP10: filter by kind
+  - LP11: filter invalid value → 400; LP12-LP13: capability flags in AgentCard
+- Regression: `test_limitations_structured` 18/18 ✅, `test_jwks` 13/13 ✅
+
+---
+
 ## [2.20.0] — 2026-03-31 (Structured limitations[] — LimitationObject)
 
 ### Added — structured limitations (v2.20)
