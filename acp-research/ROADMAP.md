@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-31 09:45（文档轮：v2.21 limitations PATCH + filter_limitations 完成，13/13 PASS，commit b85a0b9）
+> 最后更新：2026-03-31 15:46（文档轮：v2.23 target_peers[] 子集广播 + broadcast history，BH1-BH11: 11/11 PASS，commit 3be717a）
 
 ---
 
@@ -361,14 +361,33 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - 草稿：`docs/show-hn-draft.md`（2026-03-25，已更新）
   - 发布时机窗口：✅ 已开启（A2A 规范滞后，ACP 多项特性领先）
 
-### 🔮 v2.22（候选特性，目标：2026-Q2）
-**主题：QuerySkill 增强 + trust.signals vouch_chain**
+### ✅ v2.22（完成，2026-03-31）
+**主题：POST /peers/broadcast — 全员广播**
 
+- ✅ **`POST /peers/broadcast`** — 一次调用向所有已连接 peers 广播消息（commit `d396969`）
+  - `capabilities.peers_broadcast: true` + `endpoints.peers_broadcast`
+  - BC1-BC10: 10/10 PASS
+
+### ✅ v2.23（完成，2026-03-31）
+**主题：target_peers[] 子集广播 + 广播历史**
+
+- ✅ **`POST /peers/broadcast` — `target_peers[]` 可选子集广播**（commit `0edd74f`）
+  - 指定 peer_id 列表时仅向这些 peer 发送；未知 peer_id → 400；空列表 → 503
+  - 响应新增 `broadcast_id` 字段（与 history 关联用）
+- ✅ **`GET /peers/broadcast/history`** — 广播审计日志（内存环形缓冲区，最多 200 条）
+  - 支持 `?limit=N` 参数；每条记录含 broadcast_id/ts/target_peers/delivered/failed
+- ✅ `capabilities.peers_broadcast_subset/peers_broadcast_history` + `endpoints.peers_broadcast_history`
+- BH1-BH11: 11/11 PASS；全回归 BC1-10 ✅ + 核心52 ✅
+
+### 🔮 v2.24（候选特性，目标：2026-Q2）
+**主题：Peer 信息查询 + QuerySkill 增强**
+
+- [ ] **`GET /peers/:peer_id/card`** — 查询指定 peer 的 AgentCard（P2，低复杂度）
+  - 从 `_peers[peer_id]` 取已缓存 card；peer 不存在 → 404
 - [ ] **QuerySkill constraints 扩展**：支持 `max_file_size_bytes`、`concurrent_tasks`、`context_window` 约束查询
   - 对标 A2A PR#1655（QuerySkill RPC，仍在 open 状态）—— 抢先落地
 - [ ] **trust.signals vouch_chain** — 补充 vouch_chain 语义字段（来自 A2A IS#1628 收敛方案）
   - `{"type":"vouch_chain","voucher_did":"...","vouched_at":"...","sig":"..."}`
-- [ ] **`/peers/broadcast`** — 向所有已连接 peers 广播消息（对标 A2A PR#1196 Pub/Sub）
 
 ---
 

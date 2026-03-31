@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.22.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.23.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -507,6 +507,7 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.20** | ✅ | **Structured `limitations[]`** — `LimitationObject{kind,code,message,permanent}` schema；6 kind 类型（capability/modality/scale/domain/access/other）；stable/runtime 分离；`--limitations-json` CLI；领先 A2A #1694 |
 | **v2.21** | ✅ | **Runtime limitations 管理** — `PATCH /.well-known/acp.json` 支持 `limitations` 更新（replace/merge 双模式）；`?filter_limitations=` query；`capabilities.limitations_patch/filter: true` |
 | **v2.22** | ✅ | **`POST /peers/broadcast`** — 一次调用向所有已连接 peer 发消息；per-peer 送达结果；503 ERR_NO_PEERS；`capabilities.peers_broadcast: true` |
+| **v2.23** | ✅ | **Broadcast 增强** — `target_peers[]` 可选子集广播（指定 peer_id 列表仅发给这些 peer）；`GET /peers/broadcast/history`（最近 200 条审计日志，`?limit=N`）；`broadcast_id` 响应字段；`capabilities.peers_broadcast_subset/history: true` |
 
 ---
 

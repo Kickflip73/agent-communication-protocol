@@ -7,6 +7,50 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.23.0] — 2026-03-31 (target_peers[] Subset Broadcast + Broadcast History)
+
+### Added — broadcast enhancements (v2.23)
+
+- **`POST /peers/broadcast` — `target_peers[]` optional subset broadcast**
+  - New optional body field `"target_peers": ["peer_id_1", "peer_id_2", ...]`
+  - When provided: message is sent only to the listed peers (subset broadcast)
+  - Unknown `peer_id` in `target_peers` → **400 ERR_INVALID_REQUEST** with list of unknown ids
+  - Empty `target_peers` or all listed peers disconnected → **503 ERR_NO_PEERS**
+  - When omitted: original fanout-to-all behavior (fully backward compatible)
+- **`POST /peers/broadcast` — `broadcast_id` in response**
+  - Response now includes `"broadcast_id"` (context_id string) for correlation with history log
+- **`GET /peers/broadcast/history`** — broadcast audit log
+  - Returns last N broadcasts in reverse-chronological order (newest first)
+  - Default `limit=20`, max `limit=200`; configurable via `?limit=N` query param
+  - Each entry: `broadcast_id`, `ts`, `role`, `parts`, `target_peers` (null = all), `total_peers`, `delivered`, `failed`, `results[]`
+  - In-memory ring buffer (`_broadcast_log`, max 200 entries); resets on relay restart
+- **`capabilities.peers_broadcast_subset: true`** — declared in AgentCard (v2.23)
+- **`capabilities.peers_broadcast_history: true`** — declared in AgentCard (v2.23)
+- **`endpoints.peers_broadcast_history: "/peers/broadcast/history"`** — declared in AgentCard
+
+### Changed
+
+- `VERSION`: `2.22.0` → `2.23.0`
+- `test_broadcast.py::test_BC10`: version check updated to `>= 2.22` (forward compatible across releases)
+
+### Tests
+
+- `tests/test_broadcast_v23.py` — BH1–BH11: **11/11 PASS** (82.9s)
+  - BH1: `capabilities.peers_broadcast_subset = true`
+  - BH2: `capabilities.peers_broadcast_history = true`
+  - BH3: `endpoints.peers_broadcast_history = "/peers/broadcast/history"`
+  - BH4: history empty on fresh relay start
+  - BH5: broadcast populates history (broadcast_id, ts, delivered, failed)
+  - BH6: `broadcast_id` present in POST response
+  - BH7: `?limit=1` returns exactly 1 entry
+  - BH8: `target_peers=[]` → 503 ERR_NO_PEERS
+  - BH9: unknown peer_id in `target_peers` → 400 ERR_INVALID_REQUEST
+  - BH10: `target_peers=[B]` — only B receives, C does not
+  - BH11: version reports `2.23.x`
+- Regression: BC1–BC10 **10/10 ✅**, LP13 ✅, LS18 ✅, JW13 ✅, TS8 ✅ (all 52 core pass)
+
+---
+
 ## [2.22.0] — 2026-03-31 (POST /peers/broadcast — Fanout to All Connected Peers)
 
 ### Added — peers broadcast (v2.22)
