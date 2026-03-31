@@ -5,6 +5,29 @@
 
 ---
 
+### BUG-030 🟡 P2 — 场景 C SC10：多消息+多 peer 场景下 relay HTTP server 偶发崩溃（RemoteDisconnected）
+
+**发现日期**: 2026-03-31
+**场景**: scenario_c_pipeline.py::TestScenarioC::test_SC10
+**描述**: 三 Agent 流水线测试（A→B→C→A）中，SC9 和 SC10 连续向 A 发消息后，
+A 的 HTTP relay 进程偶发 `RemoteDisconnected`，导致后续 `/messages` 轮询失败。
+SC10 的发送本身成功（ok=True），但 A 进程在多消息并发下不稳定。
+
+**复现条件**:
+- 3 个 relay 实例同时运行
+- A 持有 2 个 peer（B + C）
+- 在短时间内收到 5+ 条消息后 HTTP server 崩溃
+
+**影响**: SC10 xfail（测试标记为预期失败），其余 10/11 通过
+
+**根因初步分析**: relay 的 ThreadingHTTPServer 在高连接+高消息频率下线程资源耗尽或 socket 异常
+
+**优先级**: P2（功能缺陷，有 workaround：降低消息频率 / 减少并发 peer）
+
+**状态**: 🟡 已记录，待修复（低优先级，不影响主路径）
+
+---
+
 ## 🔴 P0 — 严重（核心功能失效）
 
 ### BUG-001: SSE stream 不推送消息事件
