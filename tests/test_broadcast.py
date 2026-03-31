@@ -267,9 +267,10 @@ def test_BC9_broadcast_response_has_results(two_peers_connected):
 
 
 def test_BC10_broadcast_version_2_22(two_peers_connected):
-    """BC10: Server reports VERSION 2.22.0 (broadcast feature milestone)."""
+    """BC10: Server reports VERSION 2.22+ (broadcast feature milestone; updated for 2.23+)."""
     _wait_link(HTTP_A)
     r = requests.get(f"http://127.0.0.1:{HTTP_A}/status", timeout=5).json()
     # /status uses "acp_version" key (not "version")
     version = r.get("acp_version") or r.get("version", "")
-    assert version.startswith("2.22"), f"expected version 2.22.x, got: {version}"
+    major, minor = version.split(".")[:2]
+    assert (int(major), int(minor)) >= (2, 22), f"expected version 2.22+, got: {version}"
