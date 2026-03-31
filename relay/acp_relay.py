@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.23.0"  # v2.23: target_peers[] subset broadcast + GET /peers/broadcast/history
+VERSION = "2.24.0"  # v2.24: GET /peers/<peer_id>/card — fetch cached AgentCard for a peer
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1335,6 +1335,7 @@ def _make_agent_card(name, skills):
             "peers_broadcast":         True,                                  # v2.22: POST /peers/broadcast — fanout to all connected peers
             "peers_broadcast_subset":  True,                                  # v2.23: target_peers[] subset broadcast
             "peers_broadcast_history": True,                                  # v2.23: GET /peers/broadcast/history
+            "peer_card_query":         True,                                  # v2.24: GET /peers/<id>/card
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1371,6 +1372,7 @@ def _make_agent_card(name, skills):
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
             "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
+            "peer_card":               "/peers/{peer_id}/card",      # v2.24: GET cached AgentCard for peer
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
@@ -2195,6 +2197,7 @@ def _on_message(raw):
             for pinfo in _peers.values():
                 if pinfo.get("agent_name") == peer_name:
                     matched = True
+                    pinfo["agent_card"] = card      # v2.24: cache card in peer registry
                     break
             if not matched:
                 # Assign to the newest connected peer without an agent_name
@@ -2203,6 +2206,14 @@ def _on_message(raw):
                 if candidates:
                     newest = max(candidates, key=lambda p: p.get("connected_at") or 0)
                     newest["agent_name"] = peer_name
+                    newest["agent_card"] = card     # v2.24: cache card in peer registry
+        else:
+            # peer_name unknown — cache card on newest connected peer without a card
+            candidates = [p for p in _peers.values()
+                          if p.get("connected") and p.get("agent_card") is None]
+            if candidates:
+                newest = max(candidates, key=lambda p: p.get("connected_at") or 0)
+                newest["agent_card"] = card         # v2.24: best-effort cache
         # v1.9: Auto-verify peer AgentCard self-signature on receipt
         if card.get("identity") and card["identity"].get("card_sig"):
             vr = _verify_agent_card(card)
@@ -3119,6 +3130,27 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "count": len(history),
                     "total": len(_broadcast_log),
                     "history": history,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/<peer_id>/card — fetch cached AgentCard for a peer (v2.24) ──
+        elif p.startswith("/peers/") and p.endswith("/card") and p.count("/") == 3:
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+                info = _peers[peer_id]
+                card = info.get("agent_card")
+                self._json({
+                    "ok": True,
+                    "peer_id": peer_id,
+                    "name": info.get("name"),
+                    "connected": info.get("connected", False),
+                    "agent_card": card,
+                    "card_available": card is not None,
                 })
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
