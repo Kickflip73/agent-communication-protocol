@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.21.0"  # v2.21: limitations PATCH support + filter_limitations query param; PATCH /.well-known/acp.json accepts 'limitations' key; GET ?filter_limitations=permanent|transient|<kind>
+VERSION = "2.22.0"  # v2.22: POST /peers/broadcast — fanout message to all connected peers; peers_broadcast capability flag + endpoint
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1330,6 +1330,7 @@ def _make_agent_card(name, skills):
             "limitations_structured":  True,                                  # v2.20: limitations[] uses LimitationObject format
             "limitations_patch":       True,                                  # v2.21: PATCH /.well-known/acp.json supports 'limitations' key
             "limitations_filter":      True,                                  # v2.21: GET /.well-known/acp.json?filter_limitations=<value> supported
+            "peers_broadcast":         True,                                  # v2.22: POST /peers/broadcast — fanout to all connected peers
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1364,6 +1365,7 @@ def _make_agent_card(name, skills):
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
+            "peers_broadcast": "/peers/broadcast",    # v2.22: broadcast to all connected peers
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
@@ -4382,6 +4384,115 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 threading.Thread(target=_do_connect_nat, daemon=True).start()
                 self._json({"ok": True, "peer_id": peer_id,
                             "connecting_to": peer_link, "name": peer_name or peer_id})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peers/broadcast — send a message to ALL connected peers (v2.22) ─
+        elif p == "/peers/broadcast":  # [stable] broadcast to all active peers
+            try:
+                body = self._read_body()
+
+                # Validate role
+                _VALID_ROLES = {"user", "agent"}
+                role_raw = body.get("role")
+                if role_raw not in _VALID_ROLES:
+                    e_body, e_code = _err(
+                        ERR_INVALID_REQUEST,
+                        "missing or invalid 'role' field (must be 'user' or 'agent')",
+                    )
+                    self._json(e_body, e_code)
+                    return
+
+                # Build parts
+                parts = body.get("parts")
+                if parts:
+                    ok, err = _validate_parts(parts)
+                    if not ok:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(
+                            ERR_INVALID_REQUEST,
+                            "missing required field: provide 'parts' (list) or 'text' (string)",
+                        )
+                        self._json(e_body, e_code)
+                        return
+
+                context_id = body.get("context_id") or _make_id()
+                active_peers = [
+                    pid for pid, pinfo in _peers.items() if pinfo.get("connected")
+                ]
+
+                if not active_peers:
+                    self._json(
+                        {"ok": False, "error_code": "ERR_NO_PEERS",
+                         "error": "no connected peers to broadcast to",
+                         "delivered": 0, "failed": 0, "results": []},
+                        503,
+                    )
+                    return
+
+                results = []
+                delivered = 0
+                failed = 0
+
+                for pid in active_peers:
+                    msg_id = _make_id()
+                    # Use the same wire format as /message:send
+                    wire_msg = {
+                        "type":       "acp.message",
+                        "message_id": msg_id,
+                        "server_seq": _next_seq(),
+                        "ts":         _now(),
+                        "from":       _status.get("agent_name", "unknown"),
+                        "role":       role_raw,
+                        "parts":      parts,
+                        "broadcast":  True,
+                    }
+                    if body.get("task_id"):
+                        wire_msg["task_id"] = body["task_id"]
+                    if context_id:
+                        wire_msg["context_id"] = context_id
+
+                    ok_send = False
+                    err_send = None
+                    try:
+                        # Reuse _ws_send_sync: handles lock, signature, offline queue
+                        _ws_send_sync(wire_msg, peer_id=pid)
+                        ok_send = True
+                        delivered += 1
+                    except Exception as ex:
+                        err_send = str(ex)
+                        failed += 1
+
+                    results.append({
+                        "peer_id": pid,
+                        "message_id": msg_id,
+                        "ok": ok_send,
+                        "error": err_send,
+                    })
+
+                _broadcast_sse_event("message", {
+                    "message_id": _make_id(),
+                    "role": role_raw,
+                    "parts": parts,
+                    "broadcast": True,
+                    "delivered": delivered,
+                    "failed": failed,
+                })
+
+                self._json({
+                    "ok": True,
+                    "broadcast": True,
+                    "delivered": delivered,
+                    "failed": failed,
+                    "total_peers": len(active_peers),
+                    "results": results,
+                }, 200)
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
