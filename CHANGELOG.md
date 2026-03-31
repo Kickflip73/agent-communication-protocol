@@ -7,6 +7,55 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.25.0] — 2026-04-01 (POST /peers/<id>/ping — Application-Layer Liveness Probe + RTT)
+
+### Added — peer ping (v2.25)
+
+- **`POST /peers/<peer_id>/ping`** — application-layer liveness probe with RTT measurement
+  - Sends an `acp.ping` message over the peer's WebSocket; waits for `acp.pong` response
+  - Returns `{"ok": true, "peer_id": "...", "rtt_ms": 42.3, "status": "alive", "nonce": "ping_xxx"}`
+  - Optional request body: `{"timeout": <float>}` — max seconds to wait for pong (default 10, max 30)
+  - **404** `ERR_PEER_NOT_FOUND` — peer_id not in registry
+  - **503** `ERR_NOT_CONNECTED` — peer registered but disconnected
+  - **503** `ERR_PEER_CONNECTING` — peer registered but WS handshake not yet complete
+  - **408** `ERR_PING_TIMEOUT` — no pong received within timeout window; `rtt_ms: null, status: "timeout"`
+  - On send failure: peer is unregistered + returns 503 `ERR_NOT_CONNECTED`
+- **`acp.ping` / `acp.pong` message types** (application layer)
+  - `acp.ping`: `{type, nonce, from, ts}` — probe message; receiver auto-replies with pong
+  - `acp.pong`: `{type, nonce, from, ts}` — response; resolves pending Future on originator side
+  - Both types are handled before the idempotency check (no dedup overhead, never queued to inbox)
+- **Per-peer ping statistics** in `GET /peers` response:
+  - `last_ping_rtt_ms` — RTT in milliseconds from most recent successful ping
+  - `last_ping_at` — ISO-8601 timestamp of last successful ping
+  - `ping_count` — cumulative count of successful pings sent to this peer
+- **`capabilities.peer_ping: true`** declared in AgentCard
+- **`endpoints.peer_ping: "/peers/{peer_id}/ping"`** declared in AgentCard
+- **`_pending_pongs`** global dict: `nonce → asyncio.Future` for async ping/pong correlation
+
+### Changed
+
+- `VERSION`: `2.24.0` → `2.25.0`
+
+### Tests
+
+- `tests/test_peer_ping.py` — PP1–PP10: **10/10 PASS** (57s)
+  - PP1: `capabilities.peer_ping = true` in AgentCard
+  - PP2: POST `/peers/nonexistent/ping` → 404 ERR_PEER_NOT_FOUND
+  - PP3: Disconnected peer → 404/503 (no valid peer in fresh relay)
+  - PP4: Successful ping → `ok=true, rtt_ms≥0, status=alive, nonce=ping_xxx`
+  - PP5: After ping, `/peers` shows `last_ping_rtt_ms`, `last_ping_at`, `ping_count≥1`
+  - PP6: `/peers` list always includes ping stat fields (even before any ping)
+  - PP7: No connected peer → 404/408 depending on state
+  - PP8: Custom `timeout=15.0` in request body accepted; completes within budget
+  - PP9: `/peers/<id>/card` still works alongside `/peers/<id>/ping` routing
+  - PP10: Two sequential pings accumulate `ping_count` by 2
+
+---
+
+## [2.24.0] — 2026-04-01 (GET /peers/<id>/card — Fetch Cached AgentCard for Peer)
+
+---
+
 ## [2.23.0] — 2026-03-31 (target_peers[] Subset Broadcast + Broadcast History)
 
 ### Added — broadcast enhancements (v2.23)

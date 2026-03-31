@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.24.0"  # v2.24: GET /peers/<peer_id>/card — fetch cached AgentCard for a peer
+VERSION = "2.25.0"  # v2.25: POST /peers/<peer_id>/ping — application-layer liveness probe with RTT measurement
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -535,6 +535,7 @@ _peers: dict = {}       # peer_id -> peer info dict
 _peer_id_counter = 0    # auto-increment for unnamed peers
 _broadcast_log: list = []                    # v2.23: broadcast history (ring buffer, max 200 entries)
 _BROADCAST_LOG_MAX = 200
+_pending_pongs: dict = {}  # v2.25: nonce -> asyncio.Future; resolved when acp.pong arrives
 
 def _make_peer_id():
     global _peer_id_counter
@@ -1336,6 +1337,7 @@ def _make_agent_card(name, skills):
             "peers_broadcast_subset":  True,                                  # v2.23: target_peers[] subset broadcast
             "peers_broadcast_history": True,                                  # v2.23: GET /peers/broadcast/history
             "peer_card_query":         True,                                  # v2.24: GET /peers/<id>/card
+            "peer_ping":               True,                                  # v2.25: POST /peers/<id>/ping — app-layer liveness probe + RTT
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1373,6 +1375,7 @@ def _make_agent_card(name, skills):
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
             "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
             "peer_card":               "/peers/{peer_id}/card",      # v2.24: GET cached AgentCard for peer
+            "peer_ping":               "/peers/{peer_id}/ping",      # v2.25: POST liveness probe + RTT
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
@@ -2239,6 +2242,44 @@ def _on_message(raw):
             fut = _sync_pending.pop(corr)
             if not fut.done():
                 _loop.call_soon_threadsafe(fut.set_result, msg)
+        return
+
+    # v2.25: acp.ping — remote peer is probing us; respond with acp.pong
+    if msg_type == "acp.ping":
+        nonce = msg.get("nonce", "")
+        pong_msg = json.dumps({
+            "type":       "acp.pong",
+            "nonce":      nonce,
+            "from":       _status.get("agent_name", "ACP-Agent"),
+            "ts":         _now(),
+        }, ensure_ascii=False)
+        # Send pong back on the same WS channel (find the ws for the sender)
+        _from = msg.get("from", "")
+        sender_ws = None
+        for pinfo in _peers.values():
+            if pinfo.get("connected") and (
+                pinfo.get("agent_name") == _from or pinfo.get("name") == _from
+            ):
+                sender_ws = pinfo.get("ws")
+                break
+        if sender_ws is None:
+            # Fallback: try the global _ws_ctx (single-peer scenario)
+            sender_ws = _ws_ctx
+        if sender_ws:
+            try:
+                asyncio.ensure_future(sender_ws.send(pong_msg))
+            except Exception as ping_err:
+                log.warning(f"[ping] Failed to send pong to {_from}: {ping_err}")
+        log.debug(f"[ping] Received acp.ping from {_from}, nonce={nonce} — pong sent")
+        return
+
+    # v2.25: acp.pong — we sent a ping, peer is responding; resolve the pending Future
+    if msg_type == "acp.pong":
+        nonce = msg.get("nonce", "")
+        fut = _pending_pongs.get(nonce)
+        if fut and not fut.done():
+            _loop.call_soon_threadsafe(fut.set_result, msg)
+        log.debug(f"[ping] Received acp.pong nonce={nonce}")
         return
 
     if msg_type == "task.updated":
@@ -3112,6 +3153,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "messages_sent":    info.get("messages_sent", 0),
                     "messages_received": info.get("messages_received", 0),
                     "agent_card":       info.get("agent_card"),
+                    "last_ping_rtt_ms": info.get("last_ping_rtt_ms"),   # v2.25: RTT from last /ping
+                    "last_ping_at":     info.get("last_ping_at"),        # v2.25: ISO timestamp of last ping
+                    "ping_count":       info.get("ping_count", 0),       # v2.25: total pings sent to this peer
                 })
             active = sum(1 for p2 in _peers.values() if p2["connected"])
             self._json({"peers": peer_list, "count": len(peer_list), "active": active})
@@ -4383,6 +4427,119 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 peer_info["name"] = new_name
                 self._json({"ok": True, "peer_id": peer_id,
                             "old_name": old_name, "new_name": new_name})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peers/{id}/ping — application-layer liveness probe (v2.25) ─
+        # Sends an ACP ping message over the peer's WebSocket and measures RTT.
+        # Unlike WebSocket-level ping/pong (transport layer), this verifies that
+        # the remote relay's message loop is alive and responding at the ACP level.
+        #
+        # Request body (optional JSON):
+        #   {"timeout": 10.0}  — max seconds to wait for pong (default 10, max 30)
+        #
+        # Response:
+        #   200 {"ok": true,  "peer_id": "peer_001", "rtt_ms": 42.3, "status": "alive", "nonce": "ping_xxx"}
+        #   503 {"ok": false, "peer_id": "peer_001", "error_code": "ERR_NOT_CONNECTED", ...}
+        #   404 {"ok": false, "error_code": "ERR_PEER_NOT_FOUND", ...}
+        #   408 {"ok": false, "error_code": "ERR_PING_TIMEOUT",   "rtt_ms": null, "status": "timeout"}
+        #
+        # The peer must support ACP ping response (capabilities.peer_ping=true) for
+        # measured RTT to be meaningful; otherwise the endpoint acts as a connection-check only.
+        elif p.startswith("/peers/") and p.endswith("/ping") and p.count("/") == 3:
+            peer_id = p[len("/peers/"):-len("/ping")]
+            try:
+                # Parse optional request body (timeout override)
+                try:
+                    body = self._read_body()
+                    requested_timeout = float(body.get("timeout", 10.0))
+                    requested_timeout = max(1.0, min(requested_timeout, 30.0))
+                except Exception:
+                    requested_timeout = 10.0
+
+                # Validate peer exists
+                peer_info = _peers.get(peer_id)
+                if not peer_info:
+                    e_body, e_code = _err("ERR_PEER_NOT_FOUND",
+                                          f"peer '{peer_id}' not found", 404)
+                    self._json(e_body, e_code)
+                    return
+
+                # Validate peer is connected and WS is ready
+                if not peer_info.get("connected"):
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' is not connected", 503)
+                    self._json(e_body, e_code)
+                    return
+
+                ws = peer_info.get("ws")
+                if ws is None:
+                    e_body, e_code = _err("ERR_PEER_CONNECTING",
+                                          f"peer '{peer_id}' is connecting, retry shortly", 503)
+                    self._json(e_body, e_code)
+                    return
+
+                # Build ping message
+                nonce = _make_id("ping")
+                ping_ts = time.time()
+                ping_msg = json.dumps({
+                    "type":    "acp.ping",
+                    "nonce":   nonce,
+                    "from":    _status.get("agent_name", "ACP-Agent"),
+                    "ts":      _now(),
+                }, ensure_ascii=False)
+
+                # Register a pending pong Future keyed by nonce
+                pong_future = _loop.create_future()
+                _pending_pongs[nonce] = pong_future
+
+                # Send ping over peer WS
+                try:
+                    send_fut = asyncio.run_coroutine_threadsafe(ws.send(ping_msg), _loop)
+                    send_fut.result(timeout=5)
+                except Exception as send_err:
+                    _pending_pongs.pop(nonce, None)
+                    _unregister_peer(peer_id)
+                    _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' send failed: {send_err}", 503)
+                    self._json(e_body, e_code)
+                    return
+
+                # Wait for pong (with timeout)
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        asyncio.wait_for(asyncio.shield(pong_future), timeout=requested_timeout),
+                        _loop
+                    ).result(timeout=requested_timeout + 2)
+                    rtt_ms = round((time.time() - ping_ts) * 1000, 2)
+                    _pending_pongs.pop(nonce, None)
+
+                    # Update peer last_ping stats
+                    peer_info["last_ping_rtt_ms"] = rtt_ms
+                    peer_info["last_ping_at"]     = _now()
+                    peer_info["ping_count"]        = peer_info.get("ping_count", 0) + 1
+
+                    self._json({
+                        "ok":      True,
+                        "peer_id": peer_id,
+                        "nonce":   nonce,
+                        "rtt_ms":  rtt_ms,
+                        "status":  "alive",
+                    })
+
+                except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
+                    _pending_pongs.pop(nonce, None)
+                    self._json({
+                        "ok":         False,
+                        "peer_id":    peer_id,
+                        "nonce":      nonce,
+                        "rtt_ms":     None,
+                        "status":     "timeout",
+                        "error_code": "ERR_PING_TIMEOUT",
+                        "error":      f"no pong received within {requested_timeout}s",
+                    }, 408)
+
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
