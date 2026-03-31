@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.20.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.22.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -503,6 +503,10 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.16** | ✅ | **`delegation_chain` 身份委托链** — Ed25519 签名委托记录；`POST /identity/delegate`；`GET /identity/delegation`；`capabilities.delegation_chain: true`；领先 A2A #1696 |
 | **v2.17** | ✅ | **`availability.schedule` CRON 调度** — 5字段 CRON 表达式；`GET /availability`；`POST /availability/heartbeat`；`capabilities.availability_schedule: true`；领先 A2A #1667 |
 | **v2.18** | ✅ | **JWKS 兼容层** — `GET /.well-known/jwks.json` RFC 7517；`trust.signals[type=jwks]`；`capabilities.trust_jwks: true`；ACP 率先实现，对比 A2A IS#1628 仍在提案阶段 |
+| **v2.19** | ✅ | **NAT Auto-Traversal** — `connection_type` 字段集成到 `/peers/connect`（`host`/`p2p_direct`/`dcutr_direct`/`relay`）；三级自动降级主流程；`capabilities.nat_traversal: true` |
+| **v2.20** | ✅ | **Structured `limitations[]`** — `LimitationObject{kind,code,message,permanent}` schema；6 kind 类型（capability/modality/scale/domain/access/other）；stable/runtime 分离；`--limitations-json` CLI；领先 A2A #1694 |
+| **v2.21** | ✅ | **Runtime limitations 管理** — `PATCH /.well-known/acp.json` 支持 `limitations` 更新（replace/merge 双模式）；`?filter_limitations=` query；`capabilities.limitations_patch/filter: true` |
+| **v2.22** | ✅ | **`POST /peers/broadcast`** — 一次调用向所有已连接 peer 发消息；per-peer 送达结果；503 ERR_NO_PEERS；`capabilities.peers_broadcast: true` |
 
 ---
 

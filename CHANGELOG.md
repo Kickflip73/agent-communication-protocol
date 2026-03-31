@@ -7,6 +7,43 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.22.0] — 2026-03-31 (POST /peers/broadcast — Fanout to All Connected Peers)
+
+### Added — peers broadcast (v2.22)
+
+- **`POST /peers/broadcast`** — send a message to ALL currently connected peers in one HTTP call
+  - Body: `{"text": "...", "role": "agent|user"}` — same format as `/message:send`
+  - Also accepts `parts: [{type, content}]`, `task_id`, `context_id` for structured messages
+  - Uses `_ws_send_sync()` per peer: full lock, Ed25519 signature, and offline queue support
+  - Response: `{"ok": true, "broadcast": true, "delivered": N, "failed": M, "total_peers": T, "results": [{"peer_id": "...", "message_id": "...", "ok": true/false, "error": null/str}]}`
+  - Returns **503 ERR_NO_PEERS** when no active peers are connected
+  - Returns **400 ERR_INVALID_REQUEST** for missing `role` or empty message body
+  - Wire format: `acp.message` type with `broadcast: true` metadata field
+- **`capabilities.peers_broadcast: true`** — declared in AgentCard (v2.22)
+- **`endpoints.peers_broadcast: "/peers/broadcast"`** — declared in AgentCard
+
+### Changed
+
+- `VERSION`: `2.21.0` → `2.22.0`
+- Broadcast `context_id` defaults to `_make_id()` when not provided (fixes undefined function `_default_context_id`)
+
+### Tests
+
+- `tests/test_broadcast.py` — BC1~BC10: **10/10 PASS**
+  - BC1: `capabilities.peers_broadcast = true` in AgentCard
+  - BC2: `endpoints.peers_broadcast = "/peers/broadcast"` in AgentCard
+  - BC3: 503 ERR_NO_PEERS when no peers connected
+  - BC4: 400 on missing `role`
+  - BC5: 400 on missing `text`/`parts`
+  - BC6: broadcast to 2 peers → `delivered >= 1` (integration)
+  - BC7: peer B receives broadcast message
+  - BC8: peer C receives broadcast message (all peers get it)
+  - BC9: `results[]` per-peer contains `peer_id`, `message_id`, `ok`
+  - BC10: `/status` reports `acp_version` starting with `2.22`
+- Regression: `test_limitations_structured` 18/18 ✅, `test_jwks` 13/13 ✅, `test_trust_signals` 8/8 ✅, `test_limitations_patch` 13/13 ✅
+
+---
+
 ## [2.21.0] — 2026-03-31 (limitations PATCH + filter_limitations query)
 
 ### Added — runtime limitations management (v2.21)
