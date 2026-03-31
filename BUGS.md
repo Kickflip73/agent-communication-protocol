@@ -1320,3 +1320,14 @@ websockets 库报 `sent 1011 (internal error); then received 1011`，所有 5 �
 - 根因：_status 初始化时 connection_type 未设默认值（值为 None）
 - 修复：host 模式启动时初始化为 "host"；peer 断开时重置为 "host"
 - 状态：已修复（commit: b0e70ce）
+
+---
+
+## BUG-026 🟡 P2 — 多 suite 并发运行时端口竞争导致 flaky failures
+
+**发现时间**：2026-03-31 08:32（测试轮）
+**症状**：`test_availability_schedule.py::test_AS6` 和 `test_AS10` 在与其他 suite 同时运行时偶发失败；单独运行 22/22 PASS。
+**根因**：多个 suite 的 `scope=module` fixture 并发启动 relay 实例，共用端口范围，前一 suite 的 relay 未完全关闭时，下一 suite 复用相同端口导致响应数据混乱。
+**缓解**：每个 suite 单独运行即可 100% PASS；全量跑用 `pytest -p no:parallel` 或指定 suite 顺序。
+**优先级**：P2（测试基础设施问题，不影响核心功能）
+**状态**：⚠️ 已知，待优化（可通过 pytest-forked 或端口范围隔离彻底解决）

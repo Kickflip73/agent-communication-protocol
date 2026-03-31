@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.20.0"  # v2.20: structured limitations[] — LimitationObject {kind,code,message,permanent}; string[] backward-compat; --limitations-json CLI; capabilities.limitations_structured=true
+VERSION = "2.21.0"  # v2.21: limitations PATCH support + filter_limitations query param; PATCH /.well-known/acp.json accepts 'limitations' key; GET ?filter_limitations=permanent|transient|<kind>
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1327,7 +1327,9 @@ def _make_agent_card(name, skills):
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
             "trust_jwks":         True,                                      # v2.18: JWKS compatibility layer — /.well-known/jwks.json
-            "limitations_structured": True,                                  # v2.20: limitations[] uses LimitationObject format
+            "limitations_structured":  True,                                  # v2.20: limitations[] uses LimitationObject format
+            "limitations_patch":       True,                                  # v2.21: PATCH /.well-known/acp.json supports 'limitations' key
+            "limitations_filter":      True,                                  # v2.21: GET /.well-known/acp.json?filter_limitations=<value> supported
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -2984,6 +2986,21 @@ class LocalHTTP(BaseHTTPRequestHandler):
             live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
             # v1.8: attach Ed25519 self-signature when identity is enabled
             live_card = _sign_agent_card(live_card)
+            # v2.21: ?filter_limitations=permanent|transient|<kind> — filter limitations[] by permanence or kind
+            fl = qs.get("filter_limitations", [None])[0]
+            if fl and "limitations" in live_card:
+                lims = live_card["limitations"]
+                if fl == "permanent":
+                    lims = [lim for lim in lims if lim.get("permanent") is True]
+                elif fl == "transient":
+                    lims = [lim for lim in lims if lim.get("permanent") is not True]
+                elif fl in _VALID_LIMITATION_KINDS:
+                    lims = [lim for lim in lims if lim.get("kind") == fl]
+                else:
+                    self._json({"error": f"invalid filter_limitations value '{fl}'; "
+                                         f"use 'permanent', 'transient', or one of {sorted(_VALID_LIMITATION_KINDS)}"}, 400)
+                    return
+                live_card = {**live_card, "limitations": lims}
             self._json({"self": live_card, "peer": _status.get("peer_card")})
 
         # ── GET /.well-known/did.json — W3C DID Document (v1.3) ───────────────
@@ -4764,23 +4781,28 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
 
     def do_PATCH(self):
-        """PATCH /.well-known/acp.json — live-update AgentCard availability block (v1.2).
+        """PATCH /.well-known/acp.json — live-update AgentCard availability or limitations (v1.2 / v2.21).
 
-        Accepts a JSON body with any subset of availability fields:
+        Accepts a JSON body with any subset of fields:
           {
-            "availability": {
+            "availability": {                  # v1.2+
               "mode":                    "heartbeat" | "cron" | "persistent" | "manual",
               "interval_seconds":        <int>,
               "next_active_at":          "<ISO-8601-UTC>",
               "last_active_at":          "<ISO-8601-UTC>",
               "task_latency_max_seconds": <int>
-            }
+            },
+            "limitations": [               # v2.21: replace or merge limitations[]
+              "string",                    # backward-compat: auto-promoted to LimitationObject
+              {"kind": "capability", "code": "no_audio", "message": "...", "permanent": false}
+            ],
+            "limitations_merge": false     # v2.21: if true, merge into existing; default false (replace)
           }
 
-        Use-case: a heartbeat agent calls this endpoint on each wake to stamp
-        next_active_at and last_active_at without restarting the relay.
+        Use-case: runtime degradation/recovery — an agent can update its limitations
+        dynamically (e.g., memory pressure → add transient limitation; recovered → remove it).
         """
-        global _availability
+        global _availability, _limitations
         p = urlparse(self.path).path
         if p not in ("/card", "/.well-known/acp.json"):
             self._json({"error": "PATCH only supported on /.well-known/acp.json"}, 404)
@@ -4791,38 +4813,84 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json({"error": f"invalid JSON: {e}"}, 400)
             return
 
-        patch = body.get("availability")
-        if patch is None:
-            self._json({"error": "request body must contain 'availability' key"}, 400)
-            return
-        if not isinstance(patch, dict):
-            self._json({"error": "'availability' must be a JSON object"}, 400)
+        # v2.21: body may contain "availability" and/or "limitations" (either or both)
+        avail_patch = body.get("availability")
+        lims_patch   = body.get("limitations")
+        lims_merge   = bool(body.get("limitations_merge", False))
+
+        if avail_patch is None and lims_patch is None:
+            self._json({"error": "request body must contain 'availability' and/or 'limitations' key"}, 400)
             return
 
-        # Allowed fields for PATCH (whitelist to avoid injection)
-        ALLOWED = {"mode", "interval_seconds", "next_active_at",
-                   "last_active_at", "task_latency_max_seconds",
-                   "schedule", "timezone"}   # v2.17: added schedule + timezone
-        unknown = set(patch.keys()) - ALLOWED
-        if unknown:
-            self._json({"error": f"unknown availability fields: {sorted(unknown)}"}, 400)
-            return
+        updated_keys = []
 
-        # Validate mode if provided
-        valid_modes = {"persistent", "heartbeat", "cron", "manual"}
-        if "mode" in patch and patch["mode"] not in valid_modes:
-            self._json({"error": f"mode must be one of {sorted(valid_modes)}"}, 400)
-            return
+        # ── availability block ────────────────────────────────────────────────
+        if avail_patch is not None:
+            if not isinstance(avail_patch, dict):
+                self._json({"error": "'availability' must be a JSON object"}, 400)
+                return
 
-        # Merge patch into _availability
-        _availability = {**_availability, **patch}
-        log.info(f"📅 AgentCard availability updated via PATCH: {_availability}")
+            # Allowed fields for PATCH (whitelist to avoid injection)
+            ALLOWED = {"mode", "interval_seconds", "next_active_at",
+                       "last_active_at", "task_latency_max_seconds",
+                       "schedule", "timezone"}   # v2.17: added schedule + timezone
+            unknown = set(avail_patch.keys()) - ALLOWED
+            if unknown:
+                self._json({"error": f"unknown availability fields: {sorted(unknown)}"}, 400)
+                return
+
+            # Validate mode if provided
+            valid_modes = {"persistent", "heartbeat", "cron", "manual"}
+            if "mode" in avail_patch and avail_patch["mode"] not in valid_modes:
+                self._json({"error": f"mode must be one of {sorted(valid_modes)}"}, 400)
+                return
+
+            # Merge patch into _availability
+            _availability = {**_availability, **avail_patch}
+            log.info(f"📅 AgentCard availability updated via PATCH: {_availability}")
+            updated_keys.append("availability")
+
+        # ── limitations block (v2.21) ─────────────────────────────────────────
+        if lims_patch is not None:
+            if not isinstance(lims_patch, list):
+                self._json({"error": "'limitations' must be a JSON array"}, 400)
+                return
+            # v2.21: strict validation for dict entries in PATCH (kind must be valid or absent)
+            for item in lims_patch:
+                if isinstance(item, dict) and "kind" in item:
+                    if item["kind"] not in _VALID_LIMITATION_KINDS:
+                        self._json({"error": f"invalid limitation kind '{item['kind']}'; "
+                                             f"must be one of {sorted(_VALID_LIMITATION_KINDS)}"}, 400)
+                        return
+            try:
+                new_lims = [_parse_limitation(item) for item in lims_patch]
+            except Exception as e:
+                self._json({"error": f"invalid limitation entry: {e}"}, 400)
+                return
+
+            if lims_merge:
+                # Merge: append new limitations, de-duplicate by (kind, code)
+                existing = {(lim.get("kind"), lim.get("code")): lim for lim in _limitations}
+                for lim in new_lims:
+                    existing[(lim.get("kind"), lim.get("code"))] = lim
+                _limitations = list(existing.values())
+            else:
+                # Replace (default): overwrite the entire limitations list
+                _limitations = new_lims
+
+            log.info(f"🚫 AgentCard limitations updated via PATCH: {len(_limitations)} entries (merge={lims_merge})")
+            updated_keys.append("limitations")
 
         # Return the updated live card
         # v2.10: pass full structured skill objects
         skills = list((_status.get("agent_card") or {}).get("skills", []))
         live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
-        self._json({"ok": True, "availability": live_card.get("availability", {})})
+        response = {"ok": True, "updated": updated_keys}
+        if "availability" in updated_keys:
+            response["availability"] = live_card.get("availability", {})
+        if "limitations" in updated_keys:
+            response["limitations"] = live_card.get("limitations", [])
+        self._json(response)
 
 
 def run_http(port, host="127.0.0.1", http2=False):
