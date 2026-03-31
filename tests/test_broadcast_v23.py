@@ -281,8 +281,9 @@ def test_BH10_target_peers_subset_delivery(two_peers_bc):
 # ── BH11: version ─────────────────────────────────────────────────────────────
 
 def test_BH11_version_2_23():
-    """BH11: Server reports VERSION 2.23.x."""
+    """BH11: Server reports VERSION 2.23+ (forward compatible)."""
     _wait_link(HTTP_A)
     r = requests.get(f"http://127.0.0.1:{HTTP_A}/status", timeout=5).json()
     ver = r.get("acp_version") or r.get("v") or ""
-    assert ver.startswith("2.23"), f"Expected 2.23.x, got: {ver}"
+    major, minor = ver.split(".")[:2]
+    assert (int(major), int(minor)) >= (2, 23), f"Expected 2.23+, got: {ver}"
