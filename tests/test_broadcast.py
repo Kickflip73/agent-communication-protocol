@@ -87,8 +87,20 @@ def teardown_module(_):
 
 
 def _link(http):
+    """Return a localhost acp:// link for connecting to this relay in tests.
+
+    /status.link may contain a public/LAN IP that is unreachable in the test
+    sandbox.  We extract the token from whatever link is present and rebuild
+    an acp://127.0.0.1:WS_PORT/TOKEN link so /peers/connect can reach the
+    relay via loopback.
+    """
     d = requests.get(f"http://127.0.0.1:{http}/status", timeout=5).json()
-    return d.get("link") or d.get("relay_token")
+    raw = d.get("link") or d.get("relay_token") or ""
+    # Extract token: last path segment of acp://…/TOKEN
+    token = raw.rstrip("/").rsplit("/", 1)[-1] if "/" in raw else raw
+    # WS port = HTTP port - 100 (per test port layout)
+    ws_port = http - 100
+    return f"acp://127.0.0.1:{ws_port}/{token}" if token else None
 
 
 def _msg_text(msg):
@@ -115,17 +127,32 @@ def _poll(http, keyword, timeout=10):
 
 # ── BC1: capability flag ──────────────────────────────────────────────────────
 
-def _wait_link(http, timeout=15):
-    """Wait until /status returns a link or relay_token (relay fully initialized)."""
+def _wait_link(http, timeout=20):
+    """Wait until /status returns a link/relay_token (relay fully initialized).
+
+    Falls back to accepting any 200 response with a version present, since
+    the link field is only populated after public-IP detection completes
+    (which may be slow or fail in sandbox environments).
+    """
     deadline = time.time() + timeout
+    last_d = {}
     while time.time() < deadline:
         try:
             d = requests.get(f"http://127.0.0.1:{http}/status", timeout=2).json()
+            last_d = d
             if d.get("link") or d.get("relay_token"):
                 return True
         except Exception:
             pass
         time.sleep(0.5)
+    # Fallback: accept if relay is responding (link may be slow due to public IP lookup)
+    try:
+        d = requests.get(f"http://127.0.0.1:{http}/status", timeout=2).json()
+        if d.get("v") or d.get("acp_version"):
+            return True  # relay is up even if link not yet populated
+    except Exception:
+        pass
+    return False
     return False
 
 
@@ -183,8 +210,13 @@ def test_BC5_broadcast_missing_text_returns_400():
 @pytest.fixture(scope="module")
 def two_peers_connected():
     """Connect B and C to A, return (peer_b_id, peer_c_id)."""
+    # Wait for B and C to be fully ready (link assigned) before extracting links
+    _wait_link(HTTP_B)
+    _wait_link(HTTP_C)
     lb = _link(HTTP_B)
     lc = _link(HTTP_C)
+    assert lb, f"B link is None after wait (status: {requests.get(f'http://127.0.0.1:{HTTP_B}/status',timeout=3).json()})"
+    assert lc, f"C link is None after wait (status: {requests.get(f'http://127.0.0.1:{HTTP_C}/status',timeout=3).json()})"
     rb = requests.post(f"http://127.0.0.1:{HTTP_A}/peers/connect",
                        json={"link": lb}, timeout=10).json()
     time.sleep(2)
