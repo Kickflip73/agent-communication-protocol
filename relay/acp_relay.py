@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.22.0"  # v2.22: POST /peers/broadcast — fanout message to all connected peers; peers_broadcast capability flag + endpoint
+VERSION = "2.23.0"  # v2.23: target_peers[] subset broadcast + GET /peers/broadcast/history
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -533,6 +533,8 @@ def _ed25519_verify_msg(msg: dict, public_key_b64: str, sig_b64: str) -> bool:
 #              messages_received, agent_card}
 _peers: dict = {}       # peer_id -> peer info dict
 _peer_id_counter = 0    # auto-increment for unnamed peers
+_broadcast_log: list = []                    # v2.23: broadcast history (ring buffer, max 200 entries)
+_BROADCAST_LOG_MAX = 200
 
 def _make_peer_id():
     global _peer_id_counter
@@ -1331,6 +1333,8 @@ def _make_agent_card(name, skills):
             "limitations_patch":       True,                                  # v2.21: PATCH /.well-known/acp.json supports 'limitations' key
             "limitations_filter":      True,                                  # v2.21: GET /.well-known/acp.json?filter_limitations=<value> supported
             "peers_broadcast":         True,                                  # v2.22: POST /peers/broadcast — fanout to all connected peers
+            "peers_broadcast_subset":  True,                                  # v2.23: target_peers[] subset broadcast
+            "peers_broadcast_history": True,                                  # v2.23: GET /peers/broadcast/history
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1365,7 +1369,8 @@ def _make_agent_card(name, skills):
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
-            "peers_broadcast": "/peers/broadcast",    # v2.22: broadcast to all connected peers
+            "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
+            "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
@@ -3100,6 +3105,24 @@ class LocalHTTP(BaseHTTPRequestHandler):
             active = sum(1 for p2 in _peers.values() if p2["connected"])
             self._json({"peers": peer_list, "count": len(peer_list), "active": active})
 
+        # ── GET /peers/broadcast/history — broadcast history log (v2.23) ──────
+        elif p == "/peers/broadcast/history":
+            try:
+                limit_raw = qs.get("limit", ["20"])[0]
+                try:
+                    limit = max(1, min(int(limit_raw), 200))
+                except ValueError:
+                    limit = 20
+                history = list(reversed(_broadcast_log))[:limit]
+                self._json({
+                    "ok": True,
+                    "count": len(history),
+                    "total": len(_broadcast_log),
+                    "history": history,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
         # ── GET /peers/discover — LAN port-scan discovery (v2.1) ─────────────
         elif p == "/peers/discover":
             """
@@ -4423,9 +4446,27 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         return
 
                 context_id = body.get("context_id") or _make_id()
-                active_peers = [
-                    pid for pid, pinfo in _peers.items() if pinfo.get("connected")
-                ]
+
+                # v2.23: optional target_peers[] for subset broadcast
+                target_peers_filter = body.get("target_peers")
+                if target_peers_filter is not None:
+                    if not isinstance(target_peers_filter, list):
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, "'target_peers' must be a list of peer_id strings")
+                        self._json(e_body, e_code)
+                        return
+                    # Validate all requested peer ids exist
+                    unknown = [pid for pid in target_peers_filter if pid not in _peers]
+                    if unknown:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, f"unknown peer_id(s) in target_peers: {unknown}")
+                        self._json(e_body, e_code)
+                        return
+                    active_peers = [
+                        pid for pid in target_peers_filter if _peers[pid].get("connected")
+                    ]
+                else:
+                    active_peers = [
+                        pid for pid, pinfo in _peers.items() if pinfo.get("connected")
+                    ]
 
                 if not active_peers:
                     self._json(
@@ -4485,6 +4526,22 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "failed": failed,
                 })
 
+                # v2.23: record broadcast in history log
+                broadcast_record = {
+                    "broadcast_id": context_id,
+                    "ts": _now(),
+                    "role": role_raw,
+                    "parts": parts,
+                    "target_peers": target_peers_filter,   # None = all peers
+                    "total_peers": len(active_peers),
+                    "delivered": delivered,
+                    "failed": failed,
+                    "results": results,
+                }
+                _broadcast_log.append(broadcast_record)
+                if len(_broadcast_log) > _BROADCAST_LOG_MAX:
+                    _broadcast_log.pop(0)
+
                 self._json({
                     "ok": True,
                     "broadcast": True,
@@ -4492,6 +4549,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "failed": failed,
                     "total_peers": len(active_peers),
                     "results": results,
+                    "broadcast_id": context_id,
                 }, 200)
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
