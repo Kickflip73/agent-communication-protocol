@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-30 05:24（研究轮；v2.17 availability_schedule 完成；新增 v2.18 待办：trust.signals JWKS、data_handling_policy、v1.4 NAT 主流程集成）
+> 最后更新：2026-03-31 13:30（文档轮；v2.22 /peers/broadcast 完成；当前版本 v2.22.0 commit d396969）
 
 ---
 
@@ -402,19 +402,34 @@ Key commit: TBD（本轮）
 
 ---
 
+## ✅ 已完成里程碑摘要（v2.19–v2.22）
+
+| 版本 | 特性 | Commit | 日期 |
+|------|------|--------|------|
+| v2.19.0 | NAT Auto-Traversal Integration in `/peers/connect`（`connection_type` 字段）| f46ca52 + b0e70ce | 2026-03-31 |
+| v2.20.0 | Structured `limitations[]` — LimitationObject（kind/code/message/permanent）| — | 2026-03-31 |
+| v2.21.0 | `PATCH /.well-known/acp.json` + `?filter_limitations=` query | — | 2026-03-31 |
+| v2.22.0 | `POST /peers/broadcast` — fanout to all connected peers | d396969 | 2026-03-31 |
+
+---
+
 ## 🔭 v2.18 候选待办（2026-03-30 研究轮识别）
 
 > 更新时间：2026-03-30 05:24 研究轮
 
-### [ ] P0 — v1.4 NAT 穿透主流程集成（遗留）
-- `_connect_with_nat_traversal()` 替换现有直连逻辑（Level 1/2/3 自动切换）
-- 目标：Show HN 发布前完成
-- 参考：`spec/nat-traversal-v1.4.md`
+### [x] P0 — v1.4 NAT 穿透主流程集成 ✅ v2.19.0 (commit f46ca52, 2026-03-31)
+- `connection_type` 字段（host/p2p_direct/dcutr_direct/relay）集成到 `/peers/connect` 主流程
+- `capabilities.nat_traversal: true`
+- 测试：`test_nat_integration.py` NI1~NI6: **6/6 PASS**
 
-### [ ] P2 — trust.signals JWKS 兼容层
+### [x] P2 — trust.signals JWKS 兼容层 ✅ v2.18.0 (commit 1cce353, 2026-03-30)
 - **背景**: A2A IS#1628 趋向使用 ECDSA P-256 / JWKS 标准；ACP 使用 Ed25519
-- **方向**: 提供 JWKS 验证适配器，使 ACP `trust.signals` 可接受来自第三方 ECDSA 签名方的信号
-- **影响**: 提升 ACP 与 A2A 生态的可互通性
+- **实现**: `GET /.well-known/jwks.json` — RFC 7517 JWK Set endpoint（Ed25519/OKP/EdDSA）
+  - `_build_jwks()` helper；`capabilities.trust_jwks=True`；`endpoints.jwks` 声明
+  - `trust.signals[type=jwks]` 信号（与 type=ed25519_identity 并存，互补）
+  - `kid = "<agent_name>:<pubkey_prefix_8>"` 格式
+  - 无 identity 时返回 `{"keys": []}` 空集（端点始终可用）
+- **测试**: `tests/test_jwks.py` JW1–JW10，**13/13 PASS**
 - **来源**: 2026-03-30 扫描，IS#1628 已有 18 评论，方案趋于收敛
 
 ### [ ] P3 — data_handling_policy（GDPR 字段，轻量 Extensions）
@@ -438,6 +453,24 @@ Key commit: TBD（本轮）
 - ❌ Push Notification 配置 CRUD
 - ❌ 8 种 Task 状态（5 种够用）
 - ❌ 中心注册表 / 服务发现中心
+
+---
+
+## 🔭 v2.23 候选特性（2026-03-31 规划）
+
+> 当前版本 v2.22.0，下一轮开发优先级：
+
+### [ ] P1 — `GET /peers/broadcast/history` — 广播历史查询
+- 按需查询最近 N 条广播记录（message_id、delivered/failed、parts、ts）
+- 便于调试和审计，补全 broadcast 功能闭环
+
+### [ ] P1 — `POST /peers/broadcast` 支持 `target_peers[]` 选择性广播
+- 当前广播到所有 peer，v2.23 支持指定 peer_id 列表（子集广播）
+- `{"text": "...", "role": "agent", "target_peers": ["peer_001", "peer_003"]}`
+
+### [ ] P2 — data_handling_policy（GDPR 字段，轻量 Extension）
+- 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
+- 优先级低，中期跟进
 
 ---
 
