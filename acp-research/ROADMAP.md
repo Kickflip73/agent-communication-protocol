@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-01 17:05（文档轮：CHANGELOG v2.29 + ROADMAP v2.29 完成标记 + v2.30 里程碑规划）
+> 最后更新：2026-04-01 20:39（文档轮：ROADMAP v2.30 完成标记 + v2.31 里程碑规划；消息幂等强化纳入规划）
 
 ---
 
@@ -517,26 +517,45 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 📋 v2.30（规划中，目标：2026-04-15 前）
-**主题：error 精确追踪 + skill 运行时动态更新**
+### ✅ v2.30（已发布 — 2026-04-01）
+**主题：error 精确追踪能力声明 + skill 运行时动态更新**
 
 #### P1 特性
 
-**1. `failed_msg_id` in error response（从 v2.29 顺延）**
-- `POST /message:send` 失败时，error response 增加 `failed_msg_id` 字段
-- 格式：`{"error": "...", "failed_msg_id": "<client_msg_id>", "server_seq": <n>}`
-- `capabilities.error_failed_msg_id: True`
-- 测试目标：FM1–FM8
+**1. `error_failed_msg_id` 能力声明** ✅ 已完成（commit ad0521e）
+- 发现：`failed_message_id` 功能自 v0.6 已实现（ref ANP），v2.30 补 `capabilities` 声明
+- `capabilities.error_failed_msg_id: True` in AgentCard
+- 覆盖：`POST /message:send` + `POST /peer/<id>/send`
+- 有 `message_id` → error 回显 `failed_message_id`；无则不出现
+- Tests: FM1–FM8 = 8/8 PASS
 
-**2. `PATCH /skills/<id>/limitations` — 运行时动态标记 skill 不可用**
+**2. `PATCH /skills/<id>/limitations` — 运行时动态标记 skill 不可用** ⏳ 顺延 v2.31
 - 不重启 relay 即可将某 skill 标记为 `permanent: false` 的 limitation
 - 与 `GET /skills/<id>/status` 联动：PATCH 后 status 即时反映
 - 场景：worker 负载过高时自报"暂时不可用"
 
+---
+
+### 📋 v2.31（规划中，目标：2026-04-22 前）
+**主题：skill 运行时动态更新 + 消息幂等强化**
+
+#### P1 特性
+
+**1. `PATCH /skills/<id>/limitations`（从 v2.30 顺延）**
+- 不重启 relay 即可运行时修改 skill 的 `limitations[]`
+- 与 `GET /skills/<id>/status` 联动，PATCH 后立即反映
+- 测试目标：SU1–SU8
+
+**2. 消息幂等强化 — `message_id` 去重窗口**
+- 相同 `message_id` 在 30s 窗口内重复投递 → 返回 `{ok:true, deduplicated:true}` 而非重复处理
+- 参考 ANP `client_msg_id` 幂等语义（commit 1f0abd2d）
+- `capabilities.message_dedup: True`
+- 测试目标：MD1–MD6
+
 #### 测试目标
-- FM1–FM8（failed_msg_id）
-- SU1–SU8（skill limitations PATCH）
-- 回归：SS1–SS12 全覆盖
+- SU1–SU8（PATCH /skills/<id>/limitations）
+- MD1–MD6（消息幂等去重）
+- 回归：FM1-8 + SS1-12 全覆盖
 
 ---
 
