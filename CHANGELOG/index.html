@@ -1042,6 +1042,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2310-patch-skillslimitations-2026-04-02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.31.0 — PATCH /skills//limitations (2026-04-02)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v2300-error_failed_msg_id-2026-04-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.30.0 — error_failed_msg_id 能力声明 (2026-04-01)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v2290-get-skillsstatus-per-skill-2026-04-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.29.0 — GET /skills//status Per-Skill 可用性探测 (2026-04-01)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2110-skills-2026-03-28" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2940,6 +2973,29 @@
 <p>All notable changes to ACP (Agent Communication Protocol) are documented here.</p>
 <p>Format: <a href="https://semver.org">Semantic Versioning</a> — <code>MAJOR.MINOR.PATCH-status</code>
 Dates: Asia/Shanghai (UTC+8)</p>
+<hr />
+<h2 id="v2310-patch-skillslimitations-2026-04-02">v2.31.0 — PATCH /skills/<id>/limitations (2026-04-02)<a class="headerlink" href="#v2310-patch-skillslimitations-2026-04-02" title="Permanent link">&para;</a></h2>
+<ul>
+<li>feat: <code>PATCH /skills/&lt;id&gt;/limitations</code> — 运行时 per-skill limitations 动态更新，无需重启</li>
+<li>feat: <code>limitations_merge: true</code> 支持追加模式（by kind+code de-dup）</li>
+<li>feat: 空数组 <code>[]</code> 清除 runtime override，恢复声明默认值</li>
+<li>feat: <code>GET /skills/&lt;id&gt;/status</code> 和 <code>GET /skills</code> 自动反映 override</li>
+<li>feat: <code>capabilities.skill_limitations_patch: true</code></li>
+<li>test: SU1–SU8 = 8/8 PASS；回归 189/189 PASS</li>
+</ul>
+<h2 id="v2300-error_failed_msg_id-2026-04-01">v2.30.0 — error_failed_msg_id 能力声明 (2026-04-01)<a class="headerlink" href="#v2300-error_failed_msg_id-2026-04-01" title="Permanent link">&para;</a></h2>
+<ul>
+<li>feat: <code>capabilities.error_failed_msg_id: true</code> 正式声明（功能自 v0.6 起实现，ref ANP）</li>
+<li>test: FM1–FM8 = 8/8 PASS</li>
+</ul>
+<h2 id="v2290-get-skillsstatus-per-skill-2026-04-01">v2.29.0 — GET /skills/<id>/status Per-Skill 可用性探测 (2026-04-01)<a class="headerlink" href="#v2290-get-skillsstatus-per-skill-2026-04-01" title="Permanent link">&para;</a></h2>
+<ul>
+<li>feat: <code>GET /skills/&lt;id&gt;/status</code> — 轻量 per-skill 可用性探测</li>
+<li>feat: runtime (<code>permanent:false</code>) capability/access limitation → <code>available: false</code></li>
+<li>feat: 响应含 <code>limitations[]</code>（runtime override 合并后的完整列表）</li>
+<li>feat: <code>capabilities.skill_status_probe: true</code></li>
+<li>test: SS1–SS12 = 12/12 PASS</li>
+</ul>
 <hr />
 <h2 id="v2110-skills-2026-03-28">v2.11.0 — Skills 字段增强 (2026-03-28)<a class="headerlink" href="#v2110-skills-2026-03-28" title="Permanent link">&para;</a></h2>
 <ul>
