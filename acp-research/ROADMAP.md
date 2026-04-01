@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-01 16:00（文档轮：README v2.27/v2.28 版本历史 + 对比表更新；ROADMAP v2.29 里程碑规划）
+> 最后更新：2026-04-01 17:05（文档轮：CHANGELOG v2.29 + ROADMAP v2.29 完成标记 + v2.30 里程碑规划）
 
 ---
 
@@ -486,7 +486,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 📋 v2.29（规划中，目标：2026-04-08 前）
+### ✅ v2.29（已发布 — 2026-04-01）
 **主题：错误精确报告 + skill 级别可用性探测**
 
 来源分析：
@@ -496,28 +496,47 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 #### P1 特性
 
-**1. `failed_msg_id` in error response（ref ANP 2026-03-05）**
+**1. `failed_msg_id` in error response（ref ANP 2026-03-05）**  ⏳ 待开发（v2.30 顺延）
 - `POST /message:send` 失败时，error response 增加 `failed_msg_id` 字段
 - 使调用方无需维护本地 sequence mapping，直接知道哪条消息失败
 - 格式：`{"error": "...", "failed_msg_id": "<client_msg_id>", "server_seq": <n>}`
 - `capabilities.error_failed_msg_id: True`
 
-**2. `GET /skills/<id>/status` — skill 可用性探测**
+**2. `GET /skills/<id>/status` — skill 可用性探测** ✅ 已完成（commit 585a792）
 - 轻量接口：查询单个 skill 当前是否处于可服务状态
 - 响应：`{skill_id, available, reason?, last_checked}`
 - 场景：orchestrator 在分配任务前先探测 worker skill 是否在线
 - `capabilities.skill_status_probe: True`
+- Tests: SS1–SS12 = 12/12 PASS
 
 #### P2 特性
 
-**3. `limitations[]` PATCH 支持 skill 级别**（v2.21 已支持 AgentCard 顶层）
+**3. `limitations[]` PATCH 支持 skill 级别**（v2.21 已支持 AgentCard 顶层）⏳ 待开发
 - `PATCH /.well-known/acp.json` 支持 `skills[i].limitations` 部分更新
 - 运行时动态标记某 skill 为"暂时不可用"（`permanent: false`）
 
+---
+
+### 📋 v2.30（规划中，目标：2026-04-15 前）
+**主题：error 精确追踪 + skill 运行时动态更新**
+
+#### P1 特性
+
+**1. `failed_msg_id` in error response（从 v2.29 顺延）**
+- `POST /message:send` 失败时，error response 增加 `failed_msg_id` 字段
+- 格式：`{"error": "...", "failed_msg_id": "<client_msg_id>", "server_seq": <n>}`
+- `capabilities.error_failed_msg_id: True`
+- 测试目标：FM1–FM8
+
+**2. `PATCH /skills/<id>/limitations` — 运行时动态标记 skill 不可用**
+- 不重启 relay 即可将某 skill 标记为 `permanent: false` 的 limitation
+- 与 `GET /skills/<id>/status` 联动：PATCH 后 status 即时反映
+- 场景：worker 负载过高时自报"暂时不可用"
+
 #### 测试目标
-- FM1–FM8（failed_msg_id 完整场景）
-- SS1–SS6（skill status probe）
-- 回归：SL1-12 + QC1-12 + PP1-12 全覆盖
+- FM1–FM8（failed_msg_id）
+- SU1–SU8（skill limitations PATCH）
+- 回归：SS1–SS12 全覆盖
 
 ---
 

@@ -7,6 +7,24 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.29.0] — 2026-04-01 (Per-Skill Availability Probe)
+
+### Added — GET /skills/<id>/status (v2.29)
+
+- **`GET /skills/<id>/status`** — lightweight per-skill availability probe
+  - Response: `{skill_id, available, reason?, last_checked}` (ISO-8601 UTC timestamp)
+  - `available: false` when skill declares a **runtime** (`permanent: false`) limitation with `kind: "capability"` or `kind: "access"`
+  - `available: true` for permanent limitations, string-shorthand limitations, or no limitations
+  - `404 ERR_NOT_FOUND` when `skill_id` is absent from the agent card
+  - `400 ERR_INVALID_REQUEST` for empty skill_id path segment
+  - Use case: orchestrators probe worker skill availability before dispatching tasks
+- **`capabilities.skill_status_probe: True`** declared in AgentCard
+- **`endpoints.skill_status: "/skills/{id}/status"`** declared in AgentCard
+- Tests: SS1–SS12 = 12/12 PASS
+- Regression: test_skill_limitations + test_queryskill_constraints + test_peers_pagination = 41/41 PASS
+
+---
+
 ## [2.28.0] — 2026-04-01 (Per-Skill limitations[] Field)
 
 ### Added — per-skill limitations (v2.28, ref A2A #1694)
