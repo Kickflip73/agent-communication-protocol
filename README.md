@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.23.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.26.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -272,7 +272,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Error response Content-Type** | ❌ Undefined — `application/json` vs `application/problem+json` contradicted within spec (#1685) | **✅ Always `application/json; charset=utf-8` — one content type for all responses, zero ambiguity** |
 | **Webhook security** | ❌ Push notification config API returns credentials in plaintext (#1681, security bug) | **✅ Webhooks store URL only — no credentials, no leakage surface** |
 | **AgentCard limitations field** | ❌ Open proposal — issue #1694 (2026-03-27), not yet merged | **✅ `limitations: LimitationObject[]` — structured format (v2.20): `{kind, code, message, permanent}`; stable/runtime split; 6 kind types; `--limitations-json` CLI; `capabilities.limitations_structured=true`** |
-| **Skills / capability discovery** | ❌ No structured skill discovery in spec | **✅ `GET /skills` — Skills-lite 能力发现（轻量，无 JSON Schema 开销）；AgentCard `skills[]` 结构化对象数组（v2.10.0）；每个 skill 含 `input_modes`/`output_modes`/`examples` 字段（v2.11.0）；`/skills/query` 支持 `constraints.input_mode` 按输入模式过滤（v2.11.0）** |
+| **Skills / capability discovery** | ❌ No structured skill discovery in spec | **✅ `GET /skills` — Skills-lite 能力发现（轻量，无 JSON Schema 开销）；AgentCard `skills[]` 结构化对象数组（v2.10.0）；每个 skill 含 `input_modes`/`output_modes`/`examples` 字段（v2.11.0）；`/skills/query` 支持 `constraints.input_mode` 按输入模式过滤（v2.11.0）；skill 级别 `constraints: {max_file_size_bytes, concurrent_tasks, context_window}` — 三维能力边界声明（v2.26）；领先 A2A PR#1655** |
 | **Agent capability boundaries** | ❌ `limitations[]` open proposal (issue #1694, not merged) | **✅ `limitations: LimitationObject[]` — 结构化能力边界（v2.20）：stable/runtime 分离，kind 分类，机器可路由** |
 | **Trust signals / provenance** | ❌ `trust.signals[]` open spec proposal (#1628, still in discussion — no merged schema) | **✅ `trust.signals[]` — 4-type structured trust evidence in AgentCard (v2.14): `self_attested` / `third_party_vouched` / `onchain_credentials` / `behavioral`; Ed25519-signed; A2A-compatible schema** |
 | **Multi-turn conversation context** | ❌ `contextId` still proposal-stage — no query API in spec | **✅ `GET /context/<id>/messages` — query full conversation history by `context_id` (v2.15); supports `since_seq` incremental fetch, `sort=asc\|desc`, `limit`; outbound + inbound messages unified** |
@@ -508,6 +508,9 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.21** | ✅ | **Runtime limitations 管理** — `PATCH /.well-known/acp.json` 支持 `limitations` 更新（replace/merge 双模式）；`?filter_limitations=` query；`capabilities.limitations_patch/filter: true` |
 | **v2.22** | ✅ | **`POST /peers/broadcast`** — 一次调用向所有已连接 peer 发消息；per-peer 送达结果；503 ERR_NO_PEERS；`capabilities.peers_broadcast: true` |
 | **v2.23** | ✅ | **Broadcast 增强** — `target_peers[]` 可选子集广播（指定 peer_id 列表仅发给这些 peer）；`GET /peers/broadcast/history`（最近 200 条审计日志，`?limit=N`）；`broadcast_id` 响应字段；`capabilities.peers_broadcast_subset/history: true` |
+| **v2.24** | ✅ | **`GET /peers/<id>/card`** — 获取已连接 peer 的 AgentCard 快照；`capabilities.peer_card_query: true`；领先 A2A 无等效接口 |
+| **v2.25** | ✅ | **`POST /peers/<id>/ping`** — 应用层心跳探测 + RTT 测量；`acp.ping`/`acp.pong` 消息类型；超时返回 408 ERR_PING_TIMEOUT；`capabilities.peer_ping: true` |
+| **v2.26** | ✅ | **QuerySkill constraints 扩展** — 每个 skill 对象新增 `constraints: {max_file_size_bytes, concurrent_tasks, context_window}`；`POST /skills/query` 支持三维 constraint 检查（relay 级 + skill 级双重校验）；响应回显 `skill_constraints_declared`；`capabilities.skills_query_constraints: true`；领先 A2A PR#1655（open 第 5 周） |
 
 ---
 
