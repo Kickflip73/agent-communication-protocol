@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.25.0"  # v2.25: POST /peers/<peer_id>/ping — application-layer liveness probe with RTT measurement
+VERSION = "2.26.0"  # v2.26: QuerySkill constraints (max_file_size_bytes/concurrent_tasks/context_window) + per-skill constraints[] field
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1058,10 +1058,21 @@ def _parse_skill_obj(s):
 
     Accepts either a plain string ("summarize") or a dict with at least
     {"id": ..., "name": ...}.  Returns a canonical skill object:
-    {id, name, description?, tags?, examples?, input_modes?, output_modes?}
+    {id, name, description?, tags?, examples?, input_modes?, output_modes?,
+     constraints?}
+
+    constraints (v2.26): per-skill runtime limits that QuerySkill can check:
+      {
+        "max_file_size_bytes":  <int|null>,   # max single-file payload
+        "concurrent_tasks":     <int|null>,   # max parallel tasks this skill handles
+        "context_window":       <int|null>,   # max context tokens (LLM skills)
+      }
+    Any null/absent field means "no declared limit" (treated as unlimited).
     """
     if isinstance(s, dict):
         sid = str(s.get("id", s.get("name", "unknown"))).strip()
+        # v2.26: parse per-skill constraints block
+        raw_constraints = s.get("constraints") or {}
         obj = {
             "id":           sid,
             "name":         str(s.get("name", sid)),
@@ -1070,6 +1081,11 @@ def _parse_skill_obj(s):
             "examples":     list(s.get("examples") or []),
             "input_modes":  list(s.get("input_modes") or []),
             "output_modes": list(s.get("output_modes") or []),
+            "constraints":  {
+                "max_file_size_bytes": raw_constraints.get("max_file_size_bytes"),
+                "concurrent_tasks":   raw_constraints.get("concurrent_tasks"),
+                "context_window":     raw_constraints.get("context_window"),
+            },
         }
     else:
         sid = str(s).strip()
@@ -1081,6 +1097,11 @@ def _parse_skill_obj(s):
             "examples":     [],
             "input_modes":  [],
             "output_modes": [],
+            "constraints":  {
+                "max_file_size_bytes": None,
+                "concurrent_tasks":   None,
+                "context_window":     None,
+            },
         }
     return obj
 
@@ -1338,6 +1359,7 @@ def _make_agent_card(name, skills):
             "peers_broadcast_history": True,                                  # v2.23: GET /peers/broadcast/history
             "peer_card_query":         True,                                  # v2.24: GET /peers/<id>/card
             "peer_ping":               True,                                  # v2.25: POST /peers/<id>/ping — app-layer liveness probe + RTT
+            "skills_query_constraints": True,                                 # v2.26: QuerySkill constraints (max_file_size_bytes/concurrent_tasks/context_window)
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -4960,12 +4982,64 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     return
 
                 if skill_id in known_skill_ids:
-                    # Check constraints against known capabilities
+                    # Check constraints against known capabilities + per-skill limits
                     violations = []
+                    constraints_applied = {}
+
+                    # Legacy: file_size_bytes (v0.6) — check against max_msg_bytes
                     if "file_size_bytes" in constraints:
                         max_bytes = capabilities.get("max_msg_bytes", MAX_MSG_BYTES)
                         if constraints["file_size_bytes"] > max_bytes:
                             violations.append(f"file_size_bytes {constraints['file_size_bytes']} exceeds max {max_bytes}")
+                        constraints_applied["max_msg_bytes"] = max_bytes
+
+                    # v2.26: max_file_size_bytes — alias for file_size_bytes, also checks skill-level limit
+                    if "max_file_size_bytes" in constraints:
+                        req_fsz = constraints["max_file_size_bytes"]
+                        # Check against relay-level max_msg_bytes first
+                        relay_max = capabilities.get("max_msg_bytes", MAX_MSG_BYTES)
+                        if req_fsz > relay_max:
+                            violations.append(f"max_file_size_bytes {req_fsz} exceeds relay limit {relay_max}")
+                            constraints_applied["relay_max_msg_bytes"] = relay_max
+                        # Check against skill-level constraint (if declared)
+                        if _is_structured:
+                            skill_obj_fsz = next((s for s in raw_skills if s["id"] == skill_id), None)
+                            if skill_obj_fsz:
+                                skill_max_fsz = (skill_obj_fsz.get("constraints") or {}).get("max_file_size_bytes")
+                                if skill_max_fsz is not None:
+                                    constraints_applied["skill_max_file_size_bytes"] = skill_max_fsz
+                                    if req_fsz > skill_max_fsz:
+                                        violations.append(
+                                            f"max_file_size_bytes {req_fsz} exceeds skill '{skill_id}' limit {skill_max_fsz}"
+                                        )
+
+                    # v2.26: concurrent_tasks — check against skill-level limit
+                    if "concurrent_tasks" in constraints:
+                        req_ct = constraints["concurrent_tasks"]
+                        if _is_structured:
+                            skill_obj_ct = next((s for s in raw_skills if s["id"] == skill_id), None)
+                            if skill_obj_ct:
+                                skill_max_ct = (skill_obj_ct.get("constraints") or {}).get("concurrent_tasks")
+                                if skill_max_ct is not None:
+                                    constraints_applied["skill_concurrent_tasks"] = skill_max_ct
+                                    if req_ct > skill_max_ct:
+                                        violations.append(
+                                            f"concurrent_tasks {req_ct} exceeds skill '{skill_id}' limit {skill_max_ct}"
+                                        )
+
+                    # v2.26: context_window — check against skill-level limit
+                    if "context_window" in constraints:
+                        req_cw = constraints["context_window"]
+                        if _is_structured:
+                            skill_obj_cw = next((s for s in raw_skills if s["id"] == skill_id), None)
+                            if skill_obj_cw:
+                                skill_max_cw = (skill_obj_cw.get("constraints") or {}).get("context_window")
+                                if skill_max_cw is not None:
+                                    constraints_applied["skill_context_window"] = skill_max_cw
+                                    if req_cw > skill_max_cw:
+                                        violations.append(
+                                            f"context_window {req_cw} exceeds skill '{skill_id}' limit {skill_max_cw}"
+                                        )
 
                     # v2.11: check input_mode constraint against skill's input_modes
                     if req_input_mode and _is_structured:
@@ -4981,11 +5055,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     if violations:
                         support_level = "partial"
                         reason = "; ".join(violations)
-                        constraints_applied = {"max_msg_bytes": capabilities.get("max_msg_bytes", MAX_MSG_BYTES)}
                     else:
                         support_level = "supported"
                         reason = f"Skill '{skill_id}' is available"
-                        constraints_applied = {}
                 else:
                     # v2.10: try keyword match in id/name/description for fuzzy discovery
                     matched = []
@@ -5003,12 +5075,21 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         reason += f"; similar skills found: {[s['id'] for s in matched]}"
                     constraints_applied = {}
 
+                # v2.26: attach queried skill's declared constraints to response
+                queried_skill_obj = None
+                if _is_structured and skill_id in known_skill_ids:
+                    queried_skill_obj = next((s for s in raw_skills if s["id"] == skill_id), None)
+                skill_constraints_declared = (
+                    queried_skill_obj.get("constraints") if queried_skill_obj else None
+                ) or {}
+
                 self._json({
-                    "skill_id":            skill_id,
-                    "support_level":       support_level,
-                    "reason":              reason,
-                    "constraints_applied": constraints_applied,
-                    "known_skills":        known_skills_str,
+                    "skill_id":                  skill_id,
+                    "support_level":             support_level,
+                    "reason":                    reason,
+                    "constraints_applied":       constraints_applied,
+                    "skill_constraints_declared": skill_constraints_declared,  # v2.26
+                    "known_skills":              known_skills_str,
                     "agent": {
                         "name":        agent_card.get("name"),
                         "acp_version": VERSION,
