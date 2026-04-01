@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.29.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.30.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -514,6 +514,7 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.27** | ✅ | **GET /peers 分页 + vouch_chain 信任信号** — `GET /peers?limit=&offset=&filter=` 分页查询已连接 peers（支持关键词过滤）；trust.signals 新增 `vouch_chain` 类型（多级背书链，每级含 voucher_did + scope[] + signed_at + signature）；`capabilities.peers_pagination/peers_vouch_chain: true`；PP1-12+VC1-5 = 17/17 |
 | **v2.28** | ✅ | **Per-skill `limitations[]` 字段** — 每个 skill 对象新增 `limitations: LimitationObject[]`（与 AgentCard 顶层同 schema，ref A2A #1694）；字符串简写自动提升为 `LimitationObject`；`GET /skills?has_limitation=<kind\|code>` 过滤；`POST /skills/query` 响应新增 `skill_limitations_declared[]`；`capabilities.skill_limitations: true`；SL1-12 = 12/12 |
 | **v2.29** | ✅ | **`GET /skills/<id>/status` — per-skill 可用性探测** — 轻量 GET 接口；返回 `{skill_id, available, reason?, last_checked}`；runtime (`permanent:false`) capability/access limitation → `available:false`；`404 ERR_NOT_FOUND` 未知 skill；`capabilities.skill_status_probe: true`；SS1-12 = 12/12 |
+| **v2.30** | ✅ | **`error_failed_msg_id` 能力声明** — 正式声明 `capabilities.error_failed_msg_id: true`（功能自 v0.6 起实现，ref ANP）；`POST /message:send` 及 `/peer/<id>/send` 失败时 error 响应含 `failed_message_id` 精确回显 client 的 `message_id`；FM1-8 = 8/8 |
 
 ---
 

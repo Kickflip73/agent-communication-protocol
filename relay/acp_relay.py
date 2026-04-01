@@ -1380,6 +1380,7 @@ def _make_agent_card(name, skills):
             "peers_vouch_chain":        True,                                  # v2.27: trust.signals vouch_chain type
             "skill_limitations":        True,                                  # v2.28: per-skill limitations[] field (ref A2A #1694)
             "skill_status_probe":       True,                                  # v2.29: GET /skills/<id>/status — per-skill availability probe
+            "error_failed_msg_id":      True,                                  # v2.30: failed_message_id in error response (ref ANP failed_msg_id)
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",

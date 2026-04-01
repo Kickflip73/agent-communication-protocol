@@ -7,6 +7,22 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.30.0] — 2026-04-01 (failed_message_id Capability Declaration)
+
+### Added — error_failed_msg_id capability (v2.30)
+
+- **`capabilities.error_failed_msg_id: True`** declared in AgentCard
+  - `failed_message_id` field in error responses was already implemented (v0.6, ref ANP 2026-03-05)
+  - v2.30 formalizes the capability as discoverable via `/.well-known/acp.json`
+  - Callers can now probe `capabilities.error_failed_msg_id` before relying on the field
+- **Behavior**: when `POST /message:send` (or `/peer/<id>/send`) fails and the request included `message_id`, the error response includes `"failed_message_id": "<client_msg_id>"`
+  - Absent when no `message_id` was provided (never synthesized)
+  - Preserved exactly — no truncation or mutation (including unicode)
+- Tests: FM1–FM8 = 8/8 PASS
+- Regression: test_skill_status + test_skill_limitations + test_queryskill_constraints + test_peers_pagination = 53/53 PASS
+
+---
+
 ## [2.29.0] — 2026-04-01 (Per-Skill Availability Probe)
 
 ### Added — GET /skills/<id>/status (v2.29)
