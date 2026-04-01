@@ -1379,6 +1379,7 @@ def _make_agent_card(name, skills):
             "peers_pagination":         True,                                  # v2.27: GET /peers ?limit=&offset=&filter=
             "peers_vouch_chain":        True,                                  # v2.27: trust.signals vouch_chain type
             "skill_limitations":        True,                                  # v2.28: per-skill limitations[] field (ref A2A #1694)
+            "skill_status_probe":       True,                                  # v2.29: GET /skills/<id>/status — per-skill availability probe
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1404,6 +1405,7 @@ def _make_agent_card(name, skills):
             "did_document": "/.well-known/did.json",   # v1.3: W3C DID Document (requires --identity)
             "skills_query": "/skills/query",
             "skills":       "/skills",                 # v2.10: structured skill list + filtering
+            "skill_status": "/skills/{id}/status",     # v2.29: per-skill availability probe
             "peers":        "/peers",                  # v0.6
             "peer_send":    "/peer/{id}/send",         # v0.6
             "peers_connect": "/peers/connect",         # v0.6
@@ -4029,6 +4031,44 @@ class LocalHTTP(BaseHTTPRequestHandler):
             # Delegate to WS handler (runs in this thread — blocking)
             self.close_connection = True
             _handle_ws_stream(self)
+
+        # ── GET /skills/<id>/status — per-skill availability probe (v2.29) ──────
+        elif p.startswith("/skills/") and p.endswith("/status"):
+            skill_id_req = p[len("/skills/"):-len("/status")]
+            if not skill_id_req:
+                self._json(_err(ERR_INVALID_REQUEST, "skill id must not be empty", 400)[0], 400)
+                return
+            agent_card  = _status.get("agent_card") or {}
+            all_skills  = list(agent_card.get("skills", []))
+            matched     = None
+            for s in all_skills:
+                sid = s.get("id", "") if isinstance(s, dict) else str(s)
+                if sid == skill_id_req:
+                    matched = s
+                    break
+            if matched is None:
+                self._json(
+                    _err(ERR_NOT_FOUND, f"skill '{skill_id_req}' not found in agent card", 404)[0],
+                    404,
+                )
+                return
+            # Determine availability: runtime (permanent=False) cap/access limitation → unavailable
+            reason    = None
+            available = True
+            lims      = matched.get("limitations", []) if isinstance(matched, dict) else []
+            for lim in lims:
+                if isinstance(lim, str):
+                    continue
+                if lim.get("permanent") is False and lim.get("kind") in ("capability", "access"):
+                    available = False
+                    reason    = lim.get("message") or lim.get("code") or "runtime limitation active"
+                    break
+            self._json({
+                "skill_id":     skill_id_req,
+                "available":    available,
+                "reason":       reason,
+                "last_checked": _now(),
+            })
 
         elif p == "/stream":  # [stable] SSE event stream
             # BUG-001 additional fix: prevent BaseHTTP HTTP/1.0 from closing
