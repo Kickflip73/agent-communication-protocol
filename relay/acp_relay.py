@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.26.0"  # v2.26: QuerySkill constraints (max_file_size_bytes/concurrent_tasks/context_window) + per-skill constraints[] field
+VERSION = "2.27.0"  # v2.27: GET /peers pagination (?limit=&offset=&filter=) + vouch_chain trust signal
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -536,6 +536,7 @@ _peer_id_counter = 0    # auto-increment for unnamed peers
 _broadcast_log: list = []                    # v2.23: broadcast history (ring buffer, max 200 entries)
 _BROADCAST_LOG_MAX = 200
 _pending_pongs: dict = {}  # v2.25: nonce -> asyncio.Future; resolved when acp.pong arrives
+_vouch_chain: list  = []  # v2.27: list of vouch_chain entries [{voucher_did, vouched_did, vouched_at, sig, comment}]
 
 def _make_peer_id():
     global _peer_id_counter
@@ -1360,6 +1361,8 @@ def _make_agent_card(name, skills):
             "peer_card_query":         True,                                  # v2.24: GET /peers/<id>/card
             "peer_ping":               True,                                  # v2.25: POST /peers/<id>/ping — app-layer liveness probe + RTT
             "skills_query_constraints": True,                                 # v2.26: QuerySkill constraints (max_file_size_bytes/concurrent_tasks/context_window)
+            "peers_pagination":         True,                                  # v2.27: GET /peers ?limit=&offset=&filter=
+            "peers_vouch_chain":        True,                                  # v2.27: trust.signals vouch_chain type
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1398,6 +1401,7 @@ def _make_agent_card(name, skills):
             "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
             "peer_card":               "/peers/{peer_id}/card",      # v2.24: GET cached AgentCard for peer
             "peer_ping":               "/peers/{peer_id}/ping",      # v2.25: POST liveness probe + RTT
+            "peers_paginated":         "/peers?limit=&offset=&filter=",  # v2.27: paginated peer list
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
@@ -1567,6 +1571,18 @@ def _build_trust_signals() -> list:
         "jwks_uri":    "/.well-known/jwks.json",
         "alg":         "EdDSA",
         "details":     {"endpoint": "/.well-known/jwks.json", "alg": "EdDSA", "kty": "OKP", "crv": "Ed25519"} if _ed25519_private else {},
+    })
+
+    # 8. Vouch chain (v2.27) — structured trust endorsements from other agents (A2A IS#1628 compatible)
+    signals.append({
+        "type":        "vouch_chain",
+        "enabled":     len(_vouch_chain) > 0,
+        "description": "Vouch chain: structured endorsements from other agents (v2.27). Compatible with A2A IS#1628 trust.signals specification.",
+        "details":     {
+            "count":   len(_vouch_chain),
+            "endpoint": "/trust/vouch",
+            "vouches":  _vouch_chain[-5:],  # expose last 5 for compactness in AgentCard
+        },
     })
 
     return signals
@@ -3160,11 +3176,28 @@ class LocalHTTP(BaseHTTPRequestHandler):
         elif p == "/link":
             self._json({"link": _status.get("link"), "session_id": _status.get("session_id")})
 
-        # ── GET /peers — list all known peers (v0.6)  [stable] ─────────────────
+        # ── GET /peers — list all known peers with pagination (v0.6, v2.27) ────
         elif p == "/peers":
-            peer_list = []
+            # v2.27: pagination + filter params
+            try:
+                limit_raw  = qs.get("limit",  ["50"])[0]
+                offset_raw = qs.get("offset", ["0"])[0]
+                filter_val = qs.get("filter", ["all"])[0].lower()  # all|connected|disconnected
+                try:
+                    limit = max(1, min(int(limit_raw), 200))
+                except ValueError:
+                    limit = 50
+                try:
+                    offset = max(0, int(offset_raw))
+                except ValueError:
+                    offset = 0
+            except Exception:
+                limit, offset, filter_val = 50, 0, "all"
+
+            # build full list
+            peer_list_all = []
             for pid, info in _peers.items():
-                peer_list.append({
+                peer_list_all.append({
                     "id":               info["id"],
                     "name":             info["name"],
                     "link":             info.get("link"),
@@ -3179,8 +3212,37 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "last_ping_at":     info.get("last_ping_at"),        # v2.25: ISO timestamp of last ping
                     "ping_count":       info.get("ping_count", 0),       # v2.25: total pings sent to this peer
                 })
-            active = sum(1 for p2 in _peers.values() if p2["connected"])
-            self._json({"peers": peer_list, "count": len(peer_list), "active": active})
+
+            # v2.27: apply filter
+            if filter_val == "connected":
+                filtered = [p2 for p2 in peer_list_all if p2["connected"]]
+            elif filter_val == "disconnected":
+                filtered = [p2 for p2 in peer_list_all if not p2["connected"]]
+            elif filter_val == "all":
+                filtered = peer_list_all
+            else:
+                self._json({"ok": False, "error_code": "ERR_INVALID_FILTER",
+                            "error": f"filter must be one of: all, connected, disconnected"}, 400)
+                return
+
+            total_filtered = len(filtered)
+            page_items     = filtered[offset: offset + limit]
+            active         = sum(1 for p2 in _peers.values() if p2["connected"])
+
+            self._json({
+                "peers":         page_items,
+                "count":         len(page_items),       # items in this page
+                "total":         len(peer_list_all),    # total known peers (unfiltered)
+                "total_filtered": total_filtered,       # total after filter
+                "active":        active,                # connected peers (always)
+                "pagination": {                         # v2.27: pagination metadata
+                    "limit":    limit,
+                    "offset":   offset,
+                    "filter":   filter_val,
+                    "has_more": (offset + limit) < total_filtered,
+                    "next_offset": (offset + limit) if (offset + limit) < total_filtered else None,
+                },
+            })
 
         # ── GET /peers/broadcast/history — broadcast history log (v2.23) ──────
         elif p == "/peers/broadcast/history":
@@ -3623,6 +3685,37 @@ class LocalHTTP(BaseHTTPRequestHandler):
             }
             self._json(resp)
 
+
+        # ── GET /trust/vouch — list vouch_chain entries (v2.27) ─────────────
+        elif p == "/trust/vouch":
+            try:
+                limit_raw  = qs.get("limit",  ["50"])[0]
+                offset_raw = qs.get("offset", ["0"])[0]
+                try:
+                    limit = max(1, min(int(limit_raw), 200))
+                except ValueError:
+                    limit = 50
+                try:
+                    offset = max(0, int(offset_raw))
+                except ValueError:
+                    offset = 0
+            except Exception:
+                limit, offset = 50, 0
+
+            total   = len(_vouch_chain)
+            page    = _vouch_chain[offset: offset + limit]
+            self._json({
+                "ok":     True,
+                "vouches": page,
+                "count":   len(page),
+                "total":   total,
+                "pagination": {
+                    "limit":   limit,
+                    "offset":  offset,
+                    "has_more": (offset + limit) < total,
+                    "next_offset": (offset + limit) if (offset + limit) < total else None,
+                },
+            })
 
         # ── v2.16: GET /identity/delegation ──────────────────────────────────
         elif p == "/identity/delegation":
@@ -5198,6 +5291,62 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
             result = _verify_agent_card(card)
             self._json(result)
+
+        # ── POST /trust/vouch — add a vouch_chain entry (v2.27) ──────────────
+        elif p == "/trust/vouch":
+            """
+            Add a vouch_chain entry to this agent's trust signals (v2.27).
+            Compatible with A2A IS#1628 trust.signals specification.
+
+            Body:
+              {
+                "voucher_did":  "did:acp:...",   # required — DID of vouching agent
+                "comment":      "...",           # optional — free text
+                "sig":          "...",           # optional — base64 Ed25519 sig of vouched_did+vouched_at
+              }
+
+            Returns:
+              {
+                "ok":        true,
+                "vouch_id":  "<int>",            # index in vouch_chain
+                "total":     <int>,              # total vouches so far
+                "entry":     { ... },            # the stored entry
+              }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            voucher_did = body.get("voucher_did", "").strip()
+            if not voucher_did:
+                self._json({"ok": False, "error_code": "ERR_MISSING_FIELD",
+                            "error": "'voucher_did' is required"}, 400)
+                return
+
+            import time as _time_vouch
+            entry = {
+                "vouch_id":   len(_vouch_chain),
+                "voucher_did": voucher_did,
+                "vouched_did": _did_acp or _did_key or "unknown",   # this agent's DID
+                "vouched_at":  _time_vouch.strftime("%Y-%m-%dT%H:%M:%SZ", _time_vouch.gmtime()),
+                "sig":        body.get("sig"),      # optional; None if not provided
+                "comment":    body.get("comment"),  # optional free text
+            }
+            _vouch_chain.append(entry)
+            self._json({
+                "ok":      True,
+                "vouch_id": entry["vouch_id"],
+                "total":    len(_vouch_chain),
+                "entry":    entry,
+            })
+
+        # ── GET /trust/vouch — list vouch_chain entries (v2.27) ──────────────
+        elif p == "/trust/vouch" and self.command == "GET":
+            # This branch is unreachable from do_POST, but kept for clarity;
+            # actual GET handling is in do_GET below. See GET /trust/vouch.
+            pass
 
         else:
             self._json({"error": "not found"}, 404)

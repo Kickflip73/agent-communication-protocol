@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-01 11:35（开发轮：v2.26 QuerySkill constraints 完成，QC1-12 12/12，300+ 回归全绿，commit 76534b5）
+> 最后更新：2026-04-01 13:45（开发轮：v2.27 GET /peers 分页 + vouch_chain 完成，PP1-12+VC1-5 17/17，smoke 全绿）
 
 ---
 
@@ -407,13 +407,19 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - 测试：QC1–QC12 12/12 PASS（commit `76534b5`）
 - 领先 A2A PR#1655（open 第 5 周）
 
-### 🔮 v2.27（候选特性，目标：2026-Q2）
-**主题：GET /peers 分页 + vouch_chain**
+### ✅ v2.27（完成，2026-04-01）
+**主题：GET /peers 分页 + vouch_chain trust signal**
 
-- [ ] **`GET /peers` 分页**（P1）：`?limit=20&offset=0&filter=connected`
-  - 团队协作场景下大量 peer 的分页查询
-- [ ] **trust.signals vouch_chain**（P2）— 补充 vouch_chain 语义字段（来自 A2A IS#1628）
-  - `{"type":"vouch_chain","voucher_did":"...","vouched_at":"...","sig":"..."}`
+- ✅ **`GET /peers` 分页**（P1）：`?limit=N&offset=N&filter=all|connected|disconnected`
+  - 响应增加 `pagination{limit,offset,filter,has_more,next_offset}` + `total_filtered` 字段
+  - filter=invalid → 400 ERR_INVALID_FILTER；limit=非整数 → 默认 50，不报错
+  - `capabilities.peers_pagination=True`
+- ✅ **trust.signals vouch_chain**（P2，来自 A2A IS#1628）
+  - `POST /trust/vouch` — 添加背书条目（voucher_did/comment/sig）
+  - `GET /trust/vouch` — 列出背书链（支持 limit/offset 分页）
+  - AgentCard `trust.signals[]` 含 `type=vouch_chain` + `enabled/count/vouches[-5:]`
+  - `capabilities.peers_vouch_chain=True`
+- 测试：PP1-PP12 + VC1-VC5 = 17/17 PASS（smoke 验证）
 
 ---
 

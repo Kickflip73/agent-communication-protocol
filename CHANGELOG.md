@@ -7,6 +7,29 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.27.0] — 2026-04-01 (GET /peers Pagination + Vouch Chain)
+
+### Added — GET /peers pagination (v2.27)
+
+- **`GET /peers` now supports pagination and filtering**
+  - `?limit=N` (1–200, default 50), `?offset=N` (default 0), `?filter=all|connected|disconnected`
+  - Response adds `pagination{limit,offset,filter,has_more,next_offset}` + `total_filtered` field
+  - Invalid `filter` value → 400 `ERR_INVALID_FILTER`; non-integer `limit` falls back to default
+  - Backward compatible: existing clients that omit params get default `filter=all,limit=50,offset=0`
+  - `capabilities.peers_pagination: True`
+
+### Added — vouch_chain trust signal (v2.27, A2A IS#1628 compatible)
+
+- **`POST /trust/vouch`** — add a trust endorsement from another agent
+  - Body: `{voucher_did, comment?, sig?}` → stored in `_vouch_chain[]`
+  - Returns `{ok, vouch_id, total, entry}` with auto-stamped `vouched_at` (ISO-8601 UTC)
+- **`GET /trust/vouch`** — list endorsement chain with pagination (`?limit=&offset=`)
+- **AgentCard `trust.signals[]`** now includes `{type:"vouch_chain", enabled, details:{count, endpoint, vouches[-5:]}}`
+  - `enabled=true` once at least one vouch has been added
+  - `capabilities.peers_vouch_chain: True`
+
+---
+
 ## [2.26.0] — 2026-04-01 (QuerySkill Constraints Extension)
 
 ### Added — per-skill constraints (v2.26)
