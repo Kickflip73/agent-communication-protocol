@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-01 15:10（开发轮：v2.28 per-skill limitations[] 完成，SL1-12 12/12 + v2.26回归 33/33 全绿）
+> 最后更新：2026-04-01 16:00（文档轮：README v2.27/v2.28 版本历史 + 对比表更新；ROADMAP v2.29 里程碑规划）
 
 ---
 
@@ -407,6 +407,21 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - 测试：QC1–QC12 12/12 PASS（commit `76534b5`）
 - 领先 A2A PR#1655（open 第 5 周）
 
+### ✅ v2.28（完成，2026-04-01）
+**主题：Per-skill `limitations[]` 字段（ref A2A #1694）**
+
+- ✅ **每个 skill 对象增加 `limitations: LimitationObject[]`**（与 AgentCard 顶层 schema 一致）
+  - 字符串简写自动提升：`"no_audio"` → `{kind:"capability", code:"no_audio", ...}`
+  - 声明方式：`--skills '[{"id":"x","limitations":[{"kind":"modality","code":"..."}]}]'`
+  - 默认为 `[]`，完全向后兼容
+- ✅ **`GET /skills?has_limitation=<kind|code>`** — 按限制类型或代码过滤技能列表
+- ✅ **`POST /skills/query`** 响应增加 `skill_limitations_declared[]`
+- ✅ **`capabilities.skill_limitations: True`**
+- ✅ A2A #1694 互操作对齐（A2A 提案仍未合并）
+- 测试：SL1–SL12 = 12/12 PASS；v2.26 回归 33/33 PASS
+
+---
+
 ### ✅ v2.27（完成，2026-04-01）
 **主题：GET /peers 分页 + vouch_chain trust signal**
 
@@ -468,6 +483,41 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
   - 覆盖 2026-03-22~25 所有重要特性
   - ACP vs A2A 实时对比表格（5 维度）
   - 状态：✅ 已发布，随 Show HN 一起呈现
+
+---
+
+### 📋 v2.29（规划中，目标：2026-04-08 前）
+**主题：错误精确报告 + skill 级别可用性探测**
+
+来源分析：
+- ANP 2026-03-05 引入 `failed_msg_id`（精确标识失败消息）
+- A2A 社区 #1685 讨论 error response Content-Type 规范化
+- ACP 内部：多 skill 场景下缺乏"该 skill 当前是否可用"的轻量探测接口
+
+#### P1 特性
+
+**1. `failed_msg_id` in error response（ref ANP 2026-03-05）**
+- `POST /message:send` 失败时，error response 增加 `failed_msg_id` 字段
+- 使调用方无需维护本地 sequence mapping，直接知道哪条消息失败
+- 格式：`{"error": "...", "failed_msg_id": "<client_msg_id>", "server_seq": <n>}`
+- `capabilities.error_failed_msg_id: True`
+
+**2. `GET /skills/<id>/status` — skill 可用性探测**
+- 轻量接口：查询单个 skill 当前是否处于可服务状态
+- 响应：`{skill_id, available, reason?, last_checked}`
+- 场景：orchestrator 在分配任务前先探测 worker skill 是否在线
+- `capabilities.skill_status_probe: True`
+
+#### P2 特性
+
+**3. `limitations[]` PATCH 支持 skill 级别**（v2.21 已支持 AgentCard 顶层）
+- `PATCH /.well-known/acp.json` 支持 `skills[i].limitations` 部分更新
+- 运行时动态标记某 skill 为"暂时不可用"（`permanent: false`）
+
+#### 测试目标
+- FM1–FM8（failed_msg_id 完整场景）
+- SS1–SS6（skill status probe）
+- 回归：SL1-12 + QC1-12 + PP1-12 全覆盖
 
 ---
 

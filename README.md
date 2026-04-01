@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.26.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.28.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -272,7 +272,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Error response Content-Type** | ❌ Undefined — `application/json` vs `application/problem+json` contradicted within spec (#1685) | **✅ Always `application/json; charset=utf-8` — one content type for all responses, zero ambiguity** |
 | **Webhook security** | ❌ Push notification config API returns credentials in plaintext (#1681, security bug) | **✅ Webhooks store URL only — no credentials, no leakage surface** |
 | **AgentCard limitations field** | ❌ Open proposal — issue #1694 (2026-03-27), not yet merged | **✅ `limitations: LimitationObject[]` — structured format (v2.20): `{kind, code, message, permanent}`; stable/runtime split; 6 kind types; `--limitations-json` CLI; `capabilities.limitations_structured=true`** |
-| **Skills / capability discovery** | ❌ No structured skill discovery in spec | **✅ `GET /skills` — Skills-lite 能力发现（轻量，无 JSON Schema 开销）；AgentCard `skills[]` 结构化对象数组（v2.10.0）；每个 skill 含 `input_modes`/`output_modes`/`examples` 字段（v2.11.0）；`/skills/query` 支持 `constraints.input_mode` 按输入模式过滤（v2.11.0）；skill 级别 `constraints: {max_file_size_bytes, concurrent_tasks, context_window}` — 三维能力边界声明（v2.26）；领先 A2A PR#1655** |
+| **Skills / capability discovery** | ❌ No structured skill discovery in spec | **✅ `GET /skills` — Skills-lite 能力发现（轻量，无 JSON Schema 开销）；AgentCard `skills[]` 结构化对象数组（v2.10.0）；每个 skill 含 `input_modes`/`output_modes`/`examples` 字段（v2.11.0）；`/skills/query` 支持 `constraints.input_mode` 按输入模式过滤（v2.11.0）；skill 级别 `constraints: {max_file_size_bytes, concurrent_tasks, context_window}` — 三维能力边界声明（v2.26）；skill 级别 `limitations: LimitationObject[]` — 细粒度能力边界，`?has_limitation=<kind\|code>` 过滤（v2.28）；领先 A2A PR#1655 + #1694** |
 | **Agent capability boundaries** | ❌ `limitations[]` open proposal (issue #1694, not merged) | **✅ `limitations: LimitationObject[]` — 结构化能力边界（v2.20）：stable/runtime 分离，kind 分类，机器可路由** |
 | **Trust signals / provenance** | ❌ `trust.signals[]` open spec proposal (#1628, still in discussion — no merged schema) | **✅ `trust.signals[]` — 4-type structured trust evidence in AgentCard (v2.14): `self_attested` / `third_party_vouched` / `onchain_credentials` / `behavioral`; Ed25519-signed; A2A-compatible schema** |
 | **Multi-turn conversation context** | ❌ `contextId` still proposal-stage — no query API in spec | **✅ `GET /context/<id>/messages` — query full conversation history by `context_id` (v2.15); supports `since_seq` incremental fetch, `sort=asc\|desc`, `limit`; outbound + inbound messages unified** |
@@ -287,7 +287,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 
 > **Offline delivery (v2.0-alpha)** — A2A has no spec-level offline buffering. If you send a message while your peer is restarting, it's gone. ACP automatically queues the message on your local relay (up to 100 per peer), and flushes the queue the moment the peer reconnects. Your application code doesn't need to change — the same `POST /message:send` call that returns `503` also queues the message for later delivery. `GET /offline-queue` shows what's waiting.
 
-> **AgentCard limitations (v2.7 → v2.20)** — A2A [#1694](https://github.com/a2aproject/A2A/issues/1694) (opened 2026-03-27) proposes adding a `limitations` field. ACP v2.7 shipped working code the same day; ACP v2.20 (2026-03-31) upgrades to structured `LimitationObject[]` with stable/runtime split (`permanent: bool`), 6 kind types (`capability|modality|scale|domain|access|other`), machine-readable codes, and `capabilities.limitations_structured=true` flag. An orchestrator can now programmatically distinguish "this agent never supports images" (`permanent: true`) from "image pipeline temporarily unavailable" (`permanent: false`) — enabling correct routing vs retry decisions. Old clients ignore the optional field — fully backward-compatible.
+> **AgentCard limitations (v2.7 → v2.28)** — A2A [#1694](https://github.com/a2aproject/A2A/issues/1694) (opened 2026-03-27) proposes adding a `limitations` field. ACP v2.7 shipped working code the same day; ACP v2.20 upgrades to structured `LimitationObject[]` with stable/runtime split (`permanent: bool`), 6 kind types (`capability|modality|scale|domain|access|other`), machine-readable codes. **ACP v2.28 extends this to per-skill granularity**: every skill object now carries its own `limitations[]`, enabling orchestrators to ask "does skill X support audio?" rather than just "does this agent support audio?". `GET /skills?has_limitation=modality` returns only skills with modality-kind limitations; `POST /skills/query` response includes `skill_limitations_declared[]` for pre-flight routing decisions. Old clients ignore the optional field — fully backward-compatible. A2A #1694 is still an open proposal with no merged implementation.
 
 > **LAN discovery (v2.1-alpha)** — A2A has no spec-level mechanism for agents to find each other on a local network. ACP `GET /peers/discover` scans your /24 subnet in 1–3 seconds: 64-thread TCP probe on common ACP ports, then `/.well-known/acp.json` fingerprint on every open port. Returns a list of ACP agents with their `acp://` links — ready to connect. No mDNS required on the target side. Find any ACP relay on your LAN, even ones you don't control.
 
@@ -511,6 +511,8 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.24** | ✅ | **`GET /peers/<id>/card`** — 获取已连接 peer 的 AgentCard 快照；`capabilities.peer_card_query: true`；领先 A2A 无等效接口 |
 | **v2.25** | ✅ | **`POST /peers/<id>/ping`** — 应用层心跳探测 + RTT 测量；`acp.ping`/`acp.pong` 消息类型；超时返回 408 ERR_PING_TIMEOUT；`capabilities.peer_ping: true` |
 | **v2.26** | ✅ | **QuerySkill constraints 扩展** — 每个 skill 对象新增 `constraints: {max_file_size_bytes, concurrent_tasks, context_window}`；`POST /skills/query` 支持三维 constraint 检查（relay 级 + skill 级双重校验）；响应回显 `skill_constraints_declared`；`capabilities.skills_query_constraints: true`；领先 A2A PR#1655（open 第 5 周） |
+| **v2.27** | ✅ | **GET /peers 分页 + vouch_chain 信任信号** — `GET /peers?limit=&offset=&filter=` 分页查询已连接 peers（支持关键词过滤）；trust.signals 新增 `vouch_chain` 类型（多级背书链，每级含 voucher_did + scope[] + signed_at + signature）；`capabilities.peers_pagination/peers_vouch_chain: true`；PP1-12+VC1-5 = 17/17 |
+| **v2.28** | ✅ | **Per-skill `limitations[]` 字段** — 每个 skill 对象新增 `limitations: LimitationObject[]`（与 AgentCard 顶层同 schema，ref A2A #1694）；字符串简写自动提升为 `LimitationObject`；`GET /skills?has_limitation=<kind\|code>` 过滤；`POST /skills/query` 响应新增 `skill_limitations_declared[]`；`capabilities.skill_limitations: true`；SL1-12 = 12/12 |
 
 ---
 
