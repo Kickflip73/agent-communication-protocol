@@ -1354,3 +1354,21 @@ websockets 库报 `sent 1011 (internal error); then received 1011`，所有 5 �
 **缓解**：每个 suite 单独运行即可 100% PASS；全量跑用 `pytest -p no:parallel` 或指定 suite 顺序。
 **优先级**：P2（测试基础设施问题，不影响核心功能）
 **状态**：⚠️ 已知，待优化（可通过 pytest-forked 或端口范围隔离彻底解决）
+
+---
+
+## BUG-048 ✅ P2 — test_limitations.py 字符串格式断言与 v2.20 LimitationObject 结构不兼容
+
+**发现时间**：2026-04-01 08:55（测试轮）
+**症状**：`test_limitations.py` 中 5 个测试失败：
+- `TestLM2MultiValue::test_limitations_are_strings`
+- `TestLM2MultiValue::test_limitations_order_preserved`
+- `TestLM2MultiValue::test_two_limitations`
+- `TestLM4SingleValue::test_single_limitation_in_card`
+- `TestLM4SingleValue::test_single_limitation_json_round_trip`
+
+**根因**：测试写于 v2.3（limitations 为 `string[]`），v2.20 将 limitations 升级为 `LimitationObject[]`（`{kind, code, message, permanent}`），但测试未同步更新，仍断言 `isinstance(item, str)`。
+**影响**：测试误报，实际功能正常；`capabilities.peer_ping` 等新特性不受影响。
+**修复方向**：更新 `test_limitations.py` 中 LM2/LM4 的断言，接受 LimitationObject 格式。
+**优先级**：P2（测试维护问题，不影响核心功能）
+**状态**：✅ 已修复（commit: pending）

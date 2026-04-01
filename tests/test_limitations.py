@@ -74,21 +74,41 @@ class TestLM2MultiValue(unittest.TestCase):
         mod._limitations = list(limitations_list)
         return mod._make_agent_card("TestAgent", [])
 
+    def _codes(self, card):
+        """Extract limitation codes from LimitationObject[] or string[] (backward compat)."""
+        result = []
+        for item in card["limitations"]:
+            if isinstance(item, dict):
+                result.append(item.get("code", ""))
+            else:
+                result.append(str(item))
+        return result
+
     def test_two_limitations(self):
+        # v2.20+: _make_agent_card promotes strings → LimitationObject[]; compare by code
         card = self._card_with_limitations(["no_file_access", "no_internet"])
-        self.assertEqual(card["limitations"], ["no_file_access", "no_internet"])
+        codes = self._codes(card)
+        self.assertEqual(codes, ["no_file_access", "no_internet"])
 
     def test_limitations_order_preserved(self):
         lims = ["no_internet", "no_file_access", "no_shell"]
         card = self._card_with_limitations(lims)
-        self.assertEqual(card["limitations"], lims,
+        codes = self._codes(card)
+        self.assertEqual(codes, lims,
                          "Limitations order must be preserved as-supplied")
 
     def test_limitations_are_strings(self):
+        # v2.20+: limitations are LimitationObject dicts (not raw strings).
+        # Verify each entry is either a dict with a 'code' field (structured, v2.20+)
+        # or a plain string (legacy, v2.3-v2.19). Both shapes are valid.
         card = self._card_with_limitations(["no_file_access", "no_internet"])
         for item in card["limitations"]:
-            self.assertIsInstance(item, str,
-                                  f"Each limitation must be a string, got {type(item)}")
+            if isinstance(item, dict):
+                self.assertIn("code", item,
+                              f"LimitationObject must have 'code' field, got {item}")
+            else:
+                self.assertIsInstance(item, str,
+                                      f"Each limitation must be a string or LimitationObject, got {type(item)}")
 
     def test_comma_parse_logic(self):
         """Simulate CLI comma-split parsing: 'no_file_access,no_internet' → list"""
@@ -131,11 +151,23 @@ class TestLM3StatusEndpoint(unittest.TestCase):
 class TestLM4SingleValue(unittest.TestCase):
     """LM4: Single limitation string parses and serializes correctly"""
 
+    def _codes(self, card):
+        """Extract limitation codes from LimitationObject[] or string[] (backward compat)."""
+        result = []
+        for item in card["limitations"]:
+            if isinstance(item, dict):
+                result.append(item.get("code", ""))
+            else:
+                result.append(str(item))
+        return result
+
     def test_single_limitation_in_card(self):
+        # v2.20+: string limitations are promoted to LimitationObject; compare by code
         mod = _load_relay()
         mod._limitations = ["no_internet"]
         card = mod._make_agent_card("TestAgent", [])
-        self.assertEqual(card["limitations"], ["no_internet"])
+        codes = self._codes(card)
+        self.assertEqual(codes, ["no_internet"])
 
     def test_single_limitation_comma_parse(self):
         raw = "no_internet"
@@ -144,12 +176,17 @@ class TestLM4SingleValue(unittest.TestCase):
         self.assertEqual(len(parsed), 1)
 
     def test_single_limitation_json_round_trip(self):
+        # v2.20+: limitations round-trip as LimitationObject dicts; check code field
         mod = _load_relay()
         mod._limitations = ["no_file_access"]
         card = mod._make_agent_card("SingleLimitAgent", ["skill1"])
         serialized = json.dumps(card)
         deserialized = json.loads(serialized)
-        self.assertEqual(deserialized["limitations"], ["no_file_access"],
+        lims = deserialized["limitations"]
+        self.assertTrue(len(lims) == 1, "Should have exactly one limitation")
+        item = lims[0]
+        code = item.get("code") if isinstance(item, dict) else item
+        self.assertEqual(code, "no_file_access",
                          "limitations must survive JSON round-trip correctly")
 
 
