@@ -7,6 +7,27 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.31.0 — PATCH /skills/<id>/limitations (2026-04-02)
+- feat: `PATCH /skills/<id>/limitations` — 运行时 per-skill limitations 动态更新，无需重启
+- feat: `limitations_merge: true` 支持追加模式（by kind+code de-dup）
+- feat: 空数组 `[]` 清除 runtime override，恢复声明默认值
+- feat: `GET /skills/<id>/status` 和 `GET /skills` 自动反映 override
+- feat: `capabilities.skill_limitations_patch: true`
+- test: SU1–SU8 = 8/8 PASS；回归 189/189 PASS
+
+## v2.30.0 — error_failed_msg_id 能力声明 (2026-04-01)
+- feat: `capabilities.error_failed_msg_id: true` 正式声明（功能自 v0.6 起实现，ref ANP）
+- test: FM1–FM8 = 8/8 PASS
+
+## v2.29.0 — GET /skills/<id>/status Per-Skill 可用性探测 (2026-04-01)
+- feat: `GET /skills/<id>/status` — 轻量 per-skill 可用性探测
+- feat: runtime (`permanent:false`) capability/access limitation → `available: false`
+- feat: 响应含 `limitations[]`（runtime override 合并后的完整列表）
+- feat: `capabilities.skill_status_probe: true`
+- test: SS1–SS12 = 12/12 PASS
+
+---
+
 ## v2.11.0 — Skills 字段增强 (2026-03-28)
 - feat: `GET /skills` 响应中每个 skill 新增 `input_modes`、`output_modes`、`examples` 字段
 - feat: `GET /.well-known/acp.json` AgentCard skills[] 包含完整新字段

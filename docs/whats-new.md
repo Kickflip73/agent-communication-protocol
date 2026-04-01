@@ -1,7 +1,86 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-03-28
+> Last updated: 2026-04-02
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## v2.31.0 — Runtime Per-Skill Limitations Update (2026-04-02)
+
+### 新增：`PATCH /skills/<id>/limitations`
+
+无需重启 relay 即可在运行时更新某个 skill 的 `limitations[]`。
+
+**典型场景：** GPU 下线 → worker skill 自报"暂时不可用"；GPU 恢复 → 清除限制 → skill 重新可用。
+
+```bash
+# 添加运行时限制（skill 立即变为 unavailable）
+curl -X PATCH http://127.0.0.1:18001/skills/ocr/limitations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "limitations": [
+      {"kind": "capability", "code": "gpu_unavailable",
+       "message": "GPU offline, retrying", "permanent": false}
+    ]
+  }'
+# → {"ok": true, "skill_id": "ocr", "limitations": [...]}
+
+# 验证：GET /skills/<id>/status 立即反映
+curl http://127.0.0.1:18001/skills/ocr/status
+# → {"available": false, "reason": "GPU offline, retrying", ...}
+
+# GPU 恢复后清除限制
+curl -X PATCH http://127.0.0.1:18001/skills/ocr/limitations \
+  -H "Content-Type: application/json" \
+  -d '{"limitations": []}'
+# → {"ok": true, "skill_id": "ocr", "limitations": []}
+
+# 再次查询：已恢复
+curl http://127.0.0.1:18001/skills/ocr/status
+# → {"available": true, ...}
+```
+
+**Merge 模式（追加而非替换）：**
+
+```bash
+curl -X PATCH http://127.0.0.1:18001/skills/classify/limitations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "limitations": [
+      {"kind": "scale", "code": "max_batch_10",
+       "message": "Max 10 items per batch", "permanent": true}
+    ],
+    "limitations_merge": true
+  }'
+```
+
+**行为说明：**
+
+| 请求 | 效果 |
+|------|------|
+| `PATCH /skills/<id>/limitations` with array | 替换该 skill 的 runtime override |
+| `PATCH /skills/<id>/limitations` with `limitations_merge: true` | 追加到现有 override（`(kind, code)` 去重） |
+| `PATCH /skills/<id>/limitations` with `[]` | 清除 runtime override，恢复声明默认值 |
+| `PATCH /skills/<nonexistent>/limitations` | `404` skill not found |
+
+**联动接口：**
+- `GET /skills/<id>/status` — 自动反映 runtime override
+- `GET /skills` — 列表也合并 override
+- `capabilities.skill_limitations_patch: true` — 可发现能力标志
+
+**测试：** SU1–SU8 = 8/8 PASS
+
+---
+
+## v2.30.0 — `error_failed_msg_id` 能力声明 (2026-04-01)
+
+正式声明 `capabilities.error_failed_msg_id: true`。`failed_message_id` 功能自 v0.6 已实现；v2.30 使其可通过 AgentCard 发现。
+
+---
+
+## v2.29.0 — Per-Skill 可用性探测 (2026-04-01)
+
+`GET /skills/<id>/status` — 轻量 per-skill 可用性探测接口，返回 `{skill_id, available, reason?, last_checked, limitations[]}`。Runtime (`permanent:false`) capability/access limitation 触发 `available: false`。
 
 ---
 

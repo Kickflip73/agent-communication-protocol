@@ -330,6 +330,49 @@ curl -X POST http://localhost:7901/skills/query \
   -d '{"capability": "summarize", "limit": 5}'
 ```
 
+### Per-skill availability probe (v2.29+)
+
+```bash
+# Check if a specific skill is currently available
+curl http://localhost:18001/skills/ocr/status
+# → {"skill_id": "ocr", "available": true, "reason": null,
+#    "last_checked": "2026-04-02T05:21:00Z", "limitations": []}
+```
+
+Returns `available: false` + `reason` when the skill has a runtime (non-permanent) capability or access limitation.
+
+### Runtime per-skill limitations update (v2.31+)
+
+Update a skill's `limitations[]` at runtime without restarting the relay:
+
+```bash
+# Mark a skill temporarily unavailable (e.g. GPU went offline)
+curl -X PATCH http://localhost:18001/skills/ocr/limitations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "limitations": [
+      {"kind": "capability", "code": "gpu_unavailable",
+       "message": "GPU offline", "permanent": false}
+    ]
+  }'
+
+# Restore (clear override)
+curl -X PATCH http://localhost:18001/skills/ocr/limitations \
+  -H "Content-Type: application/json" \
+  -d '{"limitations": []}'
+
+# Merge new limitation into existing overrides (does not replace)
+curl -X PATCH http://localhost:18001/skills/ocr/limitations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "limitations": [{"kind": "scale", "code": "max_pages_50",
+                     "message": "Max 50 pages", "permanent": true}],
+    "limitations_merge": true
+  }'
+```
+
+Both `GET /skills/<id>/status` and `GET /skills` reflect the runtime override immediately. Probe `capabilities.skill_limitations_patch` to check support before using.
+
 ---
 
 ## Python SDK
