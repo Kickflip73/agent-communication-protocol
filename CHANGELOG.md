@@ -7,6 +7,26 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.28.0] — 2026-04-01 (Per-Skill limitations[] Field)
+
+### Added — per-skill limitations (v2.28, ref A2A #1694)
+
+- **`limitations[]` field in every skill object** (AgentCard + GET /skills + POST /skills/query)
+  - Same `LimitationObject` schema as top-level `AgentCard.limitations` (v2.20): `{kind, code, message, permanent}`
+  - String shorthand auto-promoted: `"no_audio"` → `{kind:"capability", code:"no_audio", message:"no_audio", permanent:true}`
+  - Declare via `--skills` JSON: `{"id":"transcribe","limitations":[{"kind":"modality","code":"no_video_input","message":"...","permanent":true}]}`
+  - Defaults to `[]` when not declared (backward compatible)
+- **`GET /skills?has_limitation=<kind|code>`** — filter skills by limitation kind or code
+  - `?has_limitation=capability` — all skills declaring a capability-kind limitation
+  - `?has_limitation=no_audio_input` — skills with that specific limitation code
+- **`POST /skills/query`** response now includes `skill_limitations_declared[]`
+  - Calling agents can inspect declared limitations before routing tasks
+- **`capabilities.skill_limitations: True`** declared in AgentCard
+- **Interoperability**: aligns with A2A IS#1694 `limitations` field proposal at skill level
+- Tests: SL1–SL12 = 12/12 PASS
+
+---
+
 ## [2.27.0] — 2026-04-01 (GET /peers Pagination + Vouch Chain)
 
 ### Added — GET /peers pagination (v2.27)

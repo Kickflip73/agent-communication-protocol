@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.27.0"  # v2.27: GET /peers pagination (?limit=&offset=&filter=) + vouch_chain trust signal
+VERSION = "2.28.0"  # v2.28: per-skill limitations[] field (ref A2A #1694); skill-level capability boundary
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1060,7 +1060,7 @@ def _parse_skill_obj(s):
     Accepts either a plain string ("summarize") or a dict with at least
     {"id": ..., "name": ...}.  Returns a canonical skill object:
     {id, name, description?, tags?, examples?, input_modes?, output_modes?,
-     constraints?}
+     constraints?, limitations?}
 
     constraints (v2.26): per-skill runtime limits that QuerySkill can check:
       {
@@ -1069,11 +1069,24 @@ def _parse_skill_obj(s):
         "context_window":       <int|null>,   # max context tokens (LLM skills)
       }
     Any null/absent field means "no declared limit" (treated as unlimited).
+
+    limitations (v2.28): per-skill capability boundary declarations (ref A2A #1694).
+      Each entry is a LimitationObject (same schema as top-level AgentCard.limitations):
+        {
+          "kind":      str,   # "capability"|"modality"|"scale"|"domain"|"access"|"other"
+          "code":      str,   # machine-readable identifier (e.g. "no_audio_input")
+          "message":   str,   # human-readable description
+          "permanent": bool,  # true = always; false = transient/conditional
+        }
+      Accepts both string shorthand (promoted to LimitationObject) and full dicts.
+      Interoperates with A2A IS#1694 limitations field at skill level.
     """
     if isinstance(s, dict):
         sid = str(s.get("id", s.get("name", "unknown"))).strip()
         # v2.26: parse per-skill constraints block
         raw_constraints = s.get("constraints") or {}
+        # v2.28: parse per-skill limitations[] (ref A2A #1694)
+        raw_limitations = s.get("limitations") or []
         obj = {
             "id":           sid,
             "name":         str(s.get("name", sid)),
@@ -1087,6 +1100,7 @@ def _parse_skill_obj(s):
                 "concurrent_tasks":   raw_constraints.get("concurrent_tasks"),
                 "context_window":     raw_constraints.get("context_window"),
             },
+            "limitations":  [_parse_limitation(lim) for lim in raw_limitations],  # v2.28: skill-level limitations
         }
     else:
         sid = str(s).strip()
@@ -1103,6 +1117,7 @@ def _parse_skill_obj(s):
                 "concurrent_tasks":   None,
                 "context_window":     None,
             },
+            "limitations":  [],   # v2.28: empty by default
         }
     return obj
 
@@ -1363,6 +1378,7 @@ def _make_agent_card(name, skills):
             "skills_query_constraints": True,                                 # v2.26: QuerySkill constraints (max_file_size_bytes/concurrent_tasks/context_window)
             "peers_pagination":         True,                                  # v2.27: GET /peers ?limit=&offset=&filter=
             "peers_vouch_chain":        True,                                  # v2.27: trust.signals vouch_chain type
+            "skill_limitations":        True,                                  # v2.28: per-skill limitations[] field (ref A2A #1694)
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -3399,10 +3415,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
         # ── GET /skills — Skills-lite structured skill list (v2.10) ──────────
         elif p == "/skills":  # [stable] structured skill discovery + filtering (v2.10)
             # Query parameters:
-            #   tag=<tag>      filter by tag (exact match)
-            #   q=<keyword>    keyword search in id/name/description (case-insensitive)
-            #   limit=<n>      page size (default 50, max 200)
-            #   offset=<n>     offset-based pagination (default 0)
+            #   tag=<tag>              filter by tag (exact match)
+            #   q=<keyword>            keyword search in id/name/description (case-insensitive)
+            #   limit=<n>              page size (default 50, max 200)
+            #   offset=<n>             offset-based pagination (default 0)
+            #   has_limitation=<val>   v2.28: filter skills that declare a limitation with matching kind or code
             # Response: {skills, total, has_more, next_offset}
             # Errors: 400 ERR_INVALID_REQUEST for non-integer limit/offset
 
@@ -3436,8 +3453,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
             if limit == 0:
                 limit = 50
 
-            tag_filter = qs.get("tag", [None])[0]
-            q_filter   = (qs.get("q", [None])[0] or "").strip().lower()
+            tag_filter           = qs.get("tag",             [None])[0]
+            q_filter             = (qs.get("q", [None])[0] or "").strip().lower()
+            has_limitation_filter = (qs.get("has_limitation", [None])[0] or "").strip().lower()  # v2.28
 
             # ── Fetch skill list from agent card ──────────────────────────
             agent_card = _status.get("agent_card") or {}
@@ -3455,6 +3473,18 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         q_filter in (s.get("description", "") or "").lower()
                     )
                 all_skills = [s for s in all_skills if _skill_matches(s)]
+
+            # v2.28: filter by limitation kind or code
+            if has_limitation_filter:
+                def _has_matching_limitation(s):
+                    for lim in s.get("limitations") or []:
+                        if (
+                            (lim.get("kind",    "") or "").lower() == has_limitation_filter or
+                            (lim.get("code",    "") or "").lower() == has_limitation_filter
+                        ):
+                            return True
+                    return False
+                all_skills = [s for s in all_skills if _has_matching_limitation(s)]
 
             # ── Pagination ────────────────────────────────────────────────
             total    = len(all_skills)
@@ -5169,20 +5199,25 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     constraints_applied = {}
 
                 # v2.26: attach queried skill's declared constraints to response
+                # v2.28: attach queried skill's declared limitations to response
                 queried_skill_obj = None
                 if _is_structured and skill_id in known_skill_ids:
                     queried_skill_obj = next((s for s in raw_skills if s["id"] == skill_id), None)
                 skill_constraints_declared = (
                     queried_skill_obj.get("constraints") if queried_skill_obj else None
                 ) or {}
+                skill_limitations_declared = (
+                    queried_skill_obj.get("limitations") if queried_skill_obj else None
+                ) or []   # v2.28: per-skill limitations[] in QuerySkill response
 
                 self._json({
-                    "skill_id":                  skill_id,
-                    "support_level":             support_level,
-                    "reason":                    reason,
-                    "constraints_applied":       constraints_applied,
-                    "skill_constraints_declared": skill_constraints_declared,  # v2.26
-                    "known_skills":              known_skills_str,
+                    "skill_id":                   skill_id,
+                    "support_level":              support_level,
+                    "reason":                     reason,
+                    "constraints_applied":        constraints_applied,
+                    "skill_constraints_declared": skill_constraints_declared,   # v2.26
+                    "skill_limitations_declared": skill_limitations_declared,   # v2.28
+                    "known_skills":               known_skills_str,
                     "agent": {
                         "name":        agent_card.get("name"),
                         "acp_version": VERSION,
