@@ -7,6 +7,37 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.26.0] — 2026-04-01 (QuerySkill Constraints Extension)
+
+### Added — per-skill constraints (v2.26)
+
+- **Per-skill `constraints` field** in skill objects (structured in `_parse_skill_obj`)
+  - `max_file_size_bytes`: max single-file payload this skill can process (`null` = unlimited)
+  - `concurrent_tasks`: max parallel task executions for this skill (`null` = unlimited)
+  - `context_window`: max context tokens for LLM-based skills (`null` = unlimited)
+  - Declare via `--skills` JSON: `{"id":"transcribe","constraints":{"max_file_size_bytes":104857600,"concurrent_tasks":4,"context_window":32000}}`
+- **`POST /skills/query` — three new constraint dimensions**
+  - `max_file_size_bytes`: checks relay-level `max_msg_bytes` first, then skill-level limit
+    - `constraints_applied.relay_max_msg_bytes` echoed when relay limit exceeded
+    - `constraints_applied.skill_max_file_size_bytes` echoed when skill limit exceeded
+  - `concurrent_tasks`: checks skill-level declared limit; `constraints_applied.skill_concurrent_tasks` echoed
+  - `context_window`: checks skill-level declared limit; `constraints_applied.skill_context_window` echoed
+  - Returns `"partial"` when any constraint is violated; reason lists all violations (`;`-separated)
+  - Backward compatible: legacy `file_size_bytes` constraint still supported (v0.6+)
+  - Skills without `constraints` field treat all limits as `null` — never produces skill-level violation
+- **Response: `skill_constraints_declared`** — echoes the queried skill's declared constraints dict
+- **`capabilities.skills_query_constraints = true`** — discoverable via `/.well-known/acp.json`
+- **`GET /skills`** — skill objects now include `constraints` field (all three dimensions)
+
+### Tests
+- `test_queryskill_constraints.py`: QC1–QC12, **12/12 PASS**
+- Full regression: 300+ tests across 17 suites, **0 failures**
+
+### vs A2A
+- **A2A PR#1655** (QuerySkill RPC) remains open (5+ weeks, unmerged) — ACP leads
+
+---
+
 ## [2.25.0] — 2026-04-01 (POST /peers/<id>/ping — Application-Layer Liveness Probe + RTT)
 
 ### Added — peer ping (v2.25)

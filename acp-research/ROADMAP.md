@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-01 09:30（研究轮：竞品扫描，A2A 连续 3+ 周维护模式；v2.26 候选：QuerySkill constraints + GET /peers 分页；Show HN 窗口持续开启）
+> 最后更新：2026-04-01 11:35（开发轮：v2.26 QuerySkill constraints 完成，QC1-12 12/12，300+ 回归全绿，commit 76534b5）
 
 ---
 
@@ -394,15 +394,25 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - 测试：PP1–PP10 10/10 PASS（commit 0496a36）
 - 修复 BUG-048：test_limitations.py LimitationObject 兼容性（commit 6685a8e）
 
-### 🔮 v2.26（候选特性，目标：2026-Q2）
-**主题：QuerySkill constraints 扩展 + GET /peers 分页**
+### ✅ v2.26（完成，2026-04-01）
+**主题：QuerySkill constraints 扩展**
+- ✅ 每个 skill 对象新增 `constraints` 字段：`{max_file_size_bytes, concurrent_tasks, context_window}`（均可 null 表示无限制）
+- ✅ `POST /skills/query` 新增三维 constraint 检查：
+  - `max_file_size_bytes`：先检查 relay 级别限制，再检查 skill 级别限制
+  - `concurrent_tasks`：检查 skill 级别 concurrent_tasks 上限
+  - `context_window`：检查 skill 级别 context_window 上限
+- ✅ 响应新增 `skill_constraints_declared` 字段（回显 skill 声明的限制）
+- ✅ `capabilities.skills_query_constraints = true`
+- ✅ 向后兼容（无 constraints 字段的 skill 全部默认 null，不产生误判）
+- 测试：QC1–QC12 12/12 PASS（commit `76534b5`）
+- 领先 A2A PR#1655（open 第 5 周）
 
-- [ ] **QuerySkill constraints 扩展**（P1）：对标 A2A PR#1655（open 第 5 周）
-  - `POST /skills/query` 支持 `constraints: {max_file_size_bytes, concurrent_tasks, context_window}`
-  - A2A PR#1655 合并前抢先落地，保持领先；预计 ~150 行 + 8 个测试
-- [ ] **`GET /peers` 分页**（P2）：`?limit=20&offset=0&filter=connected`
+### 🔮 v2.27（候选特性，目标：2026-Q2）
+**主题：GET /peers 分页 + vouch_chain**
+
+- [ ] **`GET /peers` 分页**（P1）：`?limit=20&offset=0&filter=connected`
   - 团队协作场景下大量 peer 的分页查询
-- [ ] **trust.signals vouch_chain**（P3）— 补充 vouch_chain 语义字段（来自 A2A IS#1628）
+- [ ] **trust.signals vouch_chain**（P2）— 补充 vouch_chain 语义字段（来自 A2A IS#1628）
   - `{"type":"vouch_chain","voucher_did":"...","vouched_at":"...","sig":"..."}`
 
 ---
