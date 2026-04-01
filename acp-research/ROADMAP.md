@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-31 15:46（文档轮：v2.23 target_peers[] 子集广播 + broadcast history，BH1-BH11: 11/11 PASS，commit 3be717a）
+> 最后更新：2026-04-01 09:30（研究轮：竞品扫描，A2A 连续 3+ 周维护模式；v2.26 候选：QuerySkill constraints + GET /peers 分页；Show HN 窗口持续开启）
 
 ---
 
@@ -379,14 +379,30 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - ✅ `capabilities.peers_broadcast_subset/peers_broadcast_history` + `endpoints.peers_broadcast_history`
 - BH1-BH11: 11/11 PASS；全回归 BC1-10 ✅ + 核心52 ✅
 
-### 🔮 v2.24（候选特性，目标：2026-Q2）
-**主题：Peer 信息查询 + QuerySkill 增强**
+### ✅ v2.24（完成，2026-04-01）
+**主题：Peer AgentCard 查询**
+- ✅ `GET /peers/<peer_id>/card` — 查询指定 peer 的 AgentCard
+  - 从 `_peers[peer_id]` 取已缓存 card；peer 不存在 → 404；card 未交换 → 202
+  - capabilities.peer_card_query=true + endpoints.peer_card 声明
 
-- [ ] **`GET /peers/:peer_id/card`** — 查询指定 peer 的 AgentCard（P2，低复杂度）
-  - 从 `_peers[peer_id]` 取已缓存 card；peer 不存在 → 404
-- [ ] **QuerySkill constraints 扩展**：支持 `max_file_size_bytes`、`concurrent_tasks`、`context_window` 约束查询
-  - 对标 A2A PR#1655（QuerySkill RPC，仍在 open 状态）—— 抢先落地
-- [ ] **trust.signals vouch_chain** — 补充 vouch_chain 语义字段（来自 A2A IS#1628 收敛方案）
+### ✅ v2.25（完成，2026-04-01）
+**主题：应用层 liveness probe + RTT 测量**
+- ✅ `POST /peers/<peer_id>/ping` — 通过 WS 发送 acp.ping，等待 acp.pong，返回 rtt_ms
+  - 404/503/408 错误码；可选 body: {"timeout": <float>}
+  - 每 peer ping 统计：last_ping_rtt_ms / last_ping_at / ping_count
+  - capabilities.peer_ping=true + endpoints.peer_ping 声明
+- 测试：PP1–PP10 10/10 PASS（commit 0496a36）
+- 修复 BUG-048：test_limitations.py LimitationObject 兼容性（commit 6685a8e）
+
+### 🔮 v2.26（候选特性，目标：2026-Q2）
+**主题：QuerySkill constraints 扩展 + GET /peers 分页**
+
+- [ ] **QuerySkill constraints 扩展**（P1）：对标 A2A PR#1655（open 第 5 周）
+  - `POST /skills/query` 支持 `constraints: {max_file_size_bytes, concurrent_tasks, context_window}`
+  - A2A PR#1655 合并前抢先落地，保持领先；预计 ~150 行 + 8 个测试
+- [ ] **`GET /peers` 分页**（P2）：`?limit=20&offset=0&filter=connected`
+  - 团队协作场景下大量 peer 的分页查询
+- [ ] **trust.signals vouch_chain**（P3）— 补充 vouch_chain 语义字段（来自 A2A IS#1628）
   - `{"type":"vouch_chain","voucher_did":"...","vouched_at":"...","sig":"..."}`
 
 ---
