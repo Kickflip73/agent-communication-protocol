@@ -7,6 +7,34 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.29.0] — 2026-04-02 (PATCH /skills/<id>/limitations — Runtime Per-Skill Limitations Update)
+
+### Added — PATCH /skills/<id>/limitations (v2.29)
+
+- **`PATCH /skills/<id>/limitations`** — runtime update of per-skill limitations[] without relay restart
+  - Replaces declared limitations with a runtime override stored in `_skill_limitations_overrides`
+  - Supports `limitations_merge: true` to merge new entries into existing overrides (de-duplicate by `(kind, code)`)
+  - Send `limitations: []` to clear runtime override and restore declared defaults
+  - Validates limitation `kind` against the allowed set (capability/modality/scale/domain/access/other)
+  - Validates each entry via `_parse_limitation()` — same strict validation as global PATCH
+  - Returns `{ok: true, skill_id, limitations}` on success; 400/404 on error
+- **`GET /skills/<id>/status`** now reflects runtime override:
+  - If `_skill_limitations_overrides[skill_id]` is set, uses override instead of declared limitations
+  - Response includes `limitations` field (the resolved list, including overrides)
+- **`GET /skills`** now merges `_skill_limitations_overrides` into returned skill objects
+- **`capabilities.skill_limitations_patch: True`** declared in AgentCard capabilities
+- **`PATCH /skills/<nonexistent>/limitations`** returns 404 (skill not found in AgentCard)
+- `do_PATCH` docstring updated to describe both routes
+
+### Use Case
+Runtime degradation/recovery without restart: an agent or operator can update a skill's limitations dynamically (e.g., GPU goes down → add transient capability limitation → skill shows unavailable; GPU recovers → PATCH with `[]` → skill shows available again).
+
+### Tests
+- SU1–SU8 = 8/8 PASS (`tests/test_skill_limitations_patch.py`)
+- Regression: test_skill_status + test_skills_list + test_limitations + test_skill_limitations + unit = 189/189 PASS
+
+---
+
 ## [2.30.0] — 2026-04-01 (failed_message_id Capability Declaration)
 
 ### Added — error_failed_msg_id capability (v2.30)

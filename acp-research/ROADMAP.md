@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-01 20:39（文档轮：ROADMAP v2.30 完成标记 + v2.31 里程碑规划；消息幂等强化纳入规划）
+> 最后更新：2026-04-02 05:36（开发轮：v2.31 P1 特性 `PATCH /skills/<id>/limitations` 实现完成，SU1–SU8 全绿；下一步：消息幂等强化 MD1–MD6）
 
 ---
 
@@ -536,15 +536,21 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 📋 v2.31（规划中，目标：2026-04-22 前）
+### ✅ v2.31（进行中 — 2026-04-02，开发轮）
 **主题：skill 运行时动态更新 + 消息幂等强化**
 
-#### P1 特性
+#### ✅ 已完成
 
-**1. `PATCH /skills/<id>/limitations`（从 v2.30 顺延）**
+**1. `PATCH /skills/<id>/limitations`** ✅ 已实现（2026-04-02，commit 待 push）
 - 不重启 relay 即可运行时修改 skill 的 `limitations[]`
-- 与 `GET /skills/<id>/status` 联动，PATCH 后立即反映
-- 测试目标：SU1–SU8
+- `_skill_limitations_overrides` 全局字典存储运行时覆盖
+- `GET /skills/<id>/status` 自动合并 overrides，实时反映
+- `GET /skills` 列表也合并 overrides
+- `limitations_merge: true` 支持追加模式（by kind+code de-dup）
+- 空数组 `[]` 清除 override，恢复声明默认值
+- 测试 SU1–SU8 = 8/8 PASS
+
+#### ⏳ 待开发
 
 **2. 消息幂等强化 — `message_id` 去重窗口**
 - 相同 `message_id` 在 30s 窗口内重复投递 → 返回 `{ok:true, deduplicated:true}` 而非重复处理
@@ -553,8 +559,8 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - 测试目标：MD1–MD6
 
 #### 测试目标
-- SU1–SU8（PATCH /skills/<id>/limitations）
-- MD1–MD6（消息幂等去重）
+- ✅ SU1–SU8（PATCH /skills/<id>/limitations）8/8
+- ⏳ MD1–MD6（消息幂等去重）
 - 回归：FM1-8 + SS1-12 全覆盖
 
 ---

@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.28.0"  # v2.28: per-skill limitations[] field (ref A2A #1694); skill-level capability boundary
+VERSION = "2.29.0"  # v2.29: PATCH /skills/<id>/limitations — runtime per-skill limitations update (ref ROADMAP v2.31 P1)
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -994,6 +994,7 @@ _extensions:   list  = []         # v1.3: [{uri, required, params}] Extension li
 _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
 _transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
 _limitations: list = []  # v2.20: top-level AgentCard field — LimitationObject[] (structured) or string[] (legacy compat)
+_skill_limitations_overrides: dict = {}  # v2.29: runtime per-skill limitations override {skill_id: LimitationObject[]}
 # LimitationObject schema (v2.20, ref A2A #1694):
 #   kind:      str  — "capability" | "modality" | "scale" | "domain" | "access" | "other"
 #   code:      str  — machine-readable code (e.g. "no_file_access", "image-input-unsupported")
@@ -1380,6 +1381,7 @@ def _make_agent_card(name, skills):
             "peers_vouch_chain":        True,                                  # v2.27: trust.signals vouch_chain type
             "skill_limitations":        True,                                  # v2.28: per-skill limitations[] field (ref A2A #1694)
             "skill_status_probe":       True,                                  # v2.29: GET /skills/<id>/status — per-skill availability probe
+            "skill_limitations_patch":  True,                                  # v2.29: PATCH /skills/<id>/limitations — runtime per-skill limitations update
             "error_failed_msg_id":      True,                                  # v2.30: failed_message_id in error response (ref ANP failed_msg_id)
         },
         "identity": ({
@@ -3496,6 +3498,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
             page     = sliced[:limit]
             next_offset = (offset + limit) if has_more else None
 
+            # v2.29: apply per-skill limitations overrides before returning
+            if _skill_limitations_overrides:
+                merged_page = []
+                for s in page:
+                    sid = s.get("id", "") if isinstance(s, dict) else str(s)
+                    if sid in _skill_limitations_overrides:
+                        s = {**s, "limitations": _skill_limitations_overrides[sid]}
+                    merged_page.append(s)
+                page = merged_page
+
             self._json({
                 "skills":      page,
                 "total":       total,
@@ -4054,9 +4066,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 )
                 return
             # Determine availability: runtime (permanent=False) cap/access limitation → unavailable
+            # v2.29: merge runtime overrides from PATCH /skills/<id>/limitations
             reason    = None
             available = True
-            lims      = matched.get("limitations", []) if isinstance(matched, dict) else []
+            base_lims = matched.get("limitations", []) if isinstance(matched, dict) else []
+            override_lims = _skill_limitations_overrides.get(skill_id_req)
+            if override_lims is not None:
+                # Override replaces the declared limitations entirely
+                lims = override_lims
+            else:
+                lims = base_lims
             for lim in lims:
                 if isinstance(lim, str):
                     continue
@@ -4068,6 +4087,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "skill_id":     skill_id_req,
                 "available":    available,
                 "reason":       reason,
+                "limitations":  lims,              # v2.29: include resolved limitations in response
                 "last_checked": _now(),
             })
 
@@ -5445,31 +5465,109 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
 
     def do_PATCH(self):
-        """PATCH /.well-known/acp.json — live-update AgentCard availability or limitations (v1.2 / v2.21).
+        """PATCH handler — routes to per-skill or global card updates.
 
-        Accepts a JSON body with any subset of fields:
+        Routes:
+          PATCH /skills/<id>/limitations   (v2.29) — runtime per-skill limitations update
+          PATCH /.well-known/acp.json      (v1.2/v2.21) — global AgentCard availability/limitations
+          PATCH /card                      (alias for above)
+
+        PATCH /skills/<id>/limitations body:
           {
-            "availability": {                  # v1.2+
-              "mode":                    "heartbeat" | "cron" | "persistent" | "manual",
-              "interval_seconds":        <int>,
-              "next_active_at":          "<ISO-8601-UTC>",
-              "last_active_at":          "<ISO-8601-UTC>",
-              "task_latency_max_seconds": <int>
-            },
-            "limitations": [               # v2.21: replace or merge limitations[]
-              "string",                    # backward-compat: auto-promoted to LimitationObject
-              {"kind": "capability", "code": "no_audio", "message": "...", "permanent": false}
+            "limitations": [                 # required: new limitations list (replaces existing)
+              {"kind": "capability", "code": "no_audio", "message": "...", "permanent": false},
+              "string_shorthand"             # auto-promoted to LimitationObject
             ],
-            "limitations_merge": false     # v2.21: if true, merge into existing; default false (replace)
+            "limitations_merge": false       # optional: if true, merge into existing (default: replace)
+          }
+        Send empty array [] to clear all runtime limitations (restores declared defaults).
+
+        PATCH /.well-known/acp.json body (v1.2/v2.21):
+          {
+            "availability": { ... },
+            "limitations": [ ... ],
+            "limitations_merge": false
           }
 
-        Use-case: runtime degradation/recovery — an agent can update its limitations
-        dynamically (e.g., memory pressure → add transient limitation; recovered → remove it).
+        Use-case: runtime degradation/recovery — an agent (or its owner) can update its
+        limitations dynamically without restarting the relay.
         """
-        global _availability, _limitations
+        global _availability, _limitations, _skill_limitations_overrides
         p = urlparse(self.path).path
+
+        # ── Route: PATCH /skills/<id>/limitations (v2.29) ────────────────────
+        if p.startswith("/skills/") and p.endswith("/limitations"):
+            skill_id_req = p[len("/skills/"):-len("/limitations")]
+            if not skill_id_req:
+                self._json({"error": "skill id must not be empty"}, 400)
+                return
+            # Verify skill exists in agent card
+            agent_card = _status.get("agent_card") or {}
+            all_skills = list(agent_card.get("skills", []))
+            matched = None
+            for s in all_skills:
+                sid = s.get("id", "") if isinstance(s, dict) else str(s)
+                if sid == skill_id_req:
+                    matched = s
+                    break
+            if matched is None:
+                self._json(
+                    {"error": f"skill '{skill_id_req}' not found"},
+                    404,
+                )
+                return
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+            lims_raw = body.get("limitations")
+            if lims_raw is None:
+                self._json({"error": "request body must contain 'limitations' key"}, 400)
+                return
+            if not isinstance(lims_raw, list):
+                self._json({"error": "'limitations' must be a JSON array"}, 400)
+                return
+            # Validate kinds
+            for item in lims_raw:
+                if isinstance(item, dict) and "kind" in item:
+                    if item["kind"] not in _VALID_LIMITATION_KINDS:
+                        self._json({"error": f"invalid limitation kind '{item['kind']}'; "
+                                             f"must be one of {sorted(_VALID_LIMITATION_KINDS)}"}, 400)
+                        return
+            try:
+                new_lims = [_parse_limitation(item) for item in lims_raw]
+            except Exception as e:
+                self._json({"error": f"invalid limitation entry: {e}"}, 400)
+                return
+
+            lims_merge = bool(body.get("limitations_merge", False))
+            if lims_merge and skill_id_req in _skill_limitations_overrides:
+                existing = {(lim.get("kind"), lim.get("code")): lim
+                            for lim in _skill_limitations_overrides[skill_id_req]}
+                for lim in new_lims:
+                    existing[(lim.get("kind"), lim.get("code"))] = lim
+                resolved = list(existing.values())
+            else:
+                resolved = new_lims
+
+            if resolved:
+                _skill_limitations_overrides[skill_id_req] = resolved
+            else:
+                # Empty list = clear override (restore declared defaults)
+                _skill_limitations_overrides.pop(skill_id_req, None)
+
+            log.info(f"🚫 Skill '{skill_id_req}' limitations updated via PATCH: "
+                     f"{len(resolved)} entries (merge={lims_merge})")
+            self._json({
+                "ok":         True,
+                "skill_id":   skill_id_req,
+                "limitations": resolved,
+            })
+            return
+
         if p not in ("/card", "/.well-known/acp.json"):
-            self._json({"error": "PATCH only supported on /.well-known/acp.json"}, 404)
+            self._json({"error": "PATCH only supported on /.well-known/acp.json or /skills/<id>/limitations"}, 404)
             return
         try:
             body = self._read_body()
