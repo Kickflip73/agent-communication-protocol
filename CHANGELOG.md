@@ -7,6 +7,37 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.32.0] — 2026-04-02 (message_id 30s TTL Dedup Window — HTTP Send Idempotency)
+
+### Added — HTTP message idempotency (v2.32)
+
+- **`_http_dedup_check(message_id)`** — 30-second TTL dedup window for HTTP send endpoints
+  - Lazy TTL eviction: expired entries cleaned on each check (no background thread needed)
+  - Returns `(is_duplicate: bool, cached_server_seq: int | None)`
+  - Cache is size-bounded alongside existing `_seen_message_ids` (LRU limit `_SEEN_MAX = 2000`)
+- **`_http_dedup_record_seq(message_id, server_seq)`** — stores `server_seq` in dedup cache after successful send
+- **`POST /message:send`** — dedup check fires immediately after `message_id` is parsed (before routing)
+  - If client supplied `message_id` and same ID seen within 30s → `200 {ok:true, deduplicated:true, message_id, server_seq}`
+  - `server_seq` is the integer from the first successful send, or `null` if first send errored
+  - Auto-generated IDs (no client `message_id`) are never subject to dedup
+- **`POST /peer/<id>/send`** — same dedup logic applied before WS routing
+- **`capabilities.message_dedup: True`** declared in AgentCard
+- **VERSION** bumped `2.29.0` → `2.32.0`
+
+### Idempotency Semantics
+Dedup fires at **request-parse time** (before routing), not at response time. This means:
+- A first send that errors (e.g. `ERR_NOT_CONNECTED`, 503) still records the `message_id` in cache
+- A retry within 30s returns `200 {deduplicated:true, server_seq:null}` — prevents double-processing at the protocol layer
+- A retry after 30s is treated as a new send (TTL expired)
+
+This follows ANP `client_msg_id` idempotency semantics (ANP commit `1f0abd2d`).
+
+### Tests
+- MD1–MD7 = 7/7 PASS (`tests/test_message_dedup.py`)
+- Regression: FM1-8 + SU1-8 + SS1-12 + unit + scenario-BC + skills series = 210/210 PASS, 2 skip
+
+---
+
 ## [2.29.0] — 2026-04-02 (PATCH /skills/<id>/limitations — Runtime Per-Skill Limitations Update)
 
 ### Added — PATCH /skills/<id>/limitations (v2.29)

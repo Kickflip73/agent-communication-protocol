@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-02 05:36（开发轮：v2.31 P1 特性 `PATCH /skills/<id>/limitations` 实现完成，SU1–SU8 全绿；下一步：消息幂等强化 MD1–MD6）
+> 最后更新：2026-04-02 09:21（文档轮：v2.32 `message_id` 30s TTL 去重窗口实现完成，MD1–MD7 全绿；CHANGELOG + ROADMAP 同步；当前版本 v2.32.0）
 
 ---
 
@@ -552,16 +552,17 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 #### ⏳ 待开发
 
-**2. 消息幂等强化 — `message_id` 去重窗口**
+**2. 消息幂等强化 — `message_id` 去重窗口** ✅ 已完成 (v2.32, 2026-04-02)
 - 相同 `message_id` 在 30s 窗口内重复投递 → 返回 `{ok:true, deduplicated:true}` 而非重复处理
 - 参考 ANP `client_msg_id` 幂等语义（commit 1f0abd2d）
 - `capabilities.message_dedup: True`
-- 测试目标：MD1–MD6
+- 关键语义：dedup 在 request-parse 时触发（路由前），503 错误也记录 cache
+- commit: a79fa8f
 
 #### 测试目标
 - ✅ SU1–SU8（PATCH /skills/<id>/limitations）8/8
-- ⏳ MD1–MD6（消息幂等去重）
-- 回归：FM1-8 + SS1-12 全覆盖
+- ✅ MD1–MD7（消息幂等去重）7/7 PASS
+- ✅ 回归：FM1-8 + SS1-12 + unit + scenario-BC = 210/210 PASS
 
 ---
 

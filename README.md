@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.31.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.32.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -516,6 +516,7 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.29** | ✅ | **`GET /skills/<id>/status` — per-skill 可用性探测** — 轻量 GET 接口；返回 `{skill_id, available, reason?, last_checked, limitations[]}`；runtime (`permanent:false`) capability/access limitation → `available:false`；`404 ERR_NOT_FOUND` 未知 skill；`capabilities.skill_status_probe: true`；SS1-12 = 12/12 |
 | **v2.30** | ✅ | **`error_failed_msg_id` 能力声明** — 正式声明 `capabilities.error_failed_msg_id: true`（功能自 v0.6 起实现，ref ANP）；`POST /message:send` 及 `/peer/<id>/send` 失败时 error 响应含 `failed_message_id` 精确回显 client 的 `message_id`；FM1-8 = 8/8 |
 | **v2.31** | ✅ | **`PATCH /skills/<id>/limitations` — 运行时 per-skill limitations 动态更新** — 无需重启 relay 即可修改 skill 的 `limitations[]`；支持 replace（默认）和 merge（`limitations_merge:true`，按 kind+code 去重）双模式；空数组 `[]` 清除 override 恢复默认；`GET /skills/<id>/status` 和 `GET /skills` 自动反映 override；`capabilities.skill_limitations_patch: true`；SU1-8 = 8/8 |
+| **v2.32** | ✅ | **`message_id` 30s TTL 去重窗口 — HTTP send 幂等性** — `POST /message:send` 和 `POST /peer/<id>/send` 在 request-parse 时检查 `message_id`；30s 窗口内重复 ID → `200 {ok:true, deduplicated:true, message_id, server_seq}`；无 `message_id` 的请求不参与去重；`server_seq` 为首次成功时分配的值，首次 503 时为 null；`capabilities.message_dedup: true`；参考 ANP client_msg_id 语义；MD1-7 = 7/7 |
 
 ---
 
