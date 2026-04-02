@@ -454,6 +454,34 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
+### ✅ v2.35（完成 — 2026-04-02，开发轮）
+**主题：Delivery ACK — acp.delivered 回执帧**
+
+- ✅ **`acp.delivered` 帧**：接收方收到业务消息后自动回执，sender 感知消息已送达（commit `d444585`）
+  - 帧格式：`{"type":"acp.delivered","message_id":"<id>","from":"<name>","ts":"<iso8601>"}`
+  - 发送方 `_on_message` 处理 `acp.delivered`：全局 + 按 peer `messages_delivered` 计数器自增
+  - 无 ACK 循环：`acp.delivered` 不触发再次回执（loop-safe）
+  - 仅业务消息触发回执；控制帧（`acp.ping/pong` 等）不触发
+- ✅ **`capabilities.delivery_ack: true`** + `messages_delivered` 计数器（`/status` 全局 + `/peers` 按 peer）
+- ✅ **`--local-only` 标志**：跳过公网 IP 检测 + Cloudflare relay 注册，立即生成 `acp://127.0.0.1:PORT/TOKEN`（CI/沙箱友好）
+- ✅ **DA1–DA10**：10/10 PASS，12.5s
+
+---
+
+### 🚧 v2.36（目标：2026-04-02，当前开发轮）
+**主题：Read Receipt — acp.read 已读回执帧**
+
+- [ ] **`acp.read` 帧**：接收方 Agent 在"消费"消息后（如回复、处理完成）发送已读回执
+  - 帧格式：`{"type":"acp.read","message_id":"<id>","from":"<name>","ts":"<iso8601>"}`
+  - 与 `acp.delivered`（送达）形成两阶段回执：delivered（物理到达）→ read（逻辑消费）
+  - 触发时机：当接收方调用 `/message:send` 回复时，自动附带 `acp.read` 回执对方最近一条消息
+- [ ] **`capabilities.read_receipt: true`**
+- [ ] **`messages_read` 计数器**（`/status` + 按 peer）
+- [ ] **RR1–RR8** 测试覆盖
+- **差异化**：类 WhatsApp 双勾语义（✓送达 + ✓✓已读），A2A/ANP 均无此机制
+
+---
+
 ### 🚧 v2.0（进行中，目标：2026-Q3）
 **主题：联邦化与生态扩展**
 

@@ -7,6 +7,24 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.36.0] — 2026-04-02 (Read Receipt)
+
+### Added — acp.read frame (v2.36)
+
+- **Read Receipt**: when an Agent sends a reply (`/message:send`), it automatically fires an `acp.read` control frame to the peer, signalling that the last inbound message has been logically consumed
+  - Frame: `{"type": "acp.read", "message_id": "<last_inbound_id>", "from": "<name>", "ts": "<iso8601>"}`
+  - Tracks `last_received_message_id` in `_status`; cleared after sending to avoid duplicate receipts
+  - No read-of-read loop; `acp.read` never triggers another `acp.read`
+- **Two-phase receipt semantics** (WhatsApp-style):
+  - `acp.delivered` (v2.35) — physical delivery: message arrived at peer WS ✓
+  - `acp.read` (v2.36) — logical consumption: peer replied / processed ✓✓
+- **`capabilities.read_receipt: true`** in AgentCard and `/.well-known/acp.json self.capabilities`
+- **`messages_read` counter**: new field in `/status` (global) and `/peers` (per-peer)
+- **Bug fix**: `acp.delivered` (v2.35) also corrected to use `asyncio.run_coroutine_threadsafe` (was `asyncio.ensure_future`; would silently fail from HTTP handler thread) — no API change
+- **`tests/test_read_receipt.py`**: 8 tests (RR1–RR8), all pass in ~10.6s
+
+---
+
 ## [2.35.0] — 2026-04-02 (Delivery ACK)
 
 ### Added — acp.delivered frame (v2.35)
