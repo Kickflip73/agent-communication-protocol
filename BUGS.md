@@ -1372,3 +1372,29 @@ websockets 库报 `sent 1011 (internal error); then received 1011`，所有 5 �
 **修复方向**：更新 `test_limitations.py` 中 LM2/LM4 的断言，接受 LimitationObject 格式。
 **优先级**：P2（测试维护问题，不影响核心功能）
 **状态**：✅ 已修复（commit: pending）
+
+---
+
+### BUG-049 🟡 P2 — scenario_b_team.py：Worker 回复时缺少 peer_id 导致 ERR_AMBIGUOUS_PEER + relay RemoteDisconnected
+
+**发现日期**: 2026-04-02
+**场景**: tests/scenario_b_team.py — Worker 回复 Orchestrator 阶段
+**描述**:
+Worker 连接 Orchestrator 后，用 `send_msg(w_http, "RESULT: ...")` 不带 `peer_id`，
+此时 Worker 已有 2+ 个 peer（local + orchestrator），relay 返回 `ERR_AMBIGUOUS_PEER (400)`，
+消息未发出。同时 Orchestrator 在高并发（3个relay实例同时运行 + Worker反向连接）下触发
+HTTP server `RemoteDisconnected`（与 BUG-030 同类根因）。
+
+**复现条件**:
+- 3 个 relay 实例同时运行（orchestrator + worker1 + worker2）
+- Worker 已有 2 个 peer：first connected peer + local
+- send_msg 不带 peer_id → ERR_AMBIGUOUS_PEER → RESULT 消息静默丢失
+- 并发连接触发 Orchestrator relay HTTP 不稳定
+
+**修复状态**:
+- `scenario_b_team.py`：✅ 已修复 — Worker 发送前先 GET /peers 获取 orch_peer_id，send_msg 带 peer_id
+- `extract_text`：✅ 已修复 — 从 `m["raw"]["parts"]` 提取，过滤 direction=inbound
+- relay RemoteDisconnected：⚠️ 同 BUG-030，待底层修复（P2 已知）
+
+**优先级**: P2（测试脚本 bug，核心功能 /message:send peer_id 校验本身正确）
+**状态**: 🟡 部分修复（scenario_b_team.py 逻辑已修复；relay 并发稳定性待 BUG-030 方向解决）

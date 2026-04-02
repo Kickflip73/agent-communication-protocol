@@ -125,8 +125,19 @@ def main():
                         connect(w1_http, orch_acp)
                         connect(w2_http, orch_acp)
                         time.sleep(1.0)
-                        send_msg(w1_http, "RESULT: chunk A done, score=0.92")
-                        send_msg(w2_http, "RESULT: chunk B done, score=0.87")
+                        # Get orch peer_id from worker's peer list (needed since worker has >1 peer)
+                        def get_orch_peer_id(worker_http):
+                            r = requests.get(f"http://127.0.0.1:{worker_http}/peers", timeout=5)
+                            peers = r.json() if isinstance(r.json(), list) else r.json().get("peers", [])
+                            for p in peers:
+                                pid = p.get("peer_id") or p.get("id", "")
+                                if pid != "local":
+                                    return pid
+                            return None
+                        orch_pid_from_w1 = get_orch_peer_id(w1_http)
+                        orch_pid_from_w2 = get_orch_peer_id(w2_http)
+                        send_msg(w1_http, "RESULT: chunk A done, score=0.92", peer_id=orch_pid_from_w1)
+                        send_msg(w2_http, "RESULT: chunk B done, score=0.87", peer_id=orch_pid_from_w2)
                         print("[5] Workers 已回复结果 ...")
 
                         # Orchestrator collects results
@@ -137,11 +148,15 @@ def main():
                             errors.append(f"Orchestrator 应收到 2 条结果，实际 {len(orch_msgs)}")
                         else:
                             def extract_text(m):
-                                parts = m.get("parts", [])
+                                # Messages from /messages are {direction, raw: {parts, ...}}
+                                raw = m.get("raw", m)
+                                parts = raw.get("parts", [])
                                 if parts:
                                     return " ".join(p.get("content","") for p in parts if p.get("type")=="text")
-                                return m.get("text", m.get("content", str(m)))
-                            texts = [extract_text(m) for m in orch_msgs]
+                                return raw.get("text", raw.get("content", str(raw)))
+                            # Only check inbound messages for RESULT
+                            inbound = [m for m in orch_msgs if m.get("direction") == "inbound"]
+                            texts = [extract_text(m) for m in inbound] if inbound else [extract_text(m) for m in orch_msgs]
                             if not any("RESULT" in t for t in texts):
                                 errors.append(f"Orchestrator 未收到 RESULT 消息: {texts}")
                             else:
