@@ -7,6 +7,29 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.37.0] — 2026-04-02 (Typing Indicator)
+
+### Added — acp.typing frame (v2.37)
+
+- **`POST /message:typing`**: new endpoint to signal typing status to peer
+  - Body: `{"typing": true/false}` — defaults to `true` if omitted
+  - Returns: `{"ok": true, "typing": <bool>, "ts": "<iso>"}`
+  - 503 `ERR_NOT_CONNECTED` when no peer is connected
+- **`acp.typing` control frame**: sent to peer WS with `{type, from, typing, ts}`
+  - `typing: true` — started typing; `typing: false` — stopped typing
+- **Receiver handling**: incoming `acp.typing` updates:
+  - `_status.peer_typing` (bool) + `_status.peer_typing_since` (ISO or null)
+  - Per-peer `typing` + `typing_since` fields in `_peers`
+  - SSE `typing` event broadcast to local `/stream` subscribers
+- **`capabilities.typing_indicator: true`** in AgentCard
+- **Agent real-time status trio complete**:
+  - `acp.delivered` (v2.35) — physical delivery ✓
+  - `acp.read` (v2.36) — logical consumption ✓✓
+  - `acp.typing` (v2.37) — typing status 🖊
+- **`tests/test_typing_indicator.py`**: 8 tests (TI1–TI8), all pass in ~5.0s
+
+---
+
 ## [2.36.0] — 2026-04-02 (Read Receipt)
 
 ### Added — acp.read frame (v2.36)

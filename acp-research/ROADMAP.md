@@ -468,17 +468,31 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
-### 🚧 v2.36（目标：2026-04-02，当前开发轮）
+### ✅ v2.36（完成 — 2026-04-02，开发轮）
 **主题：Read Receipt — acp.read 已读回执帧**
 
-- [ ] **`acp.read` 帧**：接收方 Agent 在"消费"消息后（如回复、处理完成）发送已读回执
+- ✅ **`acp.read` 帧**：接收方 Agent 在"消费"消息后（回复时）发送已读回执（commit `232aafd`）
   - 帧格式：`{"type":"acp.read","message_id":"<id>","from":"<name>","ts":"<iso8601>"}`
-  - 与 `acp.delivered`（送达）形成两阶段回执：delivered（物理到达）→ read（逻辑消费）
-  - 触发时机：当接收方调用 `/message:send` 回复时，自动附带 `acp.read` 回执对方最近一条消息
-- [ ] **`capabilities.read_receipt: true`**
-- [ ] **`messages_read` 计数器**（`/status` + 按 peer）
-- [ ] **RR1–RR8** 测试覆盖
-- **差异化**：类 WhatsApp 双勾语义（✓送达 + ✓✓已读），A2A/ANP 均无此机制
+  - 触发时机：调用 `/message:send` 回复时，自动附带 `acp.read` 回执对方最近一条消息
+  - 两阶段回执：delivered（物理到达）→ read（逻辑消费）
+  - `last_received_message_id` 追踪，发送后清空，避免重复回执
+  - 修复 v2.35 `asyncio.ensure_future` 线程安全 bug → `run_coroutine_threadsafe`
+- ✅ `capabilities.read_receipt: true` + `messages_read` 计数（`/status` + 按 peer）
+- ✅ **RR1–RR8**：8/8 PASS，10.6s
+
+---
+
+### ✅ v2.37（完成 — 2026-04-02，开发轮）
+**主题：Typing Indicator — acp.typing 打字状态帧**
+
+- ✅ **`POST /message:typing`** + **`acp.typing` 帧**（commit `232aafd`）
+  - 帧格式：`{"type":"acp.typing","from":"<name>","typing":<bool>,"ts":"<iso8601>"}`
+  - 接收时更新 `_status.peer_typing` + `peer_typing_since` + per-peer 字段 + SSE 广播
+  - 503 `ERR_NOT_CONNECTED` 当无 peer 连接
+- ✅ `capabilities.typing_indicator: true` + `/peers.typing` + `/peers.typing_since`
+- ✅ **Agent 实时状态三件套完整**：delivered(v2.35)✓ → read(v2.36)✓✓ → typing(v2.37)🖊
+- ✅ **TI1–TI8**：8/8 PASS，5.0s
+- **差异化**：完整 WhatsApp 语义三件套，A2A/ANP 均无此机制
 
 ---
 
