@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.29.0"  # v2.29: PATCH /skills/<id>/limitations — runtime per-skill limitations update (ref ROADMAP v2.31 P1)
+VERSION = "2.32.0"  # v2.32: message_id 30s TTL dedup window on /message:send + /peer/<id>/send (ref ANP client_msg_id, ROADMAP MD1-MD6)
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1383,6 +1383,7 @@ def _make_agent_card(name, skills):
             "skill_status_probe":       True,                                  # v2.29: GET /skills/<id>/status — per-skill availability probe
             "skill_limitations_patch":  True,                                  # v2.29: PATCH /skills/<id>/limitations — runtime per-skill limitations update
             "error_failed_msg_id":      True,                                  # v2.30: failed_message_id in error response (ref ANP failed_msg_id)
+            "message_dedup":            True,                                  # v2.32: 30s TTL dedup window on /message:send and /peer/<id>/send
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1775,8 +1776,10 @@ def _next_seq():
 # Idempotency
 # ══════════════════════════════════════════════════════════════════════════════
 
+_DEDUP_WINDOW_SECONDS = 30  # v2.32: 30s TTL dedup window for HTTP send endpoints
+
 def _check_and_record_message_id(message_id):
-    """Returns True if new (process), False if duplicate (skip)."""
+    """Returns True if new (process), False if duplicate (skip). Used for WS inbound messages."""
     if not message_id:
         return True
     if message_id in _seen_message_ids:
@@ -1788,6 +1791,51 @@ def _check_and_record_message_id(message_id):
         oldest = next(iter(_seen_message_ids))
         del _seen_message_ids[oldest]
     return True
+
+
+def _http_dedup_check(message_id):
+    """
+    v2.32 — HTTP send endpoint idempotency check with 30s TTL window.
+
+    Returns (is_duplicate: bool, cached_server_seq: int | None).
+    - If message_id already seen within _DEDUP_WINDOW_SECONDS: (True, server_seq)
+    - Otherwise records and returns (False, None).
+    - message_id=None always returns (False, None) — no-id sends are never deduped.
+
+    Thread-safe: uses _seen_message_ids dict (GIL-protected for CPython).
+    Expired entries are evicted lazily during check.
+    """
+    if not message_id:
+        return False, None
+
+    now = time.time()
+    entry = _seen_message_ids.get(message_id)
+    if entry:
+        age = now - entry.get("wall_ts", 0)
+        if age <= _DEDUP_WINDOW_SECONDS:
+            _status["messages_deduped"] += 1
+            log.info(f"[dedup] Duplicate HTTP message_id={message_id} (age={age:.1f}s), returning cached response")
+            return True, entry.get("server_seq")
+        # Expired — fall through to record fresh
+
+    # Evict expired entries lazily (keep dict bounded)
+    expired = [mid for mid, e in _seen_message_ids.items()
+               if now - e.get("wall_ts", 0) > _DEDUP_WINDOW_SECONDS]
+    for mid in expired:
+        del _seen_message_ids[mid]
+    # Hard cap fallback
+    if len(_seen_message_ids) > _SEEN_MAX:
+        oldest = next(iter(_seen_message_ids))
+        del _seen_message_ids[oldest]
+
+    _seen_message_ids[message_id] = {"ts": _now(), "wall_ts": now, "server_seq": None}
+    return False, None
+
+
+def _http_dedup_record_seq(message_id, server_seq):
+    """After assigning server_seq, store it in the dedup cache for replay responses."""
+    if message_id and message_id in _seen_message_ids:
+        _seen_message_ids[message_id]["server_seq"] = server_seq
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4308,6 +4356,20 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
                 message_id = body.get("message_id") or _make_id("msg")
 
+                # ── v2.32: HTTP-level message idempotency (30s TTL dedup) ────
+                # Only applies when the client supplies their own message_id.
+                # Auto-generated IDs are never duplicates.
+                if body.get("message_id"):
+                    _is_dup, _cached_seq = _http_dedup_check(message_id)
+                    if _is_dup:
+                        self._json({
+                            "ok":           True,
+                            "deduplicated": True,
+                            "message_id":   message_id,
+                            "server_seq":   _cached_seq,
+                        })
+                        return
+
                 # ── Ed25519 optional signature verification (v0.8) ───────────
                 # If the caller supplies a `signature` block and the relay has a
                 # peer_card with identity.public_key, verify the Ed25519 signature.
@@ -4442,6 +4504,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         },
                     }
                     _recv_queue.append(_outbound_entry)
+                    # v2.32: store server_seq in dedup cache so replay returns it
+                    if body.get("message_id"):
+                        _http_dedup_record_seq(message_id, seq)
                     self._json({"ok": True, "message_id": message_id, "server_seq": seq, "task": task})
 
             except ConnectionError as e:
@@ -4550,6 +4615,20 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         return
 
                 message_id = body.get("message_id") or _make_id("msg")
+
+                # ── v2.32: HTTP-level message idempotency (30s TTL dedup) ────
+                if body.get("message_id"):
+                    _is_dup, _cached_seq = _http_dedup_check(message_id)
+                    if _is_dup:
+                        self._json({
+                            "ok":           True,
+                            "deduplicated": True,
+                            "message_id":   message_id,
+                            "peer_id":      peer_id,
+                            "server_seq":   _cached_seq,
+                        })
+                        return
+
                 msg = {
                     "type":       "acp.message",
                     "message_id": message_id,
@@ -4602,6 +4681,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
                 peer_info["messages_sent"] = peer_info.get("messages_sent", 0) + 1
                 _status["messages_sent"] += 1
+                # v2.32: store server_seq in dedup cache so replay returns it
+                if body.get("message_id"):
+                    _http_dedup_record_seq(message_id, msg["server_seq"])
                 self._json({"ok": True, "message_id": message_id, "peer_id": peer_id,
                             "server_seq": msg["server_seq"]})
 
