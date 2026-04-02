@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-02 09:21（文档轮：v2.32 `message_id` 30s TTL 去重窗口实现完成，MD1–MD7 全绿；CHANGELOG + ROADMAP 同步；当前版本 v2.32.0）
+> 最后更新：2026-04-02 11:14（文档轮：v2.33 DID 公钥离线发现实装完成，PD1–PD8 = 8/8；CHANGELOG + README + ROADMAP 同步；当前版本 v2.33.0）
 
 ---
 
@@ -563,6 +563,30 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - ✅ SU1–SU8（PATCH /skills/<id>/limitations）8/8
 - ✅ MD1–MD7（消息幂等去重）7/7 PASS
 - ✅ 回归：FM1-8 + SS1-12 + unit + scenario-BC = 210/210 PASS
+
+---
+
+### ✅ v2.33（完成 — 2026-04-02，开发轮）
+**主题：DID 公钥离线发现 — Agent Identity 完整闭环**
+
+#### ✅ 已完成
+
+**`GET|POST /identity/pubkey-discovery` — 离线 DID → Ed25519 公钥解析** ✅ 已实现（2026-04-02，commit a298492）
+- 无需任何 HTTP 调用，纯 stdlib 实现
+- 支持 `did:acp:<base64url-pubkey>` 和 `did:key:z<base58btc(0xed01+pubkey)>` 两种 DID 方案
+- `GET ?did=<did>` — 单条查询；`POST {dids:[...]}` — 批量查询（max 50）
+- 返回 `public_key_b64`、`public_key_hex`、`algorithm`、`consistent`（DID 可回环推导标志）
+- `capabilities.pubkey_discovery: True`；`endpoints.pubkey_discovery: "/identity/pubkey-discovery"`
+
+**战略意义**：
+- A2A IS#1672（213 条评论）在讨论 agent 身份验证时，ACP 已率先完整实现：
+  - v1.8：AgentCard Ed25519 自签名（`card_sig`）
+  - v2.33：DID 离线公钥发现（无注册中心）
+- ACP 差异化：**offline-first** — 无 CA、无注册表、无网络调用
+
+#### 测试目标
+- ✅ PD1–PD8（DID pubkey discovery）8/8 PASS
+- ✅ 全回归：dedup 8/8 + failures 8/8 + skill limitations 8/8 + skill status 12/12 = 36/36 PASS
 
 ---
 

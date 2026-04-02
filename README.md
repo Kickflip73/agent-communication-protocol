@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.32.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.33.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -263,7 +263,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Min dependencies** | Heavy SDK | **`pip install websockets`** |
 | **Identity** | OAuth tokens | **Ed25519 + did:acp: DID + CA hybrid (v1.5)** |
 | **Availability signaling** | ❌ (open issue #1667) | **✅ `availability` field (v1.2)** |
-| **Agent identity proof** | ❌ (open issue #1672, 62 comments, 3 competing 3rd-party implementations in thread, nothing merged) | **✅ `did:acp:` + Ed25519 AgentCard self-sig (v1.8) + mutual auto-verify at handshake (v1.9): `GET /peer/verify` gives result immediately** |
+| **Agent identity proof** | ❌ (open issue #1672, 213 comments, still no spec-level resolution) | **✅ `did:acp:` + Ed25519 AgentCard self-sig (v1.8) + mutual auto-verify at handshake (v1.9) + offline pubkey discovery `GET /identity/pubkey-discovery` (v2.33)** |
 | **Mutual identity at handshake** | ❌ No protocol-level concept | **✅ Auto-verified on connect — both sides confirmed in one round-trip (v1.9)** |
 | **Agent unique identifier** | 🔄 PR#1079: random UUID (unverifiable ownership) | **✅ `did:acp:<base58url(pubkey)>` — cryptographic fingerprint, ownership provable** |
 | **LAN agent discovery** | ❌ No spec-level discovery mechanism | **✅ `GET /peers/discover` — TCP port-scan + AgentCard fingerprint, no mDNS opt-in required (v2.1-alpha)** |
@@ -517,6 +517,7 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.30** | ✅ | **`error_failed_msg_id` 能力声明** — 正式声明 `capabilities.error_failed_msg_id: true`（功能自 v0.6 起实现，ref ANP）；`POST /message:send` 及 `/peer/<id>/send` 失败时 error 响应含 `failed_message_id` 精确回显 client 的 `message_id`；FM1-8 = 8/8 |
 | **v2.31** | ✅ | **`PATCH /skills/<id>/limitations` — 运行时 per-skill limitations 动态更新** — 无需重启 relay 即可修改 skill 的 `limitations[]`；支持 replace（默认）和 merge（`limitations_merge:true`，按 kind+code 去重）双模式；空数组 `[]` 清除 override 恢复默认；`GET /skills/<id>/status` 和 `GET /skills` 自动反映 override；`capabilities.skill_limitations_patch: true`；SU1-8 = 8/8 |
 | **v2.32** | ✅ | **`message_id` 30s TTL 去重窗口 — HTTP send 幂等性** — `POST /message:send` 和 `POST /peer/<id>/send` 在 request-parse 时检查 `message_id`；30s 窗口内重复 ID → `200 {ok:true, deduplicated:true, message_id, server_seq}`；无 `message_id` 的请求不参与去重；`server_seq` 为首次成功时分配的值，首次 503 时为 null；`capabilities.message_dedup: true`；参考 ANP client_msg_id 语义；MD1-7 = 7/7 |
+| **v2.33** | ✅ | **DID 公钥离线发现 — `GET\|POST /identity/pubkey-discovery`** — 无需任何 HTTP 调用即可将 `did:acp:` 或 `did:key:` 解析为 Ed25519 公钥；`GET ?did=<did>` 单条查询；`POST {dids:[...]}` 批量查询（最多 50 条）；返回 `public_key_b64/hex`、`consistent` 一致性标志（DID 可回环推导）；纯 stdlib 实现（`_base58_decode` + `_resolve_did_to_pubkey`）；`capabilities.pubkey_discovery: true`；对标 A2A IS#1672（213 条评论，仍在讨论阶段）；PD1-8 = 8/8 |
 
 ---
 

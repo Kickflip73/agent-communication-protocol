@@ -7,6 +7,45 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.33.0] — 2026-04-02 (DID Pubkey Discovery — Offline Ed25519 Identity Resolution)
+
+### Added — offline DID → Ed25519 pubkey resolution (v2.33)
+
+- **`_base58_decode(s)`** — pure-stdlib base58btc decode (no external deps); inverse of existing `_base58_encode()`
+- **`_resolve_did_to_pubkey(did)`** — offline, zero-network-call resolution of DID strings to Ed25519 public keys
+  - Supports `did:acp:<base64url-pubkey>` — direct base64url decode of the pubkey payload
+  - Supports `did:key:z<base58btc(0xed01 + pubkey_bytes)>` — multicodec varint + base58btc decode
+  - Returns `{ok, did, scheme, public_key_b64, public_key_hex, algorithm, derived_did_acp, derived_did_key, consistent}`
+  - `consistent=True` when the input DID round-trips through derivation without mutation
+  - Returns `{ok:false, error, did}` for unsupported schemes or malformed inputs
+- **`GET /identity/pubkey-discovery?did=<did>`** — single DID query; 400 if `?did` missing or scheme unsupported
+- **`POST /identity/pubkey-discovery`** — two modes:
+  - Single: `{"did": "<did_string>"}` → same response as GET
+  - Batch: `{"dids": ["did1", "did2", ...]}` (max 50) → `{ok:true, count, results:[...]}`
+- **`capabilities.pubkey_discovery: True`** declared in AgentCard
+- **`endpoints.pubkey_discovery: "/identity/pubkey-discovery"`** declared in AgentCard
+- **VERSION** bumped `2.32.0` → `2.33.0`
+
+### Strategic Context
+A2A IS#1672 (213 comments as of 2026-04-02) is actively debating how to implement
+agent identity verification. ACP already has:
+- `peer_card_signature` — cryptographic AgentCard self-signature (v2.16)
+- `pubkey_discovery` — offline DID→pubkey resolution (v2.33)
+
+ACP's approach: **offline-first** (no registry, no HTTP call to resolve identity).
+
+### Bug Fixed (in this PR)
+- **`UnboundLocalError: cannot access local variable 'urlparse'`** — `from urllib.parse import ... urlparse`
+  inside a `do_GET()` elif branch caused Python to treat `urlparse` as a local variable throughout the
+  entire function scope, crashing unrelated request paths. Fix: removed the inline import (top-level
+  import at line 114 already covers it).
+
+### Tests
+- PD1–PD8 = 8/8 PASS (`tests/test_pubkey_discovery.py`)
+- Full regression: 8/8 (dedup) + 8/8 (failures) + 8/8 (skill limitations) + 12/12 (skill status) = 36/36 PASS
+
+---
+
 ## [2.32.0] — 2026-04-02 (message_id 30s TTL Dedup Window — HTTP Send Idempotency)
 
 ### Added — HTTP message idempotency (v2.32)
