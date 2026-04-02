@@ -5,6 +5,170 @@
 
 ---
 
+## v2.37.0 — Typing Indicator (2026-04-02)
+
+### Agent 实时状态三件套 ✅ 完整
+
+v2.37 完成了 ACP 「Agent 实时状态三件套」的最后一块拼图：
+
+| 版本 | 特性 | 含义 |
+|------|------|------|
+| v2.35 | `acp.delivered` | 消息物理到达 ✓ |
+| v2.36 | `acp.read` | 消息被逻辑消费 ✓✓ |
+| **v2.37** | **`acp.typing`** | **对方正在输入 🖊** |
+
+这是业界首个将 WhatsApp 三件套语义完整移植到 Agent 间协议的实现。A2A/ANP 均无此机制。
+
+### 新增：`POST /message:typing`
+
+```bash
+# 告知 peer "我正在输入"
+curl -X POST http://localhost:8765/message:typing \
+  -H "Content-Type: application/json" \
+  -d '{"typing": true}'
+
+# 返回
+{"ok": true, "typing": true, "ts": "2026-04-02T13:37:00.000000Z"}
+
+# 停止输入
+curl -X POST http://localhost:8765/message:typing \
+  -d '{"typing": false}'
+```
+
+- `typing` 字段可选，**默认为 `true`**
+- 无 peer 连接时返回 `503 ERR_NOT_CONNECTED`
+
+### `acp.typing` 控制帧
+
+接收方会在 WebSocket 上收到：
+
+```json
+{
+  "type": "acp.typing",
+  "from": "OrchestratorAgent",
+  "typing": true,
+  "ts": "2026-04-02T13:37:00.000000Z"
+}
+```
+
+### 状态字段
+
+**`GET /status` 新增字段：**
+```json
+{
+  "peer_typing": true,
+  "peer_typing_since": "2026-04-02T13:37:00.000000Z"
+}
+```
+
+**`GET /peers` 每个 peer 新增字段：**
+```json
+{
+  "typing": true,
+  "typing_since": "2026-04-02T13:37:00.000000Z"
+}
+```
+
+`typing: false` 时，`typing_since` 为 `null`。
+
+### SSE 事件
+
+订阅 `/stream` 的客户端将收到：
+
+```
+event: typing
+data: {"from": "OrchestratorAgent", "typing": true, "typing_since": "..."}
+```
+
+### AgentCard 能力声明
+
+```json
+{
+  "capabilities": {
+    "typing_indicator": true
+  }
+}
+```
+
+---
+
+## v2.36.0 — Read Receipt (2026-04-02)
+
+### 新增：`acp.read` 已读回执帧
+
+当接收方调用 `POST /message:send` 回复时，ACP 自动向对方发送已读回执，告知「消息已被处理」。
+
+**`acp.read` 帧格式：**
+
+```json
+{
+  "type": "acp.read",
+  "message_id": "msg_abc123",
+  "from": "WorkerAgent",
+  "ts": "2026-04-02T10:00:01Z"
+}
+```
+
+- 触发时机：调用 `/message:send` 时自动发送，回执最近一条未回执的入站消息
+- 每条消息只回执一次（`last_received_message_id` 追踪，发送后清空）
+- 与 `acp.delivered`（v2.35）形成两阶段回执语义
+
+**`GET /status` 新增字段：**
+```json
+{
+  "messages_read": 5
+}
+```
+
+**AgentCard 能力声明：**
+```json
+{
+  "capabilities": {
+    "read_receipt": true
+  }
+}
+```
+
+---
+
+## v2.35.0 — Delivery ACK (2026-04-02)
+
+### 新增：`acp.delivered` 送达回执帧
+
+消息到达 peer 的 WebSocket 后，ACP 自动向发送方回执，确认物理送达。
+
+**`acp.delivered` 帧格式：**
+
+```json
+{
+  "type": "acp.delivered",
+  "message_id": "msg_abc123",
+  "from": "WorkerAgent",
+  "ts": "2026-04-02T10:00:00Z"
+}
+```
+
+- 自动触发：peer 收到业务消息后异步发送，无需手动调用
+- 仅表示「物理到达」，不代表消息已被读取或处理（参见 v2.36 `acp.read`）
+
+**`GET /status` 新增字段：**
+```json
+{
+  "messages_delivered": 10
+}
+```
+
+**AgentCard 能力声明：**
+```json
+{
+  "capabilities": {
+    "delivery_ack": true
+  }
+}
+```
+
+---
+
 ## v2.34.0 — Per-Peer Structured Trust Score (2026-04-02)
 
 ### 新增：`GET /peers/<peer_id>/trust`
