@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.34.0"  # v2.34: GET /peers/<id>/trust — structured per-peer trust score (card_sig + ping RTT + vouch + message history)
+VERSION = "2.35.0"  # v2.35: Delivery ACK — acp.delivered frame; capabilities.delivery_ack; per-peer messages_delivered counter
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -644,10 +644,11 @@ def _register_peer(peer_id=None, link=None, ws=None, link_token=None, remote_add
         "ws":               ws or existing.get("ws"),
         "connected":        True,
         "connected_at":     existing.get("connected_at") or _now(),
-        "messages_sent":    existing.get("messages_sent", 0),
-        "messages_received": existing.get("messages_received", 0),
-        "agent_card":       existing.get("agent_card"),
-        "remote_address":   remote_address or existing.get("remote_address"),  # v2.16: for dedup
+        "messages_sent":      existing.get("messages_sent", 0),
+        "messages_received":  existing.get("messages_received", 0),
+        "messages_delivered": existing.get("messages_delivered", 0),  # v2.35: ack count
+        "agent_card":         existing.get("agent_card"),
+        "remote_address":     remote_address or existing.get("remote_address"),  # v2.16: for dedup
     }
     return pid
 
@@ -679,10 +680,11 @@ _status: dict = {
     "peer_card_verification": None,       # v1.9: auto-verification result for peer AgentCard
     "ws_port":           7801,
     "http_port":         7901,
-    "messages_sent":     0,
-    "messages_received": 0,
-    "messages_deduped":  0,
-    "reconnect_count":   0,
+    "messages_sent":      0,
+    "messages_received":  0,
+    "messages_deduped":   0,
+    "messages_delivered": 0,   # v2.35: count of acp.delivered ACKs received from peers
+    "reconnect_count":    0,
     "tasks_created":     0,
     "started_at":        None,
     "max_msg_bytes":     MAX_MSG_BYTES,
@@ -1475,6 +1477,7 @@ def _make_agent_card(name, skills):
             "message_dedup":            True,                                  # v2.32: 30s TTL dedup window on /message:send and /peer/<id>/send
             "pubkey_discovery":         True,                                  # v2.33: GET|POST /identity/pubkey-discovery — resolve did:acp:/did:key: → Ed25519 pubkey (offline, no HTTP to peer)
             "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
+            "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -2488,6 +2491,27 @@ def _on_message(raw):
             _update_task(task_id, msg.get("status", TASK_WORKING), artifact=msg.get("artifact"))
         return
 
+    # v2.35: acp.delivered — peer ACK: they received our message; update delivery counters
+    if msg_type == "acp.delivered":
+        acked_id = msg.get("message_id")
+        _from_ack = msg.get("from", "")
+        _status["messages_delivered"] = _status.get("messages_delivered", 0) + 1
+        # Credit the sending peer's delivery counter
+        credited_ack = False
+        for pinfo in _peers.values():
+            if (pinfo.get("agent_name") == _from_ack
+                    or pinfo.get("name") == _from_ack
+                    or pinfo.get("id") == _from_ack):
+                pinfo["messages_delivered"] = pinfo.get("messages_delivered", 0) + 1
+                credited_ack = True
+                break
+        if not credited_ack:
+            connected_ack = [p for p in _peers.values() if p.get("connected")]
+            if len(connected_ack) == 1:
+                connected_ack[0]["messages_delivered"] = connected_ack[0].get("messages_delivered", 0) + 1
+        log.debug(f"[delivery_ack] Received acp.delivered from={_from_ack} acked_id={acked_id}")
+        return
+
     # Business message — idempotency check
     if not _check_and_record_message_id(message_id):
         return
@@ -2560,6 +2584,30 @@ def _on_message(raw):
             "parts":      msg["parts"],
             "task_id":    incoming_task_id,
         })
+        # v2.35: send acp.delivered ACK back to sender via WebSocket
+        if message_id:
+            _ack_frame = json.dumps({
+                "type":       "acp.delivered",
+                "message_id": message_id,
+                "from":       _status.get("agent_name", "ACP-Agent"),
+                "ts":         _now(),
+            }, ensure_ascii=False)
+            # Find the WS of the sender and send ack
+            _sender_ws = None
+            for pinfo in _peers.values():
+                if pinfo.get("connected") and (
+                    pinfo.get("agent_name") == _from or pinfo.get("name") == _from
+                ):
+                    _sender_ws = pinfo.get("ws")
+                    break
+            if _sender_ws is None:
+                _sender_ws = _ws_ctx  # fallback: single-peer scenario
+            if _sender_ws:
+                try:
+                    asyncio.ensure_future(_sender_ws.send(_ack_frame))
+                except Exception as _ack_err:
+                    log.debug(f"[delivery_ack] Failed to send ack for {message_id}: {_ack_err}")
+            log.debug(f"[delivery_ack] Sent acp.delivered for {message_id} to {_from}")
         log.info(f"Message ({len(msg['parts'])} parts) from={msg.get('from','?')}")
         return
 
@@ -2796,39 +2844,51 @@ async def host_mode(token, ws_port, http_port):
             _status["connection_type"] = "host"        # BUG-047: reset to "host" on disconnect
             _broadcast_sse_event("peer", {"event": "disconnected", "peer_id": peer_id})
 
-    log.info("Detecting public IP...")
-    public_ip = await asyncio.get_event_loop().run_in_executor(None, lambda: get_public_ip(4.0))
-    display_ip = public_ip or get_local_ip()
-    p2p_link = f"acp://{display_ip}:{ws_port}/{token}"
+    # v2.35: --local-only mode — skip public-IP detection and relay registration
+    # (for CI, local tests, sandboxed environments where network is restricted)
+    _local_only_mode = _status.get("local_only", False)
 
-    # ── 启动时预注册 relay session，使用与 P2P 相同的 token ──────────
-    # 传输层对应用层透明：链接只暴露 token，底层用同一个 token 同时监听 P2P 和中继
-    DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
-    relay_link = None
-    relay_token = token  # ← 与 P2P token 保持一致，接收方降级时直接复用
-    try:
-        import subprocess as _sp_h
-        # 用指定 token 创建 relay session（Worker 支持 POST /acp/new?token=xxx）
-        r = _sp_h.run(
-            ["curl", "-s", "--max-time", "8", "-X", "POST",
-             f"{DEFAULT_RELAY}/acp/new?token={token}",
-             "-H", "Content-Type: application/json", "-d", "{}"],
-            capture_output=True, text=True
-        )
-        resp = json.loads(r.stdout)
-        relay_token = resp.get("token", token)
-        relay_link  = resp.get("link", f"acp+wss://{DEFAULT_RELAY.replace('https://','')}/acp/{token}")
-        # 加入自己的 relay session（等对方来 join）
-        _sp_h.run(
-            ["curl", "-s", "--max-time", "8", "-X", "POST",
-             f"{DEFAULT_RELAY}/acp/{relay_token}/join",
-             "-H", "Content-Type: application/json",
-             "-d", json.dumps({"name": _status.get("agent_name","ACP-Agent")})],
-            capture_output=True
-        )
-        log.info(f"Relay session pre-registered with token: {relay_token}")
-    except Exception as e:
-        log.warning(f"Relay pre-register failed (P2P only): {e}")
+    if _local_only_mode:
+        log.info("--local-only: skipping public IP detection and relay registration")
+        display_ip = "127.0.0.1"
+        public_ip = None
+        relay_link = None
+        relay_token = token
+    else:
+        log.info("Detecting public IP...")
+        public_ip = await asyncio.get_event_loop().run_in_executor(None, lambda: get_public_ip(4.0))
+        display_ip = public_ip or get_local_ip()
+
+        # ── 启动时预注册 relay session，使用与 P2P 相同的 token ──────────
+        # 传输层对应用层透明：链接只暴露 token，底层用同一个 token 同时监听 P2P 和中继
+        DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+        relay_link = None
+        relay_token = token  # ← 与 P2P token 保持一致，接收方降级时直接复用
+        try:
+            import subprocess as _sp_h
+            # 用指定 token 创建 relay session（Worker 支持 POST /acp/new?token=xxx）
+            r = _sp_h.run(
+                ["curl", "-s", "--max-time", "8", "-X", "POST",
+                 f"{DEFAULT_RELAY}/acp/new?token={token}",
+                 "-H", "Content-Type: application/json", "-d", "{}"],
+                capture_output=True, text=True
+            )
+            resp = json.loads(r.stdout)
+            relay_token = resp.get("token", token)
+            relay_link  = resp.get("link", f"acp+wss://{DEFAULT_RELAY.replace('https://','')}/acp/{token}")
+            # 加入自己的 relay session（等对方来 join）
+            _sp_h.run(
+                ["curl", "-s", "--max-time", "8", "-X", "POST",
+                 f"{DEFAULT_RELAY}/acp/{relay_token}/join",
+                 "-H", "Content-Type: application/json",
+                 "-d", json.dumps({"name": _status.get("agent_name","ACP-Agent")})],
+                capture_output=True
+            )
+            log.info(f"Relay session pre-registered with token: {relay_token}")
+        except Exception as e:
+            log.warning(f"Relay pre-register failed (P2P only): {e}")
+
+    p2p_link = f"acp://{display_ip}:{ws_port}/{token}"
 
     # 链接格式：acp://IP:PORT/TOKEN（应用层标识，不含传输层细节）
     link = p2p_link
@@ -2837,6 +2897,7 @@ async def host_mode(token, ws_port, http_port):
 
     # 同时在后台持续监听 relay（对方走中继时能收到消息）
     if relay_link:
+        DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
         relay_base = DEFAULT_RELAY
         _status["relay_base_url"] = relay_base  # expose for DCUtR HTTP reflection (v1.4)
         asyncio.ensure_future(_http_relay_guest(relay_base, relay_token, http_port))
@@ -2845,10 +2906,14 @@ async def host_mode(token, ws_port, http_port):
         _status["p2p_enabled"] = True   # v2.3: flag for supported_interfaces auto-derivation
         print(f"\n{'='*60}")
         print(f"ACP P2P v{VERSION} - service started")
-        print(f"  IP: {'public' if public_ip else 'LAN'} {display_ip}")
+        if _local_only_mode:
+            print(f"  Mode: LOCAL-ONLY (no relay, no public IP)")
+        else:
+            print(f"  IP: {'public' if public_ip else 'LAN'} {display_ip}")
         print(f"\n  Your link (send this to peer):")
         print(f"  {link}")
-        print(f"\n  Transport: P2P ready | Relay pre-registered (auto-fallback)")
+        if not _local_only_mode:
+            print(f"\n  Transport: P2P ready | Relay pre-registered (auto-fallback)")
         print(f"  Waiting for peer...")
         print(f"{'='*60}\n")
         await asyncio.Future()
@@ -3367,10 +3432,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "ws_ready":         info["connected"] and info.get("ws") is not None,  # v2.16: true only after WS handshake
                     "connected_at":     info.get("connected_at"),
                     "disconnected_at":  info.get("disconnected_at"),
-                    "messages_sent":    info.get("messages_sent", 0),
-                    "messages_received": info.get("messages_received", 0),
-                    "agent_card":       info.get("agent_card"),
-                    "last_ping_rtt_ms": info.get("last_ping_rtt_ms"),   # v2.25: RTT from last /ping
+                    "messages_sent":      info.get("messages_sent", 0),
+                    "messages_received":  info.get("messages_received", 0),
+                    "messages_delivered": info.get("messages_delivered", 0),  # v2.35: delivery ACK count
+                    "agent_card":         info.get("agent_card"),
+                    "last_ping_rtt_ms":   info.get("last_ping_rtt_ms"),   # v2.25: RTT from last /ping
                     "last_ping_at":     info.get("last_ping_at"),        # v2.25: ISO timestamp of last ping
                     "ping_count":       info.get("ping_count", 0),       # v2.25: total pings sent to this peer
                 })
@@ -6399,6 +6465,10 @@ Examples:
     # ── Core ──────────────────────────────────────────────────────────────────
     parser.add_argument("--name",         default=None,  help="Agent name (default: ACP-Agent)")
     parser.add_argument("--join",         default=None,  help="acp:// link to connect to")
+    parser.add_argument("--local-only",   action="store_true",
+                        help="(v2.35) Skip public-IP detection and relay pre-registration; "
+                             "generate acp://127.0.0.1:PORT/TOKEN link immediately. "
+                             "Useful for local tests, CI, and sandboxed environments.")
     parser.add_argument("--relay",        action="store_true", help="(v1.4) Force Level 3 relay transport (skip L1 direct + L2 hole punch). Previously 'use relay instead of P2P'; now means auto-degradation last resort.")
     parser.add_argument("--relay-url",    default=None,
                         help="Relay endpoint URL (default: public Cloudflare Worker)")
@@ -6799,6 +6869,11 @@ Examples:
     _status["force_relay"] = bool(use_relay)
     if use_relay:
         log.info("⚡ --relay flag: Level 3 relay forced (L1+L2 NAT traversal skipped)")
+
+    # v2.35: --local-only flag — store in _status so host_mode() can read it
+    _status["local_only"] = bool(getattr(args, "local_only", False))
+    if _status["local_only"]:
+        log.info("🏠 --local-only: public IP detection and relay registration disabled")
 
     # Rebuild card to reflect transport_modes + supported_interfaces + limitations
     _status["agent_card"] = _make_agent_card(args.name, skills)
