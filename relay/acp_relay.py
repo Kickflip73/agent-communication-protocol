@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.38.0"  # v2.38: Message Priority — priority field in /message:send; /recv sorted by priority; capabilities.message_priority
+VERSION = "2.39.0"  # v2.39: Long Poll /recv?wait=<seconds>
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1495,6 +1495,7 @@ def _make_agent_card(name, skills):
             "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
             "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
             "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
+            "recv_long_poll":           True,                                  # v2.39: GET /recv?wait=<seconds> — long-poll support
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -4043,6 +4044,31 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         elif p == "/recv":  # [stable] poll received messages
             limit = int(qs.get("limit", ["50"])[0])
+            # v2.39: long poll support — wait=<seconds> blocks until message arrives or timeout
+            try:
+                wait_sec = float(qs.get("wait", ["0"])[0])
+                wait_sec = max(0.0, min(30.0, wait_sec))  # clamp to [0, 30]
+            except (ValueError, TypeError):
+                wait_sec = 0.0
+
+            timed_out = False
+            if wait_sec > 0 and len(_recv_queue) == 0:
+                # hang until a message arrives or timeout expires
+                # Use a deadline loop to handle spurious wakeups from pre-set events:
+                #   1. clear the event first to avoid acting on stale set state
+                #   2. re-check queue after clear (message may have arrived in the gap)
+                #   3. loop until queue is non-empty or deadline passes
+                _deadline = time.time() + wait_sec
+                while len(_recv_queue) == 0:
+                    _remaining = _deadline - time.time()
+                    if _remaining <= 0:
+                        timed_out = True
+                        break
+                    _sse_notify.clear()
+                    if len(_recv_queue) > 0:  # re-check after clear (race window)
+                        break
+                    _sse_notify.wait(timeout=min(_remaining, 1.0))
+
             # v2.38: sort by priority before returning (critical > high > normal > low)
             _recv_snapshot = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
             _recv_snapshot.sort(
@@ -4051,7 +4077,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     2  # default "normal" order
                 )
             )
-            self._json({"messages": _recv_snapshot, "count": len(_recv_snapshot), "remaining": len(_recv_queue)})
+            self._json({"messages": _recv_snapshot, "count": len(_recv_snapshot), "remaining": len(_recv_queue), "timed_out": timed_out})
 
         elif p == "/messages":  # [stable] history message list — filtering + pagination (v2.9)
             # Query params:
