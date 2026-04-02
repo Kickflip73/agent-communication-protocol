@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.32.0"  # v2.32: message_id 30s TTL dedup window on /message:send + /peer/<id>/send (ref ANP client_msg_id, ROADMAP MD1-MD6)
+VERSION = "2.33.0"  # v2.33: DID pubkey discovery — GET|POST /identity/pubkey-discovery resolves did:acp:/did:key: to Ed25519 pubkey offline (ref A2A IS#1672)
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -432,6 +432,95 @@ def _base58_encode(data: bytes) -> str:
             break
         result.append(_BASE58_ALPHABET[0])
     return result[::-1].decode("ascii")
+
+
+def _base58_decode(s: str) -> bytes:
+    """Pure-Python base58btc decoding (stdlib-only, no external deps)."""
+    alphabet = _BASE58_ALPHABET
+    n = 0
+    for char in s.encode("ascii"):
+        n = n * 58 + alphabet.index(char)
+    # Determine the number of leading zero bytes
+    leading_zeros = 0
+    for char in s.encode("ascii"):
+        if char == alphabet[0]:
+            leading_zeros += 1
+        else:
+            break
+    result = n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b""
+    return bytes(leading_zeros) + result
+
+
+def _resolve_did_to_pubkey(did: str) -> dict:
+    """Resolve a DID to its Ed25519 public key (offline, no HTTP required).
+
+    v2.33: Supports did:acp: and did:key: schemes.
+
+    Returns:
+      {
+        "ok": True,
+        "did": str,
+        "scheme": "did:acp" | "did:key",
+        "public_key_b64": str,        # base64url-encoded 32-byte Ed25519 public key
+        "public_key_hex": str,        # hex-encoded
+        "algorithm": "ed25519",
+        "derived_did_acp": str,       # canonical did:acp: derived from pubkey
+        "derived_did_key": str,       # canonical did:key: derived from pubkey
+        "consistent": bool,           # True if input DID round-trips correctly
+      }
+    or {"ok": False, "error": str, "did": str}
+    """
+    if not did or not isinstance(did, str):
+        return {"ok": False, "error": "did must be a non-empty string", "did": did}
+
+    try:
+        if did.startswith("did:acp:"):
+            # did:acp:<base64url-no-padding(32-byte pubkey)>
+            encoded = did[len("did:acp:"):]
+            # Add padding back
+            pub_raw = _base64.urlsafe_b64decode(encoded + "==")
+            if len(pub_raw) != 32:
+                return {"ok": False, "error": f"did:acp: pubkey must be 32 bytes, got {len(pub_raw)}", "did": did}
+
+        elif did.startswith("did:key:z"):
+            # did:key:z<base58btc(0xed01 + 32-byte pubkey)>
+            # Multibase: leading 'z' = base58btc
+            encoded = did[len("did:key:z"):]
+            decoded = _base58_decode(encoded)
+            # Expect 2-byte multicodec prefix [0xed, 0x01] + 32-byte pubkey
+            if len(decoded) < 34:
+                return {"ok": False, "error": f"did:key: decoded length {len(decoded)} < 34", "did": did}
+            if decoded[0] != 0xed or decoded[1] != 0x01:
+                return {"ok": False, "error": f"did:key: expected Ed25519 multicodec 0xed01, got {decoded[:2].hex()}", "did": did}
+            pub_raw = decoded[2:34]
+
+        else:
+            return {"ok": False, "error": f"unsupported DID scheme (supported: did:acp:, did:key:z)", "did": did}
+
+        # Validate it's a real Ed25519 public key
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        Ed25519PublicKey.from_public_bytes(pub_raw)
+
+        pub_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+        pub_hex = pub_raw.hex()
+        derived_acp = _pubkey_to_did_acp(pub_raw)
+        derived_key = _pubkey_to_did_key(pub_raw)
+        consistent  = (did == derived_acp) or (did == derived_key)
+
+        return {
+            "ok":              True,
+            "did":             did,
+            "scheme":          "did:acp" if did.startswith("did:acp:") else "did:key",
+            "public_key_b64":  pub_b64,
+            "public_key_hex":  pub_hex,
+            "algorithm":       "ed25519",
+            "derived_did_acp": derived_acp,
+            "derived_did_key": derived_key,
+            "consistent":      consistent,
+        }
+
+    except Exception as e:
+        return {"ok": False, "error": str(e), "did": did}
 
 
 def _pubkey_to_did_key(pubkey_bytes: bytes) -> str:
@@ -1384,6 +1473,7 @@ def _make_agent_card(name, skills):
             "skill_limitations_patch":  True,                                  # v2.29: PATCH /skills/<id>/limitations — runtime per-skill limitations update
             "error_failed_msg_id":      True,                                  # v2.30: failed_message_id in error response (ref ANP failed_msg_id)
             "message_dedup":            True,                                  # v2.32: 30s TTL dedup window on /message:send and /peer/<id>/send
+            "pubkey_discovery":         True,                                  # v2.33: GET|POST /identity/pubkey-discovery — resolve did:acp:/did:key: → Ed25519 pubkey (offline, no HTTP to peer)
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1426,8 +1516,9 @@ def _make_agent_card(name, skills):
             "peers_paginated":         "/peers?limit=&offset=&filter=",  # v2.27: paginated peer list
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
-            "delegation":     "/identity/delegation",  # v2.16: GET — query delegation chain
+            "delegation":        "/identity/delegation",          # v2.16: GET — query delegation chain
             "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
+            "pubkey_discovery":  "/identity/pubkey-discovery",   # v2.33: GET|POST — resolve DID → Ed25519 pubkey (offline)
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -3810,6 +3901,25 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 },
             })
 
+        # ── v2.33: GET /identity/pubkey-discovery — resolve DID → pubkey (offline) ──
+        elif p == "/identity/pubkey-discovery":
+            """Resolve a DID string to its Ed25519 public key without any network call.
+
+            v2.33: Supports did:acp: and did:key: schemes. Fully offline.
+
+            Query param:  ?did=<did_string>
+            Response:     {ok, did, scheme, public_key_b64, public_key_hex,
+                           algorithm, derived_did_acp, derived_did_key, consistent}
+            Error:        {ok:false, error, did}
+            """
+            qs = parse_qs(urlparse(self.path).query)
+            did_param = (qs.get("did") or [None])[0]
+            if not did_param:
+                self._json({"ok": False, "error": "query param 'did' required"}, 400)
+                return
+            result = _resolve_did_to_pubkey(did_param)
+            self._json(result, 200 if result.get("ok") else 400)
+
         # ── v2.16: GET /identity/delegation ──────────────────────────────────
         elif p == "/identity/delegation":
             # GET /identity/delegation
@@ -4232,6 +4342,33 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)}, 500)
             return
+
+        elif p == "/identity/pubkey-discovery":
+            # POST /identity/pubkey-discovery — resolve DID → pubkey (v2.33)
+            # Body: {"did": "<did_string>"} or {"dids": ["<did1>", "<did2>", ...]} (batch)
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            # Batch mode: {"dids": [...]}
+            if "dids" in body:
+                dids = body["dids"]
+                if not isinstance(dids, list) or len(dids) > 50:
+                    self._json({"ok": False, "error": "'dids' must be a list (max 50)"}, 400)
+                    return
+                results = [_resolve_did_to_pubkey(d) for d in dids]
+                self._json({"ok": True, "results": results, "count": len(results)})
+                return
+
+            # Single mode: {"did": "..."}
+            did_param = body.get("did")
+            if not did_param:
+                self._json({"ok": False, "error": "'did' field required"}, 400)
+                return
+            result = _resolve_did_to_pubkey(did_param)
+            self._json(result, 200 if result.get("ok") else 400)
 
         elif p == "/identity/delegation/verify":
             # POST /identity/delegation/verify
