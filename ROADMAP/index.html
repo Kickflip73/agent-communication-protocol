@@ -1482,6 +1482,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#v240-2026-04-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.40（完成 — 2026-04-03，开发轮）
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1685,7 +1696,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-03（v2.38.0：Message Priority — priority 字段，/recv 排序，priority_counts，capabilities.message_priority）</p>
+最后更新：2026-04-03（v2.40.0：AgentCard agent_limitations — 机器可读约束声明）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3052,6 +3063,22 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>✅ <strong>LP1–LP9</strong>：9/9 PASS</li>
 <li><strong>修复</strong>：spurious wakeup bug；测试端口冲突（_free_port 同时检查 WS+HTTP 端口）</li>
 <li><strong>差异化</strong>：A2A 和 ANP 均无 long-poll 机制；ACP 支持订阅式消息接收，零浪费轮询</li>
+</ul>
+<hr />
+<h3 id="v240-2026-04-03">✅ v2.40（完成 — 2026-04-03，开发轮）<a class="headerlink" href="#v240-2026-04-03" title="Permanent link">&para;</a></h3>
+<p><strong>主题：AgentCard <code>agent_limitations</code> — 机器可读约束声明</strong></p>
+<ul>
+<li>✅ <strong><code>agent_limitations</code> 对象</strong>：AgentCard 和 <code>/status</code> 中新增机器可读约束字段（commit <code>e3aa6a8</code>）</li>
+<li><code>max_message_size_bytes</code>: 65536（64 KB 单条消息限制）</li>
+<li><code>max_recv_queue_size</code>: 1000（接收队列容量上限）</li>
+<li><code>max_wait_seconds</code>: 30（long-poll 最大等待，与 v2.39 一致）</li>
+<li><code>max_peers</code>: 100（并发 peer 连接上限）</li>
+<li><code>supported_message_roles</code>: ["user", "agent", "system"]</li>
+<li><code>supported_priorities</code>: ["critical", "high", "normal", "low"]</li>
+<li>✅ <code>capabilities.agent_limitations: true</code></li>
+<li>✅ <strong>AL1–AL6</strong>：6/6 PASS；回归 18/18 PASS</li>
+<li><strong>设计决策</strong>：字段命名为 <code>agent_limitations</code>（非 <code>limitations</code>），避免与 v2.20 的 <code>LimitationObject[]</code> 冲突，两套语义清晰共存</li>
+<li><strong>差异化</strong>：受 A2A IS#1694 启发，ACP 是首个实现机器可读约束声明的轻量 Agent 协议</li>
 </ul>
 <hr />
 <h2 id="_6">核心差异化<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
