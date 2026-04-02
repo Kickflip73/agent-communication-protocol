@@ -150,7 +150,11 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.37.0"  # v2.37: Typing Indicator — acp.typing frame; POST /message:typing; capabilities.typing_indicator
+VERSION = "2.38.0"  # v2.38: Message Priority — priority field in /message:send; /recv sorted by priority; capabilities.message_priority
+
+# v2.38: valid priority levels and sort order (lower index = higher priority)
+VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
+_PRIORITY_ORDER   = {"critical": 0, "high": 1, "normal": 2, "low": 3}
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -691,6 +695,9 @@ _status: dict = {
     "last_received_message_id": None,  # v2.36: track most-recent inbound msg_id for read receipt
     "peer_typing":       False,         # v2.37: True when peer sent acp.typing{typing:true}
     "peer_typing_since": None,          # v2.37: ISO timestamp when peer started typing
+    "priority_counts": {               # v2.38: inbound message counts per priority level
+        "critical": 0, "high": 0, "normal": 0, "low": 0
+    },
     "reconnect_count":    0,
     "tasks_created":     0,
     "started_at":        None,
@@ -1487,6 +1494,7 @@ def _make_agent_card(name, skills):
             "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
             "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
             "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
+            "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -4035,8 +4043,15 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         elif p == "/recv":  # [stable] poll received messages
             limit = int(qs.get("limit", ["50"])[0])
-            msgs  = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
-            self._json({"messages": msgs, "count": len(msgs), "remaining": len(_recv_queue)})
+            # v2.38: sort by priority before returning (critical > high > normal > low)
+            _recv_snapshot = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
+            _recv_snapshot.sort(
+                key=lambda m: _PRIORITY_ORDER.get(
+                    (m.get("raw") or m).get("priority", "normal") if isinstance(m, dict) else "normal",
+                    2  # default "normal" order
+                )
+            )
+            self._json({"messages": _recv_snapshot, "count": len(_recv_snapshot), "remaining": len(_recv_queue)})
 
         elif p == "/messages":  # [stable] history message list — filtering + pagination (v2.9)
             # Query params:
@@ -4817,6 +4832,22 @@ class LocalHTTP(BaseHTTPRequestHandler):
                             log.debug(f"✅ Ed25519 signature verified on {message_id}")
                         # _v is None → library unavailable → pass through
 
+                # v2.38: message priority — validate and default to "normal"
+                _priority_raw = body.get("priority", "normal")
+                if _priority_raw not in VALID_PRIORITIES:
+                    e_body, e_code = _err(
+                        ERR_INVALID_REQUEST,
+                        f"invalid priority '{_priority_raw}': must be one of {sorted(VALID_PRIORITIES)}",
+                        400,
+                        failed_message_id=_client_msg_id,
+                    )
+                    self._json(e_body, e_code)
+                    return
+                # Update priority counters (sent messages)
+                _status["priority_counts"][_priority_raw] = (
+                    _status["priority_counts"].get(_priority_raw, 0) + 1
+                )
+
                 msg = {
                     "type":       "acp.message",
                     "message_id": message_id,
@@ -4824,6 +4855,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "ts":         _now(),
                     "from":       _status.get("agent_name", "unknown"),
                     "role":       role_raw,
+                    "priority":   _priority_raw,                           # v2.38
                     "parts":      parts,
                 }
                 if body.get("task_id"):
