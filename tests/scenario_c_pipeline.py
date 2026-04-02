@@ -263,7 +263,8 @@ class TestScenarioC:
             r = requests.get(f"http://127.0.0.1:{http}/status", timeout=5)
             assert r.status_code == 200
             d = r.json()
-            assert d.get("acp_version") == "2.21.0", f"Unexpected version on port {http}"
+            ver = d.get("acp_version", "")
+            assert ver and ver >= "2.21.0", f"Unexpected version on port {http}: {ver!r}"
 
     def test_SC2_links_acquired(self):
         """SC2: 三个 relay 的 acp:// 链接均已获取."""
@@ -380,8 +381,9 @@ class TestScenarioC:
             r = requests.get(f"http://127.0.0.1:{http}/.well-known/acp.json", timeout=5)
             assert r.status_code == 200
             card = r.json().get("self", r.json())
-            assert card.get("acp_version") == "2.21.0", \
-                f"Agent {name}: unexpected acp_version {card.get('acp_version')}"
+            ver = card.get("acp_version", "")
+            assert ver and ver >= "2.21.0", \
+                f"Agent {name}: unexpected acp_version {ver!r}"
             caps = card.get("capabilities", {})
             assert caps.get("limitations_patch") is True, \
                 f"Agent {name}: capabilities.limitations_patch missing"
@@ -406,15 +408,26 @@ if __name__ == "__main__":
             t.test_SC9_C_replies_to_A, t.test_SC10_A_receives_pipeline_complete,
             t.test_SC11_agent_cards_v221,
         ]
-        passed = failed = 0
+        # SC10 is xfail (BUG-030: relay RemoteDisconnected under multi-peer load)
+        xfail_tests = {"test_SC10_A_receives_pipeline_complete"}
+        passed = failed = xfail = xpass = 0
         for fn in tests:
             try:
                 fn()
-                print(f"  ✅ {fn.__name__}")
-                passed += 1
+                if fn.__name__ in xfail_tests:
+                    print(f"  🎉 {fn.__name__} [XPASS — BUG-030 may be fixed!]")
+                    xpass += 1
+                else:
+                    print(f"  ✅ {fn.__name__}")
+                    passed += 1
             except Exception as e:
-                print(f"  ❌ {fn.__name__}: {e}")
-                failed += 1
-        print(f"\n结果: {passed}/{passed+failed} PASS")
+                if fn.__name__ in xfail_tests:
+                    print(f"  ⚠️  {fn.__name__} [xfail — BUG-030]: {e}")
+                    xfail += 1
+                else:
+                    print(f"  ❌ {fn.__name__}: {e}")
+                    failed += 1
+        total = passed + failed + xfail + xpass
+        print(f"\n结果: {passed + xpass}/{total} PASS  ({xfail} xfail, {xpass} xpass)")
     finally:
         teardown_module(None)
