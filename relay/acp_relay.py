@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.36.0"  # v2.36: Read Receipt — acp.read frame; capabilities.read_receipt; per-peer messages_read counter
+VERSION = "2.37.0"  # v2.37: Typing Indicator — acp.typing frame; POST /message:typing; capabilities.typing_indicator
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -648,6 +648,8 @@ def _register_peer(peer_id=None, link=None, ws=None, link_token=None, remote_add
         "messages_received":  existing.get("messages_received", 0),
         "messages_delivered": existing.get("messages_delivered", 0),  # v2.35: ack count
         "messages_read":      existing.get("messages_read", 0),       # v2.36: read receipt count
+        "typing":             existing.get("typing", False),           # v2.37: typing indicator state
+        "typing_since":       existing.get("typing_since", None),      # v2.37: ISO ts when peer started typing
         "agent_card":         existing.get("agent_card"),
         "remote_address":     remote_address or existing.get("remote_address"),  # v2.16: for dedup
     }
@@ -687,6 +689,8 @@ _status: dict = {
     "messages_delivered": 0,   # v2.35: count of acp.delivered ACKs received from peers
     "messages_read":      0,       # v2.36: count of acp.read ACKs received from peers
     "last_received_message_id": None,  # v2.36: track most-recent inbound msg_id for read receipt
+    "peer_typing":       False,         # v2.37: True when peer sent acp.typing{typing:true}
+    "peer_typing_since": None,          # v2.37: ISO timestamp when peer started typing
     "reconnect_count":    0,
     "tasks_created":     0,
     "started_at":        None,
@@ -1482,6 +1486,7 @@ def _make_agent_card(name, skills):
             "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
             "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
             "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
+            "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -2537,6 +2542,36 @@ def _on_message(raw):
         log.debug(f"[read_receipt] Received acp.read from={_from_read} read_id={read_id}")
         return
 
+    # v2.37: acp.typing — peer is typing (or stopped typing); update state + broadcast SSE
+    if msg_type == "acp.typing":
+        _typing_val  = msg.get("typing", True)   # True = started, False = stopped
+        _from_typing = msg.get("from", "")
+        _ts_typing   = msg.get("ts") or _now()
+        # Update global peer_typing state
+        _status["peer_typing"]       = bool(_typing_val)
+        _status["peer_typing_since"] = _ts_typing if _typing_val else None
+        # Update per-peer typing field
+        for pinfo in _peers.values():
+            if (pinfo.get("agent_name") == _from_typing
+                    or pinfo.get("name") == _from_typing
+                    or pinfo.get("id") == _from_typing):
+                pinfo["typing"]       = bool(_typing_val)
+                pinfo["typing_since"] = _ts_typing if _typing_val else None
+                break
+        else:
+            _conn_typing = [p for p in _peers.values() if p.get("connected")]
+            if len(_conn_typing) == 1:
+                _conn_typing[0]["typing"]       = bool(_typing_val)
+                _conn_typing[0]["typing_since"] = _ts_typing if _typing_val else None
+        # Broadcast SSE so local subscribers can show "peer is typing…"
+        _broadcast_sse_event("typing", {
+            "from":         _from_typing,
+            "typing":       bool(_typing_val),
+            "typing_since": _ts_typing if _typing_val else None,
+        })
+        log.debug(f"[typing] peer={_from_typing} typing={_typing_val}")
+        return
+
     # Business message — idempotency check
     if not _check_and_record_message_id(message_id):
         return
@@ -3465,6 +3500,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "messages_received":  info.get("messages_received", 0),
                     "messages_delivered": info.get("messages_delivered", 0),  # v2.35: delivery ACK count
                     "messages_read":      info.get("messages_read", 0),       # v2.36: read receipt count
+                    "typing":             info.get("typing", False),           # v2.37: peer typing indicator
+                    "typing_since":       info.get("typing_since"),            # v2.37: ISO ts when started
                     "agent_card":         info.get("agent_card"),
                     "last_ping_rtt_ms":   info.get("last_ping_rtt_ms"),   # v2.25: RTT from last /ping
                     "last_ping_at":     info.get("last_ping_at"),        # v2.25: ISO timestamp of last ping
@@ -4912,6 +4949,39 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 _fmid = locals().get("message_id") or locals().get("_client_msg_id")
                 e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
                                      failed_message_id=_fmid)
+                self._json(e_body, e_code)
+
+        # /message:typing — v2.37: send typing indicator to peer
+        elif p == "/message:typing":
+            try:
+                body = self._read_body()
+                _typing_state = body.get("typing", True)   # True = started, False = stopped
+                _req_peer_id_t = body.get("peer_id")
+                _frame = json.dumps({
+                    "type":   "acp.typing",
+                    "from":   _status.get("agent_name", "ACP-Agent"),
+                    "typing": bool(_typing_state),
+                    "ts":     _now(),
+                }, ensure_ascii=False)
+                # Resolve target WS
+                _typing_ws = None
+                if _req_peer_id_t and _req_peer_id_t in _peers:
+                    _typing_ws = _peers[_req_peer_id_t].get("ws")
+                if _typing_ws is None:
+                    _conn_t = [p for p in _peers.values() if p.get("connected") and p.get("ws")]
+                    if _conn_t:
+                        _typing_ws = _conn_t[0]["ws"]
+                if _typing_ws is None:
+                    e_body, e_code = _err(ERR_NOT_CONNECTED, "no connected peer", 503)
+                    self._json(e_body, e_code)
+                    return
+                asyncio.run_coroutine_threadsafe(
+                    _typing_ws.send(_frame), _loop
+                ).result(timeout=3)
+                log.debug(f"[typing] Sent acp.typing typing={_typing_state}")
+                self._json({"ok": True, "typing": bool(_typing_state), "ts": _now()})
+            except Exception as e:
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500)
                 self._json(e_body, e_code)
 
         # /send  — legacy endpoint (backward-compat)
