@@ -1,76 +1,75 @@
-# ACP Research Scan — 2026-04-02 Evening
+# ACP 竞品研究扫描报告
 
-**Scan time:** 2026-04-02 17:43 CST  
-**Scope:** A2A (google/A2A), ANP (agent-network-protocol/AgentNetworkProtocol)
-
----
-
-## A2A — google/A2A
-
-### Recent Commits (since last scan, ~1.5h ago)
-- **No new spec commits** since 2026-03-31 (`c1169f4` OSPO fix)
-- Last 5 commits are all docs/partner-list entries — no protocol changes
-
-### Active PRs Updated Today
-| PR | Title | Relevance |
-|----|-------|-----------|
-| **PR#1619** | docs: Add custom protocol bindings documentation | Medium — formalizes "custom protocol binding" as a distinct concept from "extensions"; introduces governance doc. No spec change. |
-| PR#1571 | [docs] Update GOVERNANCE.md | Low — governance housekeeping |
-| PR#1627 | fix(spec): recent transcoding-related error changes | Medium — error code spec fix (transcoding); may affect error_failed_msg_id interop |
-
-### Active Issues Updated Today
-| Issue | Title | Status |
-|-------|-------|--------|
-| **IS#1672** | Proposal: Agent Identity Verification for Agent Cards | 233+ comments, no PR merged. Hybrid model (CA-issued + self-sovereign) gaining consensus. ACP already implements this via `--identity` flag. |
-| IS#652 | [Feat]: Add Ability for Server to Specify Supported Protocol Versions | Long-standing; still open. |
-
-### Key Observation: PR#1619 — Custom Protocol Bindings
-A2A is formalizing "custom protocol bindings" as distinct from extensions. This means:
-- A binding declares how A2A message semantics map to a non-HTTP transport (e.g., WebSocket, MQTT, gRPC)
-- Declared in AgentCard under a new field
-- Governance: community tier < foundation tier < core spec
-
-**ACP relevance:** ACP already has `transport_modes: ["p2p", "relay"]` in AgentCard. The A2A custom bindings concept is exactly what ACP does natively. We may want to add a `protocol_bindings` field to our AgentCard for cross-protocol compatibility.
+**日期**：2026-04-02（晚间扫描）  
+**扫描范围**：A2A（a2aproject/A2A）、ANP（agent-network-protocol/AgentNetworkProtocol）  
+**周期**：2026-03-26 以来
 
 ---
 
-## ANP — agent-network-protocol/AgentNetworkProtocol
+## A2A
 
-### Recent Commits
-- Last commit: **2026-03-05** (`99806f4` — `failed_msg_id` field)
-- **4+ weeks of zero activity** — project appears stalled
+### Commits（3/26 后）
 
-### Assessment
-ANP continues to be dormant. No action needed.
+| SHA | 日期 | 内容 |
+|-----|------|------|
+| `c1169f4` | 2026-03-31 | `fix: update OSPO action refs`（CI 配置路径修正，**无 spec 变更**） |
 
----
+**结论**：本周 A2A 无协议层变更，仅 CI 维护。
 
-## ACP v2.35 — Delivery ACK (Just Shipped)
+### Issues（近期活跃）
 
-This session completed v2.35 Delivery ACK:
-- `acp.delivered` frame: receiver auto-ACKs business messages
-- `capabilities.delivery_ack: true` in AgentCard
-- `messages_delivered` counter in `/status` and `/peers`
-- `--local-only` flag for CI/sandbox environments
-- DA1–DA10: 10/10 tests pass in 12.5s
-- Commits: `d444585`, `227621a` pushed to main
+| Issue | 标题 | 评论数 | 状态 |
+|-------|------|--------|------|
+| #1672 | Proposal: Agent Identity Verification for Agent Cards | 236 | 🟡 Open，持续活跃 |
 
----
+**IS#1672 摘要（截至 2026-04-02 11:21 UTC）**：
+- 提案：在 AgentCard 加 `verifiedIdentity` 字段，携带 ECDSA P-256 证书 + 第三方 issuer（getagentid.dev）
+- 核心矛盾：需要中心化证书颁发机构（CA），与 ACP 离线优先/去中心化哲学相悖
+- 评论量 236 条，仍无 PR，社区分歧明显（中心化 vs 去中心化）
 
-## Next Action Items
-
-| Priority | Item | Notes |
-|----------|------|-------|
-| P2 | Consider `protocol_bindings` field in AgentCard | Align with A2A PR#1619 framing |
-| P3 | Monitor A2A IS#1672 for identity PR | ACP hybrid model already implemented |
-| P3 | Monitor PR#1627 (error transcoding fix) | May affect `error_failed_msg_id` interop |
+**ACP 差异化优势**：
+- ACP v1.8 已实现 Ed25519 自签名（无需第三方 CA）
+- ACP v2.33 已实现 DID 离线公钥发现（`did:acp:<base64url(pubkey)>`）
+- ACP v2.34 已实现五维度加权信任评分（`GET /peers/<id>/trust`）
+- A2A 在身份验证上停留在讨论阶段，ACP 已完整落地 3 个版本
 
 ---
 
-## ROADMAP Next Target: v2.36
+## ANP
 
-Per ROADMAP.md, after v2.35 (Delivery ACK), recommended next feature is:
-- **P1: Read Receipt / Seen ACK** (`acp.read` frame) — sender knows message was read/processed (not just delivered)
-- Alternative: **P1: Protocol Version Negotiation** (aligns with A2A IS#652)
+**本周 commits**：0（空返回）  
+**连续零更新**：5 周以上
 
-Recommendation: **v2.36 = `acp.read` frame** (natural progression from v2.35 delivery→read pipeline).
+---
+
+## 本周 ACP 进展（自我评估）
+
+| 版本 | 特性 | 测试 |
+|------|------|------|
+| v2.35 | Delivery ACK（`acp.delivered`） | DA1–DA10 10/10 ✅ |
+| v2.36 | Read Receipt（`acp.read`）两阶段回执 | RR1–RR8 8/8 ✅ |
+
+---
+
+## 下期建议（v2.37 候选）
+
+### 选项 A：`acp.typing` 打字状态指示
+- WhatsApp/iMessage 体验："对方正在输入…"
+- 帧：`{"type":"acp.typing","from":"<name>","ts":"<iso>"}`
+- 轻量，无持久化，纯信号
+- 差异化：A2A/ANP 均无此机制
+
+### 选项 B：消息优先级（`priority` 字段）
+- `priority: critical|high|normal|low`（4 级）
+- 影响：SSE 推送排队优先级 + `/recv` 排序
+- 适合 Orchestrator→Worker 任务调度场景
+
+### 选项 C：`context_id` 归档与会话历史分页
+- `GET /context/<id>/messages?page=N&limit=M`
+- 补齐已有 context_id 但无分页的 gap
+
+**推荐**：选项 A（`acp.typing`）— 完成两阶段回执后，打字状态是天然的第三阶段信号，代码量小，差异化明显，可与 v2.35/v2.36 并列形成「Agent 实时状态三件套」。
+
+---
+
+*生成时间：2026-04-02 19:43 CST*
