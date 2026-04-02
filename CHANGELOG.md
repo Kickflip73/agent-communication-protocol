@@ -7,6 +7,22 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.35.0] — 2026-04-02 (Delivery ACK)
+
+### Added — acp.delivered frame (v2.35)
+
+- **Delivery ACK**: when a peer receives a business message, it automatically sends an `acp.delivered` frame back to the sender
+  - Frame format: `{"type": "acp.delivered", "message_id": "<original_id>", "from": "<agent_name>", "ts": "<iso8601>"}`
+  - Sender increments `messages_delivered` in `_status` and per-peer counter
+  - No ack-of-ack: `acp.delivered` frames do not trigger further ACKs (loop-safe)
+  - Only business messages trigger ACK; control frames (`acp.ping`, `acp.pong`, etc.) do not
+- **`capabilities.delivery_ack: true`** declared in AgentCard and `/.well-known/acp.json self.capabilities`
+- **`messages_delivered` counter**: new field in `/status` (global) and `/peers` (per-peer)
+- **`--local-only` flag**: skip public-IP detection and Cloudflare relay registration; generate `acp://127.0.0.1:PORT/TOKEN` link immediately — ideal for CI/sandboxed environments
+- **`tests/test_delivery_ack.py`**: 10 tests (DA1–DA10), all pass in ~12s
+
+---
+
 ## [2.34.0] — 2026-04-02 (Per-Peer Structured Trust Score)
 
 ### Added — GET /peers/<peer_id>/trust (v2.34)
