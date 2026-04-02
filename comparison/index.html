@@ -1027,10 +1027,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#feature-comparison-acp-v21-vs-a2a-v10-vs-mcp" class="md-nav__link">
+  <a href="#feature-comparison-acp-v234-vs-a2a-v10-vs-mcp" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Feature Comparison: ACP v2.1 vs A2A v1.0 vs MCP
+        Feature Comparison: ACP v2.34 vs A2A v1.0 vs MCP
       
     </span>
   </a>
@@ -1038,15 +1038,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#acp-v21-unique-differentiators" class="md-nav__link">
+  <a href="#acp-v234-unique-differentiators" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ACP v2.1 Unique Differentiators
+        ACP v2.34 Unique Differentiators
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="ACP v2.1 Unique Differentiators">
+    <nav class="md-nav" aria-label="ACP v2.34 Unique Differentiators">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1505,12 +1505,12 @@
 - Outdated infrastructure assumptions
 - Very complex (hundreds of pages of spec)</p>
 <p>ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native, minimal, and modern.</p>
-<h2 id="feature-comparison-acp-v21-vs-a2a-v10-vs-mcp">Feature Comparison: ACP v2.1 vs A2A v1.0 vs MCP<a class="headerlink" href="#feature-comparison-acp-v21-vs-a2a-v10-vs-mcp" title="Permanent link">&para;</a></h2>
+<h2 id="feature-comparison-acp-v234-vs-a2a-v10-vs-mcp">Feature Comparison: ACP v2.34 vs A2A v1.0 vs MCP<a class="headerlink" href="#feature-comparison-acp-v234-vs-a2a-v10-vs-mcp" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Feature</th>
-<th>ACP v2.1</th>
+<th>ACP v2.34</th>
 <th>A2A v1.0</th>
 <th>MCP</th>
 </tr>
@@ -1595,6 +1595,24 @@
 <td>❌</td>
 </tr>
 <tr>
+<td><strong>Offline DID pubkey resolution</strong></td>
+<td>✅ <code>GET /identity/pubkey-discovery</code> — zero-network, pure stdlib (v2.33)</td>
+<td>❌ IS#1672, 213+ comments, no impl</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>Per-peer trust score</strong></td>
+<td>✅ <code>GET /peers/&lt;id&gt;/trust</code> — 5-dim weighted score (v2.34)</td>
+<td>❌ IS#1628+IS#1672, 219+ comments, no PR</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>Message idempotency</strong></td>
+<td>✅ <code>message_id</code> 30s TTL dedup window (v2.32)</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr>
 <td><strong>LAN discovery (mDNS)</strong></td>
 <td>✅ <code>--advertise-mdns</code></td>
 <td>❌</td>
@@ -1632,7 +1650,7 @@
 </tr>
 </tbody>
 </table>
-<h2 id="acp-v21-unique-differentiators">ACP v2.1 Unique Differentiators<a class="headerlink" href="#acp-v21-unique-differentiators" title="Permanent link">&para;</a></h2>
+<h2 id="acp-v234-unique-differentiators">ACP v2.34 Unique Differentiators<a class="headerlink" href="#acp-v234-unique-differentiators" title="Permanent link">&para;</a></h2>
 <h3 id="1-scheduling-metadata-heartbeatcron-agents">1. Scheduling Metadata (Heartbeat/Cron Agents)<a class="headerlink" href="#1-scheduling-metadata-heartbeatcron-agents" title="Permanent link">&para;</a></h3>
 <p>ACP v1.2 is the <strong>first Agent communication protocol</strong> to support scheduling metadata natively in the AgentCard. An agent that wakes on a schedule can advertise:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">&quot;availability&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
