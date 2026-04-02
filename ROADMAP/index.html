@@ -1460,6 +1460,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#v238-2026-04-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.38（完成 — 2026-04-03，开发轮）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v239-2026-04-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.39（完成 — 2026-04-03，开发轮）
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3005,6 +3027,31 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>信令服务器：一次性地址交换（TTL 30s），零消息帧存储</li>
 <li>SSE 实时反映连接级别：<code>dcutr_started</code> → <code>dcutr_connected</code> / <code>relay_fallback</code></li>
 <li><code>GET /status</code> 返回 <code>connection_type</code>: <code>p2p_direct</code> | <code>dcutr_direct</code> | <code>relay</code></li>
+</ul>
+<hr />
+<h3 id="v238-2026-04-03">✅ v2.38（完成 — 2026-04-03，开发轮）<a class="headerlink" href="#v238-2026-04-03" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Message Priority — 消息优先级路由</strong></p>
+<ul>
+<li>✅ <strong><code>priority</code> 字段</strong>：<code>POST /message:send</code> 支持 <code>critical | high | normal | low</code>（默认 <code>normal</code>）</li>
+<li>✅ <strong><code>GET /recv</code> 优先级排序</strong>：按 <code>critical &gt; high &gt; normal &gt; low</code> 返回消息</li>
+<li>✅ <code>_status.priority_counts</code>：统计各级别已发送消息数</li>
+<li>✅ <code>capabilities.message_priority: true</code></li>
+<li>✅ <strong>MP1–MP9</strong>：9/9 PASS（~5.7s）</li>
+<li><strong>差异化</strong>：A2A 和 ANP 均无消息优先级机制；ACP 是首个支持 per-message 优先级路由的轻量协议</li>
+</ul>
+<hr />
+<h3 id="v239-2026-04-03">✅ v2.39（完成 — 2026-04-03，开发轮）<a class="headerlink" href="#v239-2026-04-03" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Long Poll /recv — 订阅式消息接收</strong></p>
+<ul>
+<li>✅ <strong><code>GET /recv?wait=&lt;seconds&gt;</code></strong>：长轮询端点（commit <code>7fbf469</code>）</li>
+<li>队列为空时挂起等待，有消息即刻返回；<code>wait</code> 参数 0-30s，默认 0</li>
+<li>超时返回 <code>{timed_out: true}</code>；有消息返回 <code>{timed_out: false}</code></li>
+<li>使用 <code>_sse_notify</code> threading.Event 基础设施（零新开销）</li>
+<li>Deadline 循环防止 spurious wakeup 误判</li>
+<li>✅ <code>capabilities.recv_long_poll: true</code></li>
+<li>✅ <strong>LP1–LP9</strong>：9/9 PASS</li>
+<li><strong>修复</strong>：spurious wakeup bug；测试端口冲突（_free_port 同时检查 WS+HTTP 端口）</li>
+<li><strong>差异化</strong>：A2A 和 ANP 均无 long-poll 机制；ACP 支持订阅式消息接收，零浪费轮询</li>
 </ul>
 <hr />
 <h2 id="_6">核心差异化<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
