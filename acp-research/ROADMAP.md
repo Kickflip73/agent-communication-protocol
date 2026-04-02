@@ -438,6 +438,22 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
+### ✅ v2.34（完成 — 2026-04-02，开发轮）
+**主题：Per-Peer 结构化信任评分**
+
+- ✅ **`GET /peers/<peer_id>/trust`** — 综合五维度加权信任评分（commit `09a034a`）
+  - 维度 + 权重：`card_sig`(0.35) + `did_consistent`(0.20) + `ping_rtt`(0.20) + `message_hist`(0.15) + `vouch`(0.10)
+  - `trust_score` (0.0–1.0) = 加权和；`trust_level` = high/medium/low 三档分类
+  - `ping_rtt`：分桶 <50ms→1.0, <200ms→0.7, <500ms→0.4, else→0.1, 无数据→0.0
+  - `message_hist`：消息量 ≥100→1.0, ≥20→0.7, ≥5→0.4, >0→0.2, 0→0.0
+  - `vouch`：peer DID 在 `_vouch_chain` 中存在则 1.0
+  - 404 `ERR_PEER_NOT_FOUND` 处理未知 peer_id
+  - `capabilities.peer_trust: True` + `endpoints.peer_trust` 声明
+  - PT1–PT10：10/10 PASS
+- **差异化**：A2A IS#1628（trust signals）和 IS#1672（identity）均停留在讨论阶段（219+评论，无 PR）；ACP 提供可操作的加密锚定信任评分
+
+---
+
 ### 🚧 v2.0（进行中，目标：2026-Q3）
 **主题：联邦化与生态扩展**
 

@@ -7,6 +7,27 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.34.0] — 2026-04-02 (Per-Peer Structured Trust Score)
+
+### Added — GET /peers/<peer_id>/trust (v2.34)
+
+- **`GET /peers/<peer_id>/trust`** — returns structured trust assessment for any connected or known peer
+  - Five weighted dimensions: `card_sig` (0.35) · `did_consistent` (0.20) · `ping_rtt` (0.20) · `message_hist` (0.15) · `vouch` (0.10)
+  - `trust_score` (0.0–1.0) = weighted sum of all dimension scores
+  - `trust_level` classification: `"high"` (≥0.75) · `"medium"` (≥0.45) · `"low"` (<0.45)
+  - `card_sig`: Ed25519 AgentCard signature verification result (1.0 if `valid=true`)
+  - `did_consistent`: DID in card matches public key (1.0 if consistent)
+  - `ping_rtt`: RTT-based liveness score (<50ms→1.0, <200ms→0.7, <500ms→0.4, else→0.1, no data→0.0)
+  - `message_hist`: volume score (≥100→1.0, ≥20→0.7, ≥5→0.4, >0→0.2, 0→0.0)
+  - `vouch`: 1.0 if peer's DID appears in `_vouch_chain`, else 0.0
+  - Returns 404 `ERR_PEER_NOT_FOUND` for unknown peer_id
+- **`capabilities.peer_trust: True`** — declared in AgentCard
+- **`endpoints.peer_trust: "/peers/{peer_id}/trust"`** — declared in AgentCard
+- **Tests**: PT1–PT10 = **10/10 PASS**
+- **Strategic context**: A2A IS#1628 (trust signals) and IS#1672 (identity) both still in discussion (219+ comments, no PR); ACP provides actionable per-peer trust scoring with cryptographic grounding
+
+---
+
 ## [2.33.0] — 2026-04-02 (DID Pubkey Discovery — Offline Ed25519 Identity Resolution)
 
 ### Added — offline DID → Ed25519 pubkey resolution (v2.33)
