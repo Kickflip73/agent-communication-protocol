@@ -496,6 +496,22 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 
 ---
 
+### ✅ v2.38（完成 — 2026-04-03，开发轮）
+**主题：Message Priority — priority 字段**
+
+- ✅ **`priority` 字段** in `POST /message:send`：`critical | high | normal | low`（默认 `normal`）
+  - 非法值返回 400 `ERR_INVALID_REQUEST`
+  - `priority` 嵌入 `acp.message` 帧，透传给对端 peer
+- ✅ **`GET /recv` 优先级排序**：`critical > high > normal > low`
+  - `_PRIORITY_ORDER = {critical:0, high:1, normal:2, low:3}`
+  - 适用于 Orchestrator→Worker 场景的任务调度
+- ✅ **`_status.priority_counts`**：每级发送计数 `{critical, high, normal, low: int}`
+- ✅ `capabilities.message_priority: true` 声明
+- ✅ **MP1–MP9**：9/9 PASS，5.7s（commit `63af768`）
+- **差异化**：A2A 和 ANP 均无消息优先级机制；ACP 首个轻量级协议支持 per-message 优先级路由
+
+---
+
 ### 🚧 v2.0（进行中，目标：2026-Q3）
 **主题：联邦化与生态扩展**
 

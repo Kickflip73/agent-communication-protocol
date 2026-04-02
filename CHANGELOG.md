@@ -7,6 +7,23 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.38.0] — 2026-04-03 (Message Priority)
+
+### Added — priority field in /message:send (v2.38)
+
+- **`priority` field in `POST /message:send`**: optional field, values: `critical | high | normal | low` (default: `normal`)
+  - Invalid values return 400 `ERR_INVALID_REQUEST`
+  - `priority` is embedded in the outgoing `acp.message` frame and transparent to the receiving peer
+- **`GET /recv` sorted by priority**: messages returned in order `critical > high > normal > low`
+  - Sort key: `_PRIORITY_ORDER = {critical:0, high:1, normal:2, low:3}`
+  - Enables Orchestrator→Worker task scheduling based on urgency
+- **`_status.priority_counts`**: new field, counts sent messages per level `{critical, high, normal, low: int}`
+- **`capabilities.message_priority: true`** in AgentCard
+- **`tests/test_message_priority.py`**: 9 tests (MP1–MP9), all pass in ~5.7s
+- **Differentiator**: A2A and ANP have no message priority mechanism; ACP is first lightweight protocol with per-message priority routing
+
+---
+
 ## [2.37.0] — 2026-04-02 (Typing Indicator)
 
 ### Added — acp.typing frame (v2.37)

@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-03-31（v2.19.0：Auto NAT Traversal Integration — POST /peers/connect 自动三级穿透，connection_type 字段，BUG-047 修复）
+> 最后更新：2026-04-03（v2.38.0：Message Priority — priority 字段，/recv 排序，priority_counts，capabilities.message_priority）
 
 ---
 
