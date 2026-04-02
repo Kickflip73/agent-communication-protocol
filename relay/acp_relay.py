@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.39.0"  # v2.39: Long Poll /recv?wait=<seconds>
+VERSION = "2.40.0"  # v2.40: AgentCard limitations field — explicit constraint declarations
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -706,6 +706,7 @@ _status: dict = {
     "peer_count":        0,    # v0.6: active peer count
     "p2p_enabled":       False, # v2.3: set True when P2P WebSocket listener is active
     "limitations":       [],    # v2.20: LimitationObject[] — what this agent CANNOT do (structured capability boundary)
+    "agent_limitations": None,  # v2.40: structured constraint dict (populated after _LIMITATIONS is defined)
     "connection_type":   "host",  # v2.19: NAT traversal result — "host" (default) | "p2p_direct" | "dcutr_direct" | "relay"
 }
 
@@ -1100,6 +1101,21 @@ _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hyp
 _transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
 _limitations: list = []  # v2.20: top-level AgentCard field — LimitationObject[] (structured) or string[] (legacy compat)
 _skill_limitations_overrides: dict = {}  # v2.29: runtime per-skill limitations override {skill_id: LimitationObject[]}
+
+# v2.40: AgentCard limitations — explicit constraint declarations (inspired by A2A IS#1694)
+# Distinct from _limitations (LimitationObject[]) — this is a structured dict of hard numeric/enum limits.
+# All fields are optional; agents may expose a subset.
+_LIMITATIONS = {
+    "max_message_size_bytes":  65536,                               # 64 KB per message
+    "max_recv_queue_size":     1000,                                # recv queue hard cap
+    "max_wait_seconds":        30,                                  # long-poll max wait (v2.39)
+    "max_peers":               100,                                 # concurrent peer connections
+    "supported_message_roles": ["user", "agent", "system"],        # valid role values
+    "supported_priorities":    ["critical", "high", "normal", "low"],  # valid priority values
+}
+# Populate _status["agent_limitations"] now that _LIMITATIONS is defined (v2.40)
+_status["agent_limitations"] = _LIMITATIONS
+
 # LimitationObject schema (v2.20, ref A2A #1694):
 #   kind:      str  — "capability" | "modality" | "scale" | "domain" | "access" | "other"
 #   code:      str  — machine-readable code (e.g. "no_file_access", "image-input-unsupported")
@@ -1437,6 +1453,7 @@ def _make_agent_card(name, skills):
         "transport_modes": list(_transport_modes),          # v2.4: routing modes ["p2p", "relay"] or subset
         "supported_interfaces": _make_supported_interfaces(), # v2.3: declared interface groups
         "limitations": [_parse_limitation(lim) for lim in _limitations],  # v2.20: LimitationObject[] (structured, backward-compat)
+        "agent_limitations": _LIMITATIONS,                   # v2.40: structured constraint dict (numeric/enum limits)
         "skills":      structured_skills,
         "capabilities": {
             "streaming":          True,
@@ -1496,6 +1513,7 @@ def _make_agent_card(name, skills):
             "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
             "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
             "recv_long_poll":           True,                                  # v2.39: GET /recv?wait=<seconds> — long-poll support
+            "agent_limitations":        True,                                  # v2.40: structured agent_limitations dict in AgentCard and /status
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
