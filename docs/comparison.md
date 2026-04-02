@@ -46,10 +46,10 @@ FIPA-ACL (1997) was ahead of its time but:
 
 ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native, minimal, and modern.
 
-## Feature Comparison: ACP v2.1 vs A2A v1.0 vs MCP
+## Feature Comparison: ACP v2.34 vs A2A v1.0 vs MCP
 
-| Feature | ACP v2.1 | A2A v1.0 | MCP |
-|---------|----------|----------|-----|
+| Feature | ACP v2.34 | A2A v1.0 | MCP |
+|---------|-----------|----------|-----|
 | **P2P / zero-server** | ✅ Built-in | ❌ Server required | ❌ Server required |
 | **Single-file deploy** | ✅ One `.py` file | ❌ Full service stack | ❌ Server + client SDK |
 | **Docker image** | ✅ Official `Dockerfile` | ❌ | ❌ |
@@ -63,6 +63,9 @@ ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native,
 | **Ed25519 identity** | ✅ `--identity` flag (v0.8+) | ✅ DID-based | ❌ |
 | **DID identifier** | ✅ `did:acp:` key-based (v1.3) — no registry | ✅ `did:wba:` domain-based — requires DNS | ❌ |
 | **DID Document** | ✅ `GET /.well-known/did.json` (W3C compatible) | ✅ via well-known URL | ❌ |
+| **Offline DID pubkey resolution** | ✅ `GET /identity/pubkey-discovery` — zero-network, pure stdlib (v2.33) | ❌ IS#1672, 213+ comments, no impl | ❌ |
+| **Per-peer trust score** | ✅ `GET /peers/<id>/trust` — 5-dim weighted score (v2.34) | ❌ IS#1628+IS#1672, 219+ comments, no PR | ❌ |
+| **Message idempotency** | ✅ `message_id` 30s TTL dedup window (v2.32) | ❌ | ❌ |
 | **LAN discovery (mDNS)** | ✅ `--advertise-mdns` | ❌ | ❌ |
 | **LAN discovery (port scan)** | ✅ `GET /peers/discover` — no mDNS/multicast needed (v2.1) | ❌ | ❌ |
 | **Offline message queue** | ✅ Auto-buffer on disconnect, flush on reconnect — `GET /queue` (v2.0) | ❌ | ❌ |
@@ -70,7 +73,7 @@ ACP learns from FIPA's concepts (speech acts, performatives) but is JSON-native,
 | **Setup complexity** | `pip install websockets` | OAuth + agent registry | MCP server + config |
 | **Target audience** | Personal/small team | Enterprise | Tool integration |
 
-## ACP v2.1 Unique Differentiators
+## ACP v2.34 Unique Differentiators
 
 ### 1. Scheduling Metadata (Heartbeat/Cron Agents)
 

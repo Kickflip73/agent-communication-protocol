@@ -5,6 +5,97 @@
 
 ---
 
+## v2.34.0 — Per-Peer Structured Trust Score (2026-04-02)
+
+### 新增：`GET /peers/<peer_id>/trust`
+
+**一条 API，将 ACP 所有身份/活跃度数据聚合为单一可操作的信任分。**
+
+响应示例：
+
+```json
+{
+  "peer_id": "tok_abc123",
+  "name": "WorkerAgent",
+  "connected": true,
+  "trust_score": 0.72,
+  "trust_level": "medium",
+  "dimensions": {
+    "card_sig":      {"score": 1.0, "weight": 0.35, "detail": "Ed25519 signature valid"},
+    "did_consistent":{"score": 1.0, "weight": 0.20, "detail": "DID round-trips consistently"},
+    "ping_rtt":      {"score": 0.7, "weight": 0.20, "detail": "RTT 85ms (<200ms bucket)", "last_ping_rtt_ms": 85, "ping_count": 3},
+    "message_hist":  {"score": 0.2, "weight": 0.15, "detail": "2 messages sent", "messages_sent": 2},
+    "vouch":         {"score": 0.0, "weight": 0.10, "detail": "Not in vouch_chain"}
+  },
+  "evaluated_at": "2026-04-02T04:32:11.123456Z"
+}
+```
+
+| 维度 | 权重 | 评分依据 |
+|------|------|---------|
+| `card_sig` | 35% | Ed25519 AgentCard 签名验证通过 → 1.0 |
+| `did_consistent` | 20% | DID 可无损回环推导（pubkey round-trip） → 1.0 |
+| `ping_rtt` | 20% | <50ms→1.0, <200ms→0.7, <500ms→0.4, else→0.1, 无数据→0.0 |
+| `message_hist` | 15% | ≥100→1.0, ≥20→0.7, ≥5→0.4, >0→0.2, 0→0.0 |
+| `vouch` | 10% | Peer DID 出现在 vouch_chain 中 → 1.0 |
+
+`trust_level`：`high`（≥0.75）/ `medium`（≥0.45）/ `low`（<0.45）
+
+```bash
+curl http://127.0.0.1:18001/peers/tok_abc123/trust
+```
+
+**战略背景**：A2A IS#1628（trust signals）和 IS#1672（身份验证）合计 219+ 评论，至今无 PR；ACP v2.34 以可用的实现领先。
+
+---
+
+## v2.33.0 — DID Pubkey 离线发现 (2026-04-02)
+
+### 新增：`GET|POST /identity/pubkey-discovery`
+
+无需任何 HTTP 调用，纯本地将 `did:acp:` 或 `did:key:` 解析为 Ed25519 公钥。
+
+```bash
+# 单条查询
+curl "http://127.0.0.1:18001/identity/pubkey-discovery?did=did:key:z6Mk..."
+
+# 批量查询（最多 50 条）
+curl -X POST http://127.0.0.1:18001/identity/pubkey-discovery \
+  -d '{"dids": ["did:key:z6Mk...", "did:acp:AAAA..."]}'
+```
+
+返回字段：`public_key_b64`、`public_key_hex`、`algorithm`、`consistent`（DID 可回环推导标志）。
+
+**实现**：纯 stdlib，零外部依赖（`_base58_decode` + `_resolve_did_to_pubkey`）。  
+`capabilities.pubkey_discovery: true`  
+测试：PD1–PD8 = **8/8 PASS**
+
+---
+
+## v2.32.0 — 消息幂等去重 (2026-04-02)
+
+### 新增：`message_id` 客户端幂等键 + 30s TTL 去重窗口
+
+在不稳定网络下防止消息重复处理。
+
+```bash
+# 第一次发送 → 正常处理
+curl -X POST http://127.0.0.1:18001/message:send \
+  -d '{"text": "hello", "message_id": "msg-uuid-001"}'
+# → {"ok": true, "deduplicated": false, "server_seq": 42, "message_id": "msg-uuid-001"}
+
+# 30s 内重复发送同一 message_id → 幂等返回
+# → {"ok": true, "deduplicated": true, "server_seq": 42, "message_id": "msg-uuid-001"}
+```
+
+- 适用于 `POST /message:send` 和 `POST /peer/<id>/send`
+- 不传 `message_id` → 不触发去重（向后兼容）
+- 30s TTL 后同一 ID 可重新处理
+- `capabilities.message_dedup: true`  
+- 测试：MD1–MD6 = **6/6 PASS**
+
+---
+
 ## v2.31.0 — Runtime Per-Skill Limitations Update (2026-04-02)
 
 ### 新增：`PATCH /skills/<id>/limitations`
