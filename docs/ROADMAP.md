@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-03（v2.38.0：Message Priority — priority 字段，/recv 排序，priority_counts，capabilities.message_priority）
+> 最后更新：2026-04-03（v2.40.0：AgentCard agent_limitations — 机器可读约束声明）
 
 ---
 
@@ -603,6 +603,23 @@ Client                          Server
 - ✅ **LP1–LP9**：9/9 PASS
 - **修复**：spurious wakeup bug；测试端口冲突（_free_port 同时检查 WS+HTTP 端口）
 - **差异化**：A2A 和 ANP 均无 long-poll 机制；ACP 支持订阅式消息接收，零浪费轮询
+
+---
+
+### ✅ v2.40（完成 — 2026-04-03，开发轮）
+**主题：AgentCard `agent_limitations` — 机器可读约束声明**
+
+- ✅ **`agent_limitations` 对象**：AgentCard 和 `/status` 中新增机器可读约束字段（commit `e3aa6a8`）
+  - `max_message_size_bytes`: 65536（64 KB 单条消息限制）
+  - `max_recv_queue_size`: 1000（接收队列容量上限）
+  - `max_wait_seconds`: 30（long-poll 最大等待，与 v2.39 一致）
+  - `max_peers`: 100（并发 peer 连接上限）
+  - `supported_message_roles`: ["user", "agent", "system"]
+  - `supported_priorities`: ["critical", "high", "normal", "low"]
+- ✅ `capabilities.agent_limitations: true`
+- ✅ **AL1–AL6**：6/6 PASS；回归 18/18 PASS
+- **设计决策**：字段命名为 `agent_limitations`（非 `limitations`），避免与 v2.20 的 `LimitationObject[]` 冲突，两套语义清晰共存
+- **差异化**：受 A2A IS#1694 启发，ACP 是首个实现机器可读约束声明的轻量 Agent 协议
 
 ---
 

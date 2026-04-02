@@ -7,6 +7,26 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.40.0] — 2026-04-03 (AgentCard agent_limitations)
+
+### Added — AgentCard `agent_limitations` field (v2.40)
+
+- **`agent_limitations` object** in AgentCard (`/health`, `/.well-known/acp.json`) and `/status`
+  - Machine-readable constraint declarations for inter-agent negotiation
+  - Fields: `max_message_size_bytes` (65536), `max_recv_queue_size` (1000),
+    `max_wait_seconds` (30), `max_peers` (100),
+    `supported_message_roles` (["user","agent","system"]),
+    `supported_priorities` (["critical","high","normal","low"])
+  - Named `agent_limitations` (not `limitations`) to coexist with v2.20's `LimitationObject[]`
+- **`capabilities.agent_limitations: true`** in AgentCard
+- **`tests/test_agentcard_limitations.py`**: 6 tests (AL1–AL6), all pass
+- **Inspired by**: A2A IS#1694 proposal (AgentCard capability constraints); ACP is first to implement
+- **Design note**: Two limitations concepts coexist:
+  - `limitations[]` — narrative capability descriptions (v2.20, LimitationObject[])
+  - `agent_limitations{}` — numeric/enum constraint constants (v2.40, machine-readable)
+
+---
+
 ## [2.39.0] — 2026-04-03 (Long Poll /recv)
 
 ### Added — Long Poll /recv?wait=<seconds> (v2.39)

@@ -5,6 +5,13 @@
 
 ---
 
+### v2.40 — AgentCard agent_limitations (2026-04-03)
+- `agent_limitations` object in AgentCard + /status: machine-readable constraints
+- Fields: max_message_size_bytes, max_recv_queue_size, max_wait_seconds, max_peers
+- `capabilities.agent_limitations: true`
+
+---
+
 ### v2.39 — Long Poll /recv (2026-04-03)
 - `GET /recv?wait=<N>`: block until message arrives (0-30s timeout)
 - Zero-waste polling for heartbeat Agents
