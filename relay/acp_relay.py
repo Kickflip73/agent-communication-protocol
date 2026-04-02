@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.35.0"  # v2.35: Delivery ACK — acp.delivered frame; capabilities.delivery_ack; per-peer messages_delivered counter
+VERSION = "2.36.0"  # v2.36: Read Receipt — acp.read frame; capabilities.read_receipt; per-peer messages_read counter
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -647,6 +647,7 @@ def _register_peer(peer_id=None, link=None, ws=None, link_token=None, remote_add
         "messages_sent":      existing.get("messages_sent", 0),
         "messages_received":  existing.get("messages_received", 0),
         "messages_delivered": existing.get("messages_delivered", 0),  # v2.35: ack count
+        "messages_read":      existing.get("messages_read", 0),       # v2.36: read receipt count
         "agent_card":         existing.get("agent_card"),
         "remote_address":     remote_address or existing.get("remote_address"),  # v2.16: for dedup
     }
@@ -684,6 +685,8 @@ _status: dict = {
     "messages_received":  0,
     "messages_deduped":   0,
     "messages_delivered": 0,   # v2.35: count of acp.delivered ACKs received from peers
+    "messages_read":      0,       # v2.36: count of acp.read ACKs received from peers
+    "last_received_message_id": None,  # v2.36: track most-recent inbound msg_id for read receipt
     "reconnect_count":    0,
     "tasks_created":     0,
     "started_at":        None,
@@ -1478,6 +1481,7 @@ def _make_agent_card(name, skills):
             "pubkey_discovery":         True,                                  # v2.33: GET|POST /identity/pubkey-discovery — resolve did:acp:/did:key: → Ed25519 pubkey (offline, no HTTP to peer)
             "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
             "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
+            "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -2512,6 +2516,27 @@ def _on_message(raw):
         log.debug(f"[delivery_ack] Received acp.delivered from={_from_ack} acked_id={acked_id}")
         return
 
+    # v2.36: acp.read — peer ACK: they have read/consumed our message; update read counters
+    if msg_type == "acp.read":
+        read_id = msg.get("message_id")
+        _from_read = msg.get("from", "")
+        _status["messages_read"] = _status.get("messages_read", 0) + 1
+        # Credit the sending peer's read counter
+        credited_read = False
+        for pinfo in _peers.values():
+            if (pinfo.get("agent_name") == _from_read
+                    or pinfo.get("name") == _from_read
+                    or pinfo.get("id") == _from_read):
+                pinfo["messages_read"] = pinfo.get("messages_read", 0) + 1
+                credited_read = True
+                break
+        if not credited_read:
+            connected_read = [p for p in _peers.values() if p.get("connected")]
+            if len(connected_read) == 1:
+                connected_read[0]["messages_read"] = connected_read[0].get("messages_read", 0) + 1
+        log.debug(f"[read_receipt] Received acp.read from={_from_read} read_id={read_id}")
+        return
+
     # Business message — idempotency check
     if not _check_and_record_message_id(message_id):
         return
@@ -2584,6 +2609,10 @@ def _on_message(raw):
             "parts":      msg["parts"],
             "task_id":    incoming_task_id,
         })
+        # v2.36: track last received message_id for read receipt (sent on next outbound message)
+        if message_id:
+            _status["last_received_message_id"] = message_id
+
         # v2.35: send acp.delivered ACK back to sender via WebSocket
         if message_id:
             _ack_frame = json.dumps({
@@ -3435,6 +3464,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "messages_sent":      info.get("messages_sent", 0),
                     "messages_received":  info.get("messages_received", 0),
                     "messages_delivered": info.get("messages_delivered", 0),  # v2.35: delivery ACK count
+                    "messages_read":      info.get("messages_read", 0),       # v2.36: read receipt count
                     "agent_card":         info.get("agent_card"),
                     "last_ping_rtt_ms":   info.get("last_ping_rtt_ms"),   # v2.25: RTT from last /ping
                     "last_ping_at":     info.get("last_ping_at"),        # v2.25: ISO timestamp of last ping
@@ -4841,6 +4871,35 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     # v2.32: store server_seq in dedup cache so replay returns it
                     if body.get("message_id"):
                         _http_dedup_record_seq(message_id, seq)
+
+                    # v2.36: send acp.read receipt — signal to peer that we consumed their last message
+                    _last_recv_id = _status.get("last_received_message_id")
+                    if _last_recv_id:
+                        _read_frame = json.dumps({
+                            "type":       "acp.read",
+                            "message_id": _last_recv_id,
+                            "from":       _status.get("agent_name", "ACP-Agent"),
+                            "ts":         _now(),
+                        }, ensure_ascii=False)
+                        _read_ws = None
+                        _target_pid = _req_peer_id
+                        if _target_pid and _target_pid in _peers:
+                            _read_ws = _peers[_target_pid].get("ws")
+                        if _read_ws is None:
+                            _conn_peers = [p for p in _peers.values() if p.get("connected") and p.get("ws")]
+                            if _conn_peers:
+                                _read_ws = _conn_peers[0]["ws"]
+                        if _read_ws and _loop:
+                            try:
+                                asyncio.run_coroutine_threadsafe(
+                                    _read_ws.send(_read_frame), _loop
+                                ).result(timeout=3)
+                                # Clear after sending so we don't repeat the same read receipt
+                                _status["last_received_message_id"] = None
+                                log.debug(f"[read_receipt] Sent acp.read for {_last_recv_id}")
+                            except Exception as _re:
+                                log.debug(f"[read_receipt] Failed to send acp.read: {_re}")
+
                     self._json({"ok": True, "message_id": message_id, "server_seq": seq, "task": task})
 
             except ConnectionError as e:
