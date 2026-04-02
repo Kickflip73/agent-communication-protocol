@@ -70,7 +70,8 @@ def _start_relay(ws_port, http_port, name="PingTest"):
     proc = subprocess.Popen(
         [sys.executable, RELAY_SCRIPT,
          "--port", str(ws_port),
-         "--name", name],
+         "--name", name,
+         "--local-only"],   # BUG-031 / v2.35: skip public-IP lookup; generate 127.0.0.1 link immediately
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
