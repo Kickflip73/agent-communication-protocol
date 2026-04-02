@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.33.0"  # v2.33: DID pubkey discovery — GET|POST /identity/pubkey-discovery resolves did:acp:/did:key: to Ed25519 pubkey offline (ref A2A IS#1672)
+VERSION = "2.34.0"  # v2.34: GET /peers/<id>/trust — structured per-peer trust score (card_sig + ping RTT + vouch + message history)
 
 # ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
 # Import relay/identity.py for standalone verify helpers.
@@ -1474,6 +1474,7 @@ def _make_agent_card(name, skills):
             "error_failed_msg_id":      True,                                  # v2.30: failed_message_id in error response (ref ANP failed_msg_id)
             "message_dedup":            True,                                  # v2.32: 30s TTL dedup window on /message:send and /peer/<id>/send
             "pubkey_discovery":         True,                                  # v2.33: GET|POST /identity/pubkey-discovery — resolve did:acp:/did:key: → Ed25519 pubkey (offline, no HTTP to peer)
+            "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -1513,6 +1514,7 @@ def _make_agent_card(name, skills):
             "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
             "peer_card":               "/peers/{peer_id}/card",      # v2.24: GET cached AgentCard for peer
             "peer_ping":               "/peers/{peer_id}/ping",      # v2.25: POST liveness probe + RTT
+            "peer_trust":              "/peers/{peer_id}/trust",     # v2.34: GET structured trust score for peer
             "peers_paginated":         "/peers?limit=&offset=&filter=",  # v2.27: paginated peer list
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
@@ -3439,6 +3441,135 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "connected": info.get("connected", False),
                     "agent_card": card,
                     "card_available": card is not None,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/{peer_id}/trust — structured per-peer trust score (v2.34) ──
+        elif p.startswith("/peers/") and p.endswith("/trust") and p.count("/") == 3:
+            """
+            Return a structured trust assessment for the specified peer.
+
+            Score dimensions (each 0.0–1.0):
+              card_sig      — peer AgentCard signature verified (Ed25519)
+              did_consistent — DID in card is consistent with public key
+              ping_rtt      — liveness: <50ms→1.0, <200ms→0.7, <500ms→0.4, else→0.1 (None→0.0)
+              message_hist  — message volume: >100→1.0, >20→0.7, >5→0.4, >0→0.2, 0→0.0
+              vouch         — at least one vouch for peer's DID in _vouch_chain
+
+            overall = weighted mean of dimensions with weights:
+              card_sig×0.35, did_consistent×0.20, ping_rtt×0.20, message_hist×0.15, vouch×0.10
+
+            Response 200: {ok, peer_id, name, connected, trust_score, dimensions, evaluated_at}
+            Response 404: peer not found
+            """
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+
+                info = _peers[peer_id]
+
+                # ── Dimension 1: card_sig ─────────────────────────────────────
+                vr = info.get("card_verification") or {}
+                if not vr and peer_id in _peers:
+                    # fallback: re-run if AgentCard available
+                    card_obj = info.get("agent_card")
+                    if card_obj and _ed25519_private:
+                        vr = _verify_agent_card(card_obj) if callable(globals().get("_verify_agent_card")) else {}
+                card_sig_score      = 1.0 if vr.get("valid") else 0.0
+                did_consistent_score= 1.0 if vr.get("did_consistent") else (0.5 if vr.get("valid") else 0.0)
+
+                # ── Dimension 2: ping RTT ─────────────────────────────────────
+                rtt = info.get("last_ping_rtt_ms")
+                if rtt is None:
+                    ping_score = 0.0
+                elif rtt < 50:
+                    ping_score = 1.0
+                elif rtt < 200:
+                    ping_score = 0.7
+                elif rtt < 500:
+                    ping_score = 0.4
+                else:
+                    ping_score = 0.1
+
+                # ── Dimension 3: message history ─────────────────────────────
+                msgs = info.get("messages_sent", 0)
+                if msgs >= 100:
+                    msg_score = 1.0
+                elif msgs >= 20:
+                    msg_score = 0.7
+                elif msgs >= 5:
+                    msg_score = 0.4
+                elif msgs > 0:
+                    msg_score = 0.2
+                else:
+                    msg_score = 0.0
+
+                # ── Dimension 4: vouch chain ──────────────────────────────────
+                peer_did = None
+                card_obj2 = info.get("agent_card")
+                if isinstance(card_obj2, dict):
+                    peer_did = (card_obj2.get("identity") or {}).get("did")
+                vouch_score = 0.0
+                if peer_did and _vouch_chain:
+                    for v in _vouch_chain:
+                        if isinstance(v, dict) and v.get("vouched_did") == peer_did:
+                            vouch_score = 1.0
+                            break
+
+                # ── Weighted overall score ────────────────────────────────────
+                weights = {"card_sig": 0.35, "did_consistent": 0.20,
+                           "ping_rtt": 0.20, "message_hist": 0.15, "vouch": 0.10}
+                raw_scores = {"card_sig": card_sig_score, "did_consistent": did_consistent_score,
+                              "ping_rtt": ping_score, "message_hist": msg_score, "vouch": vouch_score}
+                overall = sum(raw_scores[k] * weights[k] for k in weights)
+
+                dimensions = {
+                    "card_sig": {
+                        "score": round(card_sig_score, 3),
+                        "weight": weights["card_sig"],
+                        "detail": vr.get("error") or ("verified" if card_sig_score == 1.0 else "not verified"),
+                    },
+                    "did_consistent": {
+                        "score": round(did_consistent_score, 3),
+                        "weight": weights["did_consistent"],
+                        "detail": "DID matches public key" if did_consistent_score == 1.0 else "DID mismatch or unavailable",
+                    },
+                    "ping_rtt": {
+                        "score": round(ping_score, 3),
+                        "weight": weights["ping_rtt"],
+                        "detail": f"{rtt:.1f}ms" if rtt is not None else "no ping data",
+                        "last_ping_rtt_ms": rtt,
+                        "ping_count": info.get("ping_count", 0),
+                    },
+                    "message_hist": {
+                        "score": round(msg_score, 3),
+                        "weight": weights["message_hist"],
+                        "detail": f"{msgs} messages sent",
+                        "messages_sent": msgs,
+                    },
+                    "vouch": {
+                        "score": round(vouch_score, 3),
+                        "weight": weights["vouch"],
+                        "detail": f"vouched by {peer_did}" if vouch_score == 1.0 else "no vouch found",
+                        "peer_did": peer_did,
+                    },
+                }
+
+                self._json({
+                    "ok":           True,
+                    "peer_id":      peer_id,
+                    "name":         info.get("name"),
+                    "connected":    info.get("connected", False),
+                    "trust_score":  round(overall, 4),
+                    "trust_level":  ("high" if overall >= 0.75 else
+                                     "medium" if overall >= 0.45 else
+                                     "low"),
+                    "dimensions":   dimensions,
+                    "evaluated_at": _now(),
                 })
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
