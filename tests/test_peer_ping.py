@@ -136,21 +136,28 @@ def relay_pair():
     alpha = _start_relay(a_ws, a_http, "Ping-Alpha")
     assert _wait_http(a_http), "Alpha relay did not start"
 
-    # Wait for Alpha to generate its token (needs public-IP detection or local fallback)
-    # We'll extract from stdout — but since stdout is drained, poll /status link field
+    # Wait for Alpha to generate its token; always rewrite to 127.0.0.1 for local P2P
+    # (public-IP link is useless inside the sandbox — BUG-031 fix)
     alpha_link = None
-    for _ in range(120):  # up to 60s
+    for _ in range(30):  # up to 15s (relay generates link in <3s in practice)
         data, code = _http(a_http, "/status")
         if code == 200 and data.get("link"):
-            alpha_link = data["link"]
+            # Extract token from link and build local link to bypass sandbox NAT
+            raw_link = data["link"]  # e.g. acp://1.2.3.4:PORT/tok_xxx
+            token = raw_link.split("/")[-1] if "/" in raw_link else None
+            if token:
+                alpha_link = f"acp://127.0.0.1:{a_ws}/{token}"
+            else:
+                alpha_link = raw_link
             break
         time.sleep(0.5)
 
     if not alpha_link:
-        # Fallback: extract token from /status session_id or use local WS address
+        # Fallback: use session_id or placeholder token with local address
         data, _ = _http(a_http, "/status")
-        # Build local-only link using ws port
-        token = data.get("session_id") or "test_tok"
+        token = (data.get("session_id") or
+                 (data.get("link", "").split("/")[-1] if data.get("link") else None) or
+                 "test_tok")
         alpha_link = f"acp://127.0.0.1:{a_ws}/{token}"
 
     # Start Beta as guest joining Alpha

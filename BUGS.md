@@ -1398,3 +1398,25 @@ HTTP server `RemoteDisconnected`（与 BUG-030 同类根因）。
 
 **优先级**: P2（测试脚本 bug，核心功能 /message:send peer_id 校验本身正确）
 **状态**: 🟡 部分修复（scenario_b_team.py 逻辑已修复；relay 并发稳定性待 BUG-030 方向解决）
+
+---
+
+### BUG-031 🟡 P2 — test_peer_ping.py：短 timeout (<60s) 导致 fixture 被杀
+
+**发现日期**: 2026-04-02
+**场景**: tests/test_peer_ping.py relay_pair fixture
+**描述**: `relay_pair` fixture 内有 120×0.5s=60s 的轮询窗口等待 Alpha relay 生成 link。
+当 pytest 以 `--timeout=25`（或更短）运行时，fixture setup 超时被 SIGTERM 杀死，
+导致 7/10 用例 ERROR（而非 FAIL）。以 `--timeout=90` 运行时 10/10 全通过。
+
+**根因**: fixture 未设置 `timeout` marker，依赖全局 timeout 不超过 60s。
+
+**影响**: CI 如果使用短 timeout 配置会误报大量错误；relay 代码本身无 bug。
+
+**修复方向**:
+1. `pyproject.toml` 中添加 `timeout = 90` 作为默认值，或
+2. 在 relay_pair fixture 上加 `@pytest.mark.timeout(90)` 装饰器，或
+3. 将 fixture 内轮询窗口缩短为 20×0.5s=10s（因实测 relay 3s 内有 link）
+
+**状态**: 🟡 已记录，建议修复（不影响功能，影响 CI 可靠性）
+
