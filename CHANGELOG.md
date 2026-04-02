@@ -7,6 +7,26 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.39.0] — 2026-04-03 (Long Poll /recv)
+
+### Added — Long Poll /recv?wait=<seconds> (v2.39)
+
+- **`GET /recv?wait=<seconds>`**: long-poll support — when the receive queue is empty, the request hangs until a message arrives or the timeout expires
+  - `wait` parameter: float seconds, clamped to `[0, 30]`; default `0` (backward compatible, immediate return)
+  - On timeout: returns `{"messages": [], "count": 0, "remaining": 0, "timed_out": true}`
+  - On message: returns normally with `"timed_out": false`
+  - Uses existing `_sse_notify` threading.Event infrastructure (BUG-009 fix)
+  - Deadline loop design prevents spurious wakeup false-positives
+- **`capabilities.recv_long_poll: true`** in AgentCard
+- **`tests/test_recv_long_poll.py`**: 9 tests (LP1–LP9), all pass
+  - LP5: wake-on-message test — long-poll wakes early when message arrives mid-wait
+  - LP6: timeout test — returns `timed_out: true` after wait expires
+  - LP7/LP8: clamping and invalid input graceful degradation
+- **Differentiator**: A2A and ANP have no long-poll mechanism; polling agents must repeatedly call `/recv`; with long-poll, agents can subscribe efficiently with zero wasted requests
+- **Also fixed**: spurious wakeup bug (deadline loop); test port conflict (_free_port() now checks both WS and HTTP ports)
+
+---
+
 ## [2.38.0] — 2026-04-03 (Message Priority)
 
 ### Added — priority field in /message:send (v2.38)

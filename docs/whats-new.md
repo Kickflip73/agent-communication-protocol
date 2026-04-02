@@ -1,7 +1,14 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-04-02
+> Last updated: 2026-04-03
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+### v2.39 — Long Poll /recv (2026-04-03)
+- `GET /recv?wait=<N>`: block until message arrives (0-30s timeout)
+- Zero-waste polling for heartbeat Agents
+- `capabilities.recv_long_poll: true`
 
 ---
 

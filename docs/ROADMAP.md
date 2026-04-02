@@ -579,6 +579,33 @@ Client                          Server
 
 ---
 
+### ✅ v2.38（完成 — 2026-04-03，开发轮）
+**主题：Message Priority — 消息优先级路由**
+
+- ✅ **`priority` 字段**：`POST /message:send` 支持 `critical | high | normal | low`（默认 `normal`）
+- ✅ **`GET /recv` 优先级排序**：按 `critical > high > normal > low` 返回消息
+- ✅ `_status.priority_counts`：统计各级别已发送消息数
+- ✅ `capabilities.message_priority: true`
+- ✅ **MP1–MP9**：9/9 PASS（~5.7s）
+- **差异化**：A2A 和 ANP 均无消息优先级机制；ACP 是首个支持 per-message 优先级路由的轻量协议
+
+---
+
+### ✅ v2.39（完成 — 2026-04-03，开发轮）
+**主题：Long Poll /recv — 订阅式消息接收**
+
+- ✅ **`GET /recv?wait=<seconds>`**：长轮询端点（commit `7fbf469`）
+  - 队列为空时挂起等待，有消息即刻返回；`wait` 参数 0-30s，默认 0
+  - 超时返回 `{timed_out: true}`；有消息返回 `{timed_out: false}`
+  - 使用 `_sse_notify` threading.Event 基础设施（零新开销）
+  - Deadline 循环防止 spurious wakeup 误判
+- ✅ `capabilities.recv_long_poll: true`
+- ✅ **LP1–LP9**：9/9 PASS
+- **修复**：spurious wakeup bug；测试端口冲突（_free_port 同时检查 WS+HTTP 端口）
+- **差异化**：A2A 和 ANP 均无 long-poll 机制；ACP 支持订阅式消息接收，零浪费轮询
+
+---
+
 ## 核心差异化
 
 | 维度 | A2A（企业级） | ANP（去中心化） | **ACP（个人/团队）** |
