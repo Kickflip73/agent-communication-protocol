@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.45.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.46.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -523,6 +523,7 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.39** | ✅ | **Long Poll `/recv`** — `GET /recv?wait=<seconds>`（0-30s）长轮询；队列空时挂起，有消息即返；超时返 `{timed_out:true}`；`capabilities.recv_long_poll: true`；LP1-9 = 9/9 |
 | **v2.40** | ✅ | **`agent_limitations` 机器可读约束** — AgentCard + `/status` 新增 `agent_limitations` 对象（`max_message_size_bytes`/`max_recv_queue_size`/`max_wait_seconds`/`max_peers`/`supported_message_roles`/`supported_priorities`）；`capabilities.agent_limitations: true`；AL1-6 = 6/6 |
 | **v2.41** | ✅ | **`GET /skills` OpenAPI 3.1 spec** — `docs/openapi-skills.yaml`（`SkillsResponse`/`Skill` Schema + 示例）；`AgentCard.skills_schema_url`；`GET /docs/openapi-skills.yaml` CORS 静态服务；`capabilities.skills_openapi_spec: true`；SO1-5 = 5/5 |
+| **v2.46** | ✅ | **AgentCard `capabilities.groups`** — 5 分组结构（messaging/tasks/identity/transport/discovery）与旧扁平字段并列；`_build_capabilities_groups()` 自动生成；`GET /status` 同步返回；向后兼容；CG1-8 = 8/8 |
 | **v2.45** | ✅ | **`GET /tasks` A2A v1.0 对齐分页** — `page_size`（默认20，最大100，自动 clamp）、`after`（keyset 游标，`task_id` exclusive）、`status` 多值逗号分隔过滤；响应新增 `total`/`has_more`/`next_cursor`；`capabilities.tasks_pagination: true`；向后兼容（无参数行为不变）；TP1-8 = 8/8 |
 
 ---

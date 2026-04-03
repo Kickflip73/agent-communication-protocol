@@ -355,5 +355,58 @@ Server-generated IDs require a round-trip before the client knows the ID. Client
 
 ---
 
+---
+
+## Appendix A. AgentCard `capabilities.groups` (v2.46+)
+
+Since v2.46, `capabilities` includes an optional `groups` object that organises all capability flags into named categories. The flat fields remain for backward compatibility.
+
+```json
+{
+  "capabilities": {
+    "tasks_pagination": true,
+    "message_priority": true,
+    "groups": {
+      "messaging": {
+        "priority":     true,
+        "long_poll":    true,
+        "history":      true,
+        "broadcast":    true,
+        "delivery_ack": true
+      },
+      "tasks": {
+        "pagination":    true,
+        "filtering":     true,
+        "state_machine": true
+      },
+      "identity": {
+        "hmac":           true,
+        "ed25519":        true,
+        "jwks":           true,
+        "card_signature": true
+      },
+      "transport": {
+        "sse":            true,
+        "http2":          false,
+        "p2p_direct":     true,
+        "dcutr":          true,
+        "relay_fallback": true
+      },
+      "discovery": {
+        "skills":               true,
+        "skills_openapi_spec":  true,
+        "limitations":          true,
+        "availability_schedule": true
+      }
+    }
+  }
+}
+```
+
+Consumers SHOULD prefer `capabilities.groups` for structured capability negotiation.  
+Producers MUST keep flat fields populated for backward compatibility with older clients.
+
+---
+
 *ACP v0.5 · https://github.com/Kickflip73/agent-communication-protocol*
 
