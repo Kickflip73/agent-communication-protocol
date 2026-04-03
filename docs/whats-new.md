@@ -5,6 +5,14 @@
 
 ---
 
+### v2.41 — GET /skills OpenAPI 3.1 spec (2026-04-03)
+- `docs/openapi-skills.yaml`: OpenAPI 3.1 spec for /skills endpoint
+- `AgentCard.skills_schema_url`: machine-readable schema reference
+- `GET /docs/openapi-skills.yaml`: CORS-enabled static serving
+- `capabilities.skills_openapi_spec: true`
+
+---
+
 ### v2.40 — AgentCard agent_limitations (2026-04-03)
 - `agent_limitations` object in AgentCard + /status: machine-readable constraints
 - Fields: max_message_size_bytes, max_recv_queue_size, max_wait_seconds, max_peers

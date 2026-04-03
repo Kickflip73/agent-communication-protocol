@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-03（v2.40.0：AgentCard agent_limitations — 机器可读约束声明）
+> 最后更新：2026-04-03（v2.41.0：GET /skills OpenAPI 3.1 spec — 标准化技能发现接口）
 
 ---
 
@@ -620,6 +620,21 @@ Client                          Server
 - ✅ **AL1–AL6**：6/6 PASS；回归 18/18 PASS
 - **设计决策**：字段命名为 `agent_limitations`（非 `limitations`），避免与 v2.20 的 `LimitationObject[]` 冲突，两套语义清晰共存
 - **差异化**：受 A2A IS#1694 启发，ACP 是首个实现机器可读约束声明的轻量 Agent 协议
+
+---
+
+### ✅ v2.41（完成 — 2026-04-03，开发轮）
+**主题：`GET /skills` OpenAPI 3.1 spec — 标准化技能发现接口**
+
+- ✅ **`docs/openapi-skills.yaml`**：OpenAPI 3.1 完整规范（commit `6697919`）
+  - `SkillsResponse` 和 `Skill` 完整 Schema
+  - 查询参数：`filter`（名称过滤）、`format`（full/names）
+  - 内置完整示例
+- ✅ **`AgentCard.skills_schema_url`**：`/docs/openapi-skills.yaml`
+- ✅ **`GET /docs/openapi-skills.yaml`**：CORS 开放的静态文件服务端点
+- ✅ `capabilities.skills_openapi_spec: true`
+- ✅ **SO1–SO5**：5/5 PASS；回归 15/15 PASS
+- **战略意义**：为 A2A IS#1655 技术布道提供可引用的标准化 Schema，ACP 是首个提供 OpenAPI spec 的轻量 Agent 协议
 
 ---
 

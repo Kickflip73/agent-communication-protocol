@@ -7,6 +7,24 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.41.0] — 2026-04-03 (GET /skills OpenAPI 3.1 spec)
+
+### Added — `GET /skills` OpenAPI 3.1 spec (v2.41)
+
+- **`docs/openapi-skills.yaml`**: OpenAPI 3.1 specification for the `/skills` endpoint
+  - Full schema for `SkillsResponse` and `Skill` objects
+  - Query parameters: `filter` (name substring), `format` (full/names)
+  - Complete example included
+  - ACP's reference implementation answering A2A IS#1655 (QuerySkill proposal)
+- **`AgentCard.skills_schema_url`**: Points to `/docs/openapi-skills.yaml`
+- **`GET /docs/openapi-skills.yaml`**: Static file serving endpoint (CORS-enabled)
+- **`capabilities.skills_openapi_spec: true`** in AgentCard
+- **`tests/test_skills_openapi.py`**: 5 tests (SO1–SO5), all pass
+- **Strategic note**: Enables technical evangelism at A2A IS#1655 with a standardized,
+  machine-readable schema reference
+
+---
+
 ## [2.40.0] — 2026-04-03 (AgentCard agent_limitations)
 
 ### Added — AgentCard `agent_limitations` field (v2.40)
