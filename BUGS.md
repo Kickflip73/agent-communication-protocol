@@ -1420,3 +1420,47 @@ HTTP server `RemoteDisconnected`（与 BUG-030 同类根因）。
 
 **状态**: 🟡 已记录，建议修复（不影响功能，影响 CI 可靠性）
 
+
+---
+
+### BUG-050 🟡 P1 — `test_http2_transport`：relay h2c 端口无响应，HTTP/2 transport 不可用
+
+**发现日期**: 2026-04-03
+**场景**: tests/test_http2_transport.py — H2/H3/H4/H6 场景
+**描述**:
+启动 relay 时带 `--http2` 参数，使用 h2 库发起 h2c（HTTP/2 cleartext）连接，
+所有 h2c 请求（GET /status、GET /.well-known/acp.json、POST /tasks）返回 None，
+即 TCP 连接建立失败或 relay 未正确处理 HTTP/2 升级协议。
+
+**失败列表**:
+- H2  h2c /status → 200  (got None)
+- H2  capabilities.http2 == true  (empty body)
+- H3  h2c /status → 200
+- H4  h2c POST /tasks → 201  (got None)
+- H6  h2c /.well-known/acp.json → 200  (got None)
+
+**通过项**:
+- H1 HTTP/1.1 baseline ✅（relay 基础 HTTP 正常）
+- H5 HTTP/1.1 不声明 http2 能力 ✅
+
+**根因初步分析**:
+relay 使用 Python 标准库 http.server 处理 HTTP，不原生支持 HTTP/2；
+`--http2` 参数可能仅设置 capabilities 字段，未实际启用 h2c 协议栈。
+h2 库需要对端服务器主动处理 HTTP/2 帧，单纯的 http.server 无法响应。
+
+**复现步骤**:
+```bash
+pip install pytest-asyncio h2
+python3 -m pytest tests/test_http2_transport.py -v
+```
+
+**影响范围**: HTTP/2 transport 功能完全不可用；对 HTTP/1.1 用户无影响
+
+**修复方向**:
+1. 集成 hypercorn 或 h2server 作为 HTTP/2 后端（替换 http.server）
+2. 或将 test_http2_transport 中 h2c 场景标记为 `pytest.mark.skip`（待 HTTP/2 实现后启用）
+3. 短期 workaround：skip + TODO 注释，不阻断 CI
+
+**优先级**: P1（HTTP/2 transport 是 spec 中声明的能力，实际不工作）
+**状态**: ❌ 未修复（2026-04-03 发现）
+
