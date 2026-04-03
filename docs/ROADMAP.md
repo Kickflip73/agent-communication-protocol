@@ -661,3 +661,24 @@ IBM:  https://github.com/i-am-bee/acp
 MCP:  https://github.com/modelcontextprotocol/specification
 APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 候选参考）
 ```
+
+---
+
+### 🔮 v0.9（规划中，目标：2026-06）
+**主题：协议健壮性 + 开发者体验**
+
+> 来源：2026-04-03 研究轮 A2A v1.0 扫描 Action Items + 技术债清理
+
+| 特性 | 优先级 | 状态 | Commit |
+|------|--------|------|--------|
+| `datetime.utcnow()` → timezone-aware 迁移（Python 3.12 废弃警告） | P1 | ⏳ 待开发 | — |
+| `GET /tasks` 分页参数（`page_size` / `after` / `status` 过滤对齐 A2A v1.0） | P1 | ⏳ 待开发 | — |
+| AgentCard `capabilities` 字段重组（对齐 A2A v1.0 `AgentCapabilities` 结构） | P2 | ⏳ 待开发 | — |
+| spec/transport-spec.md 独立文档（L1 传输层从 core spec 正式分离） | P2 | ⏳ 待开发 | — |
+| OAuth 2.0 PKCE 评估文档（ACP 轻量替代方案分析） | P3 | ⏳ 待开发 | — |
+
+**设计约束**（不动摇）：
+- 不引入中心注册表
+- 不强制 OAuth（评估文档只是分析，不实现）
+- 不引入 gRPC（保持 HTTP/WS 兼容性）
+- `datetime` 迁移必须 backward compatible（不改 API 输出格式）
