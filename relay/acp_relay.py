@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.40.0"  # v2.40: AgentCard limitations field — explicit constraint declarations
+VERSION = "2.41.0"  # v2.41: GET /skills OpenAPI spec + skills_schema_url in AgentCard
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1454,6 +1454,7 @@ def _make_agent_card(name, skills):
         "supported_interfaces": _make_supported_interfaces(), # v2.3: declared interface groups
         "limitations": [_parse_limitation(lim) for lim in _limitations],  # v2.20: LimitationObject[] (structured, backward-compat)
         "agent_limitations": _LIMITATIONS,                   # v2.40: structured constraint dict (numeric/enum limits)
+        "skills_schema_url": "/docs/openapi-skills.yaml",   # v2.41: skills OpenAPI spec
         "skills":      structured_skills,
         "capabilities": {
             "streaming":          True,
@@ -1514,6 +1515,7 @@ def _make_agent_card(name, skills):
             "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
             "recv_long_poll":           True,                                  # v2.39: GET /recv?wait=<seconds> — long-poll support
             "agent_limitations":        True,                                  # v2.40: structured agent_limitations dict in AgentCard and /status
+            "skills_openapi_spec":      True,                                  # v2.41: GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -3944,6 +3946,20 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "has_more":    has_more,
                 "next_offset": next_offset,
             })
+
+        # ── GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills (v2.41) ──
+        elif p == "/docs/openapi-skills.yaml":
+            spec_path = os.path.join(os.path.dirname(__file__), "..", "docs", "openapi-skills.yaml")
+            if os.path.exists(spec_path):
+                with open(spec_path, "r") as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/yaml")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(content.encode())
+            else:
+                self._error(404, "openapi-skills.yaml not found")
 
         # ── GET /offline-queue — inspect offline delivery buffer (v2.0) ─────────
         elif p == "/offline-queue":
