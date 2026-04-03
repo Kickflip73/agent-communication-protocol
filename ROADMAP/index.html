@@ -1529,6 +1529,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="研究信息源（贾维斯每周自动扫描）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#v092026-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔮 v0.9（规划中，目标：2026-06）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -3169,6 +3186,59 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>MCP:  https://github.com/modelcontextprotocol/specification
 </span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 候选参考）
 </span></code></pre></div>
+<hr />
+<h3 id="v092026-06">🔮 v0.9（规划中，目标：2026-06）<a class="headerlink" href="#v092026-06" title="Permanent link">&para;</a></h3>
+<p><strong>主题：协议健壮性 + 开发者体验</strong></p>
+<blockquote>
+<p>来源：2026-04-03 研究轮 A2A v1.0 扫描 Action Items + 技术债清理</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>优先级</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>datetime.utcnow()</code> → timezone-aware 迁移（Python 3.12 废弃警告）</td>
+<td>P1</td>
+<td>⏳ 待开发</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>GET /tasks</code> 分页参数（<code>page_size</code> / <code>after</code> / <code>status</code> 过滤对齐 A2A v1.0）</td>
+<td>P1</td>
+<td>⏳ 待开发</td>
+<td>—</td>
+</tr>
+<tr>
+<td>AgentCard <code>capabilities</code> 字段重组（对齐 A2A v1.0 <code>AgentCapabilities</code> 结构）</td>
+<td>P2</td>
+<td>⏳ 待开发</td>
+<td>—</td>
+</tr>
+<tr>
+<td>spec/transport-spec.md 独立文档（L1 传输层从 core spec 正式分离）</td>
+<td>P2</td>
+<td>⏳ 待开发</td>
+<td>—</td>
+</tr>
+<tr>
+<td>OAuth 2.0 PKCE 评估文档（ACP 轻量替代方案分析）</td>
+<td>P3</td>
+<td>⏳ 待开发</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>设计约束</strong>（不动摇）：
+- 不引入中心注册表
+- 不强制 OAuth（评估文档只是分析，不实现）
+- 不引入 gRPC（保持 HTTP/WS 兼容性）
+- <code>datetime</code> 迁移必须 backward compatible（不改 API 输出格式）</p>
 
 
 
