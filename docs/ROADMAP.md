@@ -171,8 +171,8 @@ curl http://localhost:7901/discover
 |------|--------|------|--------|
 | Node.js SDK RelayClient（零依赖，TS 类型，19 tests） | P0 | ✅ 已完成 | `fd8c02a` |
 | 兼容性测试套件（tests/compat/，黑盒 HTTP） | P0 | ✅ 已完成 | `98197cf` |
-| Ed25519 可选身份扩展（spec/identity-v0.8.md） | P1 | ⏳ 开发中 | — |
-| 规范文档正式发布（三层架构） | P2 | ⏳ 待开发 | — |
+| Ed25519 可选身份扩展（spec/identity-v0.8.md） | P1 | ✅ 已完成 | f25a00b |
+| 规范文档正式发布（三层架构） | P2 | 🔄 进行中 | — |
 
 **兼容性测试套件（`tests/compat/`）：**
 - `python3 tests/compat/run.py --url http://localhost:7901` — 黑盒合规性验证
