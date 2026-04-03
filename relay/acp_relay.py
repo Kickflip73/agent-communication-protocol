@@ -1516,6 +1516,7 @@ def _make_agent_card(name, skills):
             "recv_long_poll":           True,                                  # v2.39: GET /recv?wait=<seconds> — long-poll support
             "agent_limitations":        True,                                  # v2.40: structured agent_limitations dict in AgentCard and /status
             "skills_openapi_spec":      True,                                  # v2.41: GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills
+            "tasks_pagination":         True,                                  # v0.9: GET /tasks supports page_size/after/multi-status params (A2A v1.0 aligned)
         },
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
@@ -4337,11 +4338,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "has_more":   len(matched) > _ctx_lim,
                     })
 
-        elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2)
+        elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2/v0.9)
             # Query params:
-            #   status=<status>        filter by status (v2.2 alias; state= still accepted)
+            #   status=<status>        filter by status; comma-separated multi-value (v0.9)
+            #                          e.g. status=submitted,working
             #   state=<status>         legacy alias for status
+            #   page_size=<n>          A2A-aligned alias for limit (v0.9, default 20, max 100)
             #   limit=<n>              page size (default 20, max 100; legacy default 50, max 200)
+            #   after=<task_id>        A2A-aligned alias for cursor (v0.9 keyset cursor)
             #   offset=<n>             offset-based page start (v2.2, default 0)
             #   cursor=<task_id>       legacy keyset cursor (exclusive; used when offset absent)
             #   peer_id=<peer_id>      filter by originating peer
@@ -4356,40 +4360,57 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
             # ── Parameter parsing ──────────────────────────────────────────────
             # status= takes precedence over legacy state=
+            # v0.9: supports comma-separated multi-value e.g. status=submitted,working
             status_raw   = qs.get("status", qs.get("state", [None]))[0]
             peer_filter  = qs.get("peer_id",       [None])[0]
             created_after = qs.get("created_after", [None])[0]
             updated_after = qs.get("updated_after", [None])[0]
-            cursor        = qs.get("cursor", [None])[0]
+            # v0.9: `after` is the A2A-aligned alias for `cursor`
+            cursor        = qs.get("after", qs.get("cursor", [None]))[0]
 
             # sort: accept "asc"/"desc" (v2.2) and "created_asc"/"created_desc" (legacy)
             sort_raw   = qs.get("sort", ["desc"])[0]
             sort_order = "created_asc" if sort_raw in ("asc", "created_asc") else "created_desc"
 
-            # offset-based pagination (v2.2): limit default 20, max 100
-            # legacy cursor mode: limit default 50, max 200
+            # offset-based pagination (v2.2): limit/page_size default 20, max 100
+            # legacy cursor/after mode: limit/page_size default 20, max 100
+            # v0.9: page_size is the A2A-aligned alias for limit (default 20, max 100 in all modes)
             use_offset = "offset" in qs
             if use_offset:
                 try:
                     offset = max(0, int(qs.get("offset", ["0"])[0]))
                 except ValueError:
                     offset = 0
+                # page_size takes precedence over limit (v0.9 A2A alignment)
+                _limit_raw = qs.get("page_size", qs.get("limit", ["20"]))[0]
                 try:
-                    limit = min(max(1, int(qs.get("limit", ["20"])[0])), 100)
+                    limit = min(max(1, int(_limit_raw)), 100)
                 except ValueError:
                     limit = 20
             else:
                 offset = 0
+                # v0.9: page_size takes precedence over limit; both default 20, max 100
+                # (legacy cursor mode previously used default 50/max 200; unified to 20/100)
+                _limit_raw = qs.get("page_size", qs.get("limit", ["20"]))[0]
                 try:
-                    limit = min(max(1, int(qs.get("limit", ["50"])[0])), 200)
+                    limit = min(max(1, int(_limit_raw)), 100)
                 except ValueError:
-                    limit = 50
+                    limit = 20
 
-            # Validate status value
-            if status_raw and status_raw not in VALID_STATUSES:
+            # v0.9: parse comma-separated multi-value status filter
+            status_set = set()
+            if status_raw:
+                for s in status_raw.split(","):
+                    s = s.strip()
+                    if s:
+                        status_set.add(s)
+
+            # Validate all status values
+            invalid_statuses = status_set - VALID_STATUSES
+            if invalid_statuses:
                 body, status_code = _err(
                     ERR_INVALID_REQUEST,
-                    f"Invalid status '{status_raw}'. "
+                    f"Invalid status value(s): {', '.join(sorted(invalid_statuses))}. "
                     f"Valid values: {', '.join(sorted(VALID_STATUSES))}",
                     400,
                 )
@@ -4399,8 +4420,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
             # ── Build + filter task list ───────────────────────────────────────
             tasks = list(_tasks.values())
 
-            if status_raw:
-                tasks = [t for t in tasks if t.get("status") == status_raw]
+            if status_set:
+                tasks = [t for t in tasks if t.get("status") in status_set]
             if peer_filter:
                 # BUG-014: peer_id may live at top-level or inside payload
                 tasks = [t for t in tasks if
@@ -4434,7 +4455,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 if next_offset is not None:
                     resp["next_offset"] = next_offset
             else:
-                # Legacy keyset cursor
+                # Cursor/after-based pagination (v0.9 A2A-aligned: `after` param + `next_cursor` response)
                 if cursor and cursor in _tasks:
                     try:
                         cursor_idx = next(i for i, t in enumerate(tasks) if t["id"] == cursor)
@@ -4443,6 +4464,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         tasks = []
                 has_more    = len(tasks) > limit
                 page        = tasks[:limit]
+                # v0.9: next_cursor is always present (null when no more pages)
                 next_cursor = page[-1]["id"] if has_more and page else None
 
                 resp = {
