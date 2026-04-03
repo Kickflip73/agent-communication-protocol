@@ -7,6 +7,25 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.42.0] — 2026-04-03 (Ed25519 Identity v0.8 integration tests)
+
+### Fixed — Identity extension integration tests (v2.42)
+
+- **`POST /debug/inject-peer-card`**: New test-helper HTTP endpoint — injects a peer
+  AgentCard directly into relay `_status["peer_card"]` without requiring an active
+  WebSocket P2P connection. Enables ID1–ID5 to run in sandboxed CI environments.
+- **ID1–ID5 integration tests**: 5 previously SKIP → all 5 now PASS
+  - ID1: AgentCard with `identity` field stored correctly in relay
+  - ID2: Valid Ed25519 signature accepted (HTTP 200/503, not 400)
+  - ID3: Invalid (tampered) signature → 400 `ERR_INVALID_SIGNATURE`
+  - ID4: Stale timestamp (replay attack) → 400 `ERR_REPLAY_DETECTED`
+  - ID5: Unsigned message accepted when identity is optional
+- **Test assertions**: Updated to check `error_code` field (relay's canonical field)
+  with fallback to `error` for backward compatibility
+- **Total**: 16/16 identity tests PASS (11 unit + 5 integration), 0 SKIP
+
+---
+
 ## [2.41.0] — 2026-04-03 (GET /skills OpenAPI 3.1 spec)
 
 ### Added — `GET /skills` OpenAPI 3.1 spec (v2.41)

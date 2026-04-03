@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.41.0"  # v2.41: GET /skills OpenAPI spec + skills_schema_url in AgentCard
+VERSION = "2.42.0"  # v2.42: Ed25519 identity v0.8 integration tests (ID1-ID5)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -5383,6 +5383,23 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "error":      f"no pong received within {requested_timeout}s",
                     }, 408)
 
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /debug/inject-peer-card — test helper: inject peer_card directly ─
+        elif p == "/debug/inject-peer-card":
+            # Test-only endpoint: directly set _status["peer_card"] without a WS connection.
+            # Allows identity integration tests to inject a peer AgentCard via HTTP.
+            try:
+                body = self._read_body()
+                card = body.get("card")
+                if not card or not isinstance(card, dict):
+                    self._json({"ok": False, "error": "card field required"}, 400)
+                    return
+                _status["peer_card"] = card
+                log.info(f"[debug] peer_card injected via /debug/inject-peer-card: "
+                         f"name={card.get('name')} identity={bool(card.get('identity'))}")
+                self._json({"ok": True, "peer_card": card})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 

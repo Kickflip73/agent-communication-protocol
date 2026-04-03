@@ -241,38 +241,45 @@ class TestIdentityIntegration:
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _inject_peer_card(self, http_port: int, public_key_b64url: str):
-        """Inject a peer_card with identity.public_key into the relay via /debug/set-peer-card.
-        
-        If the relay doesn't support /debug endpoints, we inject via the WebSocket 
-        acp.agent_card protocol message using a simple WebSocket client.
-        Fallback: directly set via a temporary /debug endpoint.
+        """Inject a peer_card with identity.public_key into the relay.
+
+        Uses POST /debug/inject-peer-card (HTTP, no WS connection required).
+        Falls back to WebSocket acp.agent_card if the debug endpoint is absent.
         """
-        # The relay stores peer_card in _status["peer_card"].
-        # There's no public HTTP API to set this directly.
-        # We use a WebSocket connection to send an acp.agent_card message,
-        # which the relay processes via _on_message().
-        # Alternatively, test the relay's internal _status injection.
-        # For integration purposes, we'll use the WebSocket approach.
+        card = {
+            "name": "TestPeer",
+            "identity": {
+                "public_key": public_key_b64url,
+                "algorithm":  "Ed25519",
+                "key_id":     _id_mod.make_key_id(public_key_b64url),
+            }
+        }
+
+        # ── Primary: HTTP debug endpoint (v2.42) ──────────────────────────────
+        try:
+            status_code, resp = _post(http_port, "/debug/inject-peer-card", {"card": card})
+            if status_code == 200 and resp.get("ok"):
+                return True
+        except Exception:
+            pass
+
+        # ── Fallback: WebSocket acp.agent_card (requires active P2P link) ─────
         try:
             import websockets
             import asyncio
 
             async def _send_card():
-                # Get the relay's WS link
                 _, status = _get(http_port, "/status")
                 link = status.get("link") or status.get("session_link")
                 if not link:
                     return False
-                # Convert acp:// to ws://
-                ws_url = link.replace("acp://", "ws://")
-                card = {
-                    "name": "TestPeer",
-                    "identity": {
-                        "public_key": public_key_b64url,
-                        "algorithm":  "Ed25519",
-                        "key_id":     _id_mod.make_key_id(public_key_b64url),
-                    }
-                }
+                _link_parts = link.split("/")
+                _token = _link_parts[-1] if _link_parts else None
+                _ws_port = status.get("ws_port")
+                if _token and _ws_port:
+                    ws_url = f"ws://localhost:{_ws_port}/{_token}"
+                else:
+                    ws_url = link.replace("acp://", "ws://")
                 msg = {
                     "type":       "acp.agent_card",
                     "message_id": "card_inject_001",
@@ -287,8 +294,7 @@ class TestIdentityIntegration:
             result = loop.run_until_complete(_send_card())
             loop.close()
             return result
-        except Exception as e:
-            # Fallback: patch via internal debug endpoint (if available)
+        except Exception:
             return False
 
     # ── Test ID1: AgentCard parsing ────────────────────────────────────────────
@@ -349,7 +355,8 @@ class TestIdentityIntegration:
         status_code, resp = _post(http_port, "/message:send", body)
         # Even without a peer connected, the signature check itself should pass
         # (503 = not connected is fine; 400 = invalid_signature is NOT fine)
-        assert status_code != 400 or resp.get("error") not in (
+        err_code = resp.get("error_code") or resp.get("error")
+        assert status_code != 400 or err_code not in (
             "ERR_INVALID_SIGNATURE", "ERR_REPLAY_DETECTED"
         ), f"Valid signature rejected: {resp}"
 
@@ -389,7 +396,8 @@ class TestIdentityIntegration:
         status_code, resp = _post(http_port, "/message:send", body)
 
         assert status_code == 400, f"Expected 400, got {status_code}: {resp}"
-        assert resp.get("error") == "ERR_INVALID_SIGNATURE", (
+        err_code = resp.get("error_code") or resp.get("error")
+        assert err_code == "ERR_INVALID_SIGNATURE", (
             f"Expected ERR_INVALID_SIGNATURE, got: {resp}"
         )
 
@@ -425,7 +433,8 @@ class TestIdentityIntegration:
         status_code, resp = _post(http_port, "/message:send", body)
 
         assert status_code == 400, f"Expected 400, got {status_code}: {resp}"
-        assert resp.get("error") == "ERR_REPLAY_DETECTED", (
+        err_code = resp.get("error_code") or resp.get("error")
+        assert err_code == "ERR_REPLAY_DETECTED", (
             f"Expected ERR_REPLAY_DETECTED, got: {resp}"
         )
 
@@ -452,7 +461,8 @@ class TestIdentityIntegration:
         status_code, resp = _post(http_port, "/message:send", body)
 
         # Should NOT be rejected for missing signature
-        assert status_code != 400 or resp.get("error") not in (
+        err_code = resp.get("error_code") or resp.get("error")
+        assert status_code != 400 or err_code not in (
             "ERR_INVALID_SIGNATURE", "ERR_REPLAY_DETECTED"
         ), f"Unsigned message should not be rejected for identity reasons: {resp}"
         # Accept 200 or 503 (not connected), but not 400 identity error
