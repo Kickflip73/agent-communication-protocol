@@ -7,6 +7,13 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.46.0] — 2026-04-04 (v0.9 AgentCard capabilities groups — structured capability declaration)
+### Added
+- `_build_capabilities_groups()`: 从扁平 capabilities 生成 5 分组结构（messaging/tasks/identity/transport/discovery）
+- `capabilities.groups` 字段加入 AgentCard 和 `/status` 响应，与旧扁平字段并列（向后兼容）
+- `tests/test_capabilities_groups.py`：CG1–CG8 全部 PASS
+- 对齐 A2A v1.0 `AgentCapabilities` 嵌套结构设计理念
+
 ## [2.45.0] — 2026-04-04 (v0.9 GET /tasks pagination — page_size/after/status filter)
 
 ### Added — v0.9 GET /tasks A2A-aligned pagination parameters
