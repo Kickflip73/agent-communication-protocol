@@ -1,0 +1,282 @@
+openapi: "3.1.0"
+info:
+  title: ACP Skills Discovery API
+  version: "2.41.0"
+  description: |
+    ACP (Agent Communication Protocol) Skills Discovery endpoint.
+    Allows agents to programmatically discover what skills a peer agent supports.
+
+    This is ACP's answer to A2A IS#1655 (QuerySkill proposal) —
+    a working implementation that has been live since ACP v2.4.
+
+    Key features:
+    - Full structured skill list with input/output schemas
+    - Tag-based and keyword filtering
+    - Offset-based pagination
+    - Per-skill availability probes (GET /skills/{id}/status)
+    - Runtime limitations overlay (PATCH /skills/{id}/limitations)
+
+paths:
+  /skills:
+    get:
+      summary: List agent skills
+      description: |
+        Returns all skills exposed by this agent.
+        Skills are declared in AgentCard.skills[] and dynamically served here.
+
+        Use this endpoint to:
+        - Discover what tasks this agent can perform
+        - Get input/output schemas for type-safe invocation
+        - Browse examples before sending a message
+        - Filter by tag or keyword for large skill sets
+
+        **Pagination:** Use `limit` and `offset` for large skill sets.
+        Default page size is 50; maximum is 200.
+      operationId: listSkills
+      parameters:
+        - name: tag
+          in: query
+          required: false
+          description: Filter skills by exact tag match
+          schema:
+            type: string
+          example: "text-processing"
+        - name: q
+          in: query
+          required: false
+          description: Keyword search in skill id/name/description (case-insensitive)
+          schema:
+            type: string
+          example: "summarize"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of skills to return (default 50, max 200)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+        - name: offset
+          in: query
+          required: false
+          description: Number of skills to skip for pagination (default 0)
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: has_limitation
+          in: query
+          required: false
+          description: Filter skills that declare a limitation with matching kind or code (v2.28)
+          schema:
+            type: string
+          example: "rate_limited"
+      responses:
+        "200":
+          description: Paginated skill list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillsResponse"
+              example:
+                skills:
+                  - name: "summarize"
+                    description: "Summarize a document or text passage"
+                    input_schema:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        max_words:
+                          type: integer
+                          default: 100
+                    output_schema:
+                      type: object
+                      properties:
+                        summary:
+                          type: string
+                    examples:
+                      - input:
+                          text: "Long document..."
+                          max_words: 50
+                        output:
+                          summary: "Brief summary..."
+                    tags: ["text-processing", "nlp"]
+                    version: "1.0.0"
+                total: 1
+                has_more: false
+                next_offset: null
+        "400":
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "ERR_INVALID_REQUEST"
+                message: "limit must be a non-negative integer"
+
+  /skills/{skill_id}/status:
+    get:
+      summary: Per-skill availability probe
+      description: |
+        Returns the current availability status of a specific skill (v2.29).
+        Useful for checking if a skill is currently operational before invoking it.
+      operationId: getSkillStatus
+      parameters:
+        - name: skill_id
+          in: path
+          required: true
+          description: The skill identifier (matches `id` or `name` field)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill availability status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillStatusResponse"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    SkillsResponse:
+      type: object
+      required: [skills, total, has_more]
+      properties:
+        skills:
+          type: array
+          description: List of skills for the current page
+          items:
+            $ref: "#/components/schemas/Skill"
+        total:
+          type: integer
+          description: Total number of skills matching the filter (before pagination)
+        has_more:
+          type: boolean
+          description: Whether there are more skills beyond the current page
+        next_offset:
+          type: integer
+          nullable: true
+          description: Offset to use for the next page, or null if this is the last page
+
+    Skill:
+      type: object
+      required: [name]
+      properties:
+        id:
+          type: string
+          description: Unique skill identifier (stable, machine-readable)
+        name:
+          type: string
+          description: Human-readable skill name
+        description:
+          type: string
+          description: Human-readable description of what this skill does
+        input_schema:
+          type: object
+          description: JSON Schema for the input message content
+          additionalProperties: true
+        output_schema:
+          type: object
+          description: JSON Schema for the expected output message content
+          additionalProperties: true
+        examples:
+          type: array
+          description: Example input/output pairs for this skill
+          items:
+            $ref: "#/components/schemas/SkillExample"
+        tags:
+          type: array
+          description: Skill category tags for filtering
+          items:
+            type: string
+        version:
+          type: string
+          description: Skill version string (semver recommended)
+        limitations:
+          type: array
+          description: Per-skill limitations (v2.28, ref A2A #1694)
+          items:
+            $ref: "#/components/schemas/LimitationObject"
+        availability:
+          type: object
+          description: Skill availability metadata
+          properties:
+            mode:
+              type: string
+              enum: [persistent, on_demand, scheduled]
+            has_schedule:
+              type: boolean
+
+    SkillExample:
+      type: object
+      properties:
+        input:
+          type: object
+          description: Example input payload
+          additionalProperties: true
+        output:
+          type: object
+          description: Example output payload
+          additionalProperties: true
+
+    LimitationObject:
+      type: object
+      description: Structured constraint declaration for a skill (v2.20+)
+      properties:
+        kind:
+          type: string
+          description: Limitation category (e.g., rate_limited, context_window, file_size)
+        code:
+          type: string
+          description: Machine-readable limitation code
+        description:
+          type: string
+          description: Human-readable explanation of the limitation
+        value:
+          description: Constraint value (type depends on kind)
+
+    SkillStatusResponse:
+      type: object
+      required: [skill_id, available]
+      properties:
+        skill_id:
+          type: string
+        available:
+          type: boolean
+          description: Whether the skill is currently available for invocation
+        mode:
+          type: string
+          enum: [persistent, on_demand, scheduled]
+        has_schedule:
+          type: boolean
+        limitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/LimitationObject"
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable error message
+
+tags:
+  - name: skills
+    description: |
+      Skill discovery and introspection endpoints.
+      ACP's working answer to A2A IS#1655 (QuerySkill proposal) —
+      live since ACP v2.4, documented as OpenAPI 3.1 since v2.41.
