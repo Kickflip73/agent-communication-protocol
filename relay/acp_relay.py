@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.42.0"  # v2.42: Ed25519 identity v0.8 integration tests (ID1-ID5)
+VERSION = "2.43.0"  # v2.43: BUG-050 fix — h2c tests skip gracefully when hypercorn unavailable
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}

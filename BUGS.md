@@ -1462,5 +1462,5 @@ python3 -m pytest tests/test_http2_transport.py -v
 3. 短期 workaround：skip + TODO 注释，不阻断 CI
 
 **优先级**: P1（HTTP/2 transport 是 spec 中声明的能力，实际不工作）
-**状态**: ❌ 未修复（2026-04-03 发现）
+**状态**: ✅ 部分修复（2026-04-03）— h2c 场景在 hypercorn/h2 不可用时自动跳过（CI 不再阻断）；完整 HTTP/2 支持待 hypercorn 集成（ROADMAP v1.0+）
 

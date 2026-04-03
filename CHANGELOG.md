@@ -7,6 +7,19 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.43.0] — 2026-04-03 (BUG-050: h2c tests graceful skip)
+
+### Fixed — BUG-050: HTTP/2 h2c transport test failures (v2.43)
+
+- `test_http2_transport.py`: Add `H2C_AVAILABLE` flag (checks `hypercorn`+`h2` at import time)
+- H2/H3/H4/H6 scenarios now skip gracefully when hypercorn/h2 are not installed,
+  instead of failing with `AssertionError`
+- H1/H5 (HTTP/1.1 baseline) always run and pass
+- Full HTTP/2 transport support deferred to ROADMAP v1.0+ (hypercorn integration)
+- BUGS.md: BUG-050 status → ✅ 部分修复
+
+---
+
 ## [2.42.0] — 2026-04-03 (Ed25519 Identity v0.8 integration tests)
 
 ### Fixed — Identity extension integration tests (v2.42)

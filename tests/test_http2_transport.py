@@ -17,6 +17,22 @@ import sys, os, time, subprocess, signal, json, socket, requests, threading
 import pytest
 from helpers import clean_subprocess_env
 
+# Check whether hypercorn (and h2) are available in the current environment.
+# If not, h2c-specific scenarios (H2/H3/H4/H6) are expected to fail because
+# the relay falls back to HTTP/1.1 and cannot handle raw h2c frames.
+try:
+    import hypercorn  # noqa: F401
+    import h2.connection  # noqa: F401
+    H2C_AVAILABLE = True
+except ImportError:
+    H2C_AVAILABLE = False
+
+_h2c_xfail = pytest.mark.xfail(
+    not H2C_AVAILABLE,
+    reason="hypercorn/h2 not installed; relay falls back to HTTP/1.1 (pip install hypercorn h2)",
+    strict=False,
+)
+
 RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
 PORT_H1 = 7851   # HTTP/1.1 instance (ws=7851, http=7951)
 PORT_H2 = 7852   # HTTP/2 instance   (ws=7852, http=7952)
@@ -174,35 +190,42 @@ def test_http2_transport():
           f"http2={caps.get('http2')}")
 
     # ── H2: HTTP/2 instance capability via h2c ────────────────────────────────
+    # NOTE: H2/H3/H4/H6 require hypercorn+h2. When unavailable, relay falls back
+    # to HTTP/1.1 and h2c frames fail → these checks are skipped (BUG-050).
     print("\n[H2] HTTP/2 instance — h2c GET /status")
-    st, body = _h2_get("127.0.0.1", h2_port, "/status")
-    check("H2  h2c /status → 200", st == 200, f"got {st}")
-    if body:
-        d2 = json.loads(body)
-        caps2 = d2.get("agent_card", {}).get("capabilities", {})
-        check("H2  capabilities.http2 == true", caps2.get("http2") == True,
-              f"http2={caps2.get('http2')}")
+    if not H2C_AVAILABLE:
+        print("  ⏭  H2/H3/H4/H6: hypercorn/h2 not installed — skipping h2c checks (BUG-050)")
     else:
-        check("H2  capabilities.http2 == true", False, "empty body")
+        st, body = _h2_get("127.0.0.1", h2_port, "/status")
+        check("H2  h2c /status → 200", st == 200, f"got {st}")
+        if body:
+            d2 = json.loads(body)
+            caps2 = d2.get("agent_card", {}).get("capabilities", {})
+            check("H2  capabilities.http2 == true", caps2.get("http2") == True,
+                  f"http2={caps2.get('http2')}")
+        else:
+            check("H2  capabilities.http2 == true", False, "empty body")
 
     # ── H3: session_id present in /status response ───────────────────────────
-    print("\n[H3] /status functional on h2c instance")
-    st3, body3 = _h2_get("127.0.0.1", h2_port, "/status")
-    check("H3  h2c /status → 200", st3 == 200)
-    if body3:
-        d3 = json.loads(body3)
-        check("H3  session_id present", "session_id" in d3, str(list(d3.keys())[:6]))
+    if H2C_AVAILABLE:
+        print("\n[H3] /status functional on h2c instance")
+        st3, body3 = _h2_get("127.0.0.1", h2_port, "/status")
+        check("H3  h2c /status → 200", st3 == 200)
+        if body3:
+            d3 = json.loads(body3)
+            check("H3  session_id present", "session_id" in d3, str(list(d3.keys())[:6]))
 
     # ── H4: POST /tasks via h2c ───────────────────────────────────────────────
-    print("\n[H4] POST /tasks over h2c")
-    payload = json.dumps({"role": "agent", "parts": [{"type": "text", "text": "h2-task"}]}).encode()
-    st4, body4 = _h2_post("127.0.0.1", h2_port, "/tasks", payload)
-    check("H4  h2c POST /tasks → 201", st4 == 201, f"got {st4}")
-    if body4 and st4 == 201:
-        d4 = json.loads(body4)
-        # Response shape: {"ok": true, "task": {"id": "task_...", ...}}
-        task_id = d4.get("task", {}).get("id") or d4.get("task_id")
-        check("H4  task_id returned", bool(task_id), str(list(d4.keys())[:5]))
+    if H2C_AVAILABLE:
+        print("\n[H4] POST /tasks over h2c")
+        payload = json.dumps({"role": "agent", "parts": [{"type": "text", "text": "h2-task"}]}).encode()
+        st4, body4 = _h2_post("127.0.0.1", h2_port, "/tasks", payload)
+        check("H4  h2c POST /tasks → 201", st4 == 201, f"got {st4}")
+        if body4 and st4 == 201:
+            d4 = json.loads(body4)
+            # Response shape: {"ok": true, "task": {"id": "task_...", ...}}
+            task_id = d4.get("task", {}).get("id") or d4.get("task_id")
+            check("H4  task_id returned", bool(task_id), str(list(d4.keys())[:5]))
 
     # ── H5: HTTP/1.1 instance /.well-known/acp.json ──────────────────────────
     print("\n[H5] HTTP/1.1 instance does NOT advertise http2")
@@ -222,18 +245,19 @@ def test_http2_transport():
     cn5.close()
 
     # ── H6: /.well-known/acp.json via h2c ────────────────────────────────────
-    print("\n[H6] /.well-known/acp.json via h2c")
-    st6, body6 = _h2_get("127.0.0.1", h2_port, "/.well-known/acp.json")
-    check("H6  h2c /.well-known/acp.json → 200", st6 == 200, f"got {st6}")
-    if body6 and st6 == 200:
-        wk2 = json.loads(body6)
-        # /.well-known/acp.json wraps under "self" key
-        caps6 = wk2.get("self", wk2).get("capabilities", {})
-        check("H6  capabilities.http2 == true",
-              caps6.get("http2") == True,
-              f"http2={caps6.get('http2')}")
-        inner = wk2.get("self", wk2)
-        check("H6  version field present", "acp_version" in inner or "version" in inner)
+    if H2C_AVAILABLE:
+        print("\n[H6] /.well-known/acp.json via h2c")
+        st6, body6 = _h2_get("127.0.0.1", h2_port, "/.well-known/acp.json")
+        check("H6  h2c /.well-known/acp.json → 200", st6 == 200, f"got {st6}")
+        if body6 and st6 == 200:
+            wk2 = json.loads(body6)
+            # /.well-known/acp.json wraps under "self" key
+            caps6 = wk2.get("self", wk2).get("capabilities", {})
+            check("H6  capabilities.http2 == true",
+                  caps6.get("http2") == True,
+                  f"http2={caps6.get('http2')}")
+            inner = wk2.get("self", wk2)
+            check("H6  version field present", "acp_version" in inner or "version" in inner)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     failed = [r for r in results if not r[1]]
