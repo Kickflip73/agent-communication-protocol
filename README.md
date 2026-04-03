@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.43.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.45.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -519,6 +519,11 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.32** | ✅ | **`message_id` 30s TTL 去重窗口 — HTTP send 幂等性** — `POST /message:send` 和 `POST /peer/<id>/send` 在 request-parse 时检查 `message_id`；30s 窗口内重复 ID → `200 {ok:true, deduplicated:true, message_id, server_seq}`；无 `message_id` 的请求不参与去重；`server_seq` 为首次成功时分配的值，首次 503 时为 null；`capabilities.message_dedup: true`；参考 ANP client_msg_id 语义；MD1-7 = 7/7 |
 | **v2.33** | ✅ | **DID 公钥离线发现 — `GET\|POST /identity/pubkey-discovery`** — 无需任何 HTTP 调用即可将 `did:acp:` 或 `did:key:` 解析为 Ed25519 公钥；`GET ?did=<did>` 单条查询；`POST {dids:[...]}` 批量查询（最多 50 条）；返回 `public_key_b64/hex`、`consistent` 一致性标志（DID 可回环推导）；纯 stdlib 实现（`_base58_decode` + `_resolve_did_to_pubkey`）；`capabilities.pubkey_discovery: true`；对标 A2A IS#1672（213 条评论，仍在讨论阶段）；PD1-8 = 8/8 |
 | **v2.34** | ✅ | **Per-Peer 结构化信任评分 — `GET /peers/<id>/trust`** — 五维加权信任评分：`card_sig`(×0.35) + `did_consistent`(×0.20) + `ping_rtt`(×0.20) + `message_hist`(×0.15) + `vouch`(×0.10)；`trust_score`(0.0–1.0) = 加权和；`trust_level` = `high`(≥0.75) / `medium`(≥0.45) / `low`；每个维度返回 `score/weight/detail` + 原始数据；404 `ERR_PEER_NOT_FOUND`；`capabilities.peer_trust: true`；**对标 A2A IS#1628+IS#1672（219+ 评论，仍无 PR，停留讨论阶段）**；PT1-10 = 10/10 |
+| **v2.38** | ✅ | **Message Priority** — `POST /message:send` 支持 `priority: critical\|high\|normal\|low`；`GET /recv` 按优先级排序；`_status.priority_counts`；`capabilities.message_priority: true`；MP1-9 = 9/9 |
+| **v2.39** | ✅ | **Long Poll `/recv`** — `GET /recv?wait=<seconds>`（0-30s）长轮询；队列空时挂起，有消息即返；超时返 `{timed_out:true}`；`capabilities.recv_long_poll: true`；LP1-9 = 9/9 |
+| **v2.40** | ✅ | **`agent_limitations` 机器可读约束** — AgentCard + `/status` 新增 `agent_limitations` 对象（`max_message_size_bytes`/`max_recv_queue_size`/`max_wait_seconds`/`max_peers`/`supported_message_roles`/`supported_priorities`）；`capabilities.agent_limitations: true`；AL1-6 = 6/6 |
+| **v2.41** | ✅ | **`GET /skills` OpenAPI 3.1 spec** — `docs/openapi-skills.yaml`（`SkillsResponse`/`Skill` Schema + 示例）；`AgentCard.skills_schema_url`；`GET /docs/openapi-skills.yaml` CORS 静态服务；`capabilities.skills_openapi_spec: true`；SO1-5 = 5/5 |
+| **v2.45** | ✅ | **`GET /tasks` A2A v1.0 对齐分页** — `page_size`（默认20，最大100，自动 clamp）、`after`（keyset 游标，`task_id` exclusive）、`status` 多值逗号分隔过滤；响应新增 `total`/`has_more`/`next_cursor`；`capabilities.tasks_pagination: true`；向后兼容（无参数行为不变）；TP1-8 = 8/8 |
 
 ---
 

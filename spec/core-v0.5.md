@@ -304,7 +304,7 @@ Content-Type: application/json
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/tasks` | List tasks (optional `?state=working`) |
+| GET | `/tasks` | List tasks — `?state=working`（单值过滤）/ `?status=submitted,working`（多值，v2.45+）/ `?page_size=20`（默认20，最大100）/ `?after=<task_id>`（keyset游标，v2.45+）；响应含 `total`、`has_more`、`next_cursor` |
 | POST | `/tasks` | Create task |
 | GET | `/tasks/{id}` | Get task |
 | POST | `/tasks/{id}/update` | Update task state + artifact |
