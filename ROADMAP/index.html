@@ -1493,6 +1493,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#v241-2026-04-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.41（完成 — 2026-04-03，开发轮）
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1696,7 +1707,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-03（v2.40.0：AgentCard agent_limitations — 机器可读约束声明）</p>
+最后更新：2026-04-03（v2.41.0：GET /skills OpenAPI 3.1 spec — 标准化技能发现接口）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3079,6 +3090,20 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>✅ <strong>AL1–AL6</strong>：6/6 PASS；回归 18/18 PASS</li>
 <li><strong>设计决策</strong>：字段命名为 <code>agent_limitations</code>（非 <code>limitations</code>），避免与 v2.20 的 <code>LimitationObject[]</code> 冲突，两套语义清晰共存</li>
 <li><strong>差异化</strong>：受 A2A IS#1694 启发，ACP 是首个实现机器可读约束声明的轻量 Agent 协议</li>
+</ul>
+<hr />
+<h3 id="v241-2026-04-03">✅ v2.41（完成 — 2026-04-03，开发轮）<a class="headerlink" href="#v241-2026-04-03" title="Permanent link">&para;</a></h3>
+<p><strong>主题：<code>GET /skills</code> OpenAPI 3.1 spec — 标准化技能发现接口</strong></p>
+<ul>
+<li>✅ <strong><code>docs/openapi-skills.yaml</code></strong>：OpenAPI 3.1 完整规范（commit <code>6697919</code>）</li>
+<li><code>SkillsResponse</code> 和 <code>Skill</code> 完整 Schema</li>
+<li>查询参数：<code>filter</code>（名称过滤）、<code>format</code>（full/names）</li>
+<li>内置完整示例</li>
+<li>✅ <strong><code>AgentCard.skills_schema_url</code></strong>：<code>/docs/openapi-skills.yaml</code></li>
+<li>✅ <strong><code>GET /docs/openapi-skills.yaml</code></strong>：CORS 开放的静态文件服务端点</li>
+<li>✅ <code>capabilities.skills_openapi_spec: true</code></li>
+<li>✅ <strong>SO1–SO5</strong>：5/5 PASS；回归 15/15 PASS</li>
+<li><strong>战略意义</strong>：为 A2A IS#1655 技术布道提供可引用的标准化 Schema，ACP 是首个提供 OpenAPI spec 的轻量 Agent 协议</li>
 </ul>
 <hr />
 <h2 id="_6">核心差异化<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
