@@ -1518,6 +1518,7 @@ def _make_agent_card(name, skills):
             "skills_openapi_spec":      True,                                  # v2.41: GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills
             "tasks_pagination":         True,                                  # v0.9: GET /tasks supports page_size/after/multi-status params (A2A v1.0 aligned)
         },
+
         "identity": ({
             "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
             "public_key": _ed25519_public_b64,
@@ -1568,6 +1569,9 @@ def _make_agent_card(name, skills):
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
         },
     }
+    # v0.9: inject capabilities.groups — structured grouping of flat capabilities (A2A v1.0 aligned)
+    card["capabilities"]["groups"] = _build_capabilities_groups(card["capabilities"])
+
     # v1.2: attach availability block only when configured (opt-in)
     if _availability:
         card["availability"] = dict(_availability)  # shallow copy
@@ -1601,6 +1605,70 @@ def _make_agent_card(name, skills):
     card["extensions"] = merged_extensions
 
     return card
+
+
+def _build_capabilities_groups(caps: dict) -> dict:
+    """
+    v0.9: Build structured capabilities.groups from the flat capabilities dict.
+
+    Groups map flat capabilities keys into named functional categories, aligned
+    with A2A v1.0 AgentCapabilities structure.  The flat keys are preserved in
+    the top-level capabilities dict for backward-compatibility; this adds an
+    optional nested `groups` view.
+
+    Group definitions:
+      messaging  — message transport quality features
+      tasks      — task lifecycle management features
+      identity   — cryptographic identity & signing features
+      transport  — protocol transport binding features
+      discovery  — agent discovery & metadata features
+    """
+    groups: dict = {}
+
+    # ── messaging ────────────────────────────────────────────────────────────
+    groups["messaging"] = {
+        "priority":      bool(caps.get("message_priority", False)),
+        "long_poll":     bool(caps.get("recv_long_poll", False)),
+        "history":       bool(caps.get("event_replay", False)),
+        "broadcast":     bool(caps.get("peers_broadcast", False)),
+        "delivery_ack":  bool(caps.get("delivery_ack", False)),
+    }
+
+    # ── tasks ─────────────────────────────────────────────────────────────────
+    groups["tasks"] = {
+        "pagination":    bool(caps.get("tasks_pagination", False)),
+        "filtering":     bool(caps.get("tasks_pagination", False)),   # filtering ships with pagination
+        "state_machine": bool(caps.get("task_cancelling", False)),    # cancelling state is part of state machine
+    }
+
+    # ── identity ──────────────────────────────────────────────────────────────
+    identity_val = caps.get("identity", "none")
+    groups["identity"] = {
+        "hmac":           bool(caps.get("hmac_signing", False)),
+        "ed25519":        identity_val in ("ed25519", "ed25519+ca"),
+        "jwks":           bool(caps.get("trust_jwks", False)),
+        "card_signature": bool(caps.get("card_sig", False)),
+    }
+
+    # ── transport ─────────────────────────────────────────────────────────────
+    supported_transports = caps.get("supported_transports", [])
+    groups["transport"] = {
+        "sse":            bool(caps.get("sse_seq", False)),
+        "http2":          bool(caps.get("http2", False)),
+        "p2p_direct":     True,                                          # always true — ACP is P2P-first
+        "dcutr":          "p2p" in caps.get("supported_transports", []) or bool(caps.get("lan_discovery", False)),
+        "relay_fallback": True,                                          # relay fallback always supported
+    }
+
+    # ── discovery ─────────────────────────────────────────────────────────────
+    groups["discovery"] = {
+        "skills":                 bool(caps.get("query_skill", False)),
+        "skills_openapi_spec":    bool(caps.get("skills_openapi_spec", False)),
+        "limitations":            bool(caps.get("limitations_structured", False)),
+        "availability_schedule":  bool(caps.get("availability_schedule", False)),
+    }
+
+    return groups
 
 
 def _make_builtin_extensions() -> list:
