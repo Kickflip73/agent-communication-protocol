@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.43.0"  # v2.43: BUG-050 fix — h2c tests skip gracefully when hypercorn unavailable
+VERSION = "2.44.0"  # v2.44: fix datetime.utcnow() DeprecationWarning (Python 3.12)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -370,7 +370,7 @@ def _hmac_check_replay_window(ts_str: str) -> tuple[bool, str]:
     try:
         ts_clean = ts_str.rstrip("Z")
         msg_time = datetime.datetime.fromisoformat(ts_clean)
-        now_utc  = datetime.datetime.utcnow()
+        now_utc  = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         skew     = abs((now_utc - msg_time).total_seconds())
         if skew > _HMAC_REPLAY_WINDOW:
             return False, f"ts outside replay-window ({skew:.0f}s > {_HMAC_REPLAY_WINDOW}s)"
@@ -711,7 +711,7 @@ _status: dict = {
 }
 
 def _now():
-    return datetime.datetime.utcnow().isoformat() + "Z"
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 def _make_id(prefix="msg"):
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
