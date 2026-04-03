@@ -7,6 +7,29 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.45.0] — 2026-04-04 (v0.9 GET /tasks pagination — page_size/after/status filter)
+
+### Added — v0.9 GET /tasks A2A-aligned pagination parameters
+
+- **`page_size`** query param: A2A v1.0 alias for `limit` (default 20, max 100, auto-clamped)
+- **`after`** query param: A2A v1.0 alias for `cursor` — keyset cursor returning tasks after given `task_id`
+- **`status` multi-value filter**: comma-separated values (e.g. `status=submitted,working`) for
+  multi-state queries; all values validated against the canonical status set
+- **Response**: cursor-based mode always includes `next_cursor` (null when no more pages)
+- **AgentCard**: `capabilities.tasks_pagination: true` — signals A2A v1.0-aligned pagination support
+- **Tests**: `tests/test_tasks_pagination.py` — 8 tests (TP1–TP8) all PASS
+  - TP1: Default page_size=20
+  - TP2: Custom page_size in valid range (1–100)
+  - TP3: page_size >100 auto-clamped to 100
+  - TP4: `after` cursor pagination (exclusive keyset)
+  - TP5: `status` single-value filter
+  - TP6: `status` multi-value comma-separated filter
+  - TP7: Empty result (has_more=false, next_cursor=null)
+  - TP8: No-params backward compatibility + AgentCard capability check
+- Commit: `cd958d7`
+
+---
+
 ## [2.43.0] — 2026-04-03 (BUG-050: h2c tests graceful skip)
 
 ### Fixed — BUG-050: HTTP/2 h2c transport test failures (v2.43)
