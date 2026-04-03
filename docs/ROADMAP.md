@@ -671,7 +671,7 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 | 特性 | 优先级 | 状态 | Commit |
 |------|--------|------|--------|
-| `datetime.utcnow()` → timezone-aware 迁移（Python 3.12 废弃警告） | P1 | ⏳ 待开发 | — |
+| `datetime.utcnow()` → timezone-aware 迁移（Python 3.12 废弃警告） | P1 | ✅ 已完成 | 7b53401 |
 | `GET /tasks` 分页参数（`page_size` / `after` / `status` 过滤对齐 A2A v1.0） | P1 | ⏳ 待开发 | — |
 | AgentCard `capabilities` 字段重组（对齐 A2A v1.0 `AgentCapabilities` 结构） | P2 | ⏳ 待开发 | — |
 | spec/transport-spec.md 独立文档（L1 传输层从 core spec 正式分离） | P2 | ⏳ 待开发 | — |
