@@ -1735,7 +1735,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-03（v2.41.0：GET /skills OpenAPI 3.1 spec — 标准化技能发现接口）</p>
+最后更新：2026-04-05（v2.48.0：GET /peers/<id>/messages — per-peer 消息历史查询 + --test-mode 调试注入端点）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3307,6 +3307,84 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td>P3</td>
 <td>✅ 已完成</td>
 <td><code>docs/compatibility-matrix.md</code>：6版本矩阵、逐字段兼容表、连接矩阵、降级规则、升级路径，commit 见下</td>
+</tr>
+<tr>
+<td><strong>Per-Peer Structured Trust Score</strong> <code>GET /peers/&lt;id&gt;/trust</code></td>
+<td>P2</td>
+<td>✅ 已完成</td>
+<td>v2.34，五维度加权信任评估（card_sig/did/ping/history/vouch），commit 2026-04-02</td>
+</tr>
+<tr>
+<td><strong>Delivery ACK</strong> <code>acp.delivered</code> frame</td>
+<td>P2</td>
+<td>✅ 已完成</td>
+<td>v2.35，消息投递确认帧，自动发送，commit 2026-04-02</td>
+</tr>
+<tr>
+<td><strong>Read Receipt</strong> <code>acp.read</code> frame</td>
+<td>P2</td>
+<td>✅ 已完成</td>
+<td>v2.36，已读回执帧，<code>/message:send</code> 自动触发，commit 2026-04-02</td>
+</tr>
+<tr>
+<td><strong>Typing Indicator</strong> <code>POST /message:typing</code></td>
+<td>P3</td>
+<td>✅ 已完成</td>
+<td>v2.37，打字状态指示，<code>capabilities.typing_indicator: True</code>，commit 2026-04-02</td>
+</tr>
+<tr>
+<td><strong>Long Poll <code>/recv</code></strong> <code>?wait=&lt;N&gt;</code></td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>v2.39，长轮询支持，最大等待 30s，避免空轮询，commit 2026-04-03</td>
+</tr>
+<tr>
+<td><strong>Message Priority</strong> <code>priority</code> field</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>v2.38，critical/high/normal/low 四级，<code>/recv</code> 按优先级排序，commit 2026-04-03</td>
+</tr>
+<tr>
+<td><strong>AgentCard <code>agent_limitations</code></strong> field</td>
+<td>P2</td>
+<td>✅ 已完成</td>
+<td>v2.40，运行时能力限制声明（rate_limit/offline/maintenance），commit 2026-04-03</td>
+</tr>
+<tr>
+<td><strong>GET /skills OpenAPI 3.1 spec</strong></td>
+<td>P2</td>
+<td>✅ 已完成</td>
+<td>v2.41，技能 OpenAPI 规范发现端点，commit 2026-04-03</td>
+</tr>
+<tr>
+<td><strong>Ed25519 Identity integration tests</strong></td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>v2.42，身份系统集成测试套件，commit 2026-04-03</td>
+</tr>
+<tr>
+<td><strong>h2c graceful skip</strong> BUG-050</td>
+<td>P2</td>
+<td>✅ 已完成</td>
+<td>v2.43，HTTP/2 cleartext 不可用时优雅降级，commit 2026-04-03</td>
+</tr>
+<tr>
+<td><strong>GET /tasks pagination</strong> <code>page_size/after/status</code></td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>v2.45，对齐 A2A v1.0 Tasks List，commit 2026-04-04</td>
+</tr>
+<tr>
+<td><strong>AgentCard capabilities groups</strong> 重组</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>v2.46，messaging/tasks/identity/transport/discovery 分组，对齐 A2A v1.0 AgentCapabilities，commit 2026-04-04</td>
+</tr>
+<tr>
+<td><strong>GET /peers/<id>/messages</strong> per-peer 消息历史</td>
+<td>P1</td>
+<td>✅ 已完成</td>
+<td>v2.48，direction/since_seq/sort/pagination，<code>--test-mode</code> 调试注入，PMH1-10=10/10，commit 7bada9f</td>
 </tr>
 </tbody>
 </table>
