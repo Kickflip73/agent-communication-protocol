@@ -1,7 +1,28 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-04-04
+> Last updated: 2026-04-05
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+### v2.48.0 — Per-Peer Message History Query (2026-04-05)
+
+New endpoint: `GET /peers/<peer_id>/messages` — query the full message history for any known peer, with rich filtering.
+
+**Query parameters:**
+- `direction=inbound|outbound|all` — filter by message direction (default: `all`)
+- `since_seq=<N>` — incremental polling: only return messages with `server_seq > N` (same semantics as `/stream?since=`)
+- `sort=asc|desc` — oldest-first or newest-first (default: `desc`)
+- `limit` / `offset` — pagination with `has_more` + `next_offset` in response
+
+**Developer tooling — `--test-mode`:**
+- New `--test-mode` CLI flag enables `POST /debug/inject` — inject messages + auto-register peers without a real P2P connection
+- Gated: production builds return `403 ERR_TEST_MODE_REQUIRED` without the flag
+- Powers the full PMH1–PMH10 test suite (10/10 PASS)
+
+**Capability declaration:**
+- `capabilities.peer_message_history = True` in AgentCard
+- `endpoints.peer_messages = "/peers/{peer_id}/messages"` in endpoint directory
 
 ---
 

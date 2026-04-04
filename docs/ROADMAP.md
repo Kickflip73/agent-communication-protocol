@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-03（v2.41.0：GET /skills OpenAPI 3.1 spec — 标准化技能发现接口）
+> 最后更新：2026-04-05（v2.48.0：GET /peers/<id>/messages — per-peer 消息历史查询 + --test-mode 调试注入端点）
 
 ---
 
@@ -699,6 +699,19 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | `trust.signals[]` 枚举值最终确认 | P2 | ⏳ 待开发 | 待 A2A #1628 结论，确认 `type=jwks`/`type=ed25519_identity` 命名 |
 | CHANGELOG.md 自动生成（git log → 结构化） | P3 | ✅ 已完成 | v2.47.1，`scripts/gen_changelog.py`（Conventional Commits → 结构化条目，支持 `--since`/`--dry-run`/`--version`），commit 07a34c0 |
 | 兼容性测试矩阵（跨版本 AgentCard 互操作） | P3 | ✅ 已完成 | `docs/compatibility-matrix.md`：6版本矩阵、逐字段兼容表、连接矩阵、降级规则、升级路径，commit 见下 |
+| **Per-Peer Structured Trust Score** `GET /peers/<id>/trust` | P2 | ✅ 已完成 | v2.34，五维度加权信任评估（card_sig/did/ping/history/vouch），commit 2026-04-02 |
+| **Delivery ACK** `acp.delivered` frame | P2 | ✅ 已完成 | v2.35，消息投递确认帧，自动发送，commit 2026-04-02 |
+| **Read Receipt** `acp.read` frame | P2 | ✅ 已完成 | v2.36，已读回执帧，`/message:send` 自动触发，commit 2026-04-02 |
+| **Typing Indicator** `POST /message:typing` | P3 | ✅ 已完成 | v2.37，打字状态指示，`capabilities.typing_indicator: True`，commit 2026-04-02 |
+| **Long Poll `/recv`** `?wait=<N>` | P1 | ✅ 已完成 | v2.39，长轮询支持，最大等待 30s，避免空轮询，commit 2026-04-03 |
+| **Message Priority** `priority` field | P1 | ✅ 已完成 | v2.38，critical/high/normal/low 四级，`/recv` 按优先级排序，commit 2026-04-03 |
+| **AgentCard `agent_limitations`** field | P2 | ✅ 已完成 | v2.40，运行时能力限制声明（rate_limit/offline/maintenance），commit 2026-04-03 |
+| **GET /skills OpenAPI 3.1 spec** | P2 | ✅ 已完成 | v2.41，技能 OpenAPI 规范发现端点，commit 2026-04-03 |
+| **Ed25519 Identity integration tests** | P1 | ✅ 已完成 | v2.42，身份系统集成测试套件，commit 2026-04-03 |
+| **h2c graceful skip** BUG-050 | P2 | ✅ 已完成 | v2.43，HTTP/2 cleartext 不可用时优雅降级，commit 2026-04-03 |
+| **GET /tasks pagination** `page_size/after/status` | P1 | ✅ 已完成 | v2.45，对齐 A2A v1.0 Tasks List，commit 2026-04-04 |
+| **AgentCard capabilities groups** 重组 | P1 | ✅ 已完成 | v2.46，messaging/tasks/identity/transport/discovery 分组，对齐 A2A v1.0 AgentCapabilities，commit 2026-04-04 |
+| **GET /peers/<id>/messages** per-peer 消息历史 | P1 | ✅ 已完成 | v2.48，direction/since_seq/sort/pagination，`--test-mode` 调试注入，PMH1-10=10/10，commit 7bada9f |
 
 **设计约束**（不动摇）：
 - 保持 P2P 优先，relay 仅作 fallback

@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-02 11:14（文档轮：v2.33 DID 公钥离线发现实装完成，PD1–PD8 = 8/8；CHANGELOG + README + ROADMAP 同步；当前版本 v2.33.0）
+> 最后更新：2026-04-05 06:21（文档轮：v2.48 per-peer 消息历史查询 PMH1-10=10/10，docs/ROADMAP + whats-new + acp-research/ROADMAP 全部同步；当前版本 v2.48.0）
 
 ---
 
@@ -637,6 +637,28 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 - ✅ SU1–SU8（PATCH /skills/<id>/limitations）8/8
 - ✅ MD1–MD7（消息幂等去重）7/7 PASS
 - ✅ 回归：FM1-8 + SS1-12 + unit + scenario-BC = 210/210 PASS
+
+---
+
+### ✅ v2.34–v2.48（完成 — 2026-04-02 至 2026-04-05）
+
+| 版本 | 日期 | 主题 |
+|------|------|------|
+| v2.34 | 2026-04-02 | Per-Peer Structured Trust Score — `GET /peers/<id>/trust` 五维度加权评估 |
+| v2.35 | 2026-04-02 | Delivery ACK — `acp.delivered` 自动投递确认帧 |
+| v2.36 | 2026-04-02 | Read Receipt — `acp.read` 已读回执帧 |
+| v2.37 | 2026-04-02 | Typing Indicator — `POST /message:typing` + `capabilities.typing_indicator` |
+| v2.38 | 2026-04-03 | Message Priority — critical/high/normal/low，`/recv` 按优先级排序 |
+| v2.39 | 2026-04-03 | Long Poll `/recv` — `?wait=<N>` 长轮询（最大 30s） |
+| v2.40 | 2026-04-03 | AgentCard `agent_limitations` — 运行时能力限制声明 |
+| v2.41 | 2026-04-03 | GET /skills OpenAPI 3.1 spec — 技能规范发现端点 |
+| v2.42 | 2026-04-03 | Ed25519 身份集成测试套件（全回归） |
+| v2.43 | 2026-04-03 | BUG-050 h2c graceful skip（HTTP/2 不可用时优雅降级） |
+| v2.45 | 2026-04-04 | GET /tasks pagination（page_size/after/status，对齐 A2A v1.0） |
+| v2.46 | 2026-04-04 | AgentCard capabilities groups 重组（messaging/tasks/identity/transport/discovery） |
+| v2.47 | 2026-04-04 | RFC 8615 well-known 响应头 + `capabilities.well_known_rfc8615`，spec/core-v1.0.md 升为 Stable |
+| v2.47.1 | 2026-04-04 | 修复 `datetime.utcnow()` 废弃警告（Python 3.12） |
+| **v2.48** | **2026-04-05** | **GET /peers/<id>/messages — per-peer 消息历史（direction/since_seq/sort/pagination）+ `--test-mode` 调试注入，PMH1-10=10/10** |
 
 ---
 
