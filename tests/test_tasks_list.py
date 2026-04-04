@@ -328,7 +328,7 @@ def test_tl8_created_after_filter():
     import datetime
 
     # Record time before creating the new task
-    before = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    before = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     time.sleep(0.1)  # ensure created_at > before
 
     new_id = _create_task("tl8-new-task")

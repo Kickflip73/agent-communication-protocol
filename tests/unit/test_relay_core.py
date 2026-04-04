@@ -314,7 +314,7 @@ class TestHMACReplayWindow(unittest.TestCase):
     def _ts_offset(self, delta_seconds: int) -> str:
         """Return an ISO-8601 UTC timestamp offset by delta_seconds from now."""
         import datetime
-        t = datetime.datetime.utcnow() + datetime.timedelta(seconds=delta_seconds)
+        t = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=delta_seconds)
         return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def test_within_window_ok(self):
