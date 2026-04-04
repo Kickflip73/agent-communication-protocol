@@ -698,3 +698,131 @@ describe('tasks() with filters — v1.4+', () => {
     assert.strictEqual(receivedUrl, '/tasks');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// v2.47 — trustSignals(), capabilityGroups(), wellKnownHeaders()
+// ─────────────────────────────────────────────────────────────────
+
+describe('trustSignals() — v2.47+', () => {
+  test('returns trust.signals array from AgentCard', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        agent_name: 'test',
+        trust: {
+          signals: [
+            { type: 'jwks', provider: 'self', uri: '/.well-known/jwks.json' },
+            { type: 'ed25519_identity', provider: 'self', did: 'did:acp:abc123' }
+          ]
+        }
+      });
+    });
+    const client = makeClient();
+    const signals = await client.trustSignals();
+    assert.strictEqual(signals.length, 2);
+    assert.strictEqual(signals[0].type, 'jwks');
+    assert.strictEqual(signals[1].type, 'ed25519_identity');
+  });
+
+  test('returns empty array when trust.signals absent', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { agent_name: 'test' });
+    });
+    const client = makeClient();
+    const signals = await client.trustSignals();
+    assert.deepStrictEqual(signals, []);
+  });
+
+  test('returns empty array when trust block exists but signals missing', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { agent_name: 'test', trust: {} });
+    });
+    const client = makeClient();
+    const signals = await client.trustSignals();
+    assert.deepStrictEqual(signals, []);
+  });
+
+  test('returns empty array on network error (graceful degradation)', async () => {
+    const bad = new RelayClient('http://127.0.0.1:19999');
+    const signals = await bad.trustSignals();
+    assert.deepStrictEqual(signals, []);
+  });
+});
+
+describe('capabilityGroups() — v2.46+', () => {
+  test('returns capability groups from AgentCard', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, {
+        agent_name: 'test',
+        capabilities: {
+          groups: {
+            messaging: { send: true, recv: true, priority: true },
+            tasks:     { task_list: true, task_cancel: true },
+            identity:  { ed25519: true, did_document: true, jwks: true },
+            transport: { sse: true, websocket: true },
+            discovery: { well_known: true, peer_card: true }
+          }
+        }
+      });
+    });
+    const client = makeClient();
+    const groups = await client.capabilityGroups();
+    assert.strictEqual(groups.identity.ed25519, true);
+    assert.strictEqual(groups.messaging.send, true);
+    assert.strictEqual(groups.tasks.task_cancel, true);
+  });
+
+  test('returns empty object when capabilities.groups absent', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { agent_name: 'test', capabilities: {} });
+    });
+    const client = makeClient();
+    const groups = await client.capabilityGroups();
+    assert.deepStrictEqual(groups, {});
+  });
+
+  test('returns empty object on network error', async () => {
+    const bad = new RelayClient('http://127.0.0.1:19999');
+    const groups = await bad.capabilityGroups();
+    assert.deepStrictEqual(groups, {});
+  });
+});
+
+describe('wellKnownHeaders() — v2.47+', () => {
+  test('returns RFC 8615 headers from /.well-known/acp.json response', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      const body = JSON.stringify({ agent_name: 'test' });
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'Cache-Control': 'max-age=300, stale-while-revalidate=60',
+        'Vary': 'Accept-Encoding',
+        'X-Content-Type-Options': 'nosniff',
+        'X-ACP-Version': '2.47.0'
+      });
+      res.end(body);
+    });
+    const client = makeClient();
+    const headers = await client.wellKnownHeaders();
+    assert.strictEqual(headers['cache-control'], 'max-age=300, stale-while-revalidate=60');
+    assert.strictEqual(headers['vary'], 'Accept-Encoding');
+    assert.strictEqual(headers['x-content-type-options'], 'nosniff');
+    assert.strictEqual(headers['x-acp-version'], '2.47.0');
+  });
+
+  test('returns empty object when headers absent (older relay)', async () => {
+    setHandler('GET', '/.well-known/acp.json', (req, res) => {
+      jsonResponse(res, 200, { agent_name: 'test' });
+    });
+    const client = makeClient();
+    const headers = await client.wellKnownHeaders();
+    // No RFC 8615 headers set — result should be empty (no wanted headers present)
+    assert.ok(typeof headers === 'object');
+    assert.ok(!headers['cache-control']);
+  });
+
+  test('returns empty object on connection error (graceful degradation)', async () => {
+    const bad = new RelayClient('http://127.0.0.1:19999');
+    const headers = await bad.wellKnownHeaders();
+    assert.deepStrictEqual(headers, {});
+  });
+});

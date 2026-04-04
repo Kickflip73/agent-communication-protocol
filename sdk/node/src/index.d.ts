@@ -160,6 +160,17 @@ export declare class RelayClient {
   supportedInterfaces(): Promise<string[]>;
   sseSeqEnabled(): Promise<boolean>;
 
+  // Trust, Groups & RFC 8615 (v2.47+)
+  trustSignals(): Promise<Array<{ type: string; provider: string; [key: string]: unknown }>>;
+  capabilityGroups(): Promise<{
+    messaging?: Record<string, boolean>;
+    tasks?: Record<string, boolean>;
+    identity?: Record<string, boolean>;
+    transport?: Record<string, boolean>;
+    discovery?: Record<string, boolean>;
+  }>;
+  wellKnownHeaders(): Promise<Record<string, string>>;
+
   // Messaging
   send(text: string, extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string }>;
   sendParts(parts: AcpPart[], extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string }>;

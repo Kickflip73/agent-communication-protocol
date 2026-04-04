@@ -1,7 +1,7 @@
 /**
  * RelayClient — Node.js HTTP client for a running acp_relay.py instance.
  *
- * @version 2.4.0
+ * @version 2.47.0
  *
  * Zero external dependencies. Uses only Node.js built-in `http`/`https` modules.
  * Requires Node.js >= 18 (fetch API available built-in, or use http module).
@@ -565,6 +565,96 @@ class RelayClient {
     if (qs) path += `?${qs}`;
     const result = await this._get(path);
     return result.skills ?? result ?? [];
+  }
+
+  // ── v2.47 — Trust, Groups & RFC 8615 ──────
+
+  /**
+   * Return the trust signals declared in the AgentCard (v2.47+).
+   *
+   * Each signal has at minimum { type, provider } and optional data fields.
+   * Known signal types: "jwks", "ed25519_identity" (stable), "behavioral",
+   * "governance_attestation" (experimental, pending A2A #1628 finalisation).
+   *
+   * @returns {Promise<Array<{type: string, provider: string, [key: string]: any}>>}
+   *
+   * @example
+   * const signals = await client.trustSignals();
+   * const hasJwks = signals.some(s => s.type === 'jwks');
+   */
+  async trustSignals() {
+    try {
+      const card = await this._get('/.well-known/acp.json');
+      return Array.isArray(card.trust?.signals) ? card.trust.signals : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * Return the structured capability groups from the AgentCard (v2.46+).
+   *
+   * Groups semantically partition the flat capabilities map:
+   *   messaging — send/recv features
+   *   tasks     — task lifecycle management
+   *   identity  — Ed25519/DID/JWKS support
+   *   transport — HTTP/2, WebSocket, SSE flags
+   *   discovery — mDNS, peer-card, well-known
+   *
+   * @returns {Promise<{messaging?: object, tasks?: object, identity?: object, transport?: object, discovery?: object}>}
+   *
+   * @example
+   * const groups = await client.capabilityGroups();
+   * if (groups.identity?.ed25519) { … }
+   */
+  async capabilityGroups() {
+    try {
+      const card = await this._get('/.well-known/acp.json');
+      return card.capabilities?.groups ?? {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /**
+   * Fetch RFC 8615 well-known response headers from the relay (v2.47+).
+   *
+   * The relay sets the following headers on /.well-known/acp.json responses:
+   *   Cache-Control:       max-age=300, stale-while-revalidate=60
+   *   Vary:                Accept-Encoding
+   *   X-Content-Type-Options: nosniff
+   *
+   * Returns an object with those header values (keys lowercased).
+   * Falls back to {} when the relay pre-dates v2.47.
+   *
+   * @returns {Promise<{[header: string]: string}>}
+   *
+   * @example
+   * const headers = await client.wellKnownHeaders();
+   * console.log(headers['cache-control']); // "max-age=300, stale-while-revalidate=60"
+   */
+  async wellKnownHeaders() {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL('/.well-known/acp.json', this.baseUrl);
+      const mod = parsed.protocol === 'https:' ? require('https') : require('http');
+      const req = mod.request(
+        { hostname: parsed.hostname, port: parsed.port, path: parsed.pathname,
+          method: 'GET', headers: { Accept: 'application/json' } },
+        (res) => {
+          // Drain body so socket is released
+          res.resume();
+          const wanted = ['cache-control', 'vary', 'x-content-type-options', 'x-acp-version'];
+          const result = {};
+          for (const h of wanted) {
+            if (res.headers[h] !== undefined) result[h] = res.headers[h];
+          }
+          resolve(result);
+        }
+      );
+      req.setTimeout(8000, () => { req.destroy(); resolve({}); });
+      req.on('error', () => resolve({}));
+      req.end();
+    });
   }
 
   // ── Convenience helpers ────────────────────
