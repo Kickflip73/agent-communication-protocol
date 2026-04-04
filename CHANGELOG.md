@@ -7,6 +7,31 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.47.1] — 2026-04-04 (fix: replace deprecated datetime.utcnow() in tests)
+
+### Fixed
+- `tests/test_tasks_list.py` 第 331 行：`datetime.utcnow()` → `datetime.now(datetime.timezone.utc)`（消除 Python 3.12 DeprecationWarning）
+- `tests/unit/test_relay_core.py` 第 317 行：同上修复
+
+---
+
+## [2.47.0] — 2026-04-04 (RFC 8615 well-known headers + capabilities.well_known_rfc8615)
+
+### Added
+- `_json_well_known()` 响应头增加 RFC 8615 标准三件套：
+  - `Cache-Control: no-cache, no-store, must-revalidate`
+  - `Vary: Accept`
+  - `X-Content-Type-Options: nosniff`
+- 覆盖全部三个 well-known 端点：`acp.json`、`did.json`、`jwks.json`
+- `capabilities.well_known_rfc8615 = True` 新增能力标志位
+- `tests/test_well_known_headers.py`：WH1–WH10 全部 PASS
+
+### Updated
+- `spec/core-v1.0.md` 升版至 v2.47，Status → Stable，§5.3.1 `capabilities.groups`，§8.7 Conformance 新增 3 条 MUST + 4 条 SHOULD，Appendix A 版本历史补齐 v2.7–v2.47
+- 引用文档：增加 `auth-evaluation.md` 交叉链接
+
+---
+
 ## [2.46.0] — 2026-04-04 (v0.9 AgentCard capabilities groups — structured capability declaration)
 ### Added
 - `_build_capabilities_groups()`: 从扁平 capabilities 生成 5 分组结构（messaging/tasks/identity/transport/discovery）
