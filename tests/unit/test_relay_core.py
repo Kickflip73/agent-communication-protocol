@@ -665,8 +665,11 @@ class _CaptureHandler(relay.LocalHTTP):
         self._body   = body
         self._response_body = None
         self._response_code = None
+        # Required by BaseHTTPRequestHandler.log_request() → log_message()
+        self.requestline = f"GET {path} HTTP/1.1"
+        self.client_address = ("127.0.0.1", 0)
 
-    # Stubs for methods called by do_PATCH
+    # Stubs for methods called by do_PATCH / do_GET
     @property
     def path(self):
         return self._path
@@ -678,8 +681,26 @@ class _CaptureHandler(relay.LocalHTTP):
         self._response_body = data
         self._response_code = code
 
-    # Silence BaseHTTPRequestHandler log_message
+    def _json_well_known(self, data, code=200):
+        # Same capture logic — RFC 8615 headers are no-ops in unit test context
+        self._response_body = data
+        self._response_code = code
+
+    # Silence BaseHTTPRequestHandler logging
     def log_message(self, *args):
+        pass
+
+    def log_request(self, *args):
+        pass
+
+    def send_response(self, code, message=None):
+        # No-op: we capture via _json(), not actual HTTP write
+        pass
+
+    def send_header(self, keyword, value):
+        pass
+
+    def end_headers(self):
         pass
 
 

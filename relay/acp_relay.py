@@ -1581,7 +1581,7 @@ def _make_agent_card(name, skills):
             started = _status.get("started_at")
             if started and isinstance(started, (int, float)):
                 card["availability"]["last_active_at"] = (
-                    datetime.datetime.utcfromtimestamp(started).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    datetime.datetime.fromtimestamp(started, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 )
             else:
                 card["availability"]["last_active_at"] = _now()
@@ -3934,7 +3934,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 started = _status.get("started_at")
                 if started and isinstance(started, (int, float)):
                     avail["last_active_at"] = (
-                        datetime.datetime.utcfromtimestamp(started).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        datetime.datetime.fromtimestamp(started, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     )
                 else:
                     avail["last_active_at"] = _now()
