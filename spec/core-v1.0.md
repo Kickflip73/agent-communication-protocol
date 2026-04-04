@@ -1,11 +1,11 @@
 # ACP Core Specification — v1.0
 
-**Status:** Release Candidate  
+**Status:** Stable  
 **Authors:** ACP Community  
-**Date:** 2026-03-28 (v2.8: Extension mechanism — URI-identified extensions in AgentCard)  
+**Date:** 2026-04-04 (v2.47: RFC 8615 well-known headers; capabilities.groups; tasks pagination; auth evaluation)  
 **License:** Apache 2.0  
 **Supersedes:** [core-v0.8.md](core-v0.8.md)  
-**See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v0.8.md](identity-v0.8.md)
+**See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v0.8.md](identity-v0.8.md) · [auth-evaluation.md](auth-evaluation.md)
 
 > **Stability Promise (v1.0+):**  Endpoints and fields marked **`stable`** will not change in a
 > backwards-incompatible way within the v1.x series. Endpoints marked **`experimental`** may
@@ -229,7 +229,7 @@ which is especially useful when the underlying work cannot be stopped instantane
 | `/message:recv` | GET | **stable** | Poll pending received messages |
 | `/stream` | GET | **stable** | SSE event stream |
 | `/.well-known/acp.json` | GET | **stable** | AgentCard capability declaration |
-| `/tasks` | GET | **stable** | List all tasks |
+| `/tasks` | GET | **stable** | List tasks; supports pagination via `page_size`/`after`/`status` (v2.40+, requires `capabilities.tasks_pagination=true`) |
 | `/tasks` | POST | **stable** | Create a new task |
 | `/tasks/{id}` | GET | **stable** | Get task by ID |
 | `/tasks/{id}` | PUT | **stable** | Update task state/artifact |
@@ -361,6 +361,57 @@ GET /.well-known/acp.json   [stable]
 | `context_id` | bool | **stable** | `context_id` field supported |
 | `identity` | string | **stable** | `"ed25519"` or `"none"` |
 | `supported_transports` | string[] | **stable** | Protocol bindings active on this node (v2.2+). Values: `"http"` (HTTP/1.1), `"ws"` (WebSocket), `"h2c"` (HTTP/2 cleartext). Absent means `["http"]`. **Note:** This declares *protocol* bindings; for *routing topology*, see top-level `transport_modes` (v2.4+). |
+| `well_known_rfc8615` | bool | **stable** | `/.well-known/*` endpoints include RFC 8615 headers (`Cache-Control`/`Vary`/`X-Content-Type-Options`) — v2.47+ |
+| `tasks_pagination` | bool | **stable** | `GET /tasks` supports `page_size`/`after`/`status` pagination — v2.40+ |
+| `message_priority` | bool | **stable** | `message.priority` field (`critical`/`high`/`normal`/`low`) supported — v2.43+ |
+| `delivery_ack` | bool | **stable** | `message.delivery_ack=true` triggers explicit delivery acknowledgement — v2.43+ |
+
+#### 5.3.1 `capabilities.groups` — Structured Grouping (v2.46+)
+
+Since v2.46, capability flags are also available as a structured `groups` object for semantic discovery. Flat flags remain for backward compatibility; **consumers SHOULD prefer `groups` for negotiation, producers MUST keep flat flags populated**.
+
+```json
+{
+  "capabilities": {
+    "streaming": true,
+    "multi_session": true,
+    "groups": {
+      "messaging": {
+        "streaming":       true,
+        "push":            false,
+        "input_required":  true,
+        "message_priority": true,
+        "delivery_ack":    false
+      },
+      "tasks": {
+        "cancelling":      true,
+        "pagination":      true,
+        "context_id":      true
+      },
+      "identity": {
+        "ed25519":         true,
+        "hmac":            true,
+        "jwks":            true,
+        "did":             false
+      },
+      "transport": {
+        "sse":             true,
+        "http2":           false,
+        "p2p_direct":      true,
+        "dcutr":           true,
+        "relay_fallback":  true
+      },
+      "discovery": {
+        "lan_mdns":        false,
+        "skills_list":     true,
+        "query_skill":     true
+      }
+    }
+  }
+}
+```
+
+Unknown group keys MUST be ignored by consumers (forward compatibility).
 
 ### 5.4 `transport_modes` — Routing Topology Declaration (v2.4+)
 
@@ -847,14 +898,21 @@ Implementations MUST:
 5. Not transition a terminal task (`completed`, `failed`, `canceled`) to any other state.
 6. Emit exactly one `state=submitted` event per Task lifetime.
 7. Use a **strictly monotonically increasing** `seq` counter (no resets, no gaps).
+8. Validate `role` field in `/message:send` requests — reject missing or invalid values with `400 ERR_INVALID_REQUEST`. (v0.9+)
+9. Use timezone-aware datetime objects for all `ts` fields — never naive UTC. (v2.44+)
+10. Return RFC 8615 headers (`Cache-Control: no-cache, no-store` / `Vary: Accept` / `X-Content-Type-Options: nosniff`) on all `/.well-known/*` endpoints when `capabilities.well_known_rfc8615=true`. (v2.47+)
 
 Implementations SHOULD:
 - Emit a `state=completed` or `state=failed` event as the final event in a Task's SSE stream.
 - Include `error` in `state=failed` events.
+- Populate `capabilities.groups` in AgentCard for structured capability discovery (v2.46+).
+- Support `GET /tasks` pagination parameters (`page_size`, `after`, `status`) when `capabilities.tasks_pagination=true` (v2.40+).
 
 Implementations MAY:
 - Emit intermediate `type=message` events between `working` and terminal states.
 - Emit multiple `type=artifact` events for streaming/chunked results.
+- Support `message.priority` field for delivery ordering hints (v2.43+).
+- Declare `delivery_ack=true` to request explicit message acknowledgement (v2.43+).
 
 ---
 
@@ -1049,6 +1107,18 @@ ACP_BASE_URL=http://localhost:7901 python3 tests/compat/run.py
 | **v1.0** | 2026-03-21 | **Stability annotations, API surface freeze, v1.0 compatibility guarantee** |
 | v2.5 | 2026-03-27 | §8 Task Event Sequence spec, SSE mandatory field completeness (`type`/`ts`/`seq`/`task_id`), full lifecycle examples, conformance requirements |
 | v2.6 | 2026-03-27 | `cancelling` intermediate state (§3.2), two-phase cancel protocol (§3.3.1), A2A #1684/#1680 gap analysis |
+| v2.7 | 2026-03-28 | `supported_transports` field, §5.4 `transport_modes` section, Appendix B A2A comparison table |
+| v2.8 | 2026-03-28 | Extension mechanism (§5.5): URI-identified extensions, `acp:ext:*` built-ins, required/optional semantics |
+| v2.18 | 2026-03-30 | Ed25519 identity + JWKS endpoint (`/.well-known/jwks.json`, RFC 7517), `trust.signals[]` |
+| v2.20 | 2026-03-31 | `limitations[]` structured format (`LimitationObject`), `permanent`/`kind` fields |
+| v2.21 | 2026-03-31 | `PATCH /.well-known/acp.json` for runtime limitations update; `?filter_limitations=` query param |
+| v2.24 | 2026-04-01 | Peer card cache (`GET /peers/{id}/card`); AgentCard `availability` field |
+| v2.29 | 2026-04-01 | `PATCH /skills/{id}/limitations` — per-skill runtime limitations update |
+| v2.40 | 2026-04-03 | `GET /tasks` pagination (`page_size`/`after`/`status` filter); `has_more`/`next_cursor` response |
+| v2.43 | 2026-04-03 | `message_priority` extension (`critical`/`high`/`normal`/`low`); `delivery_ack` flag |
+| v2.44 | 2026-04-04 | `datetime.utcnow()` → timezone-aware (`datetime.now(tz=UTC)`) migration (Python 3.12) |
+| v2.46 | 2026-04-04 | `capabilities.groups` structured grouping (messaging/tasks/identity/transport/discovery) |
+| v2.47 | 2026-04-04 | RFC 8615 well-known headers (`Cache-Control: no-cache`/`Vary: Accept`/`X-Content-Type-Options: nosniff`) on all `/.well-known/*` endpoints; `capabilities.well_known_rfc8615=true` |
 
 ---
 
@@ -1074,4 +1144,4 @@ ACP and A2A target different deployment contexts:
 
 ---
 
-*Spec version: v1.0 (updated v2.6) | Supersedes: core-v0.8.md | Reference impl: relay/acp_relay.py*
+*Spec version: v1.0 (updated v2.47) | Supersedes: core-v0.8.md | Reference impl: relay/acp_relay.py (v2.47.0)*
