@@ -4,6 +4,17 @@ ACP P2P Relay v3.0.0
 ====================
 Zero-server, zero-code-change P2P Agent communication.
 
+v2.48 changes (2026-04-05):
+  - GET /peers/<peer_id>/messages — per-peer message history query:
+    * Filters: direction=inbound|outbound|all, since_seq=<N>, limit, offset, sort=asc|desc
+    * Returns both inbound and outbound messages involving the target peer
+    * Incremental polling via since_seq (same semantics as /stream?since=<seq>)
+    * Clean response: message_id, direction, from/to, parts, context_id, task_id, priority, timestamps
+    * capabilities.peer_message_history=true + endpoints.peer_messages declared
+    * Inbound messages matched by peer agent_name or peer_id; outbound from _recv_queue direction field
+    * Useful for: auditing conversation history, debugging orchestration, replaying context
+    * 10/10 tests PASS (tests/test_peer_message_history.py)
+
 v2.7 changes (2026-03-28):
   - AgentCard top-level `limitations: string[]` field (ACP-exclusive, ref A2A #1694):
     Declares what this agent cannot do (e.g. ["no_file_access", "no_internet"]).
@@ -150,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.47.0"  # v2.47: RFC 8615 well-known headers (Cache-Control/Vary/X-Content-Type-Options) on /.well-known/* endpoints
+VERSION = "2.48.0"  # v2.48: GET /peers/<peer_id>/messages — per-peer message history with direction/seq/sort filters
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -343,6 +354,11 @@ _SEEN_MAX = 2000
 # Inbound: if sig present AND secret set, verify; mismatch → log warning (not drop).
 # If secret not set, sig is ignored on receive (graceful interop).
 _hmac_secret: bytes = None
+
+# ── Test mode (v2.48) ────────────────────────────────────────────────────────
+# --test-mode enables POST /debug/inject for unit-test message + peer injection.
+# NEVER enabled in production; gated behind explicit CLI flag.
+_test_mode: bool = False
 
 # ── HMAC replay-window (v1.1) ─────────────────────────────────────────────
 # When HMAC signing is enabled (--secret), inbound messages must have a `ts`
@@ -1518,6 +1534,7 @@ def _make_agent_card(name, skills):
             "agent_limitations":        True,                                  # v2.40: structured agent_limitations dict in AgentCard and /status
             "skills_openapi_spec":      True,                                  # v2.41: GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills
             "tasks_pagination":         True,                                  # v0.9: GET /tasks supports page_size/after/multi-status params (A2A v1.0 aligned)
+            "peer_message_history":     True,                                  # v2.48: GET /peers/<id>/messages — per-peer message history with direction/seq/sort filters
         },
 
         "identity": ({
@@ -1559,6 +1576,7 @@ def _make_agent_card(name, skills):
             "peer_card":               "/peers/{peer_id}/card",      # v2.24: GET cached AgentCard for peer
             "peer_ping":               "/peers/{peer_id}/ping",      # v2.25: POST liveness probe + RTT
             "peer_trust":              "/peers/{peer_id}/trust",     # v2.34: GET structured trust score for peer
+            "peer_messages":           "/peers/{peer_id}/messages",  # v2.48: GET per-peer message history
             "peers_paginated":         "/peers?limit=&offset=&filter=",  # v2.27: paginated peer list
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
@@ -3832,6 +3850,158 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
+        # ── GET /peers/<peer_id>/messages — per-peer message history (v2.48) ──
+        elif p.startswith("/peers/") and p.endswith("/messages") and p.count("/") == 3:
+            """
+            Return message history for a specific peer (both inbound and outbound).
+
+            Query params:
+              limit      — max messages to return (default 50, max 500)
+              offset     — skip N messages from the start (default 0)
+              direction  — "inbound"|"outbound"|"all" (default "all")
+              since_seq  — only messages with server_seq > N (for incremental polling)
+              sort       — "asc"|"desc" (default "desc" — newest first)
+
+            Response 200:
+              {ok, peer_id, name, messages[], count, total, has_more, next_offset}
+            Response 404: peer not found (ERR_PEER_NOT_FOUND)
+            Response 400: invalid params (ERR_INVALID_REQUEST)
+            """
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+
+                pinfo = _peers[peer_id]
+                peer_name = pinfo.get("agent_name") or pinfo.get("name") or peer_id
+
+                # ── Parse query params ─────────────────────────────────────────
+                qs = parse_qs(urlparse(self.path).query)
+
+                try:
+                    limit = min(int(qs.get("limit", ["50"])[0]), 500)
+                except ValueError:
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "limit must be an integer"}, 400)
+                    return
+                try:
+                    offset = max(0, int(qs.get("offset", ["0"])[0]))
+                except ValueError:
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "offset must be an integer"}, 400)
+                    return
+
+                direction = qs.get("direction", ["all"])[0]
+                if direction not in ("inbound", "outbound", "all"):
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "direction must be 'inbound', 'outbound', or 'all'"}, 400)
+                    return
+
+                since_seq_raw = qs.get("since_seq", [None])[0]
+                since_seq = None
+                if since_seq_raw is not None:
+                    try:
+                        since_seq = int(since_seq_raw)
+                    except ValueError:
+                        self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                    "error": "since_seq must be an integer"}, 400)
+                        return
+
+                sort_order = qs.get("sort", ["desc"])[0]
+                if sort_order not in ("asc", "desc"):
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "sort must be 'asc' or 'desc'"}, 400)
+                    return
+
+                # ── Filter _recv_queue for messages involving this peer ─────────
+                # Identify all names/ids that could refer to this peer
+                peer_identifiers = set()
+                peer_identifiers.add(peer_id)
+                if pinfo.get("agent_name"):
+                    peer_identifiers.add(pinfo["agent_name"])
+                if pinfo.get("name"):
+                    peer_identifiers.add(pinfo["name"])
+
+                all_msgs = list(_recv_queue)  # non-destructive snapshot
+
+                filtered = []
+                for msg in all_msgs:
+                    raw = msg.get("raw", {})
+                    msg_from = raw.get("from") or msg.get("from", "")
+                    msg_to = raw.get("to") or msg.get("to", "")
+                    msg_dir = msg.get("direction", "inbound")  # outbound entries set by _outbound_entry
+
+                    # Determine if this message involves our target peer
+                    involves_peer = (
+                        msg_from in peer_identifiers or
+                        msg_to in peer_identifiers or
+                        msg.get("peer_id") == peer_id
+                    )
+                    if not involves_peer:
+                        continue
+
+                    # Direction filter
+                    if direction == "inbound" and msg_dir != "inbound":
+                        continue
+                    if direction == "outbound" and msg_dir != "outbound":
+                        continue
+
+                    # since_seq filter
+                    if since_seq is not None:
+                        msg_seq = msg.get("server_seq") or raw.get("server_seq")
+                        if msg_seq is None or msg_seq <= since_seq:
+                            continue
+
+                    filtered.append(msg)
+
+                # Sort
+                filtered.sort(
+                    key=lambda m: m.get("received_at") or m.get("sent_at") or 0,
+                    reverse=(sort_order == "desc")
+                )
+
+                total = len(filtered)
+                page = filtered[offset: offset + limit]
+                has_more = (offset + limit) < total
+                next_offset = (offset + limit) if has_more else None
+
+                # Build clean response objects
+                result_msgs = []
+                for m in page:
+                    raw = m.get("raw", {})
+                    result_msgs.append({
+                        "message_id":   m.get("message_id") or raw.get("message_id"),
+                        "server_seq":   m.get("server_seq") or raw.get("server_seq"),
+                        "direction":    m.get("direction", "inbound"),
+                        "from":         raw.get("from") or m.get("from"),
+                        "to":           raw.get("to") or m.get("to"),
+                        "parts":        m.get("parts") or raw.get("parts", []),
+                        "context_id":   m.get("context_id") or raw.get("context_id"),
+                        "task_id":      m.get("task_id") or raw.get("task_id"),
+                        "priority":     raw.get("priority", "normal"),
+                        "received_at":  m.get("received_at"),
+                        "sent_at":      m.get("sent_at"),
+                    })
+
+                self._json({
+                    "ok":          True,
+                    "peer_id":     peer_id,
+                    "name":        peer_name,
+                    "connected":   pinfo.get("connected", False),
+                    "messages":    result_msgs,
+                    "count":       len(result_msgs),
+                    "total":       total,
+                    "has_more":    has_more,
+                    "next_offset": next_offset,
+                    "direction_filter": direction,
+                    "sort":        sort_order,
+                })
+            except Exception as e:
+                log.exception(f"[peer_messages] {e}")
+                self._json({"ok": False, "error": str(e)}, 500)
+
         # ── GET /peers/discover — LAN port-scan discovery (v2.1) ─────────────
         elif p == "/peers/discover":
             """
@@ -5520,6 +5690,108 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
+        # ── POST /debug/inject — test-mode: inject message + auto-register peer (v2.48) ─
+        elif p == "/debug/inject":
+            """
+            Test-only endpoint (--test-mode required).
+            Injects a message into _recv_queue AND auto-registers the sender as a peer.
+
+            Body:
+              from          — sender agent name (required)
+              parts         — list of part objects (required)
+              message_id    — optional, generated if absent
+              context_id    — optional
+              task_id       — optional
+              priority      — optional (default: normal)
+              direction     — optional (default: inbound)
+              server_seq    — optional, auto-assigned if absent
+
+            Response 200: {ok, message_id, peer_id, server_seq}
+            Response 403: test-mode not enabled
+            Response 400: missing required fields
+            """
+            if not _test_mode:
+                self._json({"ok": False, "error": "POST /debug/inject requires --test-mode",
+                            "error_code": "ERR_TEST_MODE_REQUIRED"}, 403)
+                return
+            try:
+                body = self._read_body()
+                from_name = (body.get("from") or "").strip()
+                parts = body.get("parts")
+                if not from_name:
+                    self._json({"ok": False, "error": "from field required",
+                                "error_code": "ERR_INVALID_REQUEST"}, 400)
+                    return
+                if not parts or not isinstance(parts, list):
+                    self._json({"ok": False, "error": "parts field required (list)",
+                                "error_code": "ERR_INVALID_REQUEST"}, 400)
+                    return
+
+                # Auto-register the sender as a peer if not already registered
+                peer_id = None
+                for pid, pinfo in _peers.items():
+                    if pinfo.get("agent_name") == from_name or pinfo.get("name") == from_name:
+                        peer_id = pid
+                        break
+                if peer_id is None:
+                    peer_id = _make_peer_id()
+                    _register_peer(peer_id=peer_id, link=f"acp://debug/{peer_id}")
+                    _peers[peer_id]["agent_name"] = from_name
+                    _peers[peer_id]["name"] = from_name
+                    _peers[peer_id]["connected"] = False  # not a real WS connection
+                    _peers[peer_id]["debug_injected"] = True
+                    log.info(f"[debug/inject] auto-registered peer: {from_name} → {peer_id}")
+
+                # Build message entry
+                import time as _time_
+                msg_id = body.get("message_id") or f"dbg_{int(_time_.time()*1000):x}"
+                direction = body.get("direction", "inbound")
+                priority = body.get("priority", "normal")
+                context_id = body.get("context_id")
+                task_id = body.get("task_id")
+
+                # Assign server_seq
+                import time as _time
+                seq = body.get("server_seq") or int(_time.time() * 1000)
+                ts_now = _now()
+                entry = {
+                    "message_id":  msg_id,
+                    "server_seq":  seq,
+                    "direction":   direction,
+                    "from":        from_name,
+                    "to":          _status.get("agent_name", "ACP-Agent"),
+                    "parts":       parts,
+                    "context_id":  context_id,
+                    "task_id":     task_id,
+                    "priority":    priority,
+                    "peer_id":     peer_id,
+                    "received_at": ts_now,
+                    "sent_at":     ts_now if direction == "outbound" else None,
+                    "raw": {
+                        "from":       from_name,
+                        "parts":      parts,
+                        "message_id": msg_id,
+                        "server_seq": seq,
+                        "context_id": context_id,
+                        "task_id":    task_id,
+                        "priority":   priority,
+                    },
+                }
+
+                _recv_queue.append(entry)
+                _persist(entry)
+
+                log.info(f"[debug/inject] injected msg {msg_id} from={from_name} peer={peer_id}")
+                self._json({
+                    "ok":         True,
+                    "message_id": msg_id,
+                    "peer_id":    peer_id,
+                    "server_seq": entry["server_seq"],
+                })
+            except Exception as e:
+                log.exception(f"[debug/inject] {e}")
+                self._json({"ok": False, "error": str(e)}, 500)
+
         # ── POST /peers/connect — connect to a new peer, add to registry (v0.6) ─
         elif p == "/peers/connect":  # [stable] connect to peer via acp:// link
             try:
@@ -6824,6 +7096,9 @@ Examples:
                         help="(v2.35) Skip public-IP detection and relay pre-registration; "
                              "generate acp://127.0.0.1:PORT/TOKEN link immediately. "
                              "Useful for local tests, CI, and sandboxed environments.")
+    parser.add_argument("--test-mode",    action="store_true",
+                        help="(v2.48) Enable POST /debug/inject for unit-test message+peer "
+                             "injection. NEVER use in production.")
     parser.add_argument("--relay",        action="store_true", help="(v1.4) Force Level 3 relay transport (skip L1 direct + L2 hole punch). Previously 'use relay instead of P2P'; now means auto-degradation last resort.")
     parser.add_argument("--relay-url",    default=None,
                         help="Relay endpoint URL (default: public Cloudflare Worker)")
@@ -7229,6 +7504,12 @@ Examples:
     _status["local_only"] = bool(getattr(args, "local_only", False))
     if _status["local_only"]:
         log.info("🏠 --local-only: public IP detection and relay registration disabled")
+
+    # v2.48: --test-mode
+    global _test_mode
+    _test_mode = bool(getattr(args, "test_mode", False))
+    if _test_mode:
+        log.warning("⚠️  --test-mode ENABLED: POST /debug/inject active (DO NOT use in production)")
 
     # Rebuild card to reflect transport_modes + supported_interfaces + limitations
     _status["agent_card"] = _make_agent_card(args.name, skills)

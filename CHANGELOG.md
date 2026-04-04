@@ -7,6 +7,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.48.0] — 2026-04-05 (GET /peers/<id>/messages — per-peer message history query)
+
+### Added
+- **`GET /peers/<peer_id>/messages`** — 按 peer 查询消息历史，支持：
+  - `direction=inbound|outbound|all`（默认 all）
+  - `since_seq=<N>`：增量轮询，只返回 server_seq > N 的消息（与 /stream?since= 语义一致）
+  - `limit` / `offset`：分页，响应含 `has_more` + `next_offset`
+  - `sort=asc|desc`（默认 desc，最新在前）
+  - 错误响应：404 ERR_PEER_NOT_FOUND / 400 ERR_INVALID_REQUEST
+- **`POST /debug/inject`**（`--test-mode` 保护）：测试专用消息+peer 注入端点，自动注册 sender 为 peer，写入 `_recv_queue` + 持久化
+- **`--test-mode`** CLI 标志：启用 debug 注入端点，生产环境无此标志则返回 403
+- `capabilities.peer_message_history = True` 在 AgentCard 中声明
+- `endpoints.peer_messages = "/peers/{peer_id}/messages"` 端点目录项
+- `tests/test_peer_message_history.py`：PMH1–PMH10 全部 PASS（10/10）
+
+### Design Notes
+- 消息匹配策略：`peer_id` 字段 OR `raw.from` 在 `peer_identifiers`（peer_id + agent_name + name）中
+- 历史数据来源：`_recv_queue`（内存，maxlen=1000）的非破坏性快照
+- `--test-mode` 受 `_test_mode` 全局标志保护，生产默认 False，403 拒绝
+
+---
+
 ## [2.47.1] — 2026-04-04 (fix: replace deprecated datetime.utcnow() in tests)
 
 ### Fixed
