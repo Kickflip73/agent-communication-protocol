@@ -1,9 +1,15 @@
 # ACP Transport Specification
 
 **Status:** Draft  
-**Version:** 0.3 (2026-03-20 — §3.6 transport-level HTTP headers clarification, Binding A)  
+**Version:** 0.4 (2026-04-04 — §8 Extensions: `message_priority`; §10 `capabilities.groups` transport section; §11 `capabilities.tasks_pagination`; formally separated from core-v0.5.md)  
 **Language:** **English** · [中文](transports.zh.md)
 
+> **What changed in v0.4:**  
+> - §8 Extensions: added `message_priority` (v2.43) and `delivery_ack` (v2.43)  
+> - §10 Multi-Binding: updated AgentCard example to use `capabilities.groups.transport` (v2.46)  
+> - §11 (new): `capabilities.tasks_pagination` declaration reference  
+> - Formally designated as the canonical L1 transport document, separated from `spec/core-v0.5.md`
+>
 > **What changed in v0.3:**  
 > Added §3.6 transport-level HTTP headers clarification for Binding A.  
 > Explains the Binding-layer vs Extension-layer distinction for HTTP headers,  
@@ -339,8 +345,31 @@ Extensions are optional fields added to the ACP message envelope. They work with
 | `context_id` | string | Groups multiple Tasks into a conversation | 📋 v0.7 |
 | `correlation_id` | string | Links a reply to its original message | ✅ v0.5 |
 | `to_peer` | string | Directed send target (multi-session) | ✅ v0.6 |
+| `priority` | string | Message delivery priority: `"critical"` / `"high"` / `"normal"` / `"low"` | ✅ v2.43 |
+| `delivery_ack` | boolean | Request explicit delivery acknowledgement from receiver | ✅ v2.43 |
 
 **Receiver MUST ignore unknown extension fields** (forward compatibility).
+
+### 8.1 `priority` semantics
+
+```json
+{
+  "type": "acp.message",
+  "message_id": "msg_abc",
+  "priority": "critical",
+  "parts": [{"type": "text", "content": "Urgent: system alert"}]
+}
+```
+
+| Value | Meaning | Queue behaviour |
+|-------|---------|----------------|
+| `"critical"` | System-level alert; deliver before all others | Jump to front of relay queue |
+| `"high"` | User-interactive; low-latency preferred | Deliver before `normal` / `low` |
+| `"normal"` | Default; standard ordering applies | FIFO (default) |
+| `"low"` | Background / batch; may be deferred | Deliver last |
+
+Default when omitted: `"normal"`.  
+AgentCard capability flag: `capabilities.message_priority: true`.
 
 ---
 
@@ -374,16 +403,64 @@ acp_relay.py startup:
   3. Serve HTTP API on http_port (Binding D for local control)
 ```
 
-AgentCard declares supported bindings:
+### 10.1 AgentCard capabilities declaration (v2.46+)
+
+Since v2.46, the `capabilities.groups.transport` section provides a structured declaration of supported transport features. The flat fields remain for backward compatibility.
 
 ```json
 {
   "capabilities": {
-    "multi_session": true,
-    "bindings": ["ws-p2p", "http-relay", "http-sse"]
+    "multi_session":    true,
+    "message_priority": true,
+    "http2":            false,
+    "groups": {
+      "transport": {
+        "sse":            true,
+        "http2":          false,
+        "p2p_direct":     true,
+        "dcutr":          true,
+        "relay_fallback": true
+      }
+    }
   }
 }
 ```
+
+| `groups.transport` field | Meaning |
+|--------------------------|---------|
+| `sse` | Supports Server-Sent Events (Binding D streaming recv) |
+| `http2` | Supports HTTP/2 cleartext (h2c) framing |
+| `p2p_direct` | Supports Binding A direct WebSocket P2P |
+| `dcutr` | Supports DCUtR NAT hole-punching (libp2p-style) |
+| `relay_fallback` | Supports Binding C HTTP relay fallback |
+
+Consumers SHOULD prefer `capabilities.groups.transport` for negotiation.  
+Producers MUST keep flat `capabilities.*` fields populated for older clients.
+
+---
+
+## 11. Task Pagination and Transport (v2.45+)
+
+`GET /tasks` supports server-side pagination declared via `capabilities.tasks_pagination: true`:
+
+```json
+GET /tasks?page_size=20&after=task_abc&status=working,completed
+```
+
+Response:
+```json
+{
+  "tasks": [...],
+  "total": 142,
+  "has_more": true,
+  "next_cursor": "task_xyz"
+}
+```
+
+This is a **Binding D (HTTP/SSE) and Binding A (WS P2P control-plane HTTP)** feature.  
+For Binding B/E (stdio/TCP), task listing is not defined at the transport layer.
+
+AgentCard flag: `"tasks_pagination": true` (flat) or `"groups.tasks.pagination": true` (grouped, v2.46+).
 
 ---
 
