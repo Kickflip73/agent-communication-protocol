@@ -159,5 +159,5 @@ curl http://localhost:7901/stream
 
 ## Version
 
-Current stable: **v2.34.0** — Per-peer structured trust scoring, DID pubkey offline discovery, message idempotency.  
-See [What's New](whats-new.md) for recent changes or the full [Roadmap](ROADMAP.md).
+Current stable: **v2.47.1** — RFC 8615 well-known headers, identity-v2.0 (Stable), capabilities groups, `scripts/gen_changelog.py`.  
+See [What's New](whats-new.md) · [Compatibility Matrix](compatibility-matrix.md) · [Roadmap](ROADMAP.md).
