@@ -693,7 +693,7 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | 特性 | 优先级 | 状态 | 说明 |
 |------|--------|------|------|
 | SDK 多语言支持（Python 稳定版 + TypeScript MVP） | P1 | ⏳ 待开发 | acp_relay.py 已是参考实现，需正式发布 pip/npm 包 |
-| `GET /.well-known/acp.json` 标准化（RFC 8615 对齐） | P1 | ⏳ 待开发 | 补充 Content-Type、CORS、缓存头规范 |
+| `GET /.well-known/acp.json` 标准化（RFC 8615 对齐） | P1 | ✅ 已完成 | v2.47，`_json_well_known()` 新增 Cache-Control/Vary/X-Content-Type-Options；覆盖 acp.json/did.json/jwks.json；WH1-10 = 10/10 |
 | spec/core-v0.5.md → spec/core-v1.0.md 升版 | P1 | ⏳ 待开发 | 整合 v0.9 所有更新，写入 Conformance Requirements |
 | AgentCard `identity` 字段正式规范化 | P2 | ⏳ 待开发 | 对齐 A2A #1672 进展；Ed25519 + JWKS 已实现，需写入正式 spec |
 | `trust.signals[]` 枚举值最终确认 | P2 | ⏳ 待开发 | 待 A2A #1628 结论，确认 `type=jwks`/`type=ed25519_identity` 命名 |
