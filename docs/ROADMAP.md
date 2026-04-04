@@ -682,3 +682,26 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - 不强制 OAuth（评估文档只是分析，不实现）
 - 不引入 gRPC（保持 HTTP/WS 兼容性）
 - `datetime` 迁移必须 backward compatible（不改 API 输出格式）
+
+---
+
+### 🔮 v1.0（规划中，目标：2026-09）
+**主题：生产就绪 — 稳定性、互操作性、开发者生态**
+
+> 来源：2026-04-04 研究轮（v0.9 完成后规划）+ A2A #1672/#1628 持续观察
+
+| 特性 | 优先级 | 状态 | 说明 |
+|------|--------|------|------|
+| SDK 多语言支持（Python 稳定版 + TypeScript MVP） | P1 | ⏳ 待开发 | acp_relay.py 已是参考实现，需正式发布 pip/npm 包 |
+| `GET /.well-known/acp.json` 标准化（RFC 8615 对齐） | P1 | ⏳ 待开发 | 补充 Content-Type、CORS、缓存头规范 |
+| spec/core-v0.5.md → spec/core-v1.0.md 升版 | P1 | ⏳ 待开发 | 整合 v0.9 所有更新，写入 Conformance Requirements |
+| AgentCard `identity` 字段正式规范化 | P2 | ⏳ 待开发 | 对齐 A2A #1672 进展；Ed25519 + JWKS 已实现，需写入正式 spec |
+| `trust.signals[]` 枚举值最终确认 | P2 | ⏳ 待开发 | 待 A2A #1628 结论，确认 `type=jwks`/`type=ed25519_identity` 命名 |
+| CHANGELOG.md 自动生成（git log → 结构化） | P3 | ⏳ 待开发 | 提升发布规范性 |
+| 兼容性测试矩阵（跨版本 AgentCard 互操作） | P3 | ⏳ 待开发 | 确保 v0.5/v0.6/v1.0 AgentCard 向后兼容 |
+
+**设计约束**（不动摇）：
+- 保持 P2P 优先，relay 仅作 fallback
+- SDK 不引入强依赖，保持"单文件可运行"精神
+- spec 升版必须向后兼容（无 breaking change）
+- 生产就绪不意味着企业化（OAuth/多租户不在 v1.0 范围）
