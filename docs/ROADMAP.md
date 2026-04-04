@@ -697,7 +697,7 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | spec/core-v1.0.md 升版同步 | P1 | ✅ 已完成 | v2.47，Status=Stable，§5.3.1 capabilities.groups，§8.7 新增3条MUST+4条SHOULD，版本历史v2.7-v2.47，commit e9bcb1f |
 | AgentCard `identity` 字段正式规范化 | P2 | ⏳ 待开发 | 对齐 A2A #1672 进展；Ed25519 + JWKS 已实现，需写入正式 spec |
 | `trust.signals[]` 枚举值最终确认 | P2 | ⏳ 待开发 | 待 A2A #1628 结论，确认 `type=jwks`/`type=ed25519_identity` 命名 |
-| CHANGELOG.md 自动生成（git log → 结构化） | P3 | ⏳ 待开发 | 提升发布规范性 |
+| CHANGELOG.md 自动生成（git log → 结构化） | P3 | ✅ 已完成 | v2.47.1，`scripts/gen_changelog.py`（Conventional Commits → 结构化条目，支持 `--since`/`--dry-run`/`--version`），commit 07a34c0 |
 | 兼容性测试矩阵（跨版本 AgentCard 互操作） | P3 | ⏳ 待开发 | 确保 v0.5/v0.6/v1.0 AgentCard 向后兼容 |
 
 **设计约束**（不动摇）：
