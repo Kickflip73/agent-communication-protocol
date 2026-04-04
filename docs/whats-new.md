@@ -1,7 +1,74 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-04-03
+> Last updated: 2026-04-04
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+### Node SDK v2.47.0 — TypeScript-ready Node.js client (2026-04-04)
+
+`sdk/node` upgraded to match the server's v2.47 feature set:
+
+- **`trustSignals()`** — reads `trust.signals[]` from AgentCard; gracefully returns `[]` on missing/error
+- **`capabilityGroups()`** — structured capability groups object (`messaging` / `tasks` / `identity` / `transport` / `discovery`)
+- **`wellKnownHeaders()`** — fetches RFC 8615 response headers (`Cache-Control`, `Vary`, `X-Content-Type-Options`)
+- Full TypeScript signatures in `index.d.ts`
+- Test suite: **66/66 PASS** (+10 new cases)
+- `README.md` fully refreshed: version badge, 27-method table with `since` column, Quick Start examples
+
+---
+
+### v2.47.1 — CHANGELOG Auto-Generator (2026-04-04)
+
+`scripts/gen_changelog.py` — Conventional Commits → structured CHANGELOG entries:
+
+```bash
+# Preview unreleased changes
+python3 scripts/gen_changelog.py --dry-run
+
+# Generate changelog since a version tag
+python3 scripts/gen_changelog.py --since v2.40.0 --version v2.47.1
+```
+
+Supports `--since`, `--dry-run`, `--version`. Groups commits by `feat/fix/docs/chore`. Idempotent — safe to run repeatedly.
+
+---
+
+### v2.47 — RFC 8615 Well-Known Headers + Stable Specs (2026-04-04)
+
+Three production-readiness upgrades in one release:
+
+**RFC 8615 compliance** — `/.well-known/acp.json` (and `did.json`, `jwks.json`) now return:
+```
+Cache-Control: max-age=300, stale-while-revalidate=60
+Vary: Accept-Encoding
+X-Content-Type-Options: nosniff
+```
+
+**`spec/core-v1.0.md` → Status: Stable** — v2.47 version history, §5.3.1 `capabilities.groups`, §8.7 three new MUST + four SHOULD conformance rules.
+
+**`spec/identity-v2.0.md` → Status: Stable** — Ed25519+CA hybrid (§2), JWKS (§3.2), `trust.signals` (§5), `capabilities.groups.identity` (§6), Conformance (§9).
+
+---
+
+### v2.46 — AgentCard `capabilities.groups` (2026-04-04)
+
+Flat `capabilities.*` fields now have a structured semantic grouping layer:
+
+```json
+"capabilities": {
+  "groups": {
+    "messaging":  { "send": true, "recv": true, "priority": true, … },
+    "tasks":      { "task_list": true, "task_cancel": true, … },
+    "identity":   { "ed25519": true, "did_document": true, "jwks": true },
+    "transport":  { "sse": true, "websocket": true, "http2": true },
+    "discovery":  { "well_known": true, "peer_card": true, "mdns": true }
+  }
+}
+```
+
+All existing flat fields remain — groups are **additive, backward compatible**.
+Tests: CG1–CG8 = 8/8 PASS.
 
 ---
 
