@@ -5,7 +5,7 @@
 **Date:** 2026-04-04 (v2.47: RFC 8615 well-known headers; capabilities.groups; tasks pagination; auth evaluation)  
 **License:** Apache 2.0  
 **Supersedes:** [core-v0.8.md](core-v0.8.md)  
-**See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v0.8.md](identity-v0.8.md) · [auth-evaluation.md](auth-evaluation.md)
+**See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v2.0.md](identity-v2.0.md) · [auth-evaluation.md](auth-evaluation.md)
 
 > **Stability Promise (v1.0+):**  Endpoints and fields marked **`stable`** will not change in a
 > backwards-incompatible way within the v1.x series. Endpoints marked **`experimental`** may

@@ -1,9 +1,9 @@
 # ACP Specification Index
 
-> Version: **v0.8**  
+> Version: **v1.0**  
 > Status: **Stable**  
-> Last updated: 2026-04-03  
-> Implementation: [`relay/acp_relay.py`](../relay/acp_relay.py) · v2.43.0
+> Last updated: 2026-04-04  
+> Implementation: [`relay/acp_relay.py`](../relay/acp_relay.py) · v2.47.1
 
 ACP is organized into three independent, composable layers.  
 Each layer can be adopted without requiring the layers above it.
@@ -16,7 +16,7 @@ Each layer can be adopted without requiring the layers above it.
 ┌─────────────────────────────────────────────────────┐
 │  Layer 3 — Identity (Optional)                      │
 │  Ed25519 self-sovereign agent identity              │
-│  spec: identity-v0.8.md                             │
+│  spec: identity-v2.0.md                             │
 ├─────────────────────────────────────────────────────┤
 │  Layer 2 — Messaging                                │
 │  Structured messages, task lifecycle, SSE stream    │
@@ -55,8 +55,9 @@ is fully compatible with one also using L3.
 
 | File | Description | Status |
 |------|-------------|--------|
-| [`identity-v0.8.md`](identity-v0.8.md) | Ed25519 self-sovereign identity, signing, replay protection | ✅ Stable |
-| [`identity-v1.5.md`](identity-v1.5.md) | Hybrid CA model (optional PKI overlay) | ✅ Stable |
+| [`identity-v2.0.md`](identity-v2.0.md) | **Canonical identity spec v2.0**: Ed25519 + JWKS + trust.signals + Conformance (Stable) | ✅ Stable |
+| [`identity-v1.5.md`](identity-v1.5.md) | Hybrid CA model (superseded by v2.0, kept for reference) | 📦 Archived |
+| [`identity-v0.8.md`](identity-v0.8.md) | Ed25519 self-sovereign identity v0.8 (superseded by v2.0) | 📦 Archived |
 
 ### Additional Specs
 
@@ -117,6 +118,7 @@ version (currently v2.43.0) is independent of the spec version.
 | core-v1.0 | v2.10.0 |
 | core-v1.3 | v2.25.0 |
 | identity-v1.5 | v2.35.0 |
+| **identity-v2.0** | **v2.47.1** |
 
 ---
 
