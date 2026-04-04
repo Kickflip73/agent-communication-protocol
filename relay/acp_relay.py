@@ -150,7 +150,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.44.0"  # v2.44: fix datetime.utcnow() DeprecationWarning (Python 3.12)
+VERSION = "2.47.0"  # v2.47: RFC 8615 well-known headers (Cache-Control/Vary/X-Content-Type-Options) on /.well-known/* endpoints
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1491,6 +1491,7 @@ def _make_agent_card(name, skills):
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
             "trust_jwks":         True,                                      # v2.18: JWKS compatibility layer — /.well-known/jwks.json
+            "well_known_rfc8615":      True,                                  # v2.47: /.well-known/* endpoints return RFC 8615 headers (Cache-Control/Vary/X-Content-Type-Options)
             "limitations_structured":  True,                                  # v2.20: limitations[] uses LimitationObject format
             "limitations_patch":       True,                                  # v2.21: PATCH /.well-known/acp.json supports 'limitations' key
             "limitations_filter":      True,                                  # v2.21: GET /.well-known/acp.json?filter_limitations=<value> supported
@@ -3437,6 +3438,32 @@ class LocalHTTP(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _json_well_known(self, data, code=200):
+        """RFC 8615-compliant response for /.well-known/* endpoints.
+
+        Adds required headers beyond the base _json():
+          - Cache-Control: no-cache, no-store  (AgentCard is dynamic; must not be stale)
+          - Vary: Accept                        (content negotiation hint for proxies)
+          - Access-Control-Allow-Methods: GET, OPTIONS  (CORS preflight clarity)
+          - Access-Control-Allow-Headers: Content-Type  (standard CORS header)
+          - X-Content-Type-Options: nosniff    (security hardening per RFC 8615 §4)
+
+        v2.47: introduced for /.well-known/acp.json, /.well-known/did.json,
+               /.well-known/jwks.json to align with RFC 8615 production requirements.
+        """
+        body = json.dumps(data, ensure_ascii=False, indent=2).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("Vary", "Accept")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _read_body(self):
         n = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(n) if n else b"{}"
@@ -3487,7 +3514,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                                          f"use 'permanent', 'transient', or one of {sorted(_VALID_LIMITATION_KINDS)}"}, 400)
                     return
                 live_card = {**live_card, "limitations": lims}
-            self._json({"self": live_card, "peer": _status.get("peer_card")})
+            self._json_well_known({"self": live_card, "peer": _status.get("peer_card")})
 
         # ── GET /.well-known/did.json — W3C DID Document (v1.3) ───────────────
         elif p == "/.well-known/did.json":
@@ -3528,7 +3555,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "serviceEndpoint": link,
                 }] if link else []),
             }
-            self._json(did_doc)
+            self._json_well_known(did_doc)
 
         # ── GET /.well-known/jwks.json — JWKS endpoint (v2.18) ────────────────
         elif p == "/.well-known/jwks.json":
@@ -3557,7 +3584,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
             """
             agent_name = _status.get("agent_name", "ACP-Agent")
             jwks = _build_jwks(agent_name)
-            self._json(jwks)
+            self._json_well_known(jwks)
 
         elif p == "/status":  # [stable] relay status
             self._json(_status)
