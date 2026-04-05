@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.57.0"  # v2.57: capability_token — SINT-format Ed25519 signed tokens, POST /skills/{id}/capability-token issuance, task enforcement gate
+VERSION = "2.58.0"  # v2.58: effective_tier — dynamic three-factor tier computation: max(tier_rule, delegation_depth_floor, reputation_adj); inspired by A2A #1716 comment
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1771,6 +1771,7 @@ def _make_agent_card(name, skills):
             "peer_verify_card":            True,                              # v2.55: GET /peers/{id}/verify-card — on-demand per-peer AgentCard re-verification + force/trust/ttl params
             "principal_chain":             bool(_principal_chain),            # v2.56: OBO delegation chain in trust block
             "capability_token_issuance":   bool(_ed25519_private),            # v2.57: POST /skills/{id}/capability-token — SINT-format Ed25519 capability token issuance
+            "effective_tier_computation":  True,                               # v2.58: dynamic three-factor effective_tier: max(tier_rule, depth_floor, rep_adj)
         },
 
         "identity": ({
@@ -1809,6 +1810,7 @@ def _make_agent_card(name, skills):
             "peer_verify_card": "/peers/{peer_id}/verify-card",  # v2.55: on-demand per-peer AgentCard re-verification
             "peer_principal_chain":       "/peers/{peer_id}/principal-chain",  # v2.56: GET OBO delegation chain for peer
             "capability_token_issuance":  "/skills/{skill_id}/capability-token", # v2.57: POST — issue SINT-format Ed25519 capability token
+            "effective_tier":             "/skills/{skill_id}/effective-tier",  # v2.58: GET — dynamic three-factor effective_tier computation
             "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
@@ -3014,8 +3016,96 @@ def _check_rate_limit(skill_id: str | None, peer_id: str | None) -> tuple[bool, 
     return True, {}
 
 
+def _compute_effective_tier(skill_obj: dict, peer_id: str | None) -> tuple[str | None, dict]:
+    """v2.58: Compute the effective authorization tier using three-factor formula.
+
+    effective_tier = max(tier_rule, delegation_depth_floor, reputation_adj_tier)
+
+    Factors:
+      1. tier_rule: skill's declared authorization_tier (T0/T1/T2/T3/None)
+      2. delegation_depth_floor: more principal_chain depth → conservative floor
+         depth 0 → no effect
+         depth 1 → floor T1
+         depth 2 → floor T2
+         depth 3+ → floor T3
+      3. reputation_adj: adjustment based on peer's trust signals history
+         -1 → known peer with long+recent track record (verified_identity + msgs>100) → may lower floor
+          0 → neutral (default)
+         +1 → completely unknown peer (no card, no msgs) → raises floor
+
+    Tier ordering (for max()): None < T0 < T1 < T2 < T3
+    reputation_adj only applies when the base tier would be T1 or T2 (guards against -1 dropping T3).
+
+    Returns (effective_tier: str|None, factors: dict)
+    """
+    _TIER_ORDER = {None: 0, "T0": 0, "T1": 1, "T2": 2, "T3": 3}
+    _TIER_FROM_INT = {0: "T0", 1: "T1", 2: "T2", 3: "T3"}
+
+    # Factor 1: tier_rule
+    raw_tier = skill_obj.get("authorization_tier")
+    tier_int = _TIER_ORDER.get(raw_tier, 0)
+
+    # Factor 2: delegation_depth_floor
+    depth = len(_principal_chain)
+    depth_floor = min(depth, 3)  # cap at T3
+
+    # Factor 3: reputation_adj
+    reputation_adj = 0
+    if peer_id and peer_id in _peers:
+        pinfo = _peers[peer_id]
+        peer_card = pinfo.get("agent_card") or {}
+        peer_trust = peer_card.get("trust") or {}
+        peer_signals = peer_trust.get("signals") or []
+        msgs = pinfo.get("messages_sent", 0) + pinfo.get("messages_received", 0)
+        vr = pinfo.get("card_verification") or {}
+        card_valid = bool(vr.get("valid"))
+        has_verified_id = any(
+            s.get("type") in ("verified_identity", "did_document") or
+            s.get("kind") in ("verified_identity", "did_document")
+            for s in peer_signals
+        )
+        # Positive track record → allow -1 (lower floor) only for T1/T2 range
+        if card_valid and has_verified_id and msgs > 100:
+            reputation_adj = -1
+        # Completely unknown → raise floor by +1
+        elif not card_valid and msgs == 0 and not peer_signals:
+            reputation_adj = 1
+    elif peer_id is None:
+        # no caller info → unknown → raise floor
+        reputation_adj = 1
+
+    # Combine: max of tier_rule and depth_floor
+    base_int = max(tier_int, depth_floor)
+
+    # Apply reputation_adj — only when base_int >= T2 (i.e. 2+).
+    # T0/T1 are always auto-execute; reputation cannot raise them to T2/T3
+    # (that would break backward-compat: T1 should remain T1 for unknown peers with no chain).
+    # reputation_adj applies only to skills that are already at T2+ (via tier_rule or depth_floor).
+    if raw_tier == "T3":
+        # T3 is absolute — reputation can't lower it
+        effective_int = 3
+    elif base_int >= 2:
+        # T2/T3 range: apply reputation adjustment
+        effective_int = max(0, min(3, base_int + reputation_adj))
+    else:
+        # T0/T1 range: reputation_adj not applied (preserve auto-execute semantics)
+        effective_int = base_int
+
+    effective_tier = _TIER_FROM_INT.get(effective_int, "T0") if effective_int > 0 else None
+
+    factors = {
+        "tier_rule":           raw_tier,
+        "delegation_depth":    depth,
+        "depth_floor":         f"T{depth_floor}" if depth_floor > 0 else None,
+        "reputation_adj":      reputation_adj,
+        "effective_tier":      effective_tier,
+    }
+    return effective_tier, factors
+
+
 def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tuple[bool, str]:
-    """v2.49: Check whether the calling peer satisfies the skill's authorization_tier requirement.
+    """v2.49/v2.58: Check whether the calling peer satisfies the skill's authorization_tier requirement.
+    v2.58: uses _compute_effective_tier() for dynamic three-factor enforcement.
 
     Returns (allowed: bool, reason: str).
     - allowed=True  → proceed with task creation
@@ -3047,13 +3137,19 @@ def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tupl
     if skill_obj is None:
         return True, f"skill '{skill_id}' not found in agent card"
 
-    tier = skill_obj.get("authorization_tier")
-    if tier is None or tier in ("T0", "T1"):
-        return True, f"tier {tier!r} — auto-execute"
+    # v2.58: compute effective_tier via three-factor formula
+    effective_tier, tier_factors = _compute_effective_tier(skill_obj, peer_id)
 
-    # T2 or T3 — need peer trust score
+    if effective_tier is None or effective_tier in ("T0", "T1"):
+        return True, (f"effective_tier={effective_tier!r} — auto-execute "
+                      f"(rule={tier_factors['tier_rule']!r}, "
+                      f"depth_floor={tier_factors['depth_floor']!r}, "
+                      f"rep_adj={tier_factors['reputation_adj']:+d})")
+
+    # effective_tier is T2 or T3 — need peer trust score
     if not peer_id or peer_id not in _peers:
-        return False, (f"skill '{skill_id}' requires tier {tier} but caller peer is unknown; "
+        return False, (f"skill '{skill_id}' effective_tier={effective_tier} "
+                       f"(factors: {tier_factors}) but caller peer is unknown; "
                        f"connect via /peers/connect first")
 
     pinfo = _peers[peer_id]
@@ -3073,7 +3169,6 @@ def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tupl
                   0.1 if rtt is not None else 0.0)
 
     peer_did = (pinfo.get("agent_card") or {}).get("did") or ""
-    # _vouch_chain is a list of {voucher_did, vouched_did, vouched_at, sig, comment}
     vouch_score = 0.0
     if peer_did and _vouch_chain:
         for v in _vouch_chain:
@@ -3087,16 +3182,20 @@ def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tupl
            "ping_rtt": ping_score, "message_hist": msg_score, "vouch": vouch_score}
     trust_score = round(sum(raw[k] * weights[k] for k in weights), 4)
 
-    if tier == "T2":
-        if trust_score >= 0.7:
-            return True, f"T2 satisfied: trust_score={trust_score:.3f} >= 0.7"
-        return False, (f"skill '{skill_id}' requires tier T2 (trust_score >= 0.7); "
-                       f"caller trust_score={trust_score:.3f}")
+    factor_str = (f"rule={tier_factors['tier_rule']!r}, "
+                  f"depth_floor={tier_factors['depth_floor']!r}, "
+                  f"rep_adj={tier_factors['reputation_adj']:+d}")
 
-    if tier == "T3":
+    if effective_tier == "T2":
+        if trust_score >= 0.7:
+            return True, f"effective T2 satisfied: trust_score={trust_score:.3f} >= 0.7 ({factor_str})"
+        return False, (f"skill '{skill_id}' effective_tier=T2 (trust_score >= 0.7 required); "
+                       f"caller trust_score={trust_score:.3f}; {factor_str}")
+
+    if effective_tier == "T3":
         if trust_score < 0.9:
-            return False, (f"skill '{skill_id}' requires tier T3 (trust_score >= 0.9); "
-                           f"caller trust_score={trust_score:.3f}")
+            return False, (f"skill '{skill_id}' effective_tier=T3 (trust_score >= 0.9 required); "
+                           f"caller trust_score={trust_score:.3f}; {factor_str}")
         # also check for verified_identity signal in peer's AgentCard
         peer_card  = pinfo.get("agent_card") or {}
         peer_trust = peer_card.get("trust") or {}
@@ -3106,11 +3205,12 @@ def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tupl
             for sig in peer_sigs
         )
         if not has_verified_identity:
-            return False, (f"skill '{skill_id}' requires tier T3: caller lacks "
-                           f"'verified_identity' trust signal (trust_score={trust_score:.3f})")
-        return True, f"T3 satisfied: trust_score={trust_score:.3f}, verified_identity signal present"
+            return False, (f"skill '{skill_id}' effective_tier=T3: caller lacks "
+                           f"'verified_identity' trust signal (trust_score={trust_score:.3f}); {factor_str}")
+        return True, (f"effective T3 satisfied: trust_score={trust_score:.3f}, "
+                      f"verified_identity present ({factor_str})")
 
-    return True, f"unknown tier {tier!r} — defaulting to allow"
+    return True, f"unknown effective_tier {effective_tier!r} — defaulting to allow"
 
 
 def _needs_human_confirmation(skill_id: str | None) -> bool:
@@ -5825,6 +5925,58 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self.close_connection = True
             _handle_ws_stream(self)
 
+        # ── GET /skills/<id>/effective-tier — dynamic tier computation (v2.58) ──
+        elif p.startswith("/skills/") and p.endswith("/effective-tier"):
+            """
+            GET /skills/{skill_id}/effective-tier?peer_id=<peer_id>
+
+            Returns the dynamically computed effective authorization tier for this skill,
+            combining tier_rule + delegation_depth_floor + reputation_adj.
+
+            Query params:
+              peer_id  (optional) — DID or internal peer id to simulate; if omitted, uses
+                                    anonymous caller (reputation_adj=+1 applied)
+
+            Response 200:
+              {
+                "skill_id":        "...",
+                "effective_tier":  "T0"|"T1"|"T2"|"T3"|null,
+                "factors": {
+                  "tier_rule":       "T1"|...|null,
+                  "delegation_depth": 0,
+                  "depth_floor":     "T1"|null,
+                  "reputation_adj":  0,
+                  "effective_tier":  "T1"|...
+                }
+              }
+            """
+            skill_id_req = p[len("/skills/"):-len("/effective-tier")]
+            if not skill_id_req:
+                self._json(_err(ERR_INVALID_REQUEST, "skill id must not be empty", 400)[0], 400)
+                return
+            agent_card = _status.get("agent_card") or {}
+            all_skills = list(agent_card.get("skills", []))
+            skill_obj_req = None
+            for s in all_skills:
+                if isinstance(s, dict) and s.get("id") == skill_id_req:
+                    skill_obj_req = s
+                    break
+            if skill_obj_req is None:
+                self._json(
+                    _err(ERR_NOT_FOUND, f"skill '{skill_id_req}' not found in agent card", 404)[0],
+                    404,
+                )
+                return
+            qs_et = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            caller_peer_id = (qs_et.get("peer_id") or [None])[0]
+            eff_tier, factors = _compute_effective_tier(skill_obj_req, caller_peer_id)
+            self._json({
+                "skill_id":       skill_id_req,
+                "effective_tier": eff_tier,
+                "factors":        factors,
+            })
+            return
+
         # ── GET /skills/<id>/status — per-skill availability probe (v2.29) ──────
         elif p.startswith("/skills/") and p.endswith("/status"):
             skill_id_req = p[len("/skills/"):-len("/status")]
@@ -7912,7 +8064,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         # ── v2.56: DELETE /principal-chain/<did> — remove a principal from chain ──
         if p.startswith("/principal-chain/") and p.count("/") == 2:
-            did_to_remove = p[len("/principal-chain/"):]
+            did_to_remove = urllib.parse.unquote(p[len("/principal-chain/"):])
             before = len(_principal_chain)
             _principal_chain = [e for e in _principal_chain if e.get("did") != did_to_remove]
             removed = before - len(_principal_chain)
