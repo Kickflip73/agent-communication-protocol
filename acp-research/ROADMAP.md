@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-05 15:51（文档轮 #4：v2.52 文档同步完成；当前版本 v2.52.0，全量回归 217/217）
+> 最后更新：2026-04-05 16:51（研究轮：A2A #1716 新开 Skill Auth RFC（我们已领先实现）；#1713 OBO 跨组织账本（audit_log 对齐）；v2.53 候选确定：skill.rate_limit + POST /verify-card）
 
 ---
 
@@ -663,6 +663,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.50** | **2026-04-05** | **skill.param_constraints — 参数级调用约束（ref SINT Protocol / A2A #1716 constraints 字段）+ ERR_PARAM_CONSTRAINT，SPC1-18=18/18** |
 | **v2.51** | **2026-04-05** | **T3 human_confirmation — confirmation_pending 状态 + :confirm/:reject 端点 + trust_override debug + --auto-confirm-t3，T3C1-14=14/14** |
 | **v2.52** | **✅ 2026-04-05** | **任务审计日志 `GET /tasks/{id}/audit-log` + `skill.deprecation_notice` — 三层防护可追溯 + Skill 优雅废弃** |
+| **v2.53** | **🔜 下一目标** | **`skill.rate_limit` 调用频率限制（首选）+ `POST /verify-card` AgentCard 签名验证（次选）— 防滥用 + 跨 Agent 可验证身份** |
 
 ---
 
