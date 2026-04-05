@@ -7,6 +7,46 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.56.0 — principal_chain[] OBO Delegation Chain — Trust-Block Propagation + Runtime Management (2026-04-05)
+
+### Added
+- `_principal_chain` — module-level list of `{did, role, added_at}` OBO delegation entries
+- `GET  /principal-chain` — list current chain; response includes `self_did`, `count`, `principal_chain[]`
+- `POST /principal-chain` — add or upsert a principal by DID; body: `{"did": "...", "role": "orchestrator"|"delegator"|"owner"|<str>}`
+- `DELETE /principal-chain/<did>` — remove a specific principal; 404 when DID not found
+- `GET /peers/{peer_id}/principal-chain` — return the `principal_chain` embedded in a connected peer's AgentCard trust block
+  - 404: peer not found in registry
+  - 422: peer registered but has not yet shared an AgentCard
+- `AgentCard trust.principal_chain[]` — emitted when `_principal_chain` is non-empty; absent when chain is empty
+- `capabilities.principal_chain = bool(_principal_chain)` — discoverable via `/.well-known/acp.json`
+- `endpoints.principal_chain = "/principal-chain"` and `endpoints.peer_principal_chain = "/peers/{peer_id}/principal-chain"` in AgentCard
+- `--principal DID[,role=ROLE]` CLI flag — populate chain at startup; repeatable; upsert semantics; role defaults to `delegator`
+- `POST /message:send` — new optional field `on_behalf_of` (str DID or list[str] DIDs)
+  - If provided: outgoing message carries `principal_chain: [self_did, ...on_behalf_of]`
+  - If omitted but `_principal_chain` is non-empty: auto-attach the standing chain to all outbound messages
+
+### Behaviour
+- `POST /principal-chain` with a DID that already exists → upserts (replaces) the entry; no duplicates
+- `DELETE /principal-chain/<did>` on unknown DID → `404` with `{"removed": false, "count": <int>}`
+- `trust.principal_chain` key is absent from AgentCard when chain is empty (clean card for non-OBO agents)
+- `on_behalf_of: "did:acp:X"` is equivalent to `on_behalf_of: ["did:acp:X"]` — both produce a list
+- Message `principal_chain` format: `[<self_did>, <principal1>, <principal2>, ...]` — sender always first
+
+### Design Rationale (A2A #1713)
+A2A Issue #1713 (OBO — "On Behalf Of", 15 comments, still open) discusses cross-org accountability
+when Agent A acts on behalf of Agent B without a shared Authorization Server. ACP v2.56 provides
+a lightweight, zero-infrastructure alternative:
+- No shared AS required — principal DIDs are self-sovereign (Ed25519 / did:acp / did:key)
+- No OAuth token exchange — chains are plain JSON arrays, verifiable via existing DID infrastructure
+- Runtime-mutable via REST — delegates can be added/removed without restart
+- Composable with v2.54 trust_integration and v2.55 per-peer verification
+
+### Tests
+- `tests/test_principal_chain.py` — PC-1..10 (10/10 PASS)
+- Full regression: 239/239 PASS (pending test round; prior baseline 238/238)
+
+---
+
 ## v2.55.0 — GET /peers/{peer_id}/verify-card — On-Demand Per-Peer AgentCard Re-Verification (2026-04-05)
 
 ### Added

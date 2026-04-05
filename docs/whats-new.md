@@ -5,6 +5,168 @@
 
 ---
 
+### v2.56.0 — principal_chain[] OBO Delegation Chain — Trust-Block Propagation + Runtime Management (2026-04-05)
+
+ACP v2.56 introduces a lightweight, zero-infrastructure answer to A2A Issue #1713 (OBO cross-org
+accountability, 15 comments, still open). Instead of OAuth-based token delegation or a shared
+Authorization Server, ACP propagates a `principal_chain[]` — an ordered list of DID-identified
+principals — directly in the AgentCard trust block and on outgoing messages.
+
+**Design principle:** No shared AS. No token exchange. One JSON array. Verifiable via the existing
+Ed25519 / DID infrastructure already in place since ACP v0.8.
+
+---
+
+#### Quick Start
+
+```bash
+# Start with an OBO principal (orchestrator)
+python3 acp_relay.py --port 7801 --name WorkerAgent \
+  --principal did:acp:OrchestratorDID,role=orchestrator
+
+# Check the chain
+curl -s http://localhost:7901/principal-chain
+```
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "self_did": "did:acp:WorkerAgentDID",
+  "principal_chain": [
+    { "did": "did:acp:OrchestratorDID", "role": "orchestrator", "added_at": "2026-04-05T14:28:00Z" }
+  ]
+}
+```
+
+The chain is automatically embedded in the AgentCard trust block:
+
+```bash
+curl -s http://localhost:7901/.well-known/acp.json | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); \
+   print(json.dumps((d.get('self') or d).get('trust',{}).get('principal_chain'), indent=2))"
+```
+
+```json
+[{ "did": "did:acp:OrchestratorDID", "role": "orchestrator", "added_at": "..." }]
+```
+
+---
+
+#### Runtime Chain Management
+
+```bash
+# Add a principal (or update role if DID already exists)
+curl -s -X POST http://localhost:7901/principal-chain \
+  -H 'Content-Type: application/json' \
+  -d '{"did": "did:acp:NewOwner", "role": "owner"}'
+# → {"ok":true,"did":"did:acp:NewOwner","role":"owner","added_at":"...","count":2}
+
+# Remove a principal
+curl -s -X DELETE http://localhost:7901/principal-chain/did:acp:OrchestratorDID
+# → {"ok":true,"did":"did:acp:OrchestratorDID","removed":true,"count":1}
+
+# Remove non-existent DID → 404
+curl -s -X DELETE http://localhost:7901/principal-chain/did:acp:Gone
+# → {"ok":false,"error":"DID 'did:acp:Gone' not in principal_chain","removed":false,"count":1}
+```
+
+---
+
+#### Message-Level Propagation
+
+Send a message on behalf of another agent using `on_behalf_of`:
+
+```bash
+curl -s -X POST http://localhost:7901/message:send \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "role": "agent",
+    "text": "Executing subtask on behalf of orchestrator",
+    "on_behalf_of": "did:acp:OrchestratorDID"
+  }'
+```
+
+The recipient sees:
+
+```json
+{
+  "type": "acp.message",
+  "from": "WorkerAgent",
+  "principal_chain": ["did:acp:WorkerAgentDID", "did:acp:OrchestratorDID"],
+  "parts": [{"kind":"text","text":"Executing subtask on behalf of orchestrator"}]
+}
+```
+
+Pass multiple principals as a list:
+
+```json
+{ "on_behalf_of": ["did:acp:Orchestrator", "did:acp:HumanOwner"] }
+```
+
+→ `principal_chain: ["did:acp:Self", "did:acp:Orchestrator", "did:acp:HumanOwner"]`
+
+When `on_behalf_of` is omitted but a standing `_principal_chain` is configured (via `--principal` or
+`POST /principal-chain`), the chain is auto-attached to every outbound message.
+
+---
+
+#### Inspect a Peer's Delegation Chain
+
+```bash
+# What principals does peer_abc claim to act on behalf of?
+curl -s "http://localhost:7901/peers/peer_abc/principal-chain"
+```
+
+```json
+{
+  "ok": true,
+  "peer_id": "peer_abc",
+  "count": 2,
+  "principal_chain": [
+    {"did": "did:acp:RemoteOrch", "role": "orchestrator"},
+    {"did": "did:acp:RemoteOwner", "role": "owner"}
+  ],
+  "source": "agent_card"
+}
+```
+
+When the peer has no chain: `"count": 0, "principal_chain": [], "source": "none"`.
+When the peer has no AgentCard yet: `422 ERR_CARD_UNAVAILABLE`.
+
+---
+
+#### Capability Discovery
+
+```bash
+curl -s http://localhost:7901/.well-known/acp.json | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); s=d.get('self',d); \
+   print('cap:', s['capabilities'].get('principal_chain')); \
+   print('ep: ', s['endpoints'].get('principal_chain')); \
+   print('ep2:', s['endpoints'].get('peer_principal_chain'))"
+# cap: True      (or False when chain is empty)
+# ep:  /principal-chain
+# ep2: /peers/{peer_id}/principal-chain
+```
+
+---
+
+#### ACP vs A2A #1713: OBO Comparison
+
+| Dimension | A2A IS#1713 (proposed) | ACP v2.56 (shipped) |
+|-----------|------------------------|---------------------|
+| Shared Authorization Server | Required in most proposals | ❌ Not needed |
+| Token exchange | OAuth / PKCE flows | ❌ Not needed |
+| Principal format | OAuth `sub` / JWT | DID (did:acp / did:key / any) |
+| Transport | HTTP header / JWT claim | JSON field in AgentCard + message |
+| Runtime mutability | Not specified | ✅ GET/POST/DELETE /principal-chain |
+| Peer inspection | Not specified | ✅ GET /peers/{id}/principal-chain |
+| Chain length | Not bounded | Unbounded list (recommended ≤ 5) |
+| Verifiability | Depends on AS | Via existing Ed25519 DID infrastructure |
+| Status | RFC (open issue) | ✅ Live since v2.56.0 |
+
+---
+
 ### v2.55.0 — GET /peers/{peer_id}/verify-card — On-Demand Per-Peer AgentCard Re-Verification (2026-04-05)
 
 Building on the v2.54 TTL cache layer, v2.55 adds a dedicated per-peer re-verification endpoint.
