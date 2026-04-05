@@ -5,6 +5,72 @@
 
 ---
 
+### v2.59.0 — Bilateral Interaction Records: Signed Audit Trail per Task (2026-04-06)
+
+ACP v2.59 introduces **bilateral interaction records** — a lightweight, relay-signed audit primitive
+that creates a tamper-evident chain of task invocations. Inspired by A2A Issue #1718 (proposed
+2026-04-05, 0 comments); ACP ships the working implementation ahead of spec finalization.
+
+#### How It Works
+
+When a client submits `POST /tasks` with `record: true`, the relay generates an `interaction_record`:
+
+```json
+{
+  "id": "ir-a3f7bc12",
+  "type": "interaction",
+  "relay_did": "did:acp:z6Mk...",
+  "caller_did": "did:acp:z6Mk...caller",
+  "task_id": "task-xyz",
+  "skill_id": "transfer-funds",
+  "sequence_a": 42,
+  "previous_hash": "sha256:e3b0c44298fc1c149...",
+  "timestamp": "2026-04-06T06:18:00Z",
+  "quality_hint": null,
+  "caller_token_hash": "sha256:abc123...",
+  "relay_signature": "base64url...",
+  "relay_public_key": "base64url..."
+}
+```
+
+#### Chain Continuity
+
+Each record's `previous_hash` is the sha256 of the prior record's canonical JSON, forming
+an append-only audit chain. The first record has `previous_hash: "genesis"`.
+`sequence_a` is a monotonic counter — any gap signals tampering or missing records.
+
+#### Caller Token Hash
+
+If a `capability_token` (SINT format, v2.57) was provided in the task request, its `jti`
+is hashed (`sha256(jti)`) and recorded in `caller_token_hash` — linking the token issuance
+event to the invocation event without exposing the token itself.
+
+#### New Endpoints
+
+```http
+POST /tasks                             # Add "record": true to request body
+GET  /interaction-records               # List all interaction records
+GET  /interaction-records?skill_id=X    # Filter by skill
+GET  /interaction-records?peer_id=Y     # Filter by caller DID substring
+GET  /interaction-records?limit=N       # Limit results (default: 100)
+```
+
+#### AgentCard Capability
+```json
+{ "capabilities": { "interaction_records": true } }
+```
+
+#### Design Philosophy
+
+ACP's implementation is intentionally **relay-anchored** (only relay signs) rather than
+bilateral (both sides sign). This means:
+- No caller-side signing infrastructure required
+- Works with any ACP client (including curl-only agents)
+- Full non-repudiation for the relay side; caller identity anchored via DID + optional token hash
+- Future v2.x can add optional `caller_signature` for full bilateral signing
+
+---
+
 ### v2.58.0 — effective_tier: Three-Factor Dynamic Authorization (2026-04-06)
 
 ACP v2.58 implements **dynamic effective tier computation** — inspired by A2A Issue #1716 comment (@64R3N), shipped *before* the A2A spec reached consensus.

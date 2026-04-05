@@ -7,6 +7,38 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.59.0] — 2026-04-06 (interaction_records — Bilateral Signed Interaction Records, A2A #1718 lightweight preempt)
+
+### Added
+- **`_create_interaction_record()`** — Core function generating a bilateral interaction record on task creation.
+  - Fields: `id` (ir-*), `type`, `relay_did`, `caller_did`, `task_id`, `skill_id`, `sequence_a` (monotonic),
+    `previous_hash` (sha256 chain or "genesis"), `timestamp`, `quality_hint`, `caller_token_hash`, `relay_signature`, `relay_public_key`
+  - `relay_signature`: Ed25519 signature over canonical JSON payload (requires `--identity`)
+  - `previous_hash`: sha256 of previous stored record → append-only audit chain
+  - `caller_token_hash`: sha256(jti) of capability_token if provided with request
+- **`POST /tasks`** — New optional `record: true` field in request body triggers interaction record generation.
+  - Generated record is embedded in the response (`interaction_record`) and attached to the task object.
+- **`GET /interaction-records`** — New endpoint listing all bilateral interaction records.
+  - Query params: `skill_id` (filter), `peer_id` (filter, matches against `caller_did`), `limit` (default 100)
+  - Response: `{ ok, count, total, records: [...] }`
+- **AgentCard capabilities**: `interaction_records: true` — advertises bilateral interaction record support.
+- **`/status` links**: `interaction_records → /interaction-records`
+
+### Global State
+- `_interaction_records: list` — append-only store of all generated interaction records
+- `_ir_seq: int` — monotonic sequence counter (increments with each record)
+
+### Tests
+- `tests/test_interaction_records.py` — IR-1..12 (12 cases, all PASS)
+
+### Strategic Context
+Implements a lightweight version of the bilateral signed interaction record concept proposed
+in A2A Issue #1718 (proposed 2026-04-05, 0 comments). ACP ships the working implementation
+before A2A spec discussion has concluded — establishing ACP as the reference implementation.
+Design goals: relay-anchored trust primitive usable without caller-side signing infrastructure.
+
+---
+
 ## [2.58.0] — 2026-04-06 (effective_tier three-factor dynamic computation — A2A #1716 @64R3N formula preempt)
 
 ### Added
