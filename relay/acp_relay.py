@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.49.0"  # v2.49: skill.authorization_tier (T0-T3) — per-skill authorization enforcement linked to trust.signals
+VERSION = "2.50.0"  # v2.50: skill.param_constraints — parameter-level invocation constraints (ref SINT Protocol / A2A #1716 constraints field)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -270,6 +270,7 @@ ERR_INVALID_REQUEST      = "ERR_INVALID_REQUEST"      # Bad input (missing field
 ERR_TIMEOUT              = "ERR_TIMEOUT"              # Sync wait timed out
 ERR_INTERNAL             = "ERR_INTERNAL"             # Unexpected server error
 ERR_AUTHORIZATION_TIER   = "ERR_AUTHORIZATION_TIER"   # v2.49: caller does not meet skill tier requirement
+ERR_PARAM_CONSTRAINT     = "ERR_PARAM_CONSTRAINT"     # v2.50: task params violate skill.param_constraints
 
 def _err(code: str, message: str, http_status: int = 400,
          failed_message_id: str = None) -> tuple:
@@ -1231,6 +1232,21 @@ def _parse_skill_obj(s):
       null (default): no authorization tier enforcement (backward-compatible)
       Enforcement point: POST /tasks creation — returns 403 ERR_AUTHORIZATION_TIER if
         the calling peer does not satisfy the declared tier requirements.
+
+    param_constraints (v2.50): parameter-level invocation constraints (ref SINT Protocol / A2A #1716).
+      Declares per-parameter rules applied when the skill is invoked via POST /tasks with a
+      "params" dict in the request body.  Each key in param_constraints maps to a ConstraintRule:
+        {
+          "type":           "string"|"number"|"integer"|"boolean"|"array"  (optional, type check)
+          "required":       true|false   (default false; if true, key must be present in params)
+          "min":            <number>     (numeric: value >= min; string/array: length >= min)
+          "max":            <number>     (numeric: value <= max; string/array: length <= max)
+          "allowed_values": [...]        (enum check: value must be in this list)
+          "pattern":        "<regex>"    (string only: value must match regex)
+        }
+      All rule fields are optional — only declared fields are checked.
+      Enforcement point: POST /tasks — returns 400 ERR_PARAM_CONSTRAINT with violated_params list.
+      null/absent param_constraints (default): no parameter validation (backward-compatible).
     """
     # v2.49: validate authorization_tier value
     _VALID_TIERS = {None, "T0", "T1", "T2", "T3"}
@@ -1244,6 +1260,9 @@ def _parse_skill_obj(s):
         # v2.49: parse authorization_tier
         raw_tier = s.get("authorization_tier")
         auth_tier = raw_tier if raw_tier in _VALID_TIERS else None
+        # v2.50: parse param_constraints — dict of {param_name: ConstraintRule}
+        raw_pc = s.get("param_constraints")
+        param_constraints = _parse_param_constraints(raw_pc) if raw_pc else None
         obj = {
             "id":                   sid,
             "name":                 str(s.get("name", sid)),
@@ -1258,7 +1277,8 @@ def _parse_skill_obj(s):
                 "context_window":     raw_constraints.get("context_window"),
             },
             "limitations":          [_parse_limitation(lim) for lim in raw_limitations],  # v2.28
-            "authorization_tier":   auth_tier,   # v2.49: T0/T1/T2/T3/null
+            "authorization_tier":   auth_tier,        # v2.49: T0/T1/T2/T3/null
+            "param_constraints":    param_constraints, # v2.50: parameter-level ConstraintRule dict
         }
     else:
         sid = str(s).strip()
@@ -1277,6 +1297,7 @@ def _parse_skill_obj(s):
             },
             "limitations":          [],   # v2.28: empty by default
             "authorization_tier":   None, # v2.49: no tier = unrestricted
+            "param_constraints":    None, # v2.50: no param constraints = unrestricted
         }
     return obj
 
@@ -1557,6 +1578,7 @@ def _make_agent_card(name, skills):
             "tasks_pagination":         True,                                  # v0.9: GET /tasks supports page_size/after/multi-status params (A2A v1.0 aligned)
             "peer_message_history":         True,                              # v2.48: GET /peers/<id>/messages — per-peer message history with direction/seq/sort filters
             "skill_authorization_tiers":    True,                              # v2.49: skill.authorization_tier T0-T3 enforcement via POST /tasks (ref A2A #1716)
+            "skill_param_constraints":      True,                              # v2.50: skill.param_constraints — parameter-level validation at POST /tasks (ref SINT Protocol)
         },
 
         "identity": ({
@@ -2416,6 +2438,146 @@ def _handle_ws_stream(handler):
 # ══════════════════════════════════════════════════════════════════════════════
 # Task helpers
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ── v2.50: param_constraints helpers ─────────────────────────────────────────
+
+_VALID_CONSTRAINT_TYPES = {"string", "number", "integer", "boolean", "array"}
+
+def _parse_param_constraints(raw: dict) -> dict:
+    """Normalise a param_constraints dict.
+
+    Input: {param_name: rule_dict, ...}
+    Each rule_dict may contain: type, required, min, max, allowed_values, pattern.
+    Unknown rule fields are silently dropped (forward-compat).
+    Returns the normalised dict; invalid top-level (non-dict) returns {}.
+    """
+    import re as _re
+    if not isinstance(raw, dict):
+        return {}
+    result = {}
+    for param, rule in raw.items():
+        if not isinstance(rule, dict):
+            continue
+        norm: dict = {}
+        if "type" in rule and rule["type"] in _VALID_CONSTRAINT_TYPES:
+            norm["type"] = rule["type"]
+        if "required" in rule:
+            norm["required"] = bool(rule["required"])
+        if "min" in rule and isinstance(rule["min"], (int, float)):
+            norm["min"] = rule["min"]
+        if "max" in rule and isinstance(rule["max"], (int, float)):
+            norm["max"] = rule["max"]
+        if "allowed_values" in rule and isinstance(rule["allowed_values"], list):
+            norm["allowed_values"] = list(rule["allowed_values"])
+        if "pattern" in rule and isinstance(rule["pattern"], str):
+            # Pre-validate regex
+            try:
+                _re.compile(rule["pattern"])
+                norm["pattern"] = rule["pattern"]
+            except _re.error:
+                pass  # invalid pattern silently dropped
+        if norm:
+            result[param] = norm
+    return result or None
+
+
+def _check_param_constraints(skill_id: str | None, params: dict | None) -> tuple[bool, list]:
+    """v2.50: Validate task params against skill.param_constraints.
+
+    Returns (ok: bool, violations: list[str]).
+    ok=True means params satisfy all declared constraints (or no constraints declared).
+    violations is populated only when ok=False; each entry is a human-readable description.
+    """
+    import re as _re
+    if not skill_id or not params:
+        # No skill_id or no params → nothing to validate
+        # (required fields checked separately below if skill known)
+        pass
+
+    # Look up skill
+    skills = (_status.get("agent_card") or {}).get("skills", [])
+    skill_obj = next((s for s in skills if isinstance(s, dict) and s.get("id") == skill_id), None)
+    if not skill_obj:
+        return True, []  # Unknown skill → no constraints to enforce
+
+    pc = skill_obj.get("param_constraints")
+    if not pc:
+        return True, []  # No param_constraints declared → always allowed
+
+    params = params or {}
+    violations = []
+
+    for param_name, rule in pc.items():
+        value = params.get(param_name)
+        present = param_name in params
+
+        # required check
+        if rule.get("required") and not present:
+            violations.append(f"param '{param_name}' is required but missing")
+            continue
+
+        if not present:
+            continue  # optional and absent — skip remaining checks
+
+        # type check
+        expected_type = rule.get("type")
+        if expected_type:
+            type_ok = True
+            if expected_type == "string":
+                type_ok = isinstance(value, str)
+            elif expected_type == "number":
+                type_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+            elif expected_type == "integer":
+                type_ok = isinstance(value, int) and not isinstance(value, bool)
+            elif expected_type == "boolean":
+                type_ok = isinstance(value, bool)
+            elif expected_type == "array":
+                type_ok = isinstance(value, list)
+            if not type_ok:
+                violations.append(
+                    f"param '{param_name}': expected type {expected_type}, "
+                    f"got {type(value).__name__}"
+                )
+                continue  # skip further checks for wrong-typed value
+
+        # min / max
+        if "min" in rule or "max" in rule:
+            # numeric: compare value; string/array: compare length
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                comparable = value
+            elif isinstance(value, (str, list)):
+                comparable = len(value)
+            else:
+                comparable = None
+
+            if comparable is not None:
+                if "min" in rule and comparable < rule["min"]:
+                    violations.append(
+                        f"param '{param_name}': value {comparable} < min {rule['min']}"
+                    )
+                if "max" in rule and comparable > rule["max"]:
+                    violations.append(
+                        f"param '{param_name}': value {comparable} > max {rule['max']}"
+                    )
+
+        # allowed_values (enum check)
+        if "allowed_values" in rule and value not in rule["allowed_values"]:
+            violations.append(
+                f"param '{param_name}': value {value!r} not in allowed_values "
+                f"{rule['allowed_values']}"
+            )
+
+        # pattern (string only)
+        if "pattern" in rule and isinstance(value, str):
+            if not _re.fullmatch(rule["pattern"], value):
+                violations.append(
+                    f"param '{param_name}': value {value!r} does not match "
+                    f"pattern {rule['pattern']!r}"
+                )
+
+    ok = len(violations) == 0
+    return ok, violations
+
 
 def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tuple[bool, str]:
     """v2.49: Check whether the calling peer satisfies the skill's authorization_tier requirement.
@@ -6137,6 +6299,18 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "skill_id":   skill_id_for_tier,
                         "peer_id":    caller_peer_id,
                     }, 403)
+                    return
+                # v2.50: param_constraints enforcement
+                task_params = body.get("params") or (payload.get("params") if isinstance(payload, dict) else None)
+                pc_ok, pc_violations = _check_param_constraints(skill_id_for_tier, task_params)
+                if not pc_ok:
+                    self._json({
+                        "ok":             False,
+                        "error_code":     ERR_PARAM_CONSTRAINT,
+                        "error":          f"task params violate skill '{skill_id_for_tier}' constraints",
+                        "skill_id":       skill_id_for_tier,
+                        "violated_params": pc_violations,
+                    }, 400)
                     return
                 task = _create_task(payload,
                                     message_id=body.get("message_id"),

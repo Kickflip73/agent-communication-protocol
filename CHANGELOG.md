@@ -7,6 +7,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.50.0] — 2026-04-05 (skill.param_constraints — parameter-level invocation constraints, ref SINT Protocol)
+
+### Added
+- **`skill.param_constraints`** — per-skill parameter-level constraint declaration in AgentCard skill objects.
+  Each key maps a param name to a `ConstraintRule`:
+  `{type, required, min, max, allowed_values, pattern}` — all fields optional.
+  Supported types: `string | number | integer | boolean | array`.
+  `min`/`max` applies to numeric value or string/array length as appropriate.
+  `pattern` (regex, string only) validated at parse time; invalid patterns silently dropped.
+- **`_parse_param_constraints(raw)`** — normalises param_constraints dict; invalid type/regex silently dropped for forward-compat.
+- **`_check_param_constraints(skill_id, params)`** — enforcement at `POST /tasks`; returns `(ok, violations[])`.
+- **`ERR_PARAM_CONSTRAINT`** — new error code; 400 response includes `error_code`, `skill_id`, `violated_params[]`.
+- **`capabilities.skill_param_constraints = True`** — declared in AgentCard.
+- **SPC1–SPC18** tests (`tests/test_skill_param_constraints.py`) — 18/18 PASS.
+
+### Design Notes
+- Inspired by SINT Protocol (A2A #1716) `constraints` field — fills the gap where ACP v2.49 added tier-level authorization but lacked parameter-level validation.
+- Backward-compatible: `null` default, no effect on existing skills or tasks without `params`.
+- Complements v2.49 `authorization_tier`: tier = *who may invoke*, param_constraints = *with what arguments*.
+
+---
+
 ## [2.49.0] — 2026-04-05 (skill.authorization_tier T0-T3 — per-skill authorization enforcement, ref A2A #1716)
 
 ### Added
