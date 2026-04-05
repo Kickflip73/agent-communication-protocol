@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.58.0"  # v2.58: effective_tier — dynamic three-factor tier computation: max(tier_rule, delegation_depth_floor, reputation_adj); inspired by A2A #1716 comment
+VERSION = "2.59.0"  # v2.59: interaction_records — bilateral signed interaction records (A2A #1718 lightweight impl): POST /tasks?record=true + GET /interaction-records + relay Ed25519 signature + caller_token_hash
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -430,6 +430,8 @@ _ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certifi
 _delegation_chain: list = []      # v2.16: signed delegation entries [{delegator_did, scope, expires_at, sig}]
 _principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, added_at}] — "on behalf of" principal stack
 _capability_tokens: dict = {}     # v2.57: issued capability tokens {token_id: CapabilityTokenObject}
+_interaction_records: list = []  # v2.59: bilateral interaction records [{id, task_id, relay_did, caller_did, ...}]
+_ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -1567,6 +1569,85 @@ def _verify_capability_token(token: dict, required_skill_id: str | None = None,
     return True, "ok"
 
 
+# ── v2.59: Interaction Records (Bilateral Signed) ────────────────────────────
+
+def _create_interaction_record(task: dict, caller_did: str | None,
+                                skill_id: str | None,
+                                caller_token_hash: str | None = None) -> dict:
+    """Create a lightweight bilateral interaction record for a completed task (v2.59).
+
+    Inspired by A2A Issue #1718 (bilateral signed interaction records as trust primitive).
+    ACP lightweight version: relay signs the record; caller's identity anchored via
+    caller_did + optional caller_token_hash (hash of the capability_token.jti if provided).
+
+    Fields:
+        id               — unique record ID ("ir-<uuid>")
+        type             — "interaction"
+        relay_did        — relay's did:acp: or did:key: (or "did:acp:anonymous" if no identity)
+        caller_did       — caller's DID or peer_id (from request body / peer registry)
+        task_id          — the task this record attests
+        skill_id         — the skill invoked (if known)
+        sequence_a       — monotonic relay-side sequence counter (for chain continuity)
+        previous_hash    — sha256 of previous interaction record (or "genesis" if first)
+        timestamp        — ISO 8601 UTC timestamp
+        quality_hint     — null (relay has no quality data at creation; future: task outcome)
+        caller_token_hash — sha256 of capability_token.jti (if a cap token was provided)
+        relay_signature  — Ed25519 signature over canonical payload (if --identity loaded)
+        relay_public_key — relay's Ed25519 public key (base64url)
+    """
+    global _ir_seq
+
+    _ir_seq += 1
+    record_id = f"ir-{_make_id()}"
+
+    relay_did_val = _did_acp or _did_key or "did:acp:anonymous"
+
+    # Compute previous_hash for chain continuity
+    if _interaction_records:
+        prev = _interaction_records[-1]
+        prev_bytes = json.dumps(prev, sort_keys=True, separators=(",", ":")).encode()
+        previous_hash = "sha256:" + hashlib.sha256(prev_bytes).hexdigest()
+    else:
+        previous_hash = "genesis"
+
+    ts = _now()
+
+    # Canonical payload for signing (deterministic field order)
+    payload_for_sig: dict = {
+        "id":                record_id,
+        "type":              "interaction",
+        "relay_did":         relay_did_val,
+        "caller_did":        caller_did or "unknown",
+        "task_id":           task.get("id", ""),
+        "skill_id":          skill_id or "",
+        "sequence_a":        _ir_seq,
+        "previous_hash":     previous_hash,
+        "timestamp":         ts,
+    }
+
+    # Ed25519 signature (relay signs)
+    relay_sig: str | None = None
+    relay_pub: str | None = _ed25519_public_b64
+    if _ed25519_private:
+        try:
+            canonical = json.dumps(payload_for_sig, sort_keys=True, separators=(",", ":")).encode()
+            sig_bytes = _ed25519_private.sign(canonical)
+            relay_sig = _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+        except Exception as e:
+            log.warning(f"interaction_record: signature failed: {e}")
+
+    record: dict = {
+        **payload_for_sig,
+        "quality_hint":       None,
+        "caller_token_hash":  caller_token_hash,
+        "relay_signature":    relay_sig,
+        "relay_public_key":   relay_pub,
+    }
+
+    _interaction_records.append(record)
+    return record
+
+
 # ── v2.17: Availability Schedule (CRON) helpers ──────────────────────────────
 
 def _parse_cron_field(field: str, lo: int, hi: int) -> list:
@@ -1772,6 +1853,7 @@ def _make_agent_card(name, skills):
             "principal_chain":             bool(_principal_chain),            # v2.56: OBO delegation chain in trust block
             "capability_token_issuance":   bool(_ed25519_private),            # v2.57: POST /skills/{id}/capability-token — SINT-format Ed25519 capability token issuance
             "effective_tier_computation":  True,                               # v2.58: dynamic three-factor effective_tier: max(tier_rule, depth_floor, rep_adj)
+            "interaction_records":         True,                               # v2.59: bilateral interaction records — POST /tasks?record=true + GET /interaction-records
         },
 
         "identity": ({
@@ -1811,6 +1893,7 @@ def _make_agent_card(name, skills):
             "peer_principal_chain":       "/peers/{peer_id}/principal-chain",  # v2.56: GET OBO delegation chain for peer
             "capability_token_issuance":  "/skills/{skill_id}/capability-token", # v2.57: POST — issue SINT-format Ed25519 capability token
             "effective_tier":             "/skills/{skill_id}/effective-tier",  # v2.58: GET — dynamic three-factor effective_tier computation
+            "interaction_records":        "/interaction-records",               # v2.59: GET — bilateral signed interaction records list
             "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
@@ -4727,6 +4810,46 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
             self._json({"ok": True, "count": len(tokens_out), "tokens": tokens_out})
 
+        # ── GET /interaction-records — list bilateral interaction records (v2.59) ──
+        elif p == "/interaction-records":
+            """
+            GET /interaction-records — List all bilateral interaction records generated by this relay (v2.59).
+
+            Each record attests a task invocation with relay Ed25519 signature and optional
+            caller_token_hash (sha256 of capability_token.jti). Inspired by A2A IS#1718.
+
+            Query params:
+              skill_id  — filter by skill_id (optional)
+              peer_id   — filter by caller_did containing peer_id (optional)
+              limit     — max records to return (default: 100)
+
+            Response 200:
+              { "ok": true, "count": <int>, "total": <int>, "records": [{...}, ...] }
+            """
+            qs_ir = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            filter_skill_ir = qs_ir.get("skill_id", "").strip()
+            filter_peer_ir  = qs_ir.get("peer_id", "").strip()
+            try:
+                limit_ir = int(qs_ir.get("limit", 100))
+            except (ValueError, TypeError):
+                limit_ir = 100
+
+            recs_out = []
+            for rec in _interaction_records:
+                if filter_skill_ir and rec.get("skill_id") != filter_skill_ir:
+                    continue
+                if filter_peer_ir and filter_peer_ir not in (rec.get("caller_did") or ""):
+                    continue
+                recs_out.append(rec)
+
+            total_ir = len(recs_out)
+            self._json({
+                "ok":     True,
+                "count":  min(len(recs_out), limit_ir),
+                "total":  total_ir,
+                "records": recs_out[-limit_ir:],
+            })
+
         # ── GET /principal-chain — self principal_chain management (v2.56) ──
         elif p == "/principal-chain":
             """
@@ -7410,6 +7533,32 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     dep = skill_obj.get("deprecation_notice")
                     if dep:
                         resp["deprecation_warning"] = dep
+                # v2.59: interaction_record — bilateral signed record (optional, triggered by record=true)
+                if body.get("record", False):
+                    # Resolve caller_did: prefer explicit did in body, fall back to peer registry
+                    _ir_caller_did = body.get("caller_did")
+                    if not _ir_caller_did and caller_peer_id:
+                        _peer_info = _peers.get(caller_peer_id, {})
+                        _ir_caller_did = (
+                            _peer_info.get("did_key")
+                            or _peer_info.get("did_acp")
+                            or _peer_info.get("agent_card", {}).get("agent_did")
+                            or caller_peer_id
+                        )
+                    # Compute caller_token_hash (sha256 of jti) if a capability_token was provided
+                    _ir_ct_hash = None
+                    if raw_cap_token and isinstance(raw_cap_token, dict):
+                        _jti = raw_cap_token.get("jti", "")
+                        if _jti:
+                            _ir_ct_hash = "sha256:" + hashlib.sha256(_jti.encode()).hexdigest()
+                    ir = _create_interaction_record(
+                        task,
+                        caller_did=_ir_caller_did,
+                        skill_id=skill_id_for_tier,
+                        caller_token_hash=_ir_ct_hash,
+                    )
+                    resp["interaction_record"] = ir
+                    task["interaction_record"] = ir  # attach to task for GET /tasks/{id}
                 self._json(resp, 201)
             except ConnectionError as e:
                 self._json({"ok": False, "error": str(e)}, 503)
