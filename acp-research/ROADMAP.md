@@ -667,7 +667,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.54** | **✅ 2026-04-05** | **`POST /verify-card` (v2) — batch + fetch_and_verify + TTL cache + trust_integration — A2A #1672（292评论）完整落地，16/16 VC2 测试 PASS，237 全量回归** |
 | **v2.55** | **✅ 2026-04-05** | **`GET /peers/{peer_id}/verify-card` — on-demand per-peer AgentCard 重新验证 + force/trust/ttl 参数 — PVC-1..10 PASS，238 全量回归** |
 | **v2.56** | **✅ 2026-04-05** | **`principal_chain[]` OBO 委托链 — trust block 注入 + GET/POST/DELETE /principal-chain + 消息级传播（on_behalf_of）+ --principal CLI — PC-1..10 PASS，A2A #1713 零基础设施替代方案** |
-| **v2.57** | **🔜 下一目标** | **`POST /message:send` 消息级 principal_chain 接收端验证 + `GET /peers/{id}/trust` principal_chain 维度融合 — 将委托链纳入综合信任评分** |
+| **v2.57** | **🔜 下一目标** | **`capability_token` in AgentCard skills[] + task enforcement gate — SINT Protocol 格式对齐，Ed25519 能力令牌，T0-T3 tier 强制执行 — A2A #1716 首个开源实现（战略优先）** |
 
 ---
 
