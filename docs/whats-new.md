@@ -5,6 +5,35 @@
 
 ---
 
+### v2.49.0 — Per-Skill Authorization Tiers T0–T3 (2026-04-05)
+
+New feature: `skill.authorization_tier` — per-skill authorization enforcement at `POST /tasks`, inspired by A2A Issue #1716 (SINT Protocol RFC). Designed to be lightweight: reuses existing `trust.signals` (v2.14) and per-peer trust scores (v2.34) — no OAuth or capability-token dependency.
+
+**Tier definitions:**
+
+| Tier | Requirement | Typical Use |
+|------|-------------|-------------|
+| `null` | None (backward-compatible) | All existing skills — unchanged behavior |
+| `T0` | None | Observe-only (read agent status, list skills) |
+| `T1` | None | Read-only actions (query data, passive probes) |
+| `T2` | `trust_score >= 0.7` | Write/act operations (send messages, create tasks) |
+| `T3` | `trust_score >= 0.9` + `verified_identity` signal | Irreversible operations (delete, deploy, billing) |
+
+**Enforcement:**
+- `POST /tasks` checks `skill_id` + `peer_id` in request body against declared AgentCard tier
+- Unknown `skill_id` or absent `skill_id` → no restriction (backward-compatible)
+- Failure returns `403` with `ERR_AUTHORIZATION_TIER` + `skill_id` + `peer_id` fields for debugging
+
+**AgentCard:**
+- `capabilities.skill_authorization_tiers = True`
+- `GET /skills` response includes `authorization_tier` field per skill
+
+**Comparative note:** A2A v1.0 (SINT) delegates authorization to OAuth 2.0 scope binding. ACP T0–T3 achieves the same goal with zero external auth infrastructure, relying on P2P trust signals established during peer connection.
+
+**Tests:** SAT1–SAT12 (12/12 PASS), core regression 172/172 PASS
+
+---
+
 ### v2.48.0 — Per-Peer Message History Query (2026-04-05)
 
 New endpoint: `GET /peers/<peer_id>/messages` — query the full message history for any known peer, with rich filtering.

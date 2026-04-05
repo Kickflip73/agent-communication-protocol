@@ -7,6 +7,23 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.49.0 — skill.authorization_tier T0–T3 (2026-04-05)
+
+Per-skill authorization tier enforcement at `POST /tasks`. Inspired by A2A #1716 (SINT Protocol RFC); implemented without OAuth by reusing `trust.signals` (v2.14) + per-peer trust scores (v2.34).
+
+- `skill.authorization_tier` field in AgentCard skill objects (`T0`/`T1`/`T2`/`T3`/`null`)
+- `T2` requires `trust_score >= 0.7`; `T3` requires `trust_score >= 0.9` + `verified_identity` signal
+- `ERR_AUTHORIZATION_TIER` error code, 403 response with `skill_id` + `peer_id`
+- `capabilities.skill_authorization_tiers = True` in AgentCard
+- SAT1–SAT12: 12/12 PASS | core regression: 172/172 PASS
+
+## v2.48.0 — GET /peers/\<id\>/messages — Per-Peer Message History (2026-04-05)
+
+- New endpoint `GET /peers/<peer_id>/messages` with `direction` / `since_seq` / `sort` / `limit` / `offset` filtering
+- New `--test-mode` flag + `POST /debug/inject` endpoint for integration tests without real P2P connection
+- `capabilities.peer_message_history = True` + `endpoints.peer_messages` in AgentCard
+- PMH1–PMH10: 10/10 PASS
+
 ## v2.31.0 — PATCH /skills/<id>/limitations (2026-04-02)
 - feat: `PATCH /skills/<id>/limitations` — 运行时 per-skill limitations 动态更新，无需重启
 - feat: `limitations_merge: true` 支持追加模式（by kind+code de-dup）

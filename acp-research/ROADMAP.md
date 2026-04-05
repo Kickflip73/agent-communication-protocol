@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-05 06:21（文档轮：v2.48 per-peer 消息历史查询 PMH1-10=10/10，docs/ROADMAP + whats-new + acp-research/ROADMAP 全部同步；当前版本 v2.48.0）
+> 最后更新：2026-04-05 10:06（文档轮：v2.49 skill.authorization_tier T0-T3 SAT1-12=12/12，docs/whats-new + docs/CHANGELOG + acp-research/ROADMAP 全部同步；当前版本 v2.49.0）
 
 ---
 
