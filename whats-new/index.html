@@ -1015,6 +1015,56 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2580-effective_tier-three-factor-dynamic-authorization-2026-04-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.58.0 — effective_tier: Three-Factor Dynamic Authorization (2026-04-06)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v2.58.0 — effective_tier: Three-Factor Dynamic Authorization (2026-04-06)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-three-factor-formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Three-Factor Formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-endpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New Endpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bug Fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2570-sint-format-capability-tokens-ed25519-signed-skill-authorization-2026-04-06" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1385,6 +1435,62 @@
 For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 </blockquote>
 <hr />
+<h3 id="v2580-effective_tier-three-factor-dynamic-authorization-2026-04-06">v2.58.0 — effective_tier: Three-Factor Dynamic Authorization (2026-04-06)<a class="headerlink" href="#v2580-effective_tier-three-factor-dynamic-authorization-2026-04-06" title="Permanent link">&para;</a></h3>
+<p>ACP v2.58 implements <strong>dynamic effective tier computation</strong> — inspired by A2A Issue #1716 comment (@64R3N), shipped <em>before</em> the A2A spec reached consensus.</p>
+<h4 id="the-three-factor-formula">The Three-Factor Formula<a class="headerlink" href="#the-three-factor-formula" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>effective_tier = max(tier_rule, depth_floor(principal_chain.len), reputation_adj)
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Factor</th>
+<th>Source</th>
+<th>Range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tier_rule</code></td>
+<td>Skill's declared <code>authorization_tier</code></td>
+<td>T0..T3</td>
+</tr>
+<tr>
+<td><code>depth_floor</code></td>
+<td><code>min(len(principal_chain), 3)</code></td>
+<td>T0..T3</td>
+</tr>
+<tr>
+<td><code>reputation_adj</code></td>
+<td>Peer trust history (-1/0/+1)</td>
+<td>±1 step</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key design decisions:</strong>
+- <code>rep_adj</code> is <strong>only applied when <code>base_int ≥ T2</code></strong> — T0/T1 skills remain auto-execute regardless of caller reputation
+- T3 is always T3 (immune to any downgrade)
+- Unknown peers get <code>rep_adj = +1</code> (conservative); known+verified+active peers get <code>-1</code> (fast-track)</p>
+<h4 id="new-endpoint">New Endpoint<a class="headerlink" href="#new-endpoint" title="Permanent link">&para;</a></h4>
+<div class="language-http highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="err">GET /skills/{skill_id}/effective-tier?peer_id=&lt;did&gt;</span>
+</span></code></pre></div>
+<p>Returns full factor breakdown for transparency and debugging:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&quot;skill_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-skill&quot;</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">&quot;effective_tier&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;T2&quot;</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">&quot;factors&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">&quot;tier_rule&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;T1&quot;</span><span class="p">,</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">&quot;delegation_depth&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">&quot;depth_floor&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;T2&quot;</span><span class="p">,</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">&quot;reputation_adj&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">&quot;effective_tier&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;T2&quot;</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">}</span>
+</span></code></pre></div>
+<h4 id="bug-fix">Bug Fix<a class="headerlink" href="#bug-fix" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>DELETE /principal-chain/&lt;did&gt;</code>: DIDs containing colons (e.g. <code>did:example:xxx</code>) were being URL-encoded as <code>%3A</code> in the path, causing 404 mismatches. Now correctly URL-decoded.</li>
+</ul>
+<hr />
 <h3 id="v2570-sint-format-capability-tokens-ed25519-signed-skill-authorization-2026-04-06">v2.57.0 — SINT-format Capability Tokens: Ed25519 signed skill authorization (2026-04-06)<a class="headerlink" href="#v2570-sint-format-capability-tokens-ed25519-signed-skill-authorization-2026-04-06" title="Permanent link">&para;</a></h3>
 <p>ACP v2.57 introduces <strong>capability tokens</strong> — cryptographically signed, portable credentials
 that authorize an agent to invoke a specific skill. The design is fully compatible with the
@@ -1396,80 +1502,80 @@ at this tier, subject to these constraints, until this expiry."</em> The relay v
 Ed25519 signature inline — no external Authority Server, no OAuth, no key lookup.</p>
 <hr />
 <h4 id="quick-start-issue-and-use-a-capability-token">Quick Start: Issue and Use a Capability Token<a class="headerlink" href="#quick-start-issue-and-use-a-capability-token" title="Permanent link">&para;</a></h4>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Start relay with Ed25519 identity (required for issuance)</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--port<span class="w"> </span><span class="m">7801</span><span class="w"> </span>--name<span class="w"> </span>FinanceAgent<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--identity<span class="w"> </span>~/.acp/identity.json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--skills<span class="w"> </span><span class="s1">&#39;[{&quot;id&quot;:&quot;transfer_funds&quot;,&quot;name&quot;:&quot;Transfer&quot;,&quot;authorization_tier&quot;:&quot;T3&quot;,&quot;capability_token_required&quot;:true}]&#39;</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># Issue a capability token for subject agent</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/skills/transfer_funds/capability-token<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;subject&quot;:&quot;did:acp:CallerAgent&quot;,&quot;tier&quot;:&quot;T3&quot;,&quot;ttl&quot;:300}&#39;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Start relay with Ed25519 identity (required for issuance)</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--port<span class="w"> </span><span class="m">7801</span><span class="w"> </span>--name<span class="w"> </span>FinanceAgent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--identity<span class="w"> </span>~/.acp/identity.json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--skills<span class="w"> </span><span class="s1">&#39;[{&quot;id&quot;:&quot;transfer_funds&quot;,&quot;name&quot;:&quot;Transfer&quot;,&quot;authorization_tier&quot;:&quot;T3&quot;,&quot;capability_token_required&quot;:true}]&#39;</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># Issue a capability token for subject agent</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/skills/transfer_funds/capability-token<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;subject&quot;:&quot;did:acp:CallerAgent&quot;,&quot;tier&quot;:&quot;T3&quot;,&quot;ttl&quot;:300}&#39;</span>
 </span></code></pre></div>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;ok&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;token&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">&quot;jti&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;a3f8d2e1b4c9...&quot;</span><span class="p">,</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">&quot;iss&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;did:acp:FinanceAgentDID&quot;</span><span class="p">,</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">&quot;sub&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;did:acp:CallerAgent&quot;</span><span class="p">,</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">&quot;resource&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;acp://FinanceAgent/skills/transfer_funds&quot;</span><span class="p">,</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">&quot;actions&quot;</span><span class="p">:</span><span class="w">     </span><span class="p">[</span><span class="s2">&quot;invoke&quot;</span><span class="p">],</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">&quot;tier&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;T3&quot;</span><span class="p">,</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">&quot;constraints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">&quot;iat&quot;</span><span class="p">:</span><span class="w">         </span><span class="mi">1743954000</span><span class="p">,</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">&quot;exp&quot;</span><span class="p">:</span><span class="w">         </span><span class="mi">1743954300</span><span class="p">,</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nt">&quot;signature&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;a7b3c2...&quot;</span><span class="p">,</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">&quot;scheme&quot;</span><span class="p">:</span><span class="w">      </span><span class="s2">&quot;sint_ed25519&quot;</span><span class="p">,</span>
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="nt">&quot;public_key&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;3d8f4a...&quot;</span>
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;ok&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;token&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">&quot;jti&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;a3f8d2e1b4c9...&quot;</span><span class="p">,</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">&quot;iss&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;did:acp:FinanceAgentDID&quot;</span><span class="p">,</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">&quot;sub&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;did:acp:CallerAgent&quot;</span><span class="p">,</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">&quot;resource&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;acp://FinanceAgent/skills/transfer_funds&quot;</span><span class="p">,</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">&quot;actions&quot;</span><span class="p">:</span><span class="w">     </span><span class="p">[</span><span class="s2">&quot;invoke&quot;</span><span class="p">],</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">&quot;tier&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;T3&quot;</span><span class="p">,</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="nt">&quot;constraints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="nt">&quot;iat&quot;</span><span class="p">:</span><span class="w">         </span><span class="mi">1743954000</span><span class="p">,</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">    </span><span class="nt">&quot;exp&quot;</span><span class="p">:</span><span class="w">         </span><span class="mi">1743954300</span><span class="p">,</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="nt">&quot;signature&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;a7b3c2...&quot;</span><span class="p">,</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="nt">&quot;scheme&quot;</span><span class="p">:</span><span class="w">      </span><span class="s2">&quot;sint_ed25519&quot;</span><span class="p">,</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">    </span><span class="nt">&quot;public_key&quot;</span><span class="p">:</span><span class="w">  </span><span class="s2">&quot;3d8f4a...&quot;</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="p">}</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Use the token to invoke the skill</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/tasks<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s1">    &quot;role&quot;: &quot;agent&quot;,</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s1">    &quot;parts&quot;: [{&quot;kind&quot;: &quot;text&quot;, &quot;text&quot;: &quot;transfer 100 USD to account #7823&quot;}],</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="s1">    &quot;skill_id&quot;: &quot;transfer_funds&quot;,</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="s1">    &quot;capability_token&quot;: { ... token from above ... }</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s1">  }&#39;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Use the token to invoke the skill</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/tasks<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="s1">    &quot;role&quot;: &quot;agent&quot;,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s1">    &quot;parts&quot;: [{&quot;kind&quot;: &quot;text&quot;, &quot;text&quot;: &quot;transfer 100 USD to account #7823&quot;}],</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s1">    &quot;skill_id&quot;: &quot;transfer_funds&quot;,</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="s1">    &quot;capability_token&quot;: { ... token from above ... }</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="s1">  }&#39;</span>
 </span></code></pre></div>
 <hr />
 <h4 id="enforcement-model">Enforcement Model<a class="headerlink" href="#enforcement-model" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>POST /tasks
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    │
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    ├─ skill.capability_token_required=True? ──(no token)──► 403 ERR_CAPABILITY_TOKEN_REQUIRED
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    │
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    ├─ capability_token provided? ─────────────────────────► validate(sig + exp + skill)
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    │        └── invalid ──────────────────────────────────► 403 ERR_CAPABILITY_TOKEN_INVALID
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    │        └── valid ──────────────────────────────────── skip authorization_tier gate ✓
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    │
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    ├─ no token: authorization_tier check (v2.49 trust_score path)
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    ├─ param_constraints check (v2.50)
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    ├─ rate_limit check (v2.53)
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>    └─ human_confirmation gate (v2.51, T3 only)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>POST /tasks
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    │
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    ├─ skill.capability_token_required=True? ──(no token)──► 403 ERR_CAPABILITY_TOKEN_REQUIRED
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    │
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    ├─ capability_token provided? ─────────────────────────► validate(sig + exp + skill)
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    │        └── invalid ──────────────────────────────────► 403 ERR_CAPABILITY_TOKEN_INVALID
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    │        └── valid ──────────────────────────────────── skip authorization_tier gate ✓
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    │
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    ├─ no token: authorization_tier check (v2.49 trust_score path)
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    ├─ param_constraints check (v2.50)
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    ├─ rate_limit check (v2.53)
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>    └─ human_confirmation gate (v2.51, T3 only)
 </span></code></pre></div>
 <p><strong>Key design choice:</strong> A valid capability token <strong>bypasses</strong> the <code>trust_score</code>-based
 authorization_tier check. The token <em>is</em> the credential. This enables cross-org invocation
 without requiring the caller to have an established trust relationship.</p>
 <hr />
 <h4 id="list-issued-tokens">List Issued Tokens<a class="headerlink" href="#list-issued-tokens" title="Permanent link">&para;</a></h4>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># All tokens</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:7901/capability-tokens
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Active (non-expired) tokens for a specific skill</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;http://localhost:7901/capability-tokens?skill_id=transfer_funds&amp;active=1&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># All tokens</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:7901/capability-tokens
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Active (non-expired) tokens for a specific skill</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;http://localhost:7901/capability-tokens?skill_id=transfer_funds&amp;active=1&quot;</span>
 </span></code></pre></div>
 <hr />
 <h4 id="agentcard-capabilities">AgentCard Capabilities<a class="headerlink" href="#agentcard-capabilities" title="Permanent link">&para;</a></h4>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">&quot;capability_token_issuance&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">&quot;endpoints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">&quot;capability_token_issuance&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/skills/{skill_id}/capability-token&quot;</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nt">&quot;capability_token_issuance&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">&quot;endpoints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="nt">&quot;capability_token_issuance&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/skills/{skill_id}/capability-token&quot;</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="p">}</span>
 </span></code></pre></div>
 <p><code>capability_token_issuance</code> is <code>true</code> only when <code>--identity</code> is loaded (Ed25519 keypair required).</p>
 <hr />
@@ -1540,8 +1646,8 @@ without requiring the caller to have an established trust relationship.</p>
 <h3 id="v2560-principal_chain-obo-delegation-2026-04-05">v2.56.0 — principal_chain[] OBO Delegation (2026-04-05)<a class="headerlink" href="#v2560-principal_chain-obo-delegation-2026-04-05" title="Permanent link">&para;</a></h3>
 <p>See <a href="../CHANGELOG.md#2560--2026-04-05">v2.56 entry in CHANGELOG</a>.</p>
 <p><strong>TL;DR:</strong> On-behalf-of delegation via a DID-identified principal chain embedded in AgentCard trust block and messages. No shared AS. Answers A2A Issue #1713.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--port<span class="w"> </span><span class="m">7801</span><span class="w"> </span>--name<span class="w"> </span>WorkerAgent<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--principal<span class="w"> </span>did:acp:OrchestratorDID,role<span class="o">=</span>orchestrator
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--port<span class="w"> </span><span class="m">7801</span><span class="w"> </span>--name<span class="w"> </span>WorkerAgent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>--principal<span class="w"> </span>did:acp:OrchestratorDID,role<span class="o">=</span>orchestrator
 </span></code></pre></div>
 <hr />
 <h3 id="v2550-per-peer-agentcard-re-verification-2026-04-05">v2.55.0 — Per-Peer AgentCard Re-verification (2026-04-05)<a class="headerlink" href="#v2550-per-peer-agentcard-re-verification-2026-04-05" title="Permanent link">&para;</a></h3>

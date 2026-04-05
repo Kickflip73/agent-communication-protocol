@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: ACP Skills Discovery API
-  version: "2.57.0"
+  version: "2.58.0"
   description: |
     ACP (Agent Communication Protocol) Skills Discovery endpoint.
     Allows agents to programmatically discover what skills a peer agent supports.
@@ -116,6 +116,46 @@ paths:
               example:
                 error: "ERR_INVALID_REQUEST"
                 message: "limit must be a non-negative integer"
+
+  /skills/{skill_id}/effective-tier:
+    get:
+      summary: Dynamic effective tier computation (v2.58)
+      description: |
+        Computes and returns the dynamically resolved effective authorization tier
+        for a skill, combining three factors:
+          1. `tier_rule` — the skill's declared `authorization_tier`
+          2. `depth_floor` — delegation depth penalty from `principal_chain[]`
+          3. `reputation_adj` — caller's peer reputation adjustment (-1/0/+1)
+
+        The `reputation_adj` is only applied when `base_int >= T2` to preserve
+        backward-compatible T0/T1 auto-execute semantics.
+
+        Optional `peer_id` query parameter simulates a specific caller context.
+      operationId: getSkillEffectiveTier
+      parameters:
+        - name: skill_id
+          in: path
+          required: true
+          description: The skill identifier
+          schema:
+            type: string
+        - name: peer_id
+          in: query
+          required: false
+          description: |
+            DID or internal peer ID to simulate as the caller.
+            If omitted, reputation_adj=+1 (unknown caller) is used.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective tier computed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectiveTierResponse"
+        "404":
+          description: Skill not found in agent card
 
   /skills/{skill_id}/status:
     get:
@@ -620,6 +660,56 @@ components:
           format: date-time
           nullable: true
           description: ISO 8601 timestamp when the peer's AgentCard was first received
+
+    # ── v2.58: effective_tier computation schemas ──────────────────────────────
+    EffectiveTierFactors:
+      description: |
+        Detailed factor breakdown for _compute_effective_tier() (v2.58).
+        All three factors are returned for observability.
+      type: object
+      properties:
+        tier_rule:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: Skill's declared authorization_tier (raw value)
+        delegation_depth:
+          type: integer
+          minimum: 0
+          description: Length of the current principal_chain[]
+        depth_floor:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: Tier derived from delegation depth (min(depth, 3) mapped to T-tier)
+        reputation_adj:
+          type: integer
+          enum: [-1, 0, 1]
+          description: |
+            Reputation adjustment: -1 (known+verified+active peer, fast-track),
+            0 (neutral / sufficient history), +1 (unknown peer, conservative).
+            Only applied when base_int >= T2 (T0/T1 preserve auto-execute semantics).
+        effective_tier:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: Final computed effective tier after all three factors
+
+    EffectiveTierResponse:
+      description: Response body for GET /skills/{id}/effective-tier (v2.58)
+      type: object
+      required: [skill_id, effective_tier, factors]
+      properties:
+        skill_id:
+          type: string
+          description: The skill identifier from the request path
+        effective_tier:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: Dynamically computed effective authorization tier
+        factors:
+          $ref: "#/components/schemas/EffectiveTierFactors"
 
     # ── v2.57: /skills/{id}/capability-token + /capability-tokens schemas ─────
     CapabilityToken:
