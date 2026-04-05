@@ -1487,3 +1487,31 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 
 **优先级**: P2（无数据丢失，但 relay 可被大请求消耗资源）
 **状态**: ✅ 已修复（2026-04-05，_read_body() Content-Length 检查 + 413 ERR_MSG_TOO_LARGE）
+
+
+### BUG-052 🟡 P2 — 测试套件残留 relay 进程导致端口竞争 (test_int1 等偶发 AssertionError)
+
+**发现时间**: 2026-04-05 测试轮 #6
+**状态**: 🟡 已知，待优化（可通过 pytest-forked 或端口范围隔离彻底解决）
+
+**场景**: 全量回归（多 test_*.py 串行执行）
+**描述**: 若前一轮测试中 relay 进程因异常（如测试超时、进程未正确 terminate）未被清理，
+  残存的 relay 进程会占用端口（如 48010→48110），导致下一轮中 `_start_relay()` 的 relay
+  无法绑定端口，`wait_http_ready()` 超时返回 False。
+
+**复现**:
+  1. 运行全量回归，前轮产生残留进程
+  2. 下轮 `test_int1_full_three_layer_happy_path` 尝试绑定 48010/48110
+  3. `AssertionError: relay on :48110 did not start`
+
+**根因**: 
+  - `proc.terminate(); proc.wait(timeout=5)` 理论上应清理，但若 proc.wait() 超时或异常，
+    子进程可能变为孤儿
+  - Python subprocess 在 except 路径中未 guarantee cleanup
+  - 各测试文件端口段不冲突，但跨文件端口段（48005→test_rate_limit 51000 等）间无问题
+
+**修复方案**: 
+  - 短期：测试前 `pkill -f "acp_relay.py.*--port 4[89][0-9]{3}"` 清理残留
+  - 长期：在 conftest.py 中添加 session-scope fixture 自动清理残留 relay 进程
+
+**优先级**: P2（偶发，手动清理即可恢复）

@@ -53,6 +53,49 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True, scope="session")
+def cleanup_stale_relay_processes():
+    """BUG-052 fix: kill any relay processes left over from a previous test run
+    that would occupy test-suite ports (44000–57000) and cause 'did not start'
+    failures in subsequent runs.
+
+    Runs once at session start, before any test relay is spawned.
+    Skips production relays (port 33211 and others outside test range).
+    """
+    import signal
+    killed = []
+    try:
+        result = subprocess.run(
+            ["ps", "-eo", "pid,args"],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            if "acp_relay.py" not in line:
+                continue
+            parts = line.split()
+            if not parts:
+                continue
+            pid_str = parts[0]
+            # extract --port value
+            try:
+                port_idx = parts.index("--port") + 1
+                port = int(parts[port_idx])
+            except (ValueError, IndexError):
+                continue
+            if 44000 <= port <= 57000:
+                try:
+                    os.kill(int(pid_str), signal.SIGKILL)
+                    killed.append((int(pid_str), port))
+                except ProcessLookupError:
+                    pass
+    except Exception:
+        pass  # best-effort, never block tests
+    if killed:
+        import time as _time
+        _time.sleep(0.3)  # let OS reclaim ports
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
 def bypass_http_proxy():
     """Remove proxy env vars from the current process for the entire test session.
 
