@@ -5,6 +5,58 @@
 
 ---
 
+### v2.50.0 — Per-Skill Parameter Constraints (2026-04-05)
+
+New feature: `skill.param_constraints` — parameter-level invocation constraints validated at `POST /tasks`. Inspired by SINT Protocol (A2A Issue #1716) `constraints` field. Paired with v2.49 `authorization_tier` to form a two-layer skill invocation guard:
+
+- **`authorization_tier` (v2.49)** — *who* may invoke the skill (trust-based caller filter)
+- **`param_constraints` (v2.50)** — *with what arguments* the skill may be invoked (parameter validation)
+
+**ConstraintRule fields** (all optional):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `string\|number\|integer\|boolean\|array` | Value type check |
+| `required` | bool | Param must be present in request |
+| `min` | number | Numeric: value ≥ min; string/array: length ≥ min |
+| `max` | number | Numeric: value ≤ max; string/array: length ≤ max |
+| `allowed_values` | list | Enum check: value must be in this list |
+| `pattern` | string (regex) | String only: `fullmatch` against regex |
+
+**Example AgentCard skill with param_constraints:**
+```json
+{
+  "id": "transfer_funds",
+  "name": "Transfer Funds",
+  "authorization_tier": "T3",
+  "param_constraints": {
+    "amount":   {"type": "number", "required": true, "min": 0.01, "max": 10000},
+    "currency": {"type": "string", "required": true, "allowed_values": ["USD", "EUR", "CNY"]},
+    "ref":      {"type": "string", "pattern": "[A-Z]{3}-\\d{6}"}
+  }
+}
+```
+
+**Enforcement:**
+- `POST /tasks` checks params after the tier check (tier → param_constraints order)
+- Unknown `skill_id` or absent `param_constraints` → no validation (backward-compatible)
+- Invalid regex patterns in declared constraints are silently dropped at parse time (forward-compat)
+- Failure returns `400 ERR_PARAM_CONSTRAINT` with `skill_id` + `violated_params[]` list
+
+**Comparison with SINT Protocol:**
+
+| Dimension | SINT (A2A #1716) | ACP v2.50 |
+|-----------|-----------------|-----------|
+| **Constraint carrier** | Ed25519 capability token | AgentCard `param_constraints` field (declarative, no token infra) |
+| **Enforcement** | PolicyGateway (external service) | Built-in at POST /tasks |
+| **Constraint types** | type/max/allowed_values | type/required/min/max/allowed_values/pattern |
+| **Pattern matching** | ❌ | ✅ regex `pattern` |
+| **Cross-org** | ✅ (token-based) | Requires `vouch_chain` / `delegation_chain` |
+
+**Tests:** SPC1–SPC18 (18/18 PASS), core regression 158/158 PASS
+
+---
+
 ### v2.49.0 — Per-Skill Authorization Tiers T0–T3 (2026-04-05)
 
 New feature: `skill.authorization_tier` — per-skill authorization enforcement at `POST /tasks`, inspired by A2A Issue #1716 (SINT Protocol RFC). Designed to be lightweight: reuses existing `trust.signals` (v2.14) and per-peer trust scores (v2.34) — no OAuth or capability-token dependency.
