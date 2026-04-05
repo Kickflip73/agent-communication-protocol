@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.55.0"  # v2.55: GET /peers/{peer_id}/verify-card — on-demand per-peer AgentCard re-verification + force/trust/ttl params
+VERSION = "2.56.0"  # v2.56: principal_chain[] OBO delegation chain — trust block, message propagation, GET/POST/DELETE /principal-chain
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -428,6 +428,7 @@ _did_acp: str = None              # v1.3: did:acp:<base64url(pubkey)> — stable
 _did_key: str = None              # v0.8: did:key:z6Mk... W3C did:key identifier (base58btc multibase)
 _ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certificate (hybrid identity)
 _delegation_chain: list = []      # v2.16: signed delegation entries [{delegator_did, scope, expires_at, sig}]
+_principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, added_at}] — "on behalf of" principal stack
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -1634,6 +1635,7 @@ def _make_agent_card(name, skills):
             "skill_rate_limit":            True,                              # v2.53: skill.rate_limit — per-skill/per-peer RPM/RPD/burst; POST /tasks returns 429 ERR_RATE_LIMIT when exceeded
             "verify_card_v2":              True,                              # v2.54: POST /verify-card — batch + fetch_and_verify + TTL cache + trust_integration
             "peer_verify_card":            True,                              # v2.55: GET /peers/{id}/verify-card — on-demand per-peer AgentCard re-verification + force/trust/ttl params
+            "principal_chain":             bool(_principal_chain),            # v2.56: OBO delegation chain in trust block
         },
 
         "identity": ({
@@ -1650,6 +1652,7 @@ def _make_agent_card(name, skills):
             "scheme":  "hmac-sha256" if _hmac_secret else "none",
             "enabled": bool(_hmac_secret),
             "signals": _build_trust_signals(),   # v2.14: structured trust evidence (A2A #1628 compatible)
+            **( {"principal_chain": _principal_chain} if _principal_chain else {} ),  # v2.56: OBO delegation chain
         },
         "auth":      {"schemes": ["none"]},
         "endpoints": {
@@ -1669,6 +1672,8 @@ def _make_agent_card(name, skills):
             "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
             "verify_card_v2": "/verify-card",          # v2.54: enhanced — batch + fetch_and_verify + TTL cache + trust_integration
             "peer_verify_card": "/peers/{peer_id}/verify-card",  # v2.55: on-demand per-peer AgentCard re-verification
+            "peer_principal_chain": "/peers/{peer_id}/principal-chain",  # v2.56: GET OBO delegation chain for peer
+            "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
@@ -4458,6 +4463,73 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
+        # ── GET /principal-chain — self principal_chain management (v2.56) ──
+        elif p == "/principal-chain":
+            """
+            GET /principal-chain — Return the current global principal_chain (OBO delegation stack).
+
+            Response 200:
+              {
+                "ok": true,
+                "count": <int>,
+                "principal_chain": [ {"did": ..., "role": ..., "added_at": ...}, ... ],
+                "self_did": "<this agent's DID>"
+              }
+            """
+            self_did = _did_acp or _did_key or _status.get("agent_name", "unknown")
+            self._json({
+                "ok":              True,
+                "count":           len(_principal_chain),
+                "principal_chain": list(_principal_chain),
+                "self_did":        self_did,
+            })
+
+        # ── GET /peers/{peer_id}/principal-chain — peer's principal_chain (v2.56) ──
+        elif p.startswith("/peers/") and p.endswith("/principal-chain") and p.count("/") == 3:
+            """
+            GET /peers/{peer_id}/principal-chain — Return the principal_chain from a connected
+            peer's AgentCard trust block (if available).
+
+            Response 200 (chain found):
+              {
+                "ok": true, "peer_id": ..., "count": ...,
+                "principal_chain": [ ... ], "source": "agent_card"
+              }
+            Response 200 (no chain — peer has no principal_chain in trust block):
+              { "ok": true, "peer_id": ..., "count": 0, "principal_chain": [], "source": "none" }
+            Response 404: peer not found
+            Response 422: peer found but no AgentCard
+            """
+            peer_id_pc = p.split("/")[2]
+            peer_pc = _peers.get(peer_id_pc)
+            if not peer_pc:
+                self._json({
+                    "ok":         False,
+                    "error_code": "ERR_PEER_NOT_FOUND",
+                    "error":      f"peer '{peer_id_pc}' not found",
+                }, 404)
+                return
+            card_pc = peer_pc.get("agent_card")
+            if not card_pc:
+                self._json({
+                    "ok":         False,
+                    "error_code": "ERR_CARD_UNAVAILABLE",
+                    "error":      f"peer '{peer_id_pc}' has not shared an AgentCard yet",
+                    "peer_id":    peer_id_pc,
+                    "connected":  bool(peer_pc.get("connected")),
+                    "card_available": False,
+                }, 422)
+                return
+            trust_pc = card_pc.get("trust") or {}
+            chain_pc = trust_pc.get("principal_chain") or []
+            self._json({
+                "ok":              True,
+                "peer_id":         peer_id_pc,
+                "count":           len(chain_pc),
+                "principal_chain": list(chain_pc),
+                "source":          "agent_card" if chain_pc else "none",
+            })
+
         # ── GET /peers/{peer_id}/trust — structured per-peer trust score (v2.34) ──
         elif p.startswith("/peers/") and p.endswith("/trust") and p.count("/") == 3:
             """
@@ -5699,6 +5771,37 @@ class LocalHTTP(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         p = parsed.path
 
+        # ── v2.56: Principal Chain management endpoints ──────────────────────
+        if p == "/principal-chain":
+            """
+            POST /principal-chain — Add a principal (OBO delegation entry) to the global chain.
+
+            Body: {"did": "did:acp:...", "role": "orchestrator"|"delegator"|"owner"|str (optional)}
+            Response 200: {"ok": true, "did": ..., "role": ..., "added_at": ..., "count": <int>}
+            Response 400: missing/invalid did field
+            """
+            global _principal_chain
+            try:
+                body = self._read_body()
+                did_val = (body.get("did") or "").strip()
+                if not did_val:
+                    self._json({"ok": False, "error": "missing required field: did"}, 400)
+                    return
+                role_val = (body.get("role") or "delegator").strip()
+                entry = {
+                    "did":      did_val,
+                    "role":     role_val,
+                    "added_at": _now(),
+                }
+                # Upsert: replace if DID already exists
+                _principal_chain = [e for e in _principal_chain if e.get("did") != did_val]
+                _principal_chain.append(entry)
+                log.info(f"🔗 principal_chain: added {did_val!r} (role={role_val}, total={len(_principal_chain)})")
+                self._json({"ok": True, **entry, "count": len(_principal_chain)})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
         # ── v2.16: Delegation Chain POST endpoints ────────────────────────────
         if p == "/identity/delegate":
             # POST /identity/delegate
@@ -5969,6 +6072,25 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     msg["task_id"] = body["task_id"]
                 if body.get("context_id"):
                     msg["context_id"] = body["context_id"]
+                # v2.56: on_behalf_of — OBO principal chain
+                # If caller supplies "on_behalf_of" (str DID or list[str] DIDs),
+                # attach principal_chain to the outgoing message.
+                _obo_raw = body.get("on_behalf_of")
+                if _obo_raw:
+                    if isinstance(_obo_raw, str):
+                        _obo_list = [_obo_raw]
+                    elif isinstance(_obo_raw, list):
+                        _obo_list = [str(d) for d in _obo_raw if d]
+                    else:
+                        _obo_list = []
+                    if _obo_list:
+                        # Build principal_chain: self DID first, then delegated principals
+                        _self_did = _did_acp or _did_key or _status.get("agent_name", "unknown")
+                        msg["principal_chain"] = [_self_did] + _obo_list
+                # If no on_behalf_of in request but relay has a standing _principal_chain, attach it
+                elif _principal_chain:
+                    _self_did = _did_acp or _did_key or _status.get("agent_name", "unknown")
+                    msg["principal_chain"] = [_self_did] + [e.get("did", "") for e in _principal_chain if e.get("did")]
 
                 serialized = json.dumps(msg, ensure_ascii=False)
                 if len(serialized.encode()) > MAX_MSG_BYTES:
@@ -7507,7 +7629,23 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
     # ── DELETE ────────────────────────────────────────────────────────────────
     def do_DELETE(self):
+        global _principal_chain
         p = urlparse(self.path).path
+
+        # ── v2.56: DELETE /principal-chain/<did> — remove a principal from chain ──
+        if p.startswith("/principal-chain/") and p.count("/") == 2:
+            did_to_remove = p[len("/principal-chain/"):]
+            before = len(_principal_chain)
+            _principal_chain = [e for e in _principal_chain if e.get("did") != did_to_remove]
+            removed = before - len(_principal_chain)
+            if removed:
+                log.info(f"🔗 principal_chain: removed {did_to_remove!r} (remaining={len(_principal_chain)})")
+                self._json({"ok": True, "did": did_to_remove, "removed": True, "count": len(_principal_chain)})
+            else:
+                self._json({"ok": False, "error": f"DID '{did_to_remove}' not in principal_chain",
+                            "removed": False, "count": len(_principal_chain)}, 404)
+            return
+
         if p.startswith("/tasks/"):
             task_id = p[len("/tasks/"):]
             task = _tasks.get(task_id)
@@ -8235,6 +8373,14 @@ Examples:
                              "Example: --limitations-json '[{\"kind\":\"scale\",\"code\":\"max-10mb\","
                              "\"message\":\"Max 10MB files\",\"permanent\":true}]'. "
                              "Ref: A2A IS#1694 stable/runtime split.")
+    parser.add_argument("--principal", action="append", default=[], metavar="DID[,role=ROLE]",
+                        help="(v2.56) Add a principal to the OBO delegation chain (can be repeated). "
+                             "Format: <did>  or  <did>,role=<role>  where role ∈ {orchestrator,delegator,owner,<str>}. "
+                             "Populates AgentCard trust.principal_chain[] and propagates to outbound messages. "
+                             "Example: --principal did:acp:Ab3x...,role=orchestrator "
+                             "         --principal did:key:z6Mk...,role=owner. "
+                             "Runtime management: GET/POST/DELETE /principal-chain. "
+                             "Inspired by A2A IS#1713 cross-org OBO accountability.")
 
     args = parser.parse_args()
 
@@ -8524,6 +8670,24 @@ Examples:
     else:
         _limitations = []
     _status["limitations"] = list(_limitations)  # already normalized LimitationObject[]
+
+    # v2.56: --principal flags → _principal_chain
+    global _principal_chain
+    raw_principals = _get(getattr(args, "principal", []) or [], "principal", [])
+    if isinstance(raw_principals, str):
+        raw_principals = [raw_principals]
+    for raw_p in raw_principals:
+        parts_p = [s.strip() for s in raw_p.split(",")]
+        did_p = parts_p[0] if parts_p else ""
+        if not did_p:
+            continue
+        role_p = "delegator"
+        for kv in parts_p[1:]:
+            if kv.startswith("role="):
+                role_p = kv[5:]
+        _principal_chain.append({"did": did_p, "role": role_p, "added_at": _now()})
+    if _principal_chain:
+        log.info(f"🔗 Principal chain: {[e['did'] for e in _principal_chain]}")
 
     # v1.4: --relay flag now means "force Level 3" (skip L1+L2 NAT traversal)
     # Previously: "use relay instead of P2P"
