@@ -669,7 +669,8 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.56** | **✅ 2026-04-05** | **`principal_chain[]` OBO 委托链 — trust block 注入 + GET/POST/DELETE /principal-chain + 消息级传播（on_behalf_of）+ --principal CLI — PC-1..10 PASS，A2A #1713 零基础设施替代方案** |
 | **v2.57** | **✅ 2026-04-06** | **`capability_token` — SINT-format Ed25519 signed capability tokens，POST /skills/{id}/capability-token 发行，GET /capability-tokens 列表，POST /tasks enforcement gate（required 先检查 + 签名验证 + tier 绕过），CT-1..12 PASS — A2A #1716 抢先实现** |
 | **v2.58** | **✅ 2026-04-06** | **`effective_tier` 三因子动态计算 — `_compute_effective_tier()`: max(tier_rule, depth_floor(chain.len), rep_adj) + GET /skills/{id}/effective-tier 调试端点 + DELETE /principal-chain URL-decode 修复 + ET-1..12 PASS — A2A #1716 @64R3N 公式抢先实现** |
-| **v2.59** | **🔜 下一目标** | **P1 bug 修复轮（BUG-007 /message:send 多peer歧义 / BUG-009 SSE 950ms 延迟 / BUG-050 HTTP/2 transport）+ attestation_anchor 防伪造字段（A2A #1713 启发）** |
+| **v2.59** | **🔜 下一目标** | **双边交互记录（Bilateral Signed Interaction Record）轻量版：POST /tasks 完成时可选生成 interaction_record（relay_signature + caller_token_hash）— A2A #1718 刚提出（0💬），ACP 抢先实现** |
+| **v2.60** | **📋 计划中** | **governance_metadata in AgentCard（trust_score + capability_manifest + policy_compliance + audit_trail_reference）— A2A #1717（Microsoft agent-governance-toolkit）** |
 
 ---
 

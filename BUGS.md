@@ -1422,7 +1422,7 @@ HTTP server `RemoteDisconnected`（与 BUG-030 同类根因）。
 
 ---
 
-### BUG-050 🟡 P1 — `test_http2_transport`：relay h2c 端口无响应，HTTP/2 transport 不可用
+### BUG-050 ✅ P1 — `test_http2_transport`：relay h2c 端口无响应，HTTP/2 transport 不可用
 
 **发现日期**: 2026-04-03
 **场景**: tests/test_http2_transport.py — H2/H3/H4/H6 场景
