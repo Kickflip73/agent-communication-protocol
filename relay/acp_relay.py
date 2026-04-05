@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.52.0"  # v2.52: task audit_log[] + GET /tasks/{id}/audit-log + skill.deprecation_notice → deprecation_warning in POST /tasks response
+VERSION = "2.53.0"  # v2.53: skill.rate_limit — per-skill/per-peer invocation frequency limiting (requests_per_minute/requests_per_day/burst) → 429 ERR_RATE_LIMIT
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -273,6 +273,7 @@ ERR_AUTHORIZATION_TIER   = "ERR_AUTHORIZATION_TIER"   # v2.49: caller does not m
 ERR_PARAM_CONSTRAINT     = "ERR_PARAM_CONSTRAINT"     # v2.50: task params violate skill.param_constraints
 ERR_CONFIRM_NOT_PENDING  = "ERR_CONFIRM_NOT_PENDING"  # v2.51: task not in input_required/confirmation_pending state
 ERR_SKILL_DEPRECATED     = "ERR_SKILL_DEPRECATED"     # v2.52: informational — skill is deprecated (task still created, warning injected)
+ERR_RATE_LIMIT           = "ERR_RATE_LIMIT"           # v2.53: caller has exceeded skill.rate_limit (429)
 
 def _err(code: str, message: str, http_status: int = 400,
          failed_message_id: str = None) -> tuple:
@@ -1292,6 +1293,8 @@ def _parse_skill_obj(s):
         param_constraints = _parse_param_constraints(raw_pc) if raw_pc else None
         # v2.51: parse human_confirmation_required
         human_conf = bool(s.get("human_confirmation_required", False))
+        # v2.53: parse rate_limit
+        rate_limit = _parse_rate_limit(s.get("rate_limit"))
         # v2.52: parse deprecation_notice
         raw_dep = s.get("deprecation_notice")
         if isinstance(raw_dep, dict) and raw_dep.get("deprecated"):
@@ -1322,6 +1325,7 @@ def _parse_skill_obj(s):
             "param_constraints":           param_constraints, # v2.50: parameter-level ConstraintRule dict
             "human_confirmation_required": human_conf,        # v2.51: T3 requires human sign-off
             "deprecation_notice":          dep_notice,        # v2.52: skill sunset declaration or None
+            "rate_limit":                  rate_limit,        # v2.53: per-skill/per-peer rate limit or None
         }
     else:
         sid = str(s).strip()
@@ -1627,6 +1631,7 @@ def _make_agent_card(name, skills):
             "t3_human_confirmation":        True,                              # v2.51: T3 skills with human_confirmation_required=true enter confirmation_pending; :confirm/:reject endpoints
             "task_audit_log":              True,                              # v2.52: GET /tasks/{id}/audit-log — immutable per-task audit trail
             "skill_deprecation_notice":    True,                              # v2.52: skill.deprecation_notice — POST /tasks on deprecated skill returns deprecation_warning
+            "skill_rate_limit":            True,                              # v2.53: skill.rate_limit — per-skill/per-peer RPM/RPD/burst; POST /tasks returns 429 ERR_RATE_LIMIT when exceeded
         },
 
         "identity": ({
@@ -2625,6 +2630,134 @@ def _check_param_constraints(skill_id: str | None, params: dict | None) -> tuple
 
     ok = len(violations) == 0
     return ok, violations
+
+
+# ---------------------------------------------------------------------------
+# v2.53: skill.rate_limit — per-skill / per-peer in-memory rate-limit buckets
+# ---------------------------------------------------------------------------
+# Bucket key: (skill_id, peer_id)  (peer_id may be None → treat as "anonymous")
+# Each bucket stores:
+#   {
+#     "min_count":   int,   # requests in current 1-minute window
+#     "day_count":   int,   # requests in current 1-day window
+#     "min_start":   float, # epoch seconds of current minute window start
+#     "day_start":   float, # epoch seconds of current day window start
+#     "burst_queue": int,   # tokens consumed out of burst allowance this window
+#   }
+_rl_buckets: dict[tuple, dict] = {}
+
+
+def _parse_rate_limit(raw: object) -> dict | None:
+    """v2.53: Parse and normalise a raw rate_limit field from an AgentCard skill object.
+
+    Accepts a dict with any subset of:
+      requests_per_minute (int, ≥1)
+      requests_per_day    (int, ≥1)
+      burst               (int, ≥0) — extra requests allowed to absorb short spikes;
+                                       burst tokens refill every minute alongside the normal window
+
+    All fields are optional.  Returns None if raw is falsy or contains no valid limits.
+    Invalid values (non-int, ≤0) are silently clamped / dropped (forward-compat).
+    """
+    if not isinstance(raw, dict):
+        return None
+    rpm = raw.get("requests_per_minute")
+    rpd = raw.get("requests_per_day")
+    burst = raw.get("burst")
+    result: dict = {}
+    if isinstance(rpm, (int, float)) and int(rpm) >= 1:
+        result["requests_per_minute"] = int(rpm)
+    if isinstance(rpd, (int, float)) and int(rpd) >= 1:
+        result["requests_per_day"] = int(rpd)
+    if isinstance(burst, (int, float)) and int(burst) >= 0:
+        result["burst"] = int(burst)
+    return result if result else None
+
+
+def _check_rate_limit(skill_id: str | None, peer_id: str | None) -> tuple[bool, dict]:
+    """v2.53: Check and update rate-limit counters for (skill_id, peer_id).
+
+    Returns (allowed: bool, detail: dict).
+      allowed=True  → request is within rate limits; counters have been incremented.
+      allowed=False → request exceeds a configured limit; detail contains limit/reset info.
+
+    Looks up the skill's rate_limit config from _status["agent_card"].skills[].
+    No skill / no rate_limit config → always allowed (backward-compatible).
+
+    Limits are enforced in order: requests_per_minute → requests_per_day.
+    burst tokens extend requests_per_minute only (not requests_per_day).
+    """
+    if not skill_id:
+        return True, {}
+    # Look up skill's rate_limit config
+    card_skills = (_status.get("agent_card") or {}).get("skills", [])
+    skill_obj   = next((s for s in card_skills if isinstance(s, dict) and s.get("id") == skill_id), {})
+    rl = skill_obj.get("rate_limit")  # already parsed by _parse_skill_obj → dict or None
+    if not rl:
+        return True, {}
+
+    now = time.time()
+    key = (skill_id, peer_id)
+    if key not in _rl_buckets:
+        _rl_buckets[key] = {
+            "min_count":   0,
+            "day_count":   0,
+            "min_start":   now,
+            "day_start":   now,
+            "burst_used":  0,
+        }
+    bkt = _rl_buckets[key]
+
+    # --- reset windows if expired ---
+    if now - bkt["min_start"] >= 60:
+        bkt["min_count"]  = 0
+        bkt["min_start"]  = now
+        bkt["burst_used"] = 0
+    if now - bkt["day_start"] >= 86400:
+        bkt["day_count"] = 0
+        bkt["day_start"] = now
+
+    rpm   = rl.get("requests_per_minute")
+    rpd   = rl.get("requests_per_day")
+    burst = rl.get("burst", 0)
+
+    # --- check requests_per_minute (with burst) ---
+    if rpm is not None:
+        effective_limit = rpm + burst
+        if bkt["min_count"] >= effective_limit:
+            reset_in = max(0, int(60 - (now - bkt["min_start"])))
+            return False, {
+                "limit_type":        "requests_per_minute",
+                "limit":             rpm,
+                "burst":             burst,
+                "effective_limit":   effective_limit,
+                "current_count":     bkt["min_count"],
+                "reset_in_seconds":  reset_in,
+                "skill_id":          skill_id,
+                "peer_id":           peer_id,
+            }
+
+    # --- check requests_per_day ---
+    if rpd is not None:
+        if bkt["day_count"] >= rpd:
+            reset_in = max(0, int(86400 - (now - bkt["day_start"])))
+            return False, {
+                "limit_type":       "requests_per_day",
+                "limit":            rpd,
+                "current_count":    bkt["day_count"],
+                "reset_in_seconds": reset_in,
+                "skill_id":         skill_id,
+                "peer_id":          peer_id,
+            }
+
+    # --- within limits: increment counters ---
+    bkt["min_count"] += 1
+    bkt["day_count"] += 1
+    # track burst usage if we exceeded base rpm but had burst tokens
+    if rpm is not None and bkt["min_count"] > rpm:
+        bkt["burst_used"] += 1
+
+    return True, {}
 
 
 def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tuple[bool, str]:
@@ -6477,6 +6610,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "skill_id":       skill_id_for_tier,
                         "violated_params": pc_violations,
                     }, 400)
+                    return
+                # v2.53: rate_limit enforcement
+                rl_ok, rl_detail = _check_rate_limit(skill_id_for_tier, caller_peer_id)
+                if not rl_ok:
+                    self._json({
+                        "ok":         False,
+                        "error_code": ERR_RATE_LIMIT,
+                        "error":      f"rate limit exceeded for skill '{skill_id_for_tier}'",
+                        **rl_detail,
+                    }, 429)
                     return
                 # v2.51: T3 human_confirmation_required gate
                 t3_confirm = _needs_human_confirmation(skill_id_for_tier)
