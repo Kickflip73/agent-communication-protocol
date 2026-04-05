@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.54.0"  # v2.54: POST /verify-card (v2) — batch verification + fetch_and_verify + TTL cache + trust_integration
+VERSION = "2.55.0"  # v2.55: GET /peers/{peer_id}/verify-card — on-demand per-peer AgentCard re-verification + force/trust/ttl params
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1633,6 +1633,7 @@ def _make_agent_card(name, skills):
             "skill_deprecation_notice":    True,                              # v2.52: skill.deprecation_notice — POST /tasks on deprecated skill returns deprecation_warning
             "skill_rate_limit":            True,                              # v2.53: skill.rate_limit — per-skill/per-peer RPM/RPD/burst; POST /tasks returns 429 ERR_RATE_LIMIT when exceeded
             "verify_card_v2":              True,                              # v2.54: POST /verify-card — batch + fetch_and_verify + TTL cache + trust_integration
+            "peer_verify_card":            True,                              # v2.55: GET /peers/{id}/verify-card — on-demand per-peer AgentCard re-verification + force/trust/ttl params
         },
 
         "identity": ({
@@ -1667,6 +1668,7 @@ def _make_agent_card(name, skills):
             "extensions":   "/extensions",             # v1.3: list/register extensions
             "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
             "verify_card_v2": "/verify-card",          # v2.54: enhanced — batch + fetch_and_verify + TTL cache + trust_integration
+            "peer_verify_card": "/peers/{peer_id}/verify-card",  # v2.55: on-demand per-peer AgentCard re-verification
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
@@ -2747,7 +2749,7 @@ def _apply_trust_integration(vr: dict, peer_id: str | None) -> bool:
         "peer_id": peer_id,
         "did": vr.get("did"),
         "public_key": vr.get("public_key"),
-        "verified_at": _iso_now(),
+        "verified_at": _now(),
         "description": "AgentCard Ed25519 signature independently verified (v2.54)",
     }
     for i, s in enumerate(signals):
@@ -3162,7 +3164,8 @@ def _on_message(raw):
             for pinfo in _peers.values():
                 if pinfo.get("agent_name") == peer_name:
                     matched = True
-                    pinfo["agent_card"] = card      # v2.24: cache card in peer registry
+                    pinfo["agent_card"] = card           # v2.24: cache card in peer registry
+                    pinfo["card_received_at"] = _now()  # v2.55: timestamp for /verify-card
                     break
             if not matched:
                 # Assign to the newest connected peer without an agent_name
@@ -4361,6 +4364,96 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "connected": info.get("connected", False),
                     "agent_card": card,
                     "card_available": card is not None,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/<peer_id>/verify-card — on-demand AgentCard re-verification (v2.55) ──
+        elif p.startswith("/peers/") and p.endswith("/verify-card") and p.count("/") == 3:
+            """
+            GET /peers/{peer_id}/verify-card — On-demand AgentCard re-verification (v2.55).
+
+            Re-verify the cached AgentCard for the specified peer using the same
+            Ed25519 verification engine as POST /verify-card.
+
+            Query parameters:
+              force=1       — bypass TTL cache (always re-verify); default: use cache
+              trust=1       — if valid, upsert a card_verified trust signal for this peer
+              ttl=<seconds> — custom cache TTL (default: 300); 0 is treated as force=1
+
+            Response 200:
+              {
+                "ok":                   true,
+                "peer_id":              "...",
+                "name":                 "...",
+                "connected":            bool,
+                "valid":                true|false|null,
+                "did":                  "did:acp:...",
+                "did_consistent":       true|null,
+                "public_key":           "...",
+                "scheme":               "ed25519",
+                "error":                null,
+                "cached":               bool,
+                "cache_expires_in":     int?,
+                "trust_signal_written": bool,
+                "last_connected":       "ISO8601"|null,
+                "card_received_at":     "ISO8601"|null,
+                "card_available":       bool
+              }
+
+            Response 404: peer not found
+            Response 422: peer found but no AgentCard cached (never shared card)
+            """
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+
+                info = _peers[peer_id]
+                card = info.get("agent_card")
+
+                if not card:
+                    self._json({
+                        "ok": False,
+                        "error_code": "ERR_CARD_UNAVAILABLE",
+                        "error": f"peer '{peer_id}' has not shared an AgentCard yet",
+                        "peer_id": peer_id,
+                        "name": info.get("name"),
+                        "connected": info.get("connected", False),
+                        "card_available": False,
+                    }, 422)
+                    return
+
+                # Parse query params: force, trust, ttl
+                parsed_qs = parse_qs(urlparse(self.path).query)
+                force = parsed_qs.get("force", ["0"])[0] == "1"
+                trust_int = parsed_qs.get("trust", ["0"])[0] == "1"
+                ttl_raw = parsed_qs.get("ttl", [str(_VERIFY_CARD_CACHE_TTL)])[0]
+                try:
+                    ttl = max(0, int(ttl_raw))
+                except (TypeError, ValueError):
+                    ttl = _VERIFY_CARD_CACHE_TTL
+                if ttl == 0:
+                    force = True
+
+                effective_ttl = 0 if force else ttl
+                vr = _verify_card_cached(card, ttl=effective_ttl)
+
+                if trust_int:
+                    _apply_trust_integration(vr, peer_id)
+
+                self._json({
+                    "ok": True,
+                    "peer_id": peer_id,
+                    "name": info.get("name"),
+                    "connected": info.get("connected", False),
+                    "card_available": True,
+                    "last_connected": info.get("last_connected"),
+                    "card_received_at": info.get("card_received_at"),
+                    "trust_signal_written": trust_int and vr.get("valid") is True,
+                    **vr,
                 })
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
@@ -6408,6 +6501,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     _peers[peer_id]["connected"] = False  # not a real WS connection
                     _peers[peer_id]["debug_injected"] = True
                     log.info(f"[debug/inject] auto-registered peer: {from_name} → {peer_id}")
+
+                # v2.55: inject AgentCard for peer (for /peers/<id>/verify-card testing)
+                if isinstance(body, dict) and "agent_card" in body and isinstance(body["agent_card"], dict):
+                    _peers[peer_id]["agent_card"] = body["agent_card"]
+                    _peers[peer_id]["card_received_at"] = _now()
 
                 # v2.51: trust_override — set peer trust fields for tier-based testing
                 # Accepts: {score_override, verified_identity, card_sig_valid, did_consistent, ping_rtt_ms, vouch}
