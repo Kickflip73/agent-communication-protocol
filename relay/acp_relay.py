@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.53.0"  # v2.53: skill.rate_limit — per-skill/per-peer invocation frequency limiting (requests_per_minute/requests_per_day/burst) → 429 ERR_RATE_LIMIT
+VERSION = "2.54.0"  # v2.54: POST /verify-card (v2) — batch verification + fetch_and_verify + TTL cache + trust_integration
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1632,6 +1632,7 @@ def _make_agent_card(name, skills):
             "task_audit_log":              True,                              # v2.52: GET /tasks/{id}/audit-log — immutable per-task audit trail
             "skill_deprecation_notice":    True,                              # v2.52: skill.deprecation_notice — POST /tasks on deprecated skill returns deprecation_warning
             "skill_rate_limit":            True,                              # v2.53: skill.rate_limit — per-skill/per-peer RPM/RPD/burst; POST /tasks returns 429 ERR_RATE_LIMIT when exceeded
+            "verify_card_v2":              True,                              # v2.54: POST /verify-card — batch + fetch_and_verify + TTL cache + trust_integration
         },
 
         "identity": ({
@@ -1665,6 +1666,7 @@ def _make_agent_card(name, skills):
             "discover":     "/discover",               # v0.7 mDNS LAN discovery
             "extensions":   "/extensions",             # v1.3: list/register extensions
             "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
+            "verify_card_v2": "/verify-card",          # v2.54: enhanced — batch + fetch_and_verify + TTL cache + trust_integration
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
@@ -2645,6 +2647,115 @@ def _check_param_constraints(skill_id: str | None, params: dict | None) -> tuple
 #     "burst_queue": int,   # tokens consumed out of burst allowance this window
 #   }
 _rl_buckets: dict[tuple, dict] = {}
+
+
+# ── v2.54: /verify-card (v2) — batch + fetch + cache + trust_integration ─────
+
+# TTL cache for card verification results: {cache_key → {result, expires_at}}
+_verify_card_cache: dict[str, dict] = {}
+_VERIFY_CARD_CACHE_TTL = 300  # seconds (5 min default, overridable via request)
+
+
+def _verify_card_cache_key(card: dict) -> str:
+    """Stable cache key based on identity.public_key + identity.card_sig."""
+    identity = card.get("identity") or {}
+    pub = identity.get("public_key", "")
+    sig = identity.get("card_sig", "")
+    return f"{pub}:{sig}"
+
+
+def _verify_card_cached(card: dict, ttl: int = _VERIFY_CARD_CACHE_TTL) -> dict:
+    """Verify a single AgentCard with TTL caching.
+
+    Returns the verification result dict (same shape as _verify_agent_card) with
+    an extra 'cached' bool field indicating whether the result was served from cache.
+    """
+    key = _verify_card_cache_key(card)
+    now = time.time()
+    if ttl > 0:  # ttl=0 means bypass cache entirely (always re-verify)
+        entry = _verify_card_cache.get(key)
+        if entry and entry["expires_at"] > now:
+            result = dict(entry["result"])
+            result["cached"] = True
+            result["cache_expires_in"] = int(entry["expires_at"] - now)
+            return result
+
+    result = _verify_agent_card(card)
+    result["cached"] = False
+    result.pop("cache_expires_in", None)
+    if ttl > 0 and result.get("valid") is not None:  # only cache when ttl>0 and deterministic
+        _verify_card_cache[key] = {"result": dict(result), "expires_at": now + ttl}
+    return result
+
+
+def _fetch_agent_card_from_url(url: str, timeout: int = 8) -> dict:
+    """Fetch an ACP AgentCard JSON from a URL.
+
+    Returns {'ok': True, 'card': <dict>} or {'ok': False, 'error': '<reason>'}.
+    Supports:
+      - https://example.com/.well-known/acp.json  → use 'self' field if wrapped
+      - https://example.com/agent-card.json       → use raw card
+    """
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(url, headers={"Accept": "application/json", "User-Agent": f"ACP-Relay/{VERSION}"})
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            raw = json.loads(resp.read().decode())
+        # Accept wrapped ({"self": card, ...}) or raw card
+        if isinstance(raw, dict):
+            if "self" in raw and isinstance(raw["self"], dict):
+                return {"ok": True, "card": raw["self"]}
+            elif "name" in raw or "identity" in raw:
+                return {"ok": True, "card": raw}
+        return {"ok": False, "error": f"unrecognised AgentCard structure at {url}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"fetch failed: {exc}"}
+
+
+def _verify_card_batch(cards: list, ttl: int = _VERIFY_CARD_CACHE_TTL) -> list:
+    """Verify a batch of AgentCard dicts.
+
+    Returns a list of result dicts, one per card, each with an extra
+    'index' field indicating position in the input list.
+    """
+    results = []
+    for i, card in enumerate(cards):
+        if not isinstance(card, dict):
+            results.append({"index": i, "valid": False, "error": "not a JSON object", "cached": False})
+            continue
+        r = _verify_card_cached(card, ttl=ttl)
+        r["index"] = i
+        results.append(r)
+    return results
+
+
+def _apply_trust_integration(vr: dict, peer_id: str | None) -> bool:
+    """v2.54: If verification succeeded and peer_id is known, inject a trust signal.
+
+    Adds/updates a 'card_verified' signal in _status['trust']['signals'] for the
+    peer, recording that their AgentCard was independently verified.
+
+    Returns True if a signal was written, False otherwise.
+    """
+    if not vr.get("valid") or not peer_id:
+        return False
+    trust = (_status.setdefault("trust", {}))
+    signals = trust.setdefault("signals", [])
+    # Upsert: replace existing card_verified signal for this peer, or append
+    new_signal = {
+        "type": "card_verified",
+        "peer_id": peer_id,
+        "did": vr.get("did"),
+        "public_key": vr.get("public_key"),
+        "verified_at": _iso_now(),
+        "description": "AgentCard Ed25519 signature independently verified (v2.54)",
+    }
+    for i, s in enumerate(signals):
+        if s.get("type") == "card_verified" and s.get("peer_id") == peer_id:
+            signals[i] = new_signal
+            return True
+    signals.append(new_signal)
+    return True
 
 
 def _parse_rate_limit(raw: object) -> dict | None:
@@ -7117,6 +7228,125 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
             result = _verify_agent_card(card)
             self._json(result)
+
+        # ── POST /verify-card — enhanced card verification v2.54 ─────────────
+        elif p == "/verify-card":
+            """
+            POST /verify-card — Enhanced AgentCard verification (v2.54).
+
+            Supports three verification modes, selected by the top-level 'mode' field:
+
+            MODE 1: single card (default)
+              Body: AgentCard JSON  OR  {"card": <AgentCard>}
+              Returns: single verification result object
+
+            MODE 2: batch
+              Body: {"mode": "batch", "cards": [<AgentCard>, ...], "ttl": <int>?}
+              Returns: {"ok": true, "results": [...], "total": N, "valid_count": N, "invalid_count": N}
+
+            MODE 3: fetch_and_verify
+              Body: {"mode": "fetch", "url": "<ACP AgentCard URL>", "ttl": <int>?}
+              Returns: fetched card + single verification result + "fetched_from" url
+
+            All modes accept optional:
+              "ttl": integer (seconds) — override cache TTL (0 = bypass cache, default 300)
+              "trust_integration": bool — if true AND result is valid, record a card_verified
+                trust signal for the specified "peer_id" (optional string)
+              "peer_id": string — peer to associate with trust signal (trust_integration only)
+
+            Result object fields (all modes):
+              {
+                "valid": true|false|null,  # null = Ed25519 lib unavailable
+                "did": "did:acp:...",
+                "did_consistent": true|null,
+                "public_key": "...",
+                "scheme": "ed25519",
+                "error": null,
+                "cached": bool,
+                "cache_expires_in": int   # only when cached=true
+              }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            mode = body.get("mode", "single")
+            ttl_raw = body.get("ttl", _VERIFY_CARD_CACHE_TTL)
+            try:
+                ttl = max(0, int(ttl_raw))
+            except (TypeError, ValueError):
+                ttl = _VERIFY_CARD_CACHE_TTL
+            trust_int = bool(body.get("trust_integration", False))
+            peer_id_for_trust = body.get("peer_id") or None
+
+            if mode == "batch":
+                cards = body.get("cards")
+                if not isinstance(cards, list):
+                    self._json({"ok": False, "error": "'cards' must be a JSON array"}, 400)
+                    return
+                if len(cards) > 100:
+                    self._json({"ok": False, "error": "batch size exceeds max 100"}, 400)
+                    return
+                results = _verify_card_batch(cards, ttl=ttl)
+                valid_count = sum(1 for r in results if r.get("valid") is True)
+                invalid_count = sum(1 for r in results if r.get("valid") is False)
+                self._json({
+                    "ok": True,
+                    "mode": "batch",
+                    "total": len(results),
+                    "valid_count": valid_count,
+                    "invalid_count": invalid_count,
+                    "unknown_count": len(results) - valid_count - invalid_count,
+                    "results": results,
+                })
+                return
+
+            elif mode == "fetch":
+                url = body.get("url")
+                if not url or not isinstance(url, str):
+                    self._json({"ok": False, "error": "'url' is required for mode=fetch"}, 400)
+                    return
+                fetched = _fetch_agent_card_from_url(url)
+                if not fetched["ok"]:
+                    self._json({"ok": False, "error": fetched["error"], "url": url}, 422)
+                    return
+                card = fetched["card"]
+                vr = _verify_card_cached(card, ttl=ttl)
+                if trust_int:
+                    _apply_trust_integration(vr, peer_id_for_trust)
+                self._json({
+                    "ok": True,
+                    "mode": "fetch",
+                    "fetched_from": url,
+                    "card_name": card.get("name"),
+                    "trust_signal_written": trust_int and vr.get("valid") is True,
+                    **vr,
+                })
+                return
+
+            else:
+                # single card mode
+                if "card" in body and isinstance(body["card"], dict):
+                    card = body["card"]
+                elif "self" in body and isinstance(body["self"], dict):
+                    card = body["self"]
+                elif "name" in body or "identity" in body:
+                    card = body
+                else:
+                    self._json({"ok": False, "error": "expected AgentCard JSON, {\"card\": <AgentCard>}, or mode=batch/fetch"}, 400)
+                    return
+                vr = _verify_card_cached(card, ttl=ttl)
+                if trust_int:
+                    _apply_trust_integration(vr, peer_id_for_trust)
+                self._json({
+                    "ok": True,
+                    "mode": "single",
+                    "trust_signal_written": trust_int and vr.get("valid") is True,
+                    **vr,
+                })
+                return
 
         # ── POST /trust/vouch — add a vouch_chain entry (v2.27) ──────────────
         elif p == "/trust/vouch":
