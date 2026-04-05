@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.50.0"  # v2.50: skill.param_constraints — parameter-level invocation constraints (ref SINT Protocol / A2A #1716 constraints field)
+VERSION = "2.51.0"  # v2.51: T3 human_confirmation — POST /tasks with T3 tier enters input_required; POST /tasks/{id}:confirm to approve
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -271,6 +271,7 @@ ERR_TIMEOUT              = "ERR_TIMEOUT"              # Sync wait timed out
 ERR_INTERNAL             = "ERR_INTERNAL"             # Unexpected server error
 ERR_AUTHORIZATION_TIER   = "ERR_AUTHORIZATION_TIER"   # v2.49: caller does not meet skill tier requirement
 ERR_PARAM_CONSTRAINT     = "ERR_PARAM_CONSTRAINT"     # v2.50: task params violate skill.param_constraints
+ERR_CONFIRM_NOT_PENDING  = "ERR_CONFIRM_NOT_PENDING"  # v2.51: task not in input_required/confirmation_pending state
 
 def _err(code: str, message: str, http_status: int = 400,
          failed_message_id: str = None) -> tuple:
@@ -299,10 +300,12 @@ TASK_COMPLETED      = "completed"
 TASK_FAILED         = "failed"
 TASK_CANCELED       = "canceled"
 TASK_CANCELLING     = "cancelling"     # v2.6: intermediate cancel state (ACP-unique)
-TASK_INPUT_REQUIRED = "input_required"
+TASK_INPUT_REQUIRED       = "input_required"
+TASK_CONFIRMATION_PENDING = "confirmation_pending"   # v2.51: T3 awaiting human sign-off
 
 TERMINAL_STATES    = {TASK_COMPLETED, TASK_FAILED, TASK_CANCELED}
 INTERRUPTED_STATES = {TASK_INPUT_REQUIRED}
+CONFIRMATION_PENDING_STATES = {TASK_CONFIRMATION_PENDING}  # v2.51
 # States that represent an in-progress cancel (not yet terminal)
 CANCELLING_STATES  = {TASK_CANCELLING}
 
@@ -361,6 +364,10 @@ _hmac_secret: bytes = None
 # --test-mode enables POST /debug/inject for unit-test message + peer injection.
 # NEVER enabled in production; gated behind explicit CLI flag.
 _test_mode: bool = False
+
+# --auto-confirm-t3: skip human_confirmation_required gate for T3 skills (test-only).
+# When True, POST /tasks with T3 + human_confirmation_required proceeds directly to submitted.
+_auto_confirm_t3: bool = False
 
 # ── HMAC replay-window (v1.1) ─────────────────────────────────────────────
 # When HMAC signing is enabled (--secret), inbound messages must have a `ts`
@@ -1233,6 +1240,13 @@ def _parse_skill_obj(s):
       Enforcement point: POST /tasks creation — returns 403 ERR_AUTHORIZATION_TIER if
         the calling peer does not satisfy the declared tier requirements.
 
+    human_confirmation_required (v2.51): if True AND skill's authorization_tier == "T3", a POST /tasks
+      targeting this skill enters "confirmation_pending" state instead of "submitted".
+      The task MUST be explicitly approved via POST /tasks/{id}:confirm before execution proceeds.
+      Rejection is done via POST /tasks/{id}:reject → task transitions to "failed".
+      Bypassed when relay is started with --auto-confirm-t3 (test-only flag).
+      null/false (default): T3 tasks proceed as submitted immediately (backward-compatible).
+
     param_constraints (v2.50): parameter-level invocation constraints (ref SINT Protocol / A2A #1716).
       Declares per-parameter rules applied when the skill is invoked via POST /tasks with a
       "params" dict in the request body.  Each key in param_constraints maps to a ConstraintRule:
@@ -1263,41 +1277,45 @@ def _parse_skill_obj(s):
         # v2.50: parse param_constraints — dict of {param_name: ConstraintRule}
         raw_pc = s.get("param_constraints")
         param_constraints = _parse_param_constraints(raw_pc) if raw_pc else None
+        # v2.51: parse human_confirmation_required
+        human_conf = bool(s.get("human_confirmation_required", False))
         obj = {
-            "id":                   sid,
-            "name":                 str(s.get("name", sid)),
-            "description":          s.get("description", ""),
-            "tags":                 list(s.get("tags") or []),
-            "examples":             list(s.get("examples") or []),
-            "input_modes":          list(s.get("input_modes") or []),
-            "output_modes":         list(s.get("output_modes") or []),
-            "constraints":          {
+            "id":                          sid,
+            "name":                        str(s.get("name", sid)),
+            "description":                 s.get("description", ""),
+            "tags":                        list(s.get("tags") or []),
+            "examples":                    list(s.get("examples") or []),
+            "input_modes":                 list(s.get("input_modes") or []),
+            "output_modes":                list(s.get("output_modes") or []),
+            "constraints":                 {
                 "max_file_size_bytes": raw_constraints.get("max_file_size_bytes"),
                 "concurrent_tasks":   raw_constraints.get("concurrent_tasks"),
                 "context_window":     raw_constraints.get("context_window"),
             },
-            "limitations":          [_parse_limitation(lim) for lim in raw_limitations],  # v2.28
-            "authorization_tier":   auth_tier,        # v2.49: T0/T1/T2/T3/null
-            "param_constraints":    param_constraints, # v2.50: parameter-level ConstraintRule dict
+            "limitations":                 [_parse_limitation(lim) for lim in raw_limitations],  # v2.28
+            "authorization_tier":          auth_tier,        # v2.49: T0/T1/T2/T3/null
+            "param_constraints":           param_constraints, # v2.50: parameter-level ConstraintRule dict
+            "human_confirmation_required": human_conf,        # v2.51: T3 requires human sign-off
         }
     else:
         sid = str(s).strip()
         obj = {
-            "id":                   sid,
-            "name":                 sid,
-            "description":          "",
-            "tags":                 [],
-            "examples":             [],
-            "input_modes":          [],
-            "output_modes":         [],
-            "constraints":          {
+            "id":                          sid,
+            "name":                        sid,
+            "description":                 "",
+            "tags":                        [],
+            "examples":                    [],
+            "input_modes":                 [],
+            "output_modes":                [],
+            "constraints":                 {
                 "max_file_size_bytes": None,
                 "concurrent_tasks":   None,
                 "context_window":     None,
             },
-            "limitations":          [],   # v2.28: empty by default
-            "authorization_tier":   None, # v2.49: no tier = unrestricted
-            "param_constraints":    None, # v2.50: no param constraints = unrestricted
+            "limitations":                 [],    # v2.28: empty by default
+            "authorization_tier":          None,  # v2.49: no tier = unrestricted
+            "param_constraints":           None,  # v2.50: no param constraints = unrestricted
+            "human_confirmation_required": False, # v2.51: default no confirmation needed
         }
     return obj
 
@@ -1579,6 +1597,7 @@ def _make_agent_card(name, skills):
             "peer_message_history":         True,                              # v2.48: GET /peers/<id>/messages — per-peer message history with direction/seq/sort filters
             "skill_authorization_tiers":    True,                              # v2.49: skill.authorization_tier T0-T3 enforcement via POST /tasks (ref A2A #1716)
             "skill_param_constraints":      True,                              # v2.50: skill.param_constraints — parameter-level validation at POST /tasks (ref SINT Protocol)
+            "t3_human_confirmation":        True,                              # v2.51: T3 skills with human_confirmation_required=true enter confirmation_pending; :confirm/:reject endpoints
         },
 
         "identity": ({
@@ -2678,14 +2697,40 @@ def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tupl
     return True, f"unknown tier {tier!r} — defaulting to allow"
 
 
-def _create_task(payload, message_id=None, task_id=None, context_id=None):
+def _needs_human_confirmation(skill_id: str | None) -> bool:
+    """v2.51: Return True if this skill requires human confirmation before execution.
+
+    Conditions (all must hold):
+      1. skill.human_confirmation_required == True
+      2. skill.authorization_tier == "T3"
+      3. --auto-confirm-t3 flag is NOT set
+    """
+    if _auto_confirm_t3:
+        return False
+    if not skill_id:
+        return False
+    skills = (_status.get("agent_card") or {}).get("skills", [])
+    skill_obj = next((s for s in skills if isinstance(s, dict) and s.get("id") == skill_id), None)
+    if not skill_obj:
+        return False
+    return (
+        bool(skill_obj.get("human_confirmation_required"))
+        and skill_obj.get("authorization_tier") == "T3"
+    )
+
+
+def _create_task(payload, message_id=None, task_id=None, context_id=None, initial_state=None):
     # BUG-006 fix: honour client-supplied task_id (idempotent — return existing if already known)
     if task_id and task_id in _tasks:
         return _tasks[task_id]
     task_id = task_id or _make_id("task")
+    # v2.51: allow initial_state override (e.g. confirmation_pending for T3 human-confirmation)
+    state = initial_state if initial_state in (
+        TASK_SUBMITTED, TASK_CONFIRMATION_PENDING
+    ) else TASK_SUBMITTED
     task = {
         "id":         task_id,
-        "status":     TASK_SUBMITTED,
+        "status":     state,
         "created_at": _now(),
         "updated_at": _now(),
         "payload":    payload,
@@ -2696,11 +2741,15 @@ def _create_task(payload, message_id=None, task_id=None, context_id=None):
         task["origin_message_id"] = message_id
     if context_id:
         task["context_id"] = context_id
+    if state == TASK_CONFIRMATION_PENDING:
+        task["confirmation_required"] = True  # v2.51: flag for callers
     _tasks[task_id] = task
     _status["tasks_created"] += 1
-    evt: dict = {"task_id": task_id, "state": TASK_SUBMITTED}
+    evt: dict = {"task_id": task_id, "state": state}
     if context_id:
         evt["context_id"] = context_id
+    if state == TASK_CONFIRMATION_PENDING:
+        evt["confirmation_required"] = True
     _broadcast_sse_event("status", evt)
     return task
 
@@ -6036,6 +6085,31 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     _peers[peer_id]["debug_injected"] = True
                     log.info(f"[debug/inject] auto-registered peer: {from_name} → {peer_id}")
 
+                # v2.51: trust_override — set peer trust fields for tier-based testing
+                # Accepts: {score_override, verified_identity, card_sig_valid, did_consistent, ping_rtt_ms, vouch}
+                trust_override = body.get("trust_override") if isinstance(body, dict) else None
+                if trust_override and isinstance(trust_override, dict):
+                    # card_sig / did_consistent
+                    if trust_override.get("card_sig_valid"):
+                        _peers[peer_id]["card_verification"] = {"valid": True, "did_consistent": bool(trust_override.get("did_consistent", True))}
+                    # ping RTT
+                    if "ping_rtt_ms" in trust_override:
+                        _peers[peer_id]["last_ping_rtt_ms"] = trust_override["ping_rtt_ms"]
+                    # message history count
+                    if "message_count" in trust_override:
+                        _peers[peer_id]["messages_sent"] = trust_override["message_count"]
+                    # verified_identity signal: inject into peer's AgentCard trust.signals
+                    if trust_override.get("verified_identity"):
+                        existing_card = _peers[peer_id].get("agent_card") or {}
+                        existing_trust = existing_card.get("trust") or {}
+                        existing_sigs  = list(existing_trust.get("signals") or [])
+                        # Add verified_identity signal if not already present
+                        if not any(s.get("type") == "verified_identity" or s.get("kind") == "verified_identity" for s in existing_sigs):
+                            existing_sigs.append({"type": "verified_identity", "kind": "verified_identity"})
+                        existing_trust["signals"] = existing_sigs
+                        existing_card["trust"] = existing_trust
+                        _peers[peer_id]["agent_card"] = existing_card
+
                 # Build message entry
                 import time as _time_
                 msg_id = body.get("message_id") or f"dbg_{int(_time_.time()*1000):x}"
@@ -6323,10 +6397,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "violated_params": pc_violations,
                     }, 400)
                     return
+                # v2.51: T3 human_confirmation_required gate
+                t3_confirm = _needs_human_confirmation(skill_id_for_tier)
                 task = _create_task(payload,
                                     message_id=body.get("message_id"),
                                     task_id=body.get("task_id"),       # BUG-006 fix: pass client task_id
-                                    context_id=body.get("context_id")) # v1.7: propagate context_id to SSE events
+                                    context_id=body.get("context_id"), # v1.7: propagate context_id to SSE events
+                                    initial_state=TASK_CONFIRMATION_PENDING if t3_confirm else None)
                 if body.get("delegate", False):
                     _ws_send_sync({"type": "task.delegate", "message_id": _make_id(), "ts": _now(),
                                    "from": _status.get("agent_name"), "task_id": task["id"],
@@ -6418,6 +6495,54 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     _update_task(tid, TASK_CANCELED)
                 threading.Thread(target=_do_cancel, args=(task_id,), daemon=True).start()
                 self._json({"ok": True, "task_id": task_id, "status": TASK_CANCELLING})
+
+        # /tasks/{id}:confirm — v2.51: approve a confirmation_pending T3 task  [stable]
+        # Transitions task from confirmation_pending → submitted, broadcasts SSE status event.
+        # Idempotent: already submitted/terminal → 200 with note.
+        elif p.startswith("/tasks/") and p.endswith(":confirm"):
+            task_id = p[len("/tasks/"):-len(":confirm")]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            elif task["status"] == TASK_SUBMITTED:
+                self._json({"ok": True, "task_id": task_id, "status": TASK_SUBMITTED,
+                            "note": "task already confirmed/submitted"})
+            elif task["status"] not in CONFIRMATION_PENDING_STATES:
+                self._json({"ok": False,
+                            "error_code": ERR_CONFIRM_NOT_PENDING,
+                            "error": f"task '{task_id}' is not awaiting confirmation (status: {task['status']})"}, 409)
+            else:
+                # Approve: transition to submitted
+                task.pop("confirmation_required", None)
+                _update_task(task_id, TASK_SUBMITTED)
+                self._json({"ok": True, "task_id": task_id, "status": TASK_SUBMITTED})
+
+        # /tasks/{id}:reject — v2.51: reject a confirmation_pending T3 task  [stable]
+        # Transitions task from confirmation_pending → failed, broadcasts SSE status event.
+        elif p.startswith("/tasks/") and p.endswith(":reject"):
+            task_id = p[len("/tasks/"):-len(":reject")]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            elif task["status"] not in CONFIRMATION_PENDING_STATES:
+                self._json({"ok": False,
+                            "error_code": ERR_CONFIRM_NOT_PENDING,
+                            "error": f"task '{task_id}' is not awaiting confirmation (status: {task['status']})"}, 409)
+            else:
+                try:
+                    body = self._read_body()
+                except Exception:
+                    body = {}
+                reason = body.get("reason", "human rejected T3 task") if isinstance(body, dict) else "human rejected T3 task"
+                task.pop("confirmation_required", None)
+                _update_task(task_id, TASK_FAILED, error=reason)
+                self._json({"ok": True, "task_id": task_id, "status": TASK_FAILED, "reason": reason})
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # 比 SSE subscribe 更简单，适合 Agent 调用
@@ -7429,9 +7554,12 @@ Examples:
                         help="(v2.35) Skip public-IP detection and relay pre-registration; "
                              "generate acp://127.0.0.1:PORT/TOKEN link immediately. "
                              "Useful for local tests, CI, and sandboxed environments.")
-    parser.add_argument("--test-mode",    action="store_true",
+    parser.add_argument("--test-mode",       action="store_true",
                         help="(v2.48) Enable POST /debug/inject for unit-test message+peer "
                              "injection. NEVER use in production.")
+    parser.add_argument("--auto-confirm-t3", action="store_true",
+                        help="(v2.51) Bypass human_confirmation_required gate for T3 skills. "
+                             "Test-only: T3 tasks proceed directly to submitted. NEVER use in production.")
     parser.add_argument("--relay",        action="store_true", help="(v1.4) Force Level 3 relay transport (skip L1 direct + L2 hole punch). Previously 'use relay instead of P2P'; now means auto-degradation last resort.")
     parser.add_argument("--relay-url",    default=None,
                         help="Relay endpoint URL (default: public Cloudflare Worker)")
@@ -7843,6 +7971,12 @@ Examples:
     _test_mode = bool(getattr(args, "test_mode", False))
     if _test_mode:
         log.warning("⚠️  --test-mode ENABLED: POST /debug/inject active (DO NOT use in production)")
+
+    # v2.51: --auto-confirm-t3
+    global _auto_confirm_t3
+    _auto_confirm_t3 = bool(getattr(args, "auto_confirm_t3", False))
+    if _auto_confirm_t3:
+        log.warning("⚠️  --auto-confirm-t3 ENABLED: T3 human_confirmation_required bypassed (DO NOT use in production)")
 
     # Rebuild card to reflect transport_modes + supported_interfaces + limitations
     _status["agent_card"] = _make_agent_card(args.name, skills)

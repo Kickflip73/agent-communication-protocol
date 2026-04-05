@@ -661,6 +661,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.48** | **2026-04-05** | **GET /peers/<id>/messages — per-peer 消息历史（direction/since_seq/sort/pagination）+ `--test-mode` 调试注入，PMH1-10=10/10** |
 | **v2.49** | **2026-04-05** | **skill.authorization_tier T0-T3 — per-skill 授权层（ref A2A #1716）+ ERR_AUTHORIZATION_TIER + POST /tasks 执行，SAT1-12=12/12** |
 | **v2.50** | **2026-04-05** | **skill.param_constraints — 参数级调用约束（ref SINT Protocol / A2A #1716 constraints 字段）+ ERR_PARAM_CONSTRAINT，SPC1-18=18/18** |
+| **v2.51** | **2026-04-05** | **T3 human_confirmation — confirmation_pending 状态 + :confirm/:reject 端点 + trust_override debug + --auto-confirm-t3，T3C1-14=14/14** |
 
 ---
 

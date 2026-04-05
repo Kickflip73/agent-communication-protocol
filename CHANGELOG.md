@@ -7,6 +7,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.51.0] — 2026-04-05 (T3 human_confirmation — two-phase irreversible task execution)
+
+### Added
+- **`skill.human_confirmation_required`** (bool, default false) — when `true` AND `authorization_tier == "T3"`, a `POST /tasks` targeting this skill enters `confirmation_pending` state instead of `submitted`.
+- **`POST /tasks/{id}:confirm`** — approve a `confirmation_pending` task → transitions to `submitted`. Idempotent (already submitted → 200 with note).
+- **`POST /tasks/{id}:reject`** — reject a `confirmation_pending` task → transitions to `failed`. Accepts optional `{"reason": "..."}` body; defaults to "human rejected T3 task".
+- **`TASK_CONFIRMATION_PENDING`** state (`"confirmation_pending"`) + `CONFIRMATION_PENDING_STATES` set.
+- **`ERR_CONFIRM_NOT_PENDING`** — 409 returned when `:confirm`/`:reject` targets a task not in `confirmation_pending`.
+- **`_needs_human_confirmation(skill_id)`** — helper: returns True only when tier=T3 + human_confirmation_required=True + `--auto-confirm-t3` not set.
+- **`--auto-confirm-t3`** CLI flag — bypass confirmation gate for testing; T3 tasks proceed directly to `submitted`. NEVER use in production.
+- **`/debug/inject` `trust_override`** field — set peer trust attributes (card_sig_valid, did_consistent, ping_rtt_ms, message_count, verified_identity) for tier-based testing without a real P2P connection.
+- **`capabilities.t3_human_confirmation = True`** in AgentCard.
+- **T3C1–T3C14** tests (`tests/test_t3_human_confirmation.py`) — 14/14 PASS.
+
+### Design Notes
+- Execution order: tier check → param_constraints check → human_confirmation gate
+- `confirmation_pending` is not in `TERMINAL_STATES` or `INTERRUPTED_STATES` — it has its own `CONFIRMATION_PENDING_STATES` set
+- `confirmation_required: true` field present on task object while awaiting approval (removed on confirm/reject)
+- Backward-compatible: `human_confirmation_required` defaults to false; existing T3 skills unaffected
+
+---
+
 ## [2.50.0] — 2026-04-05 (skill.param_constraints — parameter-level invocation constraints, ref SINT Protocol)
 
 ### Added
