@@ -1015,6 +1015,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2490-per-skill-authorization-tiers-t0t3-2026-04-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.49.0 — Per-Skill Authorization Tiers T0–T3 (2026-04-05)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2480-per-peer-message-history-query-2026-04-05" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1985,6 +1996,55 @@
 <p>Last updated: 2026-04-05
 For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 </blockquote>
+<hr />
+<h3 id="v2490-per-skill-authorization-tiers-t0t3-2026-04-05">v2.49.0 — Per-Skill Authorization Tiers T0–T3 (2026-04-05)<a class="headerlink" href="#v2490-per-skill-authorization-tiers-t0t3-2026-04-05" title="Permanent link">&para;</a></h3>
+<p>New feature: <code>skill.authorization_tier</code> — per-skill authorization enforcement at <code>POST /tasks</code>, inspired by A2A Issue #1716 (SINT Protocol RFC). Designed to be lightweight: reuses existing <code>trust.signals</code> (v2.14) and per-peer trust scores (v2.34) — no OAuth or capability-token dependency.</p>
+<p><strong>Tier definitions:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Requirement</th>
+<th>Typical Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>null</code></td>
+<td>None (backward-compatible)</td>
+<td>All existing skills — unchanged behavior</td>
+</tr>
+<tr>
+<td><code>T0</code></td>
+<td>None</td>
+<td>Observe-only (read agent status, list skills)</td>
+</tr>
+<tr>
+<td><code>T1</code></td>
+<td>None</td>
+<td>Read-only actions (query data, passive probes)</td>
+</tr>
+<tr>
+<td><code>T2</code></td>
+<td><code>trust_score &gt;= 0.7</code></td>
+<td>Write/act operations (send messages, create tasks)</td>
+</tr>
+<tr>
+<td><code>T3</code></td>
+<td><code>trust_score &gt;= 0.9</code> + <code>verified_identity</code> signal</td>
+<td>Irreversible operations (delete, deploy, billing)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Enforcement:</strong>
+- <code>POST /tasks</code> checks <code>skill_id</code> + <code>peer_id</code> in request body against declared AgentCard tier
+- Unknown <code>skill_id</code> or absent <code>skill_id</code> → no restriction (backward-compatible)
+- Failure returns <code>403</code> with <code>ERR_AUTHORIZATION_TIER</code> + <code>skill_id</code> + <code>peer_id</code> fields for debugging</p>
+<p><strong>AgentCard:</strong>
+- <code>capabilities.skill_authorization_tiers = True</code>
+- <code>GET /skills</code> response includes <code>authorization_tier</code> field per skill</p>
+<p><strong>Comparative note:</strong> A2A v1.0 (SINT) delegates authorization to OAuth 2.0 scope binding. ACP T0–T3 achieves the same goal with zero external auth infrastructure, relying on P2P trust signals established during peer connection.</p>
+<p><strong>Tests:</strong> SAT1–SAT12 (12/12 PASS), core regression 172/172 PASS</p>
 <hr />
 <h3 id="v2480-per-peer-message-history-query-2026-04-05">v2.48.0 — Per-Peer Message History Query (2026-04-05)<a class="headerlink" href="#v2480-per-peer-message-history-query-2026-04-05" title="Permanent link">&para;</a></h3>
 <p>New endpoint: <code>GET /peers/&lt;peer_id&gt;/messages</code> — query the full message history for any known peer, with rich filtering.</p>

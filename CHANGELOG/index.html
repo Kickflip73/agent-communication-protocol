@@ -1042,6 +1042,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2490-skillauthorization_tier-t0t3-2026-04-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.49.0 — skill.authorization_tier T0–T3 (2026-04-05)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v2480-get-peersidmessages-per-peer-message-history-2026-04-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.48.0 — GET /peers/\&lt;id>/messages — Per-Peer Message History (2026-04-05)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2310-patch-skillslimitations-2026-04-02" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2974,6 +2996,22 @@
 <p>Format: <a href="https://semver.org">Semantic Versioning</a> — <code>MAJOR.MINOR.PATCH-status</code>
 Dates: Asia/Shanghai (UTC+8)</p>
 <hr />
+<h2 id="v2490-skillauthorization_tier-t0t3-2026-04-05">v2.49.0 — skill.authorization_tier T0–T3 (2026-04-05)<a class="headerlink" href="#v2490-skillauthorization_tier-t0t3-2026-04-05" title="Permanent link">&para;</a></h2>
+<p>Per-skill authorization tier enforcement at <code>POST /tasks</code>. Inspired by A2A #1716 (SINT Protocol RFC); implemented without OAuth by reusing <code>trust.signals</code> (v2.14) + per-peer trust scores (v2.34).</p>
+<ul>
+<li><code>skill.authorization_tier</code> field in AgentCard skill objects (<code>T0</code>/<code>T1</code>/<code>T2</code>/<code>T3</code>/<code>null</code>)</li>
+<li><code>T2</code> requires <code>trust_score &gt;= 0.7</code>; <code>T3</code> requires <code>trust_score &gt;= 0.9</code> + <code>verified_identity</code> signal</li>
+<li><code>ERR_AUTHORIZATION_TIER</code> error code, 403 response with <code>skill_id</code> + <code>peer_id</code></li>
+<li><code>capabilities.skill_authorization_tiers = True</code> in AgentCard</li>
+<li>SAT1–SAT12: 12/12 PASS | core regression: 172/172 PASS</li>
+</ul>
+<h2 id="v2480-get-peersidmessages-per-peer-message-history-2026-04-05">v2.48.0 — GET /peers/\&lt;id&gt;/messages — Per-Peer Message History (2026-04-05)<a class="headerlink" href="#v2480-get-peersidmessages-per-peer-message-history-2026-04-05" title="Permanent link">&para;</a></h2>
+<ul>
+<li>New endpoint <code>GET /peers/&lt;peer_id&gt;/messages</code> with <code>direction</code> / <code>since_seq</code> / <code>sort</code> / <code>limit</code> / <code>offset</code> filtering</li>
+<li>New <code>--test-mode</code> flag + <code>POST /debug/inject</code> endpoint for integration tests without real P2P connection</li>
+<li><code>capabilities.peer_message_history = True</code> + <code>endpoints.peer_messages</code> in AgentCard</li>
+<li>PMH1–PMH10: 10/10 PASS</li>
+</ul>
 <h2 id="v2310-patch-skillslimitations-2026-04-02">v2.31.0 — PATCH /skills/<id>/limitations (2026-04-02)<a class="headerlink" href="#v2310-patch-skillslimitations-2026-04-02" title="Permanent link">&para;</a></h2>
 <ul>
 <li>feat: <code>PATCH /skills/&lt;id&gt;/limitations</code> — 运行时 per-skill limitations 动态更新，无需重启</li>
