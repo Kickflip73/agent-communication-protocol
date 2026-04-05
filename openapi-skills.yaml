@@ -507,6 +507,73 @@ components:
       allOf:
         - $ref: '#/components/schemas/CardVerifyResult'
 
+    PeerVerifyCardResponse:
+      type: object
+      description: |
+        Response body for GET /peers/{peer_id}/verify-card (v2.55).
+        On-demand re-verification of the cached AgentCard for a known peer.
+      required: [ok, peer_id, card_available]
+      properties:
+        ok:
+          type: boolean
+        peer_id:
+          type: string
+          description: Peer identifier in the local registry
+        name:
+          type: string
+          nullable: true
+          description: Display name of the peer agent
+        connected:
+          type: boolean
+          description: Whether the peer currently has an active WebSocket connection
+        card_available:
+          type: boolean
+          description: false if the peer has not yet shared an AgentCard (422 response)
+        valid:
+          type: boolean
+          nullable: true
+          description: true if AgentCard signature verified; false if invalid; null if unverifiable
+        did:
+          type: string
+          nullable: true
+          description: DID extracted from the AgentCard
+        did_consistent:
+          type: boolean
+          nullable: true
+          description: true if the DID in the card is consistent with the public key
+        public_key:
+          type: string
+          nullable: true
+          description: Ed25519 public key (base58) from the AgentCard identity block
+        scheme:
+          type: string
+          nullable: true
+          description: Signature scheme (e.g. "ed25519")
+        error:
+          type: string
+          nullable: true
+          description: Verification error message; null on success
+        cached:
+          type: boolean
+          description: true if result was served from TTL cache
+        cache_expires_in:
+          type: integer
+          nullable: true
+          description: Seconds until cache entry expires; null if not cached
+        trust_signal_written:
+          type: boolean
+          description: true if trust=1 was requested AND valid=true (card_verified signal upserted)
+        last_connected:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp of the peer's last WebSocket connection
+        card_received_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp when the peer's AgentCard was first received
+
 tags:
   - name: skills
     description: |
