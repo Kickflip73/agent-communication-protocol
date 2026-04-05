@@ -242,6 +242,42 @@ components:
             enters `confirmation_pending` state instead of `submitted`. Human must explicitly
             approve via POST /tasks/{id}:confirm before execution proceeds.
             Use POST /tasks/{id}:reject to abort with status `failed`.
+        deprecation_notice:
+          $ref: '#/components/schemas/DeprecationNotice'
+          nullable: true
+          description: >
+            v2.52 — Optional skill sunset declaration. When deprecated=true, POST /tasks
+            on this skill still succeeds (201) but the response includes a top-level
+            `deprecation_warning` object with the notice fields, prompting callers to migrate.
+            Absent or deprecated=false → no warning injected (backward-compatible).
+
+    DeprecationNotice:
+      type: object
+      description: >
+        v2.52 — Skill sunset declaration embedded in AgentCard skill objects.
+        When deprecated=true, POST /tasks injects a `deprecation_warning` in the response.
+      properties:
+        deprecated:
+          type: boolean
+          description: Must be true to trigger deprecation_warning injection on POST /tasks.
+        deprecated_since:
+          type: string
+          nullable: true
+          description: ISO-8601 date string when deprecation began (e.g. "2026-03-01").
+        sunset_at:
+          type: string
+          nullable: true
+          description: ISO-8601 date string after which the skill may be removed.
+        replacement_skill:
+          type: string
+          nullable: true
+          description: id of the recommended replacement skill.
+        message:
+          type: string
+          nullable: true
+          description: Human-readable migration guidance.
+      required:
+        - deprecated
 
     SkillExample:
       type: object

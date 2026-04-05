@@ -1042,10 +1042,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#v2490-skillauthorization_tier-t0t3-2026-04-05" class="md-nav__link">
+  <a href="#v2520-task-audit-log-skill-deprecation-notice-2026-04-05" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v2.49.0 — skill.authorization_tier T0–T3 (2026-04-05)
+        v2.52.0 — Task Audit Log + Skill Deprecation Notice (2026-04-05)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v2510-t3-human-confirmation-gate-2026-04-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.51.0 — T3 Human Confirmation Gate (2026-04-05)
       
     </span>
   </a>
@@ -2996,7 +3007,27 @@
 <p>Format: <a href="https://semver.org">Semantic Versioning</a> — <code>MAJOR.MINOR.PATCH-status</code>
 Dates: Asia/Shanghai (UTC+8)</p>
 <hr />
-<h2 id="v2490-skillauthorization_tier-t0t3-2026-04-05">v2.49.0 — skill.authorization_tier T0–T3 (2026-04-05)<a class="headerlink" href="#v2490-skillauthorization_tier-t0t3-2026-04-05" title="Permanent link">&para;</a></h2>
+<h2 id="v2520-task-audit-log-skill-deprecation-notice-2026-04-05">v2.52.0 — Task Audit Log + Skill Deprecation Notice (2026-04-05)<a class="headerlink" href="#v2520-task-audit-log-skill-deprecation-notice-2026-04-05" title="Permanent link">&para;</a></h2>
+<p>Two compliance-focused features completing the ACP T3 accountability story.</p>
+<p><strong>Task Audit Log:</strong>
+- <code>task.audit_log[]</code> — append-only, seq-monotonic audit trail on every task object
+- <code>_append_audit(task, event_type, detail)</code> helper — never removes or mutates entries
+- Events: <code>created</code> (seed), <code>skill_invoked</code> (skill_id/peer_id/tier), <code>status_changed</code> (from/to), <code>confirmed</code> (by human), <code>rejected</code> (by human + reason)
+- <code>GET /tasks/{id}/audit-log</code> endpoint — returns <code>{task_id, status, audit_log, total}</code>; supports <code>?since_seq=N</code> + <code>?limit=N</code> for incremental polling
+- <code>audit_log</code> also embedded in task objects from <code>GET /tasks/{id}</code> and <code>POST /tasks</code>
+- <code>capabilities.task_audit_log = True</code></p>
+<p><strong>Skill Deprecation Notice:</strong>
+- <code>skill.deprecation_notice</code> field in AgentCard skill objects — fields: <code>deprecated</code>, <code>deprecated_since</code>, <code>sunset_at</code>, <code>replacement_skill</code>, <code>message</code>
+- <code>POST /tasks</code> on deprecated skill → 201 + <code>deprecation_warning</code> top-level field (non-blocking)
+- <code>deprecated: false</code> or absent → no warning injected (backward-compatible)
+- Visible in <code>GET /skills</code> skill objects
+- <code>ERR_SKILL_DEPRECATED</code> error constant added (informational)
+- <code>capabilities.skill_deprecation_notice = True</code>
+- Works alongside T3 human_confirmation: deprecated T3 skills return both <code>deprecation_warning</code> AND enter <code>confirmation_pending</code></p>
+<p><strong>Bug fix (development):</strong> <code>_skills</code> NameError in POST /tasks — replaced with <code>(_status["agent_card"] or {}).get("skills", [])</code> lookup pattern, consistent with existing <code>_check_authorization_tier</code> / <code>_check_param_constraints</code>.</p>
+<p>AUD1–AUD10 + DEP1–DEP6: 16/16 PASS | full regression: 217/217 PASS | commit: ac55111</p>
+<hr />
+<h2 id="v2510-t3-human-confirmation-gate-2026-04-05">v2.51.0 — T3 Human Confirmation Gate (2026-04-05)<a class="headerlink" href="#v2510-t3-human-confirmation-gate-2026-04-05" title="Permanent link">&para;</a></h2>
 <p>Per-skill authorization tier enforcement at <code>POST /tasks</code>. Inspired by A2A #1716 (SINT Protocol RFC); implemented without OAuth by reusing <code>trust.signals</code> (v2.14) + per-peer trust scores (v2.34).</p>
 <ul>
 <li><code>skill.authorization_tier</code> field in AgentCard skill objects (<code>T0</code>/<code>T1</code>/<code>T2</code>/<code>T3</code>/<code>null</code>)</li>
