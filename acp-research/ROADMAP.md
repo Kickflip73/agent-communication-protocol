@@ -668,7 +668,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.55** | **✅ 2026-04-05** | **`GET /peers/{peer_id}/verify-card` — on-demand per-peer AgentCard 重新验证 + force/trust/ttl 参数 — PVC-1..10 PASS，238 全量回归** |
 | **v2.56** | **✅ 2026-04-05** | **`principal_chain[]` OBO 委托链 — trust block 注入 + GET/POST/DELETE /principal-chain + 消息级传播（on_behalf_of）+ --principal CLI — PC-1..10 PASS，A2A #1713 零基础设施替代方案** |
 | **v2.57** | **✅ 2026-04-06** | **`capability_token` — SINT-format Ed25519 signed capability tokens，POST /skills/{id}/capability-token 发行，GET /capability-tokens 列表，POST /tasks enforcement gate（required 先检查 + 签名验证 + tier 绕过），CT-1..12 PASS — A2A #1716 抢先实现** |
-| **v2.58** | **🔜 下一目标** | **P1 bug 修复轮：BUG-007（/message:send 多 peer 歧义）/ BUG-009（SSE 950ms 延迟）/ BUG-003b（重复连接幂等性）** |
+| **v2.58** | **🔜 下一目标** | **`effective_tier` 三因子动态计算（A2A #1716 comment）：tier_rule + delegation_depth_floor(principal_chain.len) + reputation_adj(-1/0/+1，初期固定0）+ P1 bug 修复轮（BUG-007/009/003b）** |
 
 ---
 
