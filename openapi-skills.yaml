@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: ACP Skills Discovery API
-  version: "2.41.0"
+  version: "2.57.0"
   description: |
     ACP (Agent Communication Protocol) Skills Discovery endpoint.
     Allows agents to programmatically discover what skills a peer agent supports.
@@ -621,9 +621,131 @@ components:
           nullable: true
           description: ISO 8601 timestamp when the peer's AgentCard was first received
 
+    # ── v2.57: /skills/{id}/capability-token + /capability-tokens schemas ─────
+    CapabilityToken:
+      description: |
+        A SINT-format Ed25519 signed capability token (v2.57).
+        Self-contained credential authorizing a subject DID to invoke a specific
+        ACP skill. Compatible with SINT Protocol (A2A IS#1716).
+      type: object
+      required:
+        - jti
+        - iss
+        - sub
+        - resource
+        - actions
+        - tier
+        - iat
+        - exp
+        - signature
+        - scheme
+        - public_key
+      properties:
+        jti:
+          type: string
+          description: Unique token identifier (random 16-byte hex)
+        iss:
+          type: string
+          description: Issuer DID (this relay's did:acp: or did:key:)
+        sub:
+          type: string
+          description: Subject DID (agent authorized to invoke)
+        resource:
+          type: string
+          description: "Resource URI: acp://{agent_name}/skills/{skill_id}"
+        actions:
+          type: array
+          items:
+            type: string
+          description: Permitted actions (default: ["invoke"])
+        tier:
+          type: string
+          enum: [T0, T1, T2, T3]
+          description: Authorization tier the token grants
+        constraints:
+          type: object
+          description: Optional parameter constraints (composable with skill.param_constraints v2.50)
+          additionalProperties: true
+        iat:
+          type: integer
+          description: Issued-at unix timestamp
+        exp:
+          type: integer
+          description: Expiry unix timestamp
+        signature:
+          type: string
+          description: Hex-encoded Ed25519 signature over canonical JSON payload
+        scheme:
+          type: string
+          enum: [sint_ed25519]
+          description: Signature scheme identifier
+        public_key:
+          type: string
+          description: Hex-encoded 32-byte Ed25519 public key for verification
+    CapabilityTokenIssueRequest:
+      type: object
+      required: [subject]
+      properties:
+        subject:
+          type: string
+          description: Subject DID (who will hold this capability)
+        tier:
+          type: string
+          enum: [T0, T1, T2, T3]
+          description: "Tier to encode (default: skill's authorization_tier or T1)"
+        ttl:
+          type: integer
+          default: 3600
+          description: Token lifetime in seconds
+        actions:
+          type: array
+          items:
+            type: string
+          description: "Permitted actions (default: [\"invoke\"])"
+        constraints:
+          type: object
+          description: Optional parameter constraints dict
+          additionalProperties: true
+    CapabilityTokenIssueResponse:
+      type: object
+      required: [ok, token]
+      properties:
+        ok:
+          type: boolean
+        token:
+          $ref: "#/components/schemas/CapabilityToken"
+    CapabilityTokenListResponse:
+      description: Response body for GET /capability-tokens (v2.57)
+      type: object
+      required: [ok, count, tokens]
+      properties:
+        ok:
+          type: boolean
+        count:
+          type: integer
+        tokens:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/CapabilityToken"
+              - type: object
+                properties:
+                  skill_id:
+                    type: string
+                    description: Skill for which this token was issued
+                  issued_at:
+                    type: string
+                    format: date-time
+                  expired:
+                    type: boolean
+
 tags:
   - name: skills
     description: |
       Skill discovery and introspection endpoints.
       ACP's working answer to A2A IS#1655 (QuerySkill proposal) —
       live since ACP v2.4, documented as OpenAPI 3.1 since v2.41.
+  - name: capability-tokens
+    description: |
+      SINT-format Ed25519 signed capability token issuance and management (v2.57).
+      Implements the capability token model from A2A IS#1716 (SINT Protocol).
