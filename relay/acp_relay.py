@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.51.0"  # v2.51: T3 human_confirmation — POST /tasks with T3 tier enters input_required; POST /tasks/{id}:confirm to approve
+VERSION = "2.52.0"  # v2.52: task audit_log[] + GET /tasks/{id}/audit-log + skill.deprecation_notice → deprecation_warning in POST /tasks response
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -272,6 +272,7 @@ ERR_INTERNAL             = "ERR_INTERNAL"             # Unexpected server error
 ERR_AUTHORIZATION_TIER   = "ERR_AUTHORIZATION_TIER"   # v2.49: caller does not meet skill tier requirement
 ERR_PARAM_CONSTRAINT     = "ERR_PARAM_CONSTRAINT"     # v2.50: task params violate skill.param_constraints
 ERR_CONFIRM_NOT_PENDING  = "ERR_CONFIRM_NOT_PENDING"  # v2.51: task not in input_required/confirmation_pending state
+ERR_SKILL_DEPRECATED     = "ERR_SKILL_DEPRECATED"     # v2.52: informational — skill is deprecated (task still created, warning injected)
 
 def _err(code: str, message: str, http_status: int = 400,
          failed_message_id: str = None) -> tuple:
@@ -1261,6 +1262,18 @@ def _parse_skill_obj(s):
       All rule fields are optional — only declared fields are checked.
       Enforcement point: POST /tasks — returns 400 ERR_PARAM_CONSTRAINT with violated_params list.
       null/absent param_constraints (default): no parameter validation (backward-compatible).
+
+    deprecation_notice (v2.52): optional skill sunset declaration.
+      {
+        "deprecated":         bool,   # true = this skill is deprecated
+        "deprecated_since":   str,    # ISO date string (e.g. "2026-04-01")
+        "sunset_at":          str,    # ISO date string after which skill may be removed
+        "replacement_skill":  str,    # id of the recommended replacement skill (optional)
+        "message":            str,    # human-readable migration guidance (optional)
+      }
+      Behaviour: POST /tasks targeting a deprecated skill still succeeds (201) but the response
+      includes a top-level "deprecation_warning" object with the notice fields.
+      null/absent (default): skill is active, no warning injected (backward-compatible).
     """
     # v2.49: validate authorization_tier value
     _VALID_TIERS = {None, "T0", "T1", "T2", "T3"}
@@ -1279,6 +1292,18 @@ def _parse_skill_obj(s):
         param_constraints = _parse_param_constraints(raw_pc) if raw_pc else None
         # v2.51: parse human_confirmation_required
         human_conf = bool(s.get("human_confirmation_required", False))
+        # v2.52: parse deprecation_notice
+        raw_dep = s.get("deprecation_notice")
+        if isinstance(raw_dep, dict) and raw_dep.get("deprecated"):
+            dep_notice = {
+                "deprecated":        True,
+                "deprecated_since":  str(raw_dep.get("deprecated_since", "")),
+                "sunset_at":         str(raw_dep.get("sunset_at", "")),
+                "replacement_skill": str(raw_dep.get("replacement_skill", "")),
+                "message":           str(raw_dep.get("message", "")),
+            }
+        else:
+            dep_notice = None
         obj = {
             "id":                          sid,
             "name":                        str(s.get("name", sid)),
@@ -1296,6 +1321,7 @@ def _parse_skill_obj(s):
             "authorization_tier":          auth_tier,        # v2.49: T0/T1/T2/T3/null
             "param_constraints":           param_constraints, # v2.50: parameter-level ConstraintRule dict
             "human_confirmation_required": human_conf,        # v2.51: T3 requires human sign-off
+            "deprecation_notice":          dep_notice,        # v2.52: skill sunset declaration or None
         }
     else:
         sid = str(s).strip()
@@ -1316,6 +1342,7 @@ def _parse_skill_obj(s):
             "authorization_tier":          None,  # v2.49: no tier = unrestricted
             "param_constraints":           None,  # v2.50: no param constraints = unrestricted
             "human_confirmation_required": False, # v2.51: default no confirmation needed
+            "deprecation_notice":          None,  # v2.52: no deprecation by default
         }
     return obj
 
@@ -1598,6 +1625,8 @@ def _make_agent_card(name, skills):
             "skill_authorization_tiers":    True,                              # v2.49: skill.authorization_tier T0-T3 enforcement via POST /tasks (ref A2A #1716)
             "skill_param_constraints":      True,                              # v2.50: skill.param_constraints — parameter-level validation at POST /tasks (ref SINT Protocol)
             "t3_human_confirmation":        True,                              # v2.51: T3 skills with human_confirmation_required=true enter confirmation_pending; :confirm/:reject endpoints
+            "task_audit_log":              True,                              # v2.52: GET /tasks/{id}/audit-log — immutable per-task audit trail
+            "skill_deprecation_notice":    True,                              # v2.52: skill.deprecation_notice — POST /tasks on deprecated skill returns deprecation_warning
         },
 
         "identity": ({
@@ -2719,6 +2748,23 @@ def _needs_human_confirmation(skill_id: str | None) -> bool:
     )
 
 
+def _append_audit(task: dict, event_type: str, detail: dict | None = None):
+    """v2.52: Append an immutable audit entry to task['audit_log'].
+
+    Each entry: {"event": str, "ts": ISO-8601, "seq": int, "detail": dict}
+    The audit_log is append-only — entries are never removed or modified.
+    """
+    log_list = task.setdefault("audit_log", [])
+    entry = {
+        "event": event_type,
+        "ts":    _now(),
+        "seq":   len(log_list),
+    }
+    if detail:
+        entry["detail"] = detail
+    log_list.append(entry)
+
+
 def _create_task(payload, message_id=None, task_id=None, context_id=None, initial_state=None):
     # BUG-006 fix: honour client-supplied task_id (idempotent — return existing if already known)
     if task_id and task_id in _tasks:
@@ -2728,14 +2774,16 @@ def _create_task(payload, message_id=None, task_id=None, context_id=None, initia
     state = initial_state if initial_state in (
         TASK_SUBMITTED, TASK_CONFIRMATION_PENDING
     ) else TASK_SUBMITTED
+    now_ts = _now()
     task = {
         "id":         task_id,
         "status":     state,
-        "created_at": _now(),
-        "updated_at": _now(),
+        "created_at": now_ts,
+        "updated_at": now_ts,
         "payload":    payload,
         "artifacts":  [],
         "history":    [],
+        "audit_log":  [],          # v2.52: immutable audit trail — append-only
     }
     if message_id:
         task["origin_message_id"] = message_id
@@ -2743,6 +2791,8 @@ def _create_task(payload, message_id=None, task_id=None, context_id=None, initia
         task["context_id"] = context_id
     if state == TASK_CONFIRMATION_PENDING:
         task["confirmation_required"] = True  # v2.51: flag for callers
+    # v2.52: seed audit_log with creation event
+    _append_audit(task, "created", {"initial_status": state})
     _tasks[task_id] = task
     _status["tasks_created"] += 1
     evt: dict = {"task_id": task_id, "state": state}
@@ -2771,6 +2821,13 @@ def _update_task(task_id, state, artifact=None, error=None, message=None):
         task["error"] = error
     if message:
         task["history"].append(message)
+
+    # v2.52: record state transition in audit_log
+    if state != old_state:
+        audit_detail: dict = {"from": old_state, "to": state}
+        if error:
+            audit_detail["error"] = error
+        _append_audit(task, "status_changed", audit_detail)
 
     ctx = task.get("context_id")
     if state != old_state:
@@ -5144,6 +5201,29 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 finally:
                     if q in _sse_subscribers:
                         _sse_subscribers.remove(q)
+            elif rest.endswith("/audit-log"):
+                # v2.52: GET /tasks/{id}/audit-log — immutable per-task audit trail
+                task_id = rest[:-len("/audit-log")]
+                task = _tasks.get(task_id)
+                if not task:
+                    self._json({"error": "task not found"}, 404)
+                else:
+                    audit = task.get("audit_log", [])
+                    # Support ?since_seq=<N> for incremental polling
+                    try:
+                        since_seq = int(qs.get("since_seq", ["-1"])[0])
+                    except (ValueError, KeyError):
+                        since_seq = -1
+                    if since_seq >= 0:
+                        audit = [e for e in audit if e.get("seq", 0) > since_seq]
+                    limit = int(qs.get("limit", ["200"])[0])
+                    audit = audit[:limit]
+                    self._json({
+                        "task_id":   task_id,
+                        "status":    task["status"],
+                        "audit_log": audit,
+                        "total":     len(task.get("audit_log", [])),
+                    })
             else:
                 task = _tasks.get(rest)
                 if task:
@@ -6386,6 +6466,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     }, 403)
                     return
                 # v2.50: param_constraints enforcement
+                # (tier passed — audit entry recorded after task creation in skill_invoked)
                 task_params = body.get("params") or (payload.get("params") if isinstance(payload, dict) else None)
                 pc_ok, pc_violations = _check_param_constraints(skill_id_for_tier, task_params)
                 if not pc_ok:
@@ -6404,11 +6485,28 @@ class LocalHTTP(BaseHTTPRequestHandler):
                                     task_id=body.get("task_id"),       # BUG-006 fix: pass client task_id
                                     context_id=body.get("context_id"), # v1.7: propagate context_id to SSE events
                                     initial_state=TASK_CONFIRMATION_PENDING if t3_confirm else None)
+                # v2.52: audit skill_id + peer_id at task creation
+                if skill_id_for_tier:
+                    _audit_card_skills = (_status.get("agent_card") or {}).get("skills", [])
+                    _audit_skill_obj   = next((s for s in _audit_card_skills if isinstance(s, dict) and s.get("id") == skill_id_for_tier), {})
+                    _append_audit(task, "skill_invoked", {
+                        "skill_id": skill_id_for_tier,
+                        "peer_id":  caller_peer_id,
+                        "tier":     _audit_skill_obj.get("authorization_tier"),
+                    })
                 if body.get("delegate", False):
                     _ws_send_sync({"type": "task.delegate", "message_id": _make_id(), "ts": _now(),
                                    "from": _status.get("agent_name"), "task_id": task["id"],
                                    "payload": task["payload"]})
-                self._json({"ok": True, "task": task}, 201)
+                # v2.52: deprecation_warning — inject into response if skill is deprecated
+                resp: dict = {"ok": True, "task": task}
+                if skill_id_for_tier:
+                    _card_skills = (_status.get("agent_card") or {}).get("skills", [])
+                    skill_obj = next((s for s in _card_skills if isinstance(s, dict) and s.get("id") == skill_id_for_tier), {})
+                    dep = skill_obj.get("deprecation_notice")
+                    if dep:
+                        resp["deprecation_warning"] = dep
+                self._json(resp, 201)
             except ConnectionError as e:
                 self._json({"ok": False, "error": str(e)}, 503)
             except Exception as e:
@@ -6517,6 +6615,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
             else:
                 # Approve: transition to submitted
                 task.pop("confirmation_required", None)
+                _append_audit(task, "confirmed", {"by": "human"})      # v2.52
                 _update_task(task_id, TASK_SUBMITTED)
                 self._json({"ok": True, "task_id": task_id, "status": TASK_SUBMITTED})
 
@@ -6541,6 +6640,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     body = {}
                 reason = body.get("reason", "human rejected T3 task") if isinstance(body, dict) else "human rejected T3 task"
                 task.pop("confirmation_required", None)
+                _append_audit(task, "rejected", {"by": "human", "reason": reason})  # v2.52
                 _update_task(task_id, TASK_FAILED, error=reason)
                 self._json({"ok": True, "task_id": task_id, "status": TASK_FAILED, "reason": reason})
 
