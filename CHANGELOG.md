@@ -7,6 +7,29 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.49.0] — 2026-04-05 (skill.authorization_tier T0-T3 — per-skill authorization enforcement, ref A2A #1716)
+
+### Added
+- **`skill.authorization_tier`** — per-skill authorization tier field in AgentCard skill objects.
+  Values: `"T0"` (observe) | `"T1"` (read) | `"T2"` (act, trust ≥ 0.7) | `"T3"` (irreversible, trust ≥ 0.9 + verified_identity signal) | `null` (unrestricted)
+- **`_check_authorization_tier(skill_id, peer_id)`** — enforcement helper at `POST /tasks` creation.
+  Computes live trust score from `_peers` (mirrors `/peers/<id>/trust` dimensions) and checks tier requirements.
+- **`ERR_AUTHORIZATION_TIER`** — new error code returned with 403 when tier requirements not met.
+  Response body includes `error_code`, `error`, `skill_id`, `peer_id` for debugging.
+- **`capabilities.skill_authorization_tiers = True`** — declared in AgentCard.
+- **SAT1–SAT12** tests (`tests/test_skill_authorization_tier.py`) — 12/12 PASS.
+
+### Design Notes
+- Inspired by A2A Issue #1716 (SINT Protocol RFC) and observed gap in both A2A and ACP.
+- ACP implementation is intentionally lightweight: reuses existing `trust.signals` (v2.14) + per-peer trust score (v2.34) infrastructure — no new OAuth/capability-token dependency.
+- `null` default is fully backward-compatible; existing task creation unaffected unless skill declares a tier.
+- T3 requires both `trust_score >= 0.9` AND peer AgentCard `trust.signals` containing `verified_identity`.
+
+### Fixed
+- `_check_authorization_tier`: `_vouch_chain` is a `list` (not dict) — fixed iteration to use list traversal.
+
+---
+
 ## [2.48.1] — 2026-04-05 (fix: _ACPHTTPServer — concurrent-load RemoteDisconnected, BUG-030/BUG-049)
 
 ### Fixed

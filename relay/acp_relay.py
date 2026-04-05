@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.48.0"  # v2.48: GET /peers/<peer_id>/messages — per-peer message history with direction/seq/sort filters
+VERSION = "2.49.0"  # v2.49: skill.authorization_tier (T0-T3) — per-skill authorization enforcement linked to trust.signals
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -263,12 +263,13 @@ MAX_MSG_BYTES = 1 * 1024 * 1024
 #   { "ok": false, "error_code": "<CODE>", "error": "<human message>",
 #     "failed_message_id": "<msg_id if applicable>" }
 #
-ERR_NOT_CONNECTED   = "ERR_NOT_CONNECTED"    # No peer connected
-ERR_MSG_TOO_LARGE   = "ERR_MSG_TOO_LARGE"    # Message exceeds max_msg_bytes
-ERR_NOT_FOUND       = "ERR_NOT_FOUND"        # Task/peer/resource not found
-ERR_INVALID_REQUEST = "ERR_INVALID_REQUEST"  # Bad input (missing fields, invalid parts)
-ERR_TIMEOUT         = "ERR_TIMEOUT"          # Sync wait timed out
-ERR_INTERNAL        = "ERR_INTERNAL"         # Unexpected server error
+ERR_NOT_CONNECTED        = "ERR_NOT_CONNECTED"        # No peer connected
+ERR_MSG_TOO_LARGE        = "ERR_MSG_TOO_LARGE"        # Message exceeds max_msg_bytes
+ERR_NOT_FOUND            = "ERR_NOT_FOUND"            # Task/peer/resource not found
+ERR_INVALID_REQUEST      = "ERR_INVALID_REQUEST"      # Bad input (missing fields, invalid parts)
+ERR_TIMEOUT              = "ERR_TIMEOUT"              # Sync wait timed out
+ERR_INTERNAL             = "ERR_INTERNAL"             # Unexpected server error
+ERR_AUTHORIZATION_TIER   = "ERR_AUTHORIZATION_TIER"   # v2.49: caller does not meet skill tier requirement
 
 def _err(code: str, message: str, http_status: int = 400,
          failed_message_id: str = None) -> tuple:
@@ -1218,44 +1219,64 @@ def _parse_skill_obj(s):
         }
       Accepts both string shorthand (promoted to LimitationObject) and full dicts.
       Interoperates with A2A IS#1694 limitations field at skill level.
+
+    authorization_tier (v2.49): per-skill authorization tier (ref A2A #1716 / SINT Protocol).
+      Declares the minimum trust level required to invoke this skill.
+      Values: "T0" | "T1" | "T2" | "T3" | null
+        T0 — observe/query only (zero-risk): auto-execute, no trust requirement
+        T1 — read / non-destructive: auto-execute, no trust requirement
+        T2 — consequential action (write, send, trigger): requires caller trust_score >= 0.7
+        T3 — irreversible (delete, transfer, deploy): requires trust_score >= 0.9
+             AND trust.signals must include a "verified_identity" signal
+      null (default): no authorization tier enforcement (backward-compatible)
+      Enforcement point: POST /tasks creation — returns 403 ERR_AUTHORIZATION_TIER if
+        the calling peer does not satisfy the declared tier requirements.
     """
+    # v2.49: validate authorization_tier value
+    _VALID_TIERS = {None, "T0", "T1", "T2", "T3"}
+
     if isinstance(s, dict):
         sid = str(s.get("id", s.get("name", "unknown"))).strip()
         # v2.26: parse per-skill constraints block
         raw_constraints = s.get("constraints") or {}
         # v2.28: parse per-skill limitations[] (ref A2A #1694)
         raw_limitations = s.get("limitations") or []
+        # v2.49: parse authorization_tier
+        raw_tier = s.get("authorization_tier")
+        auth_tier = raw_tier if raw_tier in _VALID_TIERS else None
         obj = {
-            "id":           sid,
-            "name":         str(s.get("name", sid)),
-            "description":  s.get("description", ""),
-            "tags":         list(s.get("tags") or []),
-            "examples":     list(s.get("examples") or []),
-            "input_modes":  list(s.get("input_modes") or []),
-            "output_modes": list(s.get("output_modes") or []),
-            "constraints":  {
+            "id":                   sid,
+            "name":                 str(s.get("name", sid)),
+            "description":          s.get("description", ""),
+            "tags":                 list(s.get("tags") or []),
+            "examples":             list(s.get("examples") or []),
+            "input_modes":          list(s.get("input_modes") or []),
+            "output_modes":         list(s.get("output_modes") or []),
+            "constraints":          {
                 "max_file_size_bytes": raw_constraints.get("max_file_size_bytes"),
                 "concurrent_tasks":   raw_constraints.get("concurrent_tasks"),
                 "context_window":     raw_constraints.get("context_window"),
             },
-            "limitations":  [_parse_limitation(lim) for lim in raw_limitations],  # v2.28: skill-level limitations
+            "limitations":          [_parse_limitation(lim) for lim in raw_limitations],  # v2.28
+            "authorization_tier":   auth_tier,   # v2.49: T0/T1/T2/T3/null
         }
     else:
         sid = str(s).strip()
         obj = {
-            "id":           sid,
-            "name":         sid,
-            "description":  "",
-            "tags":         [],
-            "examples":     [],
-            "input_modes":  [],
-            "output_modes": [],
-            "constraints":  {
+            "id":                   sid,
+            "name":                 sid,
+            "description":          "",
+            "tags":                 [],
+            "examples":             [],
+            "input_modes":          [],
+            "output_modes":         [],
+            "constraints":          {
                 "max_file_size_bytes": None,
                 "concurrent_tasks":   None,
                 "context_window":     None,
             },
-            "limitations":  [],   # v2.28: empty by default
+            "limitations":          [],   # v2.28: empty by default
+            "authorization_tier":   None, # v2.49: no tier = unrestricted
         }
     return obj
 
@@ -1534,7 +1555,8 @@ def _make_agent_card(name, skills):
             "agent_limitations":        True,                                  # v2.40: structured agent_limitations dict in AgentCard and /status
             "skills_openapi_spec":      True,                                  # v2.41: GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills
             "tasks_pagination":         True,                                  # v0.9: GET /tasks supports page_size/after/multi-status params (A2A v1.0 aligned)
-            "peer_message_history":     True,                                  # v2.48: GET /peers/<id>/messages — per-peer message history with direction/seq/sort filters
+            "peer_message_history":         True,                              # v2.48: GET /peers/<id>/messages — per-peer message history with direction/seq/sort filters
+            "skill_authorization_tiers":    True,                              # v2.49: skill.authorization_tier T0-T3 enforcement via POST /tasks (ref A2A #1716)
         },
 
         "identity": ({
@@ -2394,6 +2416,105 @@ def _handle_ws_stream(handler):
 # ══════════════════════════════════════════════════════════════════════════════
 # Task helpers
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tuple[bool, str]:
+    """v2.49: Check whether the calling peer satisfies the skill's authorization_tier requirement.
+
+    Returns (allowed: bool, reason: str).
+    - allowed=True  → proceed with task creation
+    - allowed=False → caller does not meet tier requirements; include reason in 403 response
+
+    Tier requirements:
+      T0 / T1 / None  — always allowed (auto-execute, low-risk)
+      T2              — requires caller trust_score >= 0.7
+      T3              — requires caller trust_score >= 0.9 AND trust.signals contains
+                        at least one signal of type "verified_identity"
+
+    Graceful degradation:
+      - If skill_id is None or skill not found: allowed (unknown skill → no tier enforcement)
+      - If peer_id is None or peer not found: allowed for T0/T1, denied for T2/T3
+        (unknown caller cannot meet elevated tier requirements by definition)
+    """
+    if not skill_id:
+        return True, "no skill_id specified"
+
+    # look up skill in AgentCard
+    agent_card = _status.get("agent_card") or {}
+    all_skills = agent_card.get("skills", [])
+    skill_obj = None
+    for s in all_skills:
+        if isinstance(s, dict) and s.get("id") == skill_id:
+            skill_obj = s
+            break
+
+    if skill_obj is None:
+        return True, f"skill '{skill_id}' not found in agent card"
+
+    tier = skill_obj.get("authorization_tier")
+    if tier is None or tier in ("T0", "T1"):
+        return True, f"tier {tier!r} — auto-execute"
+
+    # T2 or T3 — need peer trust score
+    if not peer_id or peer_id not in _peers:
+        return False, (f"skill '{skill_id}' requires tier {tier} but caller peer is unknown; "
+                       f"connect via /peers/connect first")
+
+    pinfo = _peers[peer_id]
+
+    # --- compute trust score (mirrors GET /peers/<id>/trust logic) ---
+    vr = pinfo.get("card_verification") or {}
+    card_sig_score       = 1.0 if vr.get("valid") else 0.0
+    did_consistent_score = 1.0 if vr.get("did_consistent") else (0.5 if vr.get("valid") else 0.0)
+
+    msgs = pinfo.get("messages_sent", 0) + pinfo.get("messages_received", 0)
+    msg_score = (1.0 if msgs > 100 else 0.7 if msgs > 20 else 0.4 if msgs > 5 else 0.2 if msgs > 0 else 0.0)
+
+    rtt = pinfo.get("last_ping_rtt_ms")
+    ping_score = (1.0 if rtt is not None and rtt < 50 else
+                  0.7 if rtt is not None and rtt < 200 else
+                  0.4 if rtt is not None and rtt < 500 else
+                  0.1 if rtt is not None else 0.0)
+
+    peer_did = (pinfo.get("agent_card") or {}).get("did") or ""
+    # _vouch_chain is a list of {voucher_did, vouched_did, vouched_at, sig, comment}
+    vouch_score = 0.0
+    if peer_did and _vouch_chain:
+        for v in _vouch_chain:
+            if v.get("vouched_did") == peer_did:
+                vouch_score = 1.0
+                break
+
+    weights = {"card_sig": 0.35, "did_consistent": 0.20,
+               "ping_rtt": 0.20, "message_hist": 0.15, "vouch": 0.10}
+    raw = {"card_sig": card_sig_score, "did_consistent": did_consistent_score,
+           "ping_rtt": ping_score, "message_hist": msg_score, "vouch": vouch_score}
+    trust_score = round(sum(raw[k] * weights[k] for k in weights), 4)
+
+    if tier == "T2":
+        if trust_score >= 0.7:
+            return True, f"T2 satisfied: trust_score={trust_score:.3f} >= 0.7"
+        return False, (f"skill '{skill_id}' requires tier T2 (trust_score >= 0.7); "
+                       f"caller trust_score={trust_score:.3f}")
+
+    if tier == "T3":
+        if trust_score < 0.9:
+            return False, (f"skill '{skill_id}' requires tier T3 (trust_score >= 0.9); "
+                           f"caller trust_score={trust_score:.3f}")
+        # also check for verified_identity signal in peer's AgentCard
+        peer_card  = pinfo.get("agent_card") or {}
+        peer_trust = peer_card.get("trust") or {}
+        peer_sigs  = peer_trust.get("signals") or []
+        has_verified_identity = any(
+            (sig.get("type") == "verified_identity" or sig.get("kind") == "verified_identity")
+            for sig in peer_sigs
+        )
+        if not has_verified_identity:
+            return False, (f"skill '{skill_id}' requires tier T3: caller lacks "
+                           f"'verified_identity' trust signal (trust_score={trust_score:.3f})")
+        return True, f"T3 satisfied: trust_score={trust_score:.3f}, verified_identity signal present"
+
+    return True, f"unknown tier {tier!r} — defaulting to allow"
+
 
 def _create_task(payload, message_id=None, task_id=None, context_id=None):
     # BUG-006 fix: honour client-supplied task_id (idempotent — return existing if already known)
@@ -6003,6 +6124,19 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     e_body, e_code = _err(ERR_INVALID_REQUEST,
                                           "missing required field: role (must be: agent, user, or system)")
                     self._json(e_body, e_code)
+                    return
+                # v2.49: authorization tier enforcement
+                skill_id_for_tier = body.get("skill_id") or (payload.get("skill_id") if isinstance(payload, dict) else None)
+                caller_peer_id    = body.get("peer_id") or body.get("from_peer_id")
+                tier_ok, tier_reason = _check_authorization_tier(skill_id_for_tier, caller_peer_id)
+                if not tier_ok:
+                    self._json({
+                        "ok":         False,
+                        "error_code": ERR_AUTHORIZATION_TIER,
+                        "error":      tier_reason,
+                        "skill_id":   skill_id_for_tier,
+                        "peer_id":    caller_peer_id,
+                    }, 403)
                     return
                 task = _create_task(payload,
                                     message_id=body.get("message_id"),
