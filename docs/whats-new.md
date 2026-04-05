@@ -5,6 +5,54 @@
 
 ---
 
+### v2.58.0 — effective_tier: Three-Factor Dynamic Authorization (2026-04-06)
+
+ACP v2.58 implements **dynamic effective tier computation** — inspired by A2A Issue #1716 comment (@64R3N), shipped *before* the A2A spec reached consensus.
+
+#### The Three-Factor Formula
+
+```
+effective_tier = max(tier_rule, depth_floor(principal_chain.len), reputation_adj)
+```
+
+| Factor | Source | Range |
+|--------|--------|-------|
+| `tier_rule` | Skill's declared `authorization_tier` | T0..T3 |
+| `depth_floor` | `min(len(principal_chain), 3)` | T0..T3 |
+| `reputation_adj` | Peer trust history (-1/0/+1) | ±1 step |
+
+**Key design decisions:**
+- `rep_adj` is **only applied when `base_int ≥ T2`** — T0/T1 skills remain auto-execute regardless of caller reputation
+- T3 is always T3 (immune to any downgrade)
+- Unknown peers get `rep_adj = +1` (conservative); known+verified+active peers get `-1` (fast-track)
+
+#### New Endpoint
+
+```http
+GET /skills/{skill_id}/effective-tier?peer_id=<did>
+```
+
+Returns full factor breakdown for transparency and debugging:
+
+```json
+{
+  "skill_id": "my-skill",
+  "effective_tier": "T2",
+  "factors": {
+    "tier_rule": "T1",
+    "delegation_depth": 2,
+    "depth_floor": "T2",
+    "reputation_adj": 0,
+    "effective_tier": "T2"
+  }
+}
+```
+
+#### Bug Fix
+- `DELETE /principal-chain/<did>`: DIDs containing colons (e.g. `did:example:xxx`) were being URL-encoded as `%3A` in the path, causing 404 mismatches. Now correctly URL-decoded.
+
+---
+
 ### v2.57.0 — SINT-format Capability Tokens: Ed25519 signed skill authorization (2026-04-06)
 
 ACP v2.57 introduces **capability tokens** — cryptographically signed, portable credentials

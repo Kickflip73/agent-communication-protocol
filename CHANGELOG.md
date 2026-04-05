@@ -7,6 +7,31 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.58.0] — 2026-04-06 (effective_tier three-factor dynamic computation — A2A #1716 @64R3N formula preempt)
+
+### Added
+- `_compute_effective_tier(skill_obj, peer_id)`: three-factor effective authorization tier
+  - Factor 1 `tier_rule`: skill's declared `authorization_tier` (T0/T1/T2/T3/None)
+  - Factor 2 `depth_floor`: `min(len(principal_chain), 3)` → maps depth to T0..T3
+  - Factor 3 `reputation_adj`: -1 (known+verified+msgs>100) / 0 (neutral) / +1 (unknown peer)
+  - Key design: `rep_adj` only applied when `base_int >= T2`; T0/T1 preserve auto-execute semantics
+  - T3 is always T3, immune to any adjustment
+- `GET /skills/{skill_id}/effective-tier?peer_id=<id>`: debug/introspection endpoint
+  - Returns `{ skill_id, effective_tier, factors: { tier_rule, delegation_depth, depth_floor, reputation_adj, effective_tier } }`
+  - Optional `peer_id` query param to simulate different caller contexts
+- `capabilities.effective_tier_computation: True` in AgentCard
+- `effective_tier` endpoint registered in `/status` links block
+- Tests: `tests/test_effective_tier.py` — ET-1..12 (12/12 PASS)
+
+### Changed
+- `_check_authorization_tier()`: now calls `_compute_effective_tier()` instead of using static `authorization_tier`
+  - Error messages enriched with factor details for observability
+
+### Fixed
+- `DELETE /principal-chain/<did>`: now URL-decodes the DID path segment (colons in `did:example:xxx` were encoded as `%3A`, causing 404 mismatch)
+
+---
+
 ## [2.57.0] — 2026-04-06 (capability_token — SINT-format Ed25519 signed capability tokens, A2A #1716 preempt)
 
 ### Added

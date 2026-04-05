@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-05 17:51（文档轮 #5：v2.53 文档同步完成；当前版本 v2.53.0，全量回归 236/236）
+> 最后更新：2026-04-06 04:26（文档轮 #10：v2.58 文档同步完成；当前版本 v2.58.0，ET-1..12 PASS）
 
 ---
 
@@ -668,7 +668,8 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.55** | **✅ 2026-04-05** | **`GET /peers/{peer_id}/verify-card` — on-demand per-peer AgentCard 重新验证 + force/trust/ttl 参数 — PVC-1..10 PASS，238 全量回归** |
 | **v2.56** | **✅ 2026-04-05** | **`principal_chain[]` OBO 委托链 — trust block 注入 + GET/POST/DELETE /principal-chain + 消息级传播（on_behalf_of）+ --principal CLI — PC-1..10 PASS，A2A #1713 零基础设施替代方案** |
 | **v2.57** | **✅ 2026-04-06** | **`capability_token` — SINT-format Ed25519 signed capability tokens，POST /skills/{id}/capability-token 发行，GET /capability-tokens 列表，POST /tasks enforcement gate（required 先检查 + 签名验证 + tier 绕过），CT-1..12 PASS — A2A #1716 抢先实现** |
-| **v2.58** | **🔜 下一目标** | **`effective_tier` 三因子动态计算（A2A #1716 comment）：tier_rule + delegation_depth_floor(principal_chain.len) + reputation_adj(-1/0/+1，初期固定0）+ P1 bug 修复轮（BUG-007/009/003b）** |
+| **v2.58** | **✅ 2026-04-06** | **`effective_tier` 三因子动态计算 — `_compute_effective_tier()`: max(tier_rule, depth_floor(chain.len), rep_adj) + GET /skills/{id}/effective-tier 调试端点 + DELETE /principal-chain URL-decode 修复 + ET-1..12 PASS — A2A #1716 @64R3N 公式抢先实现** |
+| **v2.59** | **🔜 下一目标** | **P1 bug 修复轮（BUG-007 /message:send 多peer歧义 / BUG-009 SSE 950ms 延迟 / BUG-050 HTTP/2 transport）+ attestation_anchor 防伪造字段（A2A #1713 启发）** |
 
 ---
 
