@@ -6698,6 +6698,20 @@ class LocalHTTP(BaseHTTPRequestHandler):
         self._json(response)
 
 
+class _ACPHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer subclass with BUG-030/BUG-049 concurrent-load fixes.
+
+    Changes vs stock ThreadingHTTPServer:
+    - allow_reuse_address = True  — prevents TIME_WAIT port conflicts on rapid restart
+    - request_queue_size = 64     — default 5 causes ECONNREFUSED / RemoteDisconnected
+                                    under concurrent-relay test scenarios (3+ relays)
+    - daemon_threads = True       — worker threads don't block process exit
+    """
+    allow_reuse_address = True
+    request_queue_size  = 64
+    daemon_threads      = True
+
+
 def run_http(port, host="127.0.0.1", http2=False):
     # BUG-001 root-cause fix (2026-03-23): use ThreadingHTTPServer so that
     # /stream (blocking SSE loop) does not prevent /message:send from being served.
@@ -6715,8 +6729,8 @@ def run_http(port, host="127.0.0.1", http2=False):
             _run_http2_hypercorn(host, port)
             return  # hypercorn blocks until shutdown
 
-    # Default: HTTP/1.1 via stdlib ThreadingHTTPServer
-    ThreadingHTTPServer((host, port), LocalHTTP).serve_forever()
+    # Default: HTTP/1.1 via _ACPHTTPServer (BUG-030/BUG-049: larger queue + reuse_addr)
+    _ACPHTTPServer((host, port), LocalHTTP).serve_forever()
 
 
 def _run_http2_hypercorn(host: str, port: int):

@@ -1394,10 +1394,10 @@ HTTP server `RemoteDisconnected`（与 BUG-030 同类根因）。
 **修复状态**:
 - `scenario_b_team.py`：✅ 已修复 — Worker 发送前先 GET /peers 获取 orch_peer_id，send_msg 带 peer_id
 - `extract_text`：✅ 已修复 — 从 `m["raw"]["parts"]` 提取，过滤 direction=inbound
-- relay RemoteDisconnected：⚠️ 同 BUG-030，待底层修复（P2 已知）
+- relay RemoteDisconnected：✅ 已修复（2026-04-05）— 新增 `_ACPHTTPServer` 子类，`request_queue_size=64`（原 5）+ `allow_reuse_address=True` + `daemon_threads=True`；HC1（10并发连接）PASS 验证
 
 **优先级**: P2（测试脚本 bug，核心功能 /message:send peer_id 校验本身正确）
-**状态**: 🟡 部分修复（scenario_b_team.py 逻辑已修复；relay 并发稳定性待 BUG-030 方向解决）
+**状态**: ✅ 完全修复（2026-04-05，commit 见下）
 
 ---
 
@@ -1418,8 +1418,7 @@ HTTP server `RemoteDisconnected`（与 BUG-030 同类根因）。
 2. 在 relay_pair fixture 上加 `@pytest.mark.timeout(90)` 装饰器，或
 3. 将 fixture 内轮询窗口缩短为 20×0.5s=10s（因实测 relay 3s 内有 link）
 
-**状态**: 🟡 已记录，建议修复（不影响功能，影响 CI 可靠性）
-
+**状态**: ✅ 已修复（2026-04-05）— `pyproject.toml` `timeout = 90` 已配置（2026-03-28 commit `78ae426`）；2026-04-05 验证 test_peer_ping.py 10/10 PASS。方案1已生效，无需额外 fixture 修改。
 
 ---
 

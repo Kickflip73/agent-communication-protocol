@@ -7,6 +7,20 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.48.1] — 2026-04-05 (fix: _ACPHTTPServer — concurrent-load RemoteDisconnected, BUG-030/BUG-049)
+
+### Fixed
+- **BUG-030 / BUG-049 — relay HTTP `RemoteDisconnected` under concurrent load**: replaced
+  bare `ThreadingHTTPServer` with new `_ACPHTTPServer` subclass that sets:
+  - `request_queue_size = 64` (was 5 — TCP backlog overflow under 3+ concurrent relay instances)
+  - `allow_reuse_address = True` (prevents TIME_WAIT conflicts on rapid test restart)
+  - `daemon_threads = True` (worker threads don't block process exit)
+  Verified: `test_hc1_10_agents_concurrent_connect` PASS; core regression 165/165 PASS.
+- **BUG-031 — test_peer_ping.py fixture SIGTERM with short timeout**: confirmed resolved via
+  `pyproject.toml` `timeout = 90` (already set); validated 10/10 PASS.
+
+---
+
 ## [2.48.0] — 2026-04-05 (GET /peers/<id>/messages — per-peer message history query)
 
 ### Added
