@@ -7,6 +7,29 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.53.0 — skill.rate_limit — Per-Skill / Per-Peer Invocation Frequency Limiting (2026-04-05)
+
+### Added
+- `skill.rate_limit` field in AgentCard `skills[]`: `{requests_per_minute?, requests_per_day?, burst?}`
+- `_parse_rate_limit()`: normalises and validates rate_limit config (non-int / ≤0 values silently dropped)
+- `_rl_buckets`: in-memory `(skill_id, peer_id)` → bucket state `{min_count, day_count, burst_used, min_start, day_start}`
+- `_check_rate_limit(skill_id, peer_id)`: checks + increments counters; resets expired windows (60s minute, 86 400s day)
+- `POST /tasks`: `_check_rate_limit()` inserted **after** `_check_param_constraints`, **before** `_needs_human_confirmation`
+- `ERR_RATE_LIMIT` error constant; HTTP 429 response includes `limit_type / limit / burst / effective_limit / current_count / reset_in_seconds / skill_id / peer_id`
+- `capabilities.skill_rate_limit = true` in AgentCard
+
+### Behaviour
+- `burst` extends `requests_per_minute` only (`effective_limit = rpm + burst`); does not extend `requests_per_day`
+- Counters are isolated per `(skill_id, peer_id)` — one peer's throttle never affects another
+- Skills without `rate_limit` → no change (fully backward-compatible)
+- Enforcement order (complete): `authorization_tier → param_constraints → rate_limit → human_confirmation`
+
+### Tests
+- SRL1–SRL12: 12/12 PASS
+- Full regression: 236/236 PASS
+
+---
+
 ## v2.52.0 — Task Audit Log + Skill Deprecation Notice (2026-04-05)
 
 Two compliance-focused features completing the ACP T3 accountability story.

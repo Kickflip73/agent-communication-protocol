@@ -5,6 +5,127 @@
 
 ---
 
+### v2.53.0 — skill.rate_limit — Per-Skill / Per-Peer Invocation Frequency Limiting (2026-04-05)
+
+Production-grade abuse prevention: each skill can now declare an invocation rate limit that is enforced per calling peer, transparently, with no extra infrastructure required.
+
+---
+
+#### Overview
+
+Before v2.53 there was no mechanism to prevent a single peer from flooding a skill with requests.  A2A has no equivalent feature.  ACP v2.53 closes this gap with a lightweight, in-memory rate-limit layer that slots neatly into the existing enforcement chain.
+
+**Enforcement order (complete chain as of v2.53):**
+
+```
+POST /tasks
+  → _check_authorization_tier()    # v2.49 — T2/T3 trust-score gate (403)
+  → _check_param_constraints()     # v2.50 — parameter-level validation (400)
+  → _check_rate_limit()            # v2.53 — NEW: per-skill/per-peer RPM/RPD/burst (429)
+  → _needs_human_confirmation()    # v2.51 — T3 confirmation_pending gate
+```
+
+---
+
+#### skill.rate_limit field
+
+Add `rate_limit` to any skill in the AgentCard `skills[]` array:
+
+```json
+{
+  "id": "send_payment",
+  "name": "Send Payment",
+  "authorization_tier": "T3",
+  "rate_limit": {
+    "requests_per_minute": 5,
+    "requests_per_day":    50,
+    "burst":               2
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `requests_per_minute` | integer ≥ 1 | Max calls per peer per 60-second sliding window |
+| `requests_per_day` | integer ≥ 1 | Max calls per peer per 86 400-second sliding window |
+| `burst` | integer ≥ 0 | Extra tokens that absorb short spikes **above** `requests_per_minute`; refills with the minute window |
+
+All fields are optional.  Omit the whole `rate_limit` object (or any field) to impose no limit (backward-compatible).
+
+**Burst semantics:**
+
+`effective_limit = requests_per_minute + burst`
+
+Burst tokens extend only the per-minute window, not the daily quota.  This lets a peer make `rpm + burst` calls in a burst, while still being capped by `requests_per_day` over the full day.
+
+---
+
+#### 429 ERR_RATE_LIMIT response
+
+When a peer exceeds a limit, `POST /tasks` returns **HTTP 429** with:
+
+```json
+{
+  "ok": false,
+  "error_code": "ERR_RATE_LIMIT",
+  "error": "rate limit exceeded for skill 'send_payment'",
+  "limit_type": "requests_per_minute",
+  "limit": 5,
+  "burst": 2,
+  "effective_limit": 7,
+  "current_count": 7,
+  "reset_in_seconds": 42,
+  "skill_id": "send_payment",
+  "peer_id": "peer_xyz"
+}
+```
+
+| Field | Always present | Description |
+|-------|---------------|-------------|
+| `error_code` | ✅ | `"ERR_RATE_LIMIT"` |
+| `limit_type` | ✅ | `"requests_per_minute"` or `"requests_per_day"` |
+| `limit` | ✅ | The configured hard limit |
+| `burst` | rpm only | Configured burst value |
+| `effective_limit` | rpm only | `limit + burst` |
+| `current_count` | ✅ | How many calls were made in the current window |
+| `reset_in_seconds` | ✅ | Seconds until the window resets |
+| `skill_id` | ✅ | The rate-limited skill |
+| `peer_id` | ✅ | The peer whose quota was exceeded |
+
+---
+
+#### Isolation guarantees
+
+Rate-limit counters are keyed by `(skill_id, peer_id)`.
+
+- **Per-peer isolation:** peer A being throttled does not affect peer B's quota for the same skill.
+- **Per-skill isolation:** skill A's counter is completely independent of skill B's — even for the same peer.
+- **Backward compatibility:** skills without `rate_limit` are completely unaffected.
+
+---
+
+#### Capability declaration
+
+```json
+{ "capabilities": { "skill_rate_limit": true } }
+```
+
+Callers can check `agent_card.capabilities.skill_rate_limit` before attempting high-frequency invocations to avoid surprising 429s.
+
+---
+
+#### Comparison with A2A
+
+| Feature | A2A | ACP v2.53 |
+|---------|-----|-----------|
+| Per-skill rate limiting | ❌ Not supported | ✅ RPM + RPD + burst |
+| Per-peer isolation | ❌ | ✅ Keyed by (skill_id, peer_id) |
+| Complements authorization tier | — | ✅ Tier = who may call; rate_limit = how often |
+| External rate-limit service needed | — | ❌ In-process, zero dependencies |
+| 429 with reset hint | — | ✅ `reset_in_seconds` |
+
+---
+
 ### v2.52.0 — Task Audit Log + Skill Deprecation Notice (2026-04-05)
 
 Two new features completing the ACP compliance story: an immutable per-task audit trail for T3 accountability, and a graceful skill sunset mechanism.
