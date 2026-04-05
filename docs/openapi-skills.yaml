@@ -215,6 +215,33 @@ components:
               enum: [persistent, on_demand, scheduled]
             has_schedule:
               type: boolean
+        authorization_tier:
+          type: string
+          enum: [T0, T1, T2, T3]
+          nullable: true
+          description: >
+            v2.49 — Minimum caller trust tier required to invoke this skill.
+            T0/T1: auto-execute (no trust requirement).
+            T2: requires caller trust_score >= 0.7.
+            T3: requires trust_score >= 0.9 AND `verified_identity` signal in caller's AgentCard.
+            Omitted or null means no enforcement (equivalent to T0).
+        param_constraints:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ConstraintRule"
+          nullable: true
+          description: >
+            v2.50 — Per-parameter invocation constraints, keyed by param name.
+            Validated at POST /tasks before execution. Violation returns 400 ERR_PARAM_CONSTRAINT
+            with a `violated_params` list. Invalid regex patterns are silently dropped.
+        human_confirmation_required:
+          type: boolean
+          default: false
+          description: >
+            v2.51 — When true AND authorization_tier=T3, a POST /tasks targeting this skill
+            enters `confirmation_pending` state instead of `submitted`. Human must explicitly
+            approve via POST /tasks/{id}:confirm before execution proceeds.
+            Use POST /tasks/{id}:reject to abort with status `failed`.
 
     SkillExample:
       type: object
@@ -227,6 +254,40 @@ components:
           type: object
           description: Example output payload
           additionalProperties: true
+
+    ConstraintRule:
+      type: object
+      description: >
+        v2.50 — A single parameter-level invocation constraint.
+        All fields are optional; absent fields impose no restriction.
+        Invalid regex patterns in `pattern` are silently dropped at parse time (forward-compat).
+      properties:
+        type:
+          type: string
+          enum: [string, number, integer, boolean, array]
+          description: Expected value type for the parameter
+        required:
+          type: boolean
+          description: If true, the parameter must be present in the request
+        min:
+          type: number
+          description: >
+            For numbers/integers: value must be >= min.
+            For strings/arrays: length must be >= min.
+        max:
+          type: number
+          description: >
+            For numbers/integers: value must be <= max.
+            For strings/arrays: length must be <= max.
+        allowed_values:
+          type: array
+          description: Whitelist of permitted values (strict equality, any type)
+          items: {}
+        pattern:
+          type: string
+          description: >
+            Python-compatible regex pattern; string values must match (re.search).
+            Invalid patterns are silently ignored.
 
     LimitationObject:
       type: object
