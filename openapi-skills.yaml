@@ -250,6 +250,45 @@ components:
             on this skill still succeeds (201) but the response includes a top-level
             `deprecation_warning` object with the notice fields, prompting callers to migrate.
             Absent or deprecated=false → no warning injected (backward-compatible).
+        rate_limit:
+          $ref: '#/components/schemas/SkillRateLimit'
+          nullable: true
+          description: >
+            v2.53 — Optional per-skill/per-peer invocation frequency limit.
+            Enforced at POST /tasks after param_constraints, before human_confirmation gate.
+            Violation returns HTTP 429 ERR_RATE_LIMIT with reset_in_seconds hint.
+            Absent → no rate limiting (backward-compatible).
+
+    SkillRateLimit:
+      type: object
+      description: >
+        v2.53 — Per-skill/per-peer invocation frequency limits. All fields are optional;
+        omit the entire object to impose no limit (backward-compatible).
+        Counters are keyed by (skill_id, peer_id) and reset on sliding windows.
+        burst extends requests_per_minute only (not requests_per_day).
+      properties:
+        requests_per_minute:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Maximum POST /tasks calls per peer per 60-second window.
+        requests_per_day:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Maximum POST /tasks calls per peer per 86 400-second window.
+        burst:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: >
+            Extra tokens above requests_per_minute that absorb short spikes.
+            effective_limit = requests_per_minute + burst.
+            Refills when the minute window resets.
+      example:
+        requests_per_minute: 5
+        requests_per_day: 50
+        burst: 2
 
     DeprecationNotice:
       type: object
