@@ -3767,6 +3767,17 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
     def _read_body(self):
         n = int(self.headers.get("Content-Length", 0))
+        # BUG-051 fix: enforce MAX_MSG_BYTES on HTTP request bodies (same limit as WebSocket)
+        if n > MAX_MSG_BYTES:
+            e_body, e_code = _err(ERR_MSG_TOO_LARGE,
+                                  f"Request body too large: {n} bytes (max {MAX_MSG_BYTES})", 413)
+            self._json(e_body, e_code)
+            # Drain remaining bytes to keep connection clean
+            try:
+                self.rfile.read(min(n, 4096))
+            except Exception:
+                pass
+            raise _BodyReadError()
         raw = self.rfile.read(n) if n else b"{}"
         if not raw.strip():
             return {}

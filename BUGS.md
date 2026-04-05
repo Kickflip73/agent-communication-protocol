@@ -1463,3 +1463,27 @@ python3 -m pytest tests/test_http2_transport.py -v
 **优先级**: P1（HTTP/2 transport 是 spec 中声明的能力，实际不工作）
 **状态**: ✅ 部分修复（2026-04-03）— h2c 场景在 hypercorn/h2 不可用时自动跳过（CI 不再阻断）；完整 HTTP/2 支持待 hypercorn 集成（ROADMAP v1.0+）
 
+
+### BUG-051 🟡 P2 — `POST /tasks` HTTP body size 无限制，超大请求返回 201 而非 413
+
+**发现日期**: 2026-04-05
+**场景**: 场景 F 错误处理测试 F9（1.1MB body → expected 413）
+**描述**: `_read_body()` 直接读取 Content-Length 字节而不检查上限。
+  `MAX_MSG_BYTES (1MB)` 仅在 WebSocket 发送路径生效，HTTP `POST /tasks`、
+  `POST /peers/connect`、`POST /peer/<id>/send` 等端点均无保护。
+  发送 1.1MB body 到 `/tasks` 返回 201 成功。
+
+**复现**:
+```
+curl -X POST http://127.0.0.1:<http_port>/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"role":"agent","text":"'"$(python3 -c "print('X'*1200000)")"'"}'
+# → 201 (预期 413)
+```
+
+**根因**: `_read_body()` 未检查 Content-Length > MAX_MSG_BYTES
+
+**修复方案**: 在 `_read_body()` 中添加 Content-Length > MAX_MSG_BYTES → 413 ERR_MSG_TOO_LARGE
+
+**优先级**: P2（无数据丢失，但 relay 可被大请求消耗资源）
+**状态**: ✅ 已修复（2026-04-05，_read_body() Content-Length 检查 + 413 ERR_MSG_TOO_LARGE）
