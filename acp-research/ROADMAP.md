@@ -665,7 +665,8 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.52** | **✅ 2026-04-05** | **任务审计日志 `GET /tasks/{id}/audit-log` + `skill.deprecation_notice` — 三层防护可追溯 + Skill 优雅废弃** |
 | **v2.53** | **✅ 2026-04-05** | **`skill.rate_limit` 调用频率限制（RPM/RPD/burst）+ ERR_RATE_LIMIT 429 — 防滥用，per-peer 隔离，A2A 完全没有** |
 | **v2.54** | **✅ 2026-04-05** | **`POST /verify-card` (v2) — batch + fetch_and_verify + TTL cache + trust_integration — A2A #1672（292评论）完整落地，16/16 VC2 测试 PASS，237 全量回归** |
-| **v2.55** | **🔜 下一目标** | **`GET /peers/{peer_id}/verify-card` — 针对已连接 peer 的实时 AgentCard 重新验证 + 可选自动刷新 trust signal（基于 v2.54 缓存层）** |
+| **v2.55** | **✅ 2026-04-05** | **`GET /peers/{peer_id}/verify-card` — on-demand per-peer AgentCard 重新验证 + force/trust/ttl 参数 — PVC-1..10 PASS，238 全量回归** |
+| **v2.56** | **🔜 下一目标** | **`principal_chain[]` in AgentCard trust block — 法人委托链（来自 A2A #1713 OBO 讨论），支持跨组织 Agent 事务的可审计主体链** |
 
 ---
 

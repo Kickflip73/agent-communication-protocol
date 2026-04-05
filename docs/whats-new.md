@@ -5,6 +5,145 @@
 
 ---
 
+### v2.55.0 — GET /peers/{peer_id}/verify-card — On-Demand Per-Peer AgentCard Re-Verification (2026-04-05)
+
+Building on the v2.54 TTL cache layer, v2.55 adds a dedicated per-peer re-verification endpoint.
+Instead of verifying an arbitrary AgentCard you supply, this endpoint looks up a known connected peer
+by ID, retrieves its cached AgentCard, and re-verifies it on demand — with full control over caching,
+forced re-verification, and optional trust signal integration.
+
+---
+
+#### Quick Start
+
+```bash
+# Re-verify the AgentCard for a connected peer
+curl -s "http://localhost:$HTTP_PORT/peers/$PEER_ID/verify-card"
+```
+
+```json
+{
+  "ok": true,
+  "peer_id": "peer_a1b2c3",
+  "name": "ResearchAgent",
+  "connected": true,
+  "card_available": true,
+  "valid": true,
+  "did": "did:acp:Ab3xY7...",
+  "did_consistent": true,
+  "public_key": "Ab3xY7...",
+  "scheme": "ed25519",
+  "error": null,
+  "cached": false,
+  "cache_expires_in": null,
+  "trust_signal_written": false,
+  "last_connected": "2026-04-05T13:18:42.000Z",
+  "card_received_at": "2026-04-05T13:18:42.100Z"
+}
+```
+
+Second call within TTL (default 300 s):
+```json
+{ "cached": true, "cache_expires_in": 297, ... }
+```
+
+---
+
+#### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `force=1` | off | Bypass TTL cache — always re-verify from scratch |
+| `trust=1` | off | On success, upsert `card_verified` signal into peer's `trust.signals` |
+| `ttl=<s>` | 300 | Custom cache TTL in seconds; `ttl=0` is equivalent to `force=1` |
+
+```bash
+# Force re-verify (bypass cache)
+curl -s "http://localhost:$HTTP_PORT/peers/$PEER_ID/verify-card?force=1"
+
+# Verify and write trust signal on success
+curl -s "http://localhost:$HTTP_PORT/peers/$PEER_ID/verify-card?trust=1"
+
+# Bypass cache with ttl=0
+curl -s "http://localhost:$HTTP_PORT/peers/$PEER_ID/verify-card?ttl=0"
+
+# Custom 60-second cache TTL
+curl -s "http://localhost:$HTTP_PORT/peers/$PEER_ID/verify-card?ttl=60"
+```
+
+---
+
+#### Error Responses
+
+**Peer not found — 404**
+```json
+{
+  "ok": false,
+  "error_code": "ERR_PEER_NOT_FOUND",
+  "error": "peer 'peer_xyz' not found"
+}
+```
+
+**Peer found but no AgentCard yet — 422**
+```json
+{
+  "ok": false,
+  "error_code": "ERR_CARD_UNAVAILABLE",
+  "error": "peer 'peer_abc' has not shared an AgentCard yet",
+  "peer_id": "peer_abc",
+  "name": "UnknownAgent",
+  "connected": true,
+  "card_available": false
+}
+```
+
+The 404 vs 422 distinction lets callers differentiate "peer never connected" from "peer connected but card not yet received" — useful when a peer joins before sending its AgentCard.
+
+---
+
+#### Relationship to POST /verify-card and GET /peers/{id}/trust
+
+| Endpoint | Input | Purpose |
+|----------|-------|---------|
+| `POST /verify-card` | AgentCard you supply | Verify any card (single/batch/fetch) |
+| `GET /peers/{id}/verify-card` | Peer's cached card | Re-verify a known peer's card on demand |
+| `GET /peers/{id}/trust` | Peer registry | Composite trust score (5 dimensions) |
+
+Use `GET /peers/{id}/verify-card` when you want a fresh cryptographic check on a specific peer without re-running the full trust score computation.
+
+---
+
+#### Capability Discovery
+
+```bash
+curl -s "http://localhost:$HTTP_PORT/.well-known/acp.json" | \
+  python3 -c "import sys,json; d=json.load(sys.stdin); \
+  c=d.get('self',d).get('capabilities',{}); \
+  e=d.get('self',d).get('endpoints',{}); \
+  print('cap:', c.get('peer_verify_card')); \
+  print('ep: ', e.get('peer_verify_card'))"
+# cap: True
+# ep:  /peers/{peer_id}/verify-card
+```
+
+---
+
+#### Comparison: v2.54 vs v2.55 Verification Endpoints
+
+| Feature | POST /verify-card (v2.54) | GET /peers/{id}/verify-card (v2.55) |
+|---------|--------------------------|-------------------------------------|
+| Card source | Caller provides card | Fetched from peer registry |
+| Batch support | ✅ up to 100 cards | ❌ single peer only |
+| Remote fetch | ✅ `mode=fetch` | ❌ |
+| Peer context | Optional (`peer_id` param) | ✅ always associated with peer |
+| `trust=1` support | ✅ | ✅ |
+| `force=1` support | ✅ `ttl=0` | ✅ `force=1` or `ttl=0` |
+| 422 for missing card | ❌ | ✅ |
+| `last_connected` in response | ❌ | ✅ |
+| `card_received_at` in response | ❌ | ✅ |
+
+---
+
 ### v2.54.0 — POST /verify-card (v2) — Batch Verification + Fetch + TTL Cache + Trust Integration (2026-04-05)
 
 `POST /verify-card` is a significant upgrade over the original `POST /verify/card` (v1.8), adding three verification modes, a TTL result cache, remote card fetching, and optional trust signal integration — all motivated by the heated A2A issue #1672 discussion (292 comments, 3 competing implementations, no merge).

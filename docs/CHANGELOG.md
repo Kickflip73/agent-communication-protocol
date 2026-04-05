@@ -7,6 +7,39 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.55.0 — GET /peers/{peer_id}/verify-card — On-Demand Per-Peer AgentCard Re-Verification (2026-04-05)
+
+### Added
+- `GET /peers/{peer_id}/verify-card` — on-demand AgentCard re-verification for a known connected peer
+  - Reuses the v2.54 TTL cache infrastructure (`_verify_card_cached`) for efficient repeated queries
+  - Query params:
+    - `force=1` — bypass TTL cache; always re-verify (also triggered by `ttl=0`)
+    - `trust=1` — if verification succeeds, upsert a `card_verified` signal into peer's `trust.signals`
+    - `ttl=<seconds>` — custom cache TTL override (default: 300; `0` treated as `force=1`)
+  - Response 200 fields: `ok / peer_id / name / connected / card_available / valid / did / did_consistent / public_key / scheme / error / cached / cache_expires_in / trust_signal_written / last_connected / card_received_at`
+  - Response 404 (`ERR_PEER_NOT_FOUND`): peer not in registry
+  - Response 422 (`ERR_CARD_UNAVAILABLE`): peer registered but has not yet shared an AgentCard
+- `capabilities.peer_verify_card = True` in AgentCard
+- `endpoints.peer_verify_card = "/peers/{peer_id}/verify-card"` in AgentCard
+- `card_received_at` timestamp now written to `_peers[peer_id]` when a peer shares its AgentCard
+- `/debug/inject` enhanced: accepts optional `agent_card` field to inject a peer with an AgentCard (test fixture support)
+
+### Behaviour
+- `trust_signal_written = false` when `valid=false` or `trust=0` (no spurious signals)
+- `cached=true` on second call within TTL; `cache_expires_in` reports remaining seconds
+- `force=1` and `ttl=0` both bypass cache read and write paths (consistent with v2.54 behaviour)
+- Peer with no AgentCard returns 422, not 404 — distinguishes "unknown peer" from "card not yet received"
+
+### Bug Fixes
+- Removed duplicate `from urllib.parse import urlparse, parse_qs` inside `do_GET` handler — Python scoping rule caused `UnboundLocalError` for all GET routes when the local import shadowed the module-level import
+- Replaced 3 call sites of non-existent `_iso_now()` with the correct `_now()`
+
+### Tests
+- `tests/test_peer_verify_card.py` — PVC-1..10 (10/10 PASS)
+- Full regression: 238/238 PASS
+
+---
+
 ## v2.54.0 — POST /verify-card (v2) — Batch + Fetch + TTL Cache + Trust Integration (2026-04-05)
 
 ### Added
