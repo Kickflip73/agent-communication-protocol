@@ -5,6 +5,95 @@
 
 ---
 
+### v2.51.0 — T3 Human Confirmation Gate (2026-04-05)
+
+New feature: `skill.human_confirmation_required` — a two-phase execution gate for T3 (irreversible) skills. When enabled, `POST /tasks` on a T3 skill enters `confirmation_pending` state instead of `submitted`, requiring explicit human approval before execution proceeds.
+
+This completes the **three-layer skill invocation guard** introduced across v2.49–v2.51:
+
+| Layer | Version | Field | Guards |
+|-------|---------|-------|--------|
+| Authorization | v2.49 | `authorization_tier` | **Who** may invoke (trust-based caller filter) |
+| Parameter | v2.50 | `param_constraints` | **With what arguments** the skill may be invoked |
+| Confirmation | v2.51 | `human_confirmation_required` | **Whether** a human must approve before T3 execution |
+
+**New endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/tasks/{id}:confirm` | `POST` | Approve a `confirmation_pending` task → `submitted`. Idempotent: already-submitted tasks return 200 with a note. |
+| `/tasks/{id}:reject` | `POST` | Reject a `confirmation_pending` task → `failed`. Accepts optional `{"reason": "..."}` body. |
+
+**New task state: `confirmation_pending`**
+
+```
+POST /tasks  ──(T3 + human_confirmation_required=true)──►  confirmation_pending
+                                                              │           │
+                                    :confirm ◄───────────────┘           └──────► :reject
+                                        │                                              │
+                                    submitted                                       failed
+```
+
+`confirmation_pending` is distinct from `input_required` — it is not a terminal state and not included in `INTERRUPTED_STATES`. The task object includes `"confirmation_required": true` while awaiting approval.
+
+**Example AgentCard skill:**
+```json
+{
+  "id": "deploy_to_prod",
+  "name": "Deploy to Production",
+  "authorization_tier": "T3",
+  "human_confirmation_required": true,
+  "description": "Deploys the current build to the production cluster. Requires human approval."
+}
+```
+
+**Typical workflow:**
+```bash
+# 1. Agent calls POST /tasks → enters confirmation_pending
+curl -X POST http://relay/tasks \
+  -d '{"skill_id":"deploy_to_prod","peer_id":"ci-agent","text":"deploy v1.4.2"}'
+# → {"task": {"id": "task_abc", "status": "confirmation_pending", "confirmation_required": true}}
+
+# 2. Human reviews and approves
+curl -X POST http://relay/tasks/task_abc:confirm
+# → {"ok": true, "status": "submitted"}
+
+# 3. Or human rejects
+curl -X POST http://relay/tasks/task_abc:reject \
+  -d '{"reason": "Not during business hours"}'
+# → {"ok": true, "status": "failed", "reason": "Not during business hours"}
+```
+
+**Error codes:**
+
+| Code | HTTP | When |
+|------|------|------|
+| `ERR_CONFIRM_NOT_PENDING` | 409 | `:confirm` or `:reject` called on a task not in `confirmation_pending` (e.g. already `working` or `completed`) |
+
+**Testing bypass (`--auto-confirm-t3`):**
+
+For automated tests that need T3 skills to proceed without manual approval:
+```bash
+python3 acp_relay.py --auto-confirm-t3 ...
+```
+⚠️ This flag is for test environments only. Never use in production.
+
+**Enforcement order (full chain):**
+```
+POST /tasks
+  → 1. _check_authorization_tier()   # T2/T3: trust score + verified_identity
+  → 2. _check_param_constraints()    # param type/range/enum/pattern validation
+  → 3. _needs_human_confirmation()   # T3 only: enter confirmation_pending if flag set
+```
+
+**Backward-compatible:** `human_confirmation_required` defaults to `false`. All existing T3 skills are unaffected unless the field is explicitly set.
+
+**Capability advertised in AgentCard:** `capabilities.t3_human_confirmation = true`
+
+**Tests:** T3C1–T3C14 (14/14 PASS); full regression 176/176 PASS
+
+---
+
 ### v2.50.0 — Per-Skill Parameter Constraints (2026-04-05)
 
 New feature: `skill.param_constraints` — parameter-level invocation constraints validated at `POST /tasks`. Inspired by SINT Protocol (A2A Issue #1716) `constraints` field. Paired with v2.49 `authorization_tier` to form a two-layer skill invocation guard:
