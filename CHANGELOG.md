@@ -7,6 +7,132 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.57.0] — 2026-04-06 (capability_token — SINT-format Ed25519 signed capability tokens, A2A #1716 preempt)
+
+### Added
+- **`_issue_capability_token(subject_did, skill_id, tier, constraints, ttl_seconds, actions)`** — issue a SINT-format Ed25519 signed capability token. Fields: `jti`, `iss`, `sub`, `resource`, `actions`, `tier`, `constraints`, `iat`, `exp`, `signature`, `scheme` (`sint_ed25519`), `public_key`. Signature is Ed25519 over canonical JSON payload (sorted keys, no whitespace).
+- **`_verify_capability_token(token, required_skill_id, required_tier)`** — validate a SINT-format token: expiry check, Ed25519 signature verification, optional skill resource match, optional tier sufficiency check. Returns `(bool, reason)`.
+- **`POST /skills/{skill_id}/capability-token`** — issue a capability token for a specific skill.
+  - Body: `{subject (required), tier?, ttl? (default 3600), actions?, constraints?}`
+  - 403 `ERR_IDENTITY_REQUIRED`: `--identity` not loaded
+  - 404 `ERR_SKILL_NOT_FOUND`: skill not in AgentCard
+  - 400: invalid tier value
+  - Token stored in `_capability_tokens` global registry for audit.
+- **`GET /capability-tokens`** — list all capability tokens issued by this relay.
+  - `?skill_id=X` — filter by skill
+  - `?active=1` — exclude expired tokens
+- **`_capability_tokens: dict`** — global registry `{jti: CapabilityTokenObject}`.
+- **`capabilities.capability_token_issuance`** (`bool`) in AgentCard — `True` when `--identity` is loaded.
+- **`endpoints.capability_token_issuance`** — `"/skills/{skill_id}/capability-token"` in AgentCard.
+- **`skill.capability_token_required`** (`bool`, default `false`) — new field in `_parse_skill_obj`. When `true`, `POST /tasks` must include a valid `capability_token`.
+
+### Changed
+- **`POST /tasks` enforcement gate (v2.57 capability_token layer)**:
+  1. Pre-tier check: if `skill.capability_token_required=True` and no token in body → 403 `ERR_CAPABILITY_TOKEN_REQUIRED`.
+  2. If `capability_token` present: validates signature/expiry/skill → 403 `ERR_CAPABILITY_TOKEN_INVALID` on failure.
+  3. If `capability_token` present: **skips `_check_authorization_tier` trust_score gate** — token is treated as the credential.
+  - Execution order: capability_token_required check → tier check (skipped if token present) → param_constraints → rate_limit → capability_token sig validation → human_confirmation gate.
+
+### Design Notes
+- A2A Issue #1716 (SINT Protocol RFC, 0 replies as of 2026-04-05) proposes nearly identical primitives. ACP ships first.
+- SINT-compatible: `resource`, `actions`, `tier`, `constraints`, `jti`, `iss`, `sub`, `iat`, `exp` — all SINT standard fields.
+- No shared AS, no OAuth, no token exchange server. Self-contained via Ed25519 + DID + canonical JSON.
+- Composable with: `principal_chain[]` (v2.56), `trust_score` (v2.34), `authorization_tier` (v2.49), `param_constraints` (v2.50).
+- Requires `--identity` (Ed25519 keypair) to issue; verification uses embedded `public_key` field (portable, no key lookup needed).
+
+### Tests
+- `tests/test_capability_token.py`: **CT-1..12 (12/12 PASS)**
+- CT-1: no identity → 403 ERR_IDENTITY_REQUIRED
+- CT-2: unknown skill → 404 ERR_SKILL_NOT_FOUND
+- CT-3/4: valid issuance + all required SINT fields present
+- CT-5/6/7: GET /capability-tokens list/active filter/skill filter
+- CT-8: capabilities.capability_token_issuance = True with --identity
+- CT-9: valid token → task accepted
+- CT-10: tampered token (sub changed without re-signing) → 403 ERR_CAPABILITY_TOKEN_INVALID
+- CT-11: required skill, no token → 403 ERR_CAPABILITY_TOKEN_REQUIRED (fires before tier check)
+- CT-12: required T3 skill, valid token → task accepted (tier gate bypassed)
+
+---
+
+## [2.56.0] — 2026-04-05 (principal_chain[] OBO delegation chain — trust block, message propagation, GET/POST/DELETE /principal-chain)
+
+### Added
+- **`_principal_chain: list`** — global OBO delegation chain `[{did, role, added_at}]`. Written into AgentCard trust block on every `/status` build.
+- **`POST /principal-chain`** — add/upsert a principal entry to the chain. Body: `{did (required), role?}`. Upsert semantics: if DID already present, role is updated. Returns `{ok, did, role, added_at, count}`.
+- **`GET /principal-chain`** — retrieve current chain with count and `self_did`.
+- **`DELETE /principal-chain/{did}`** — remove a specific principal by DID. 404 if not found.
+- **`GET /peers/{peer_id}/principal-chain`** — fetch the OBO chain from a connected peer's AgentCard. 404 if peer not connected; 422 if no AgentCard cached for peer.
+- **`--principal DID[,role=ROLE]`** CLI flag — seed the chain at startup. Repeatable for multiple principals. Upsert semantics.
+- **`on_behalf_of`** field in `POST /message:send` — per-message override of the OBO principal chain. If absent, the standing `_principal_chain` is auto-attached when non-empty.
+- **`capabilities.principal_chain`** in AgentCard — `bool(_principal_chain)`.
+- AgentCard trust block: `principal_chain[]` embedded whenever `_principal_chain` is non-empty.
+
+### Design Notes
+- Directly answers A2A Issue #1713 (OBO cross-org accountability, 15+ comments) without OAuth or shared AS.
+- `on_behalf_of` field in messages carries the delegation chain → recipient agents can audit provenance.
+- Compatible with SINT Protocol (Issue #1716) — Ed25519 DIDs used throughout.
+
+### Tests
+- `tests/test_principal_chain.py`: **PC-1..10 (10/10 PASS)**
+
+---
+
+## [2.55.0] — 2026-04-05 (GET /peers/{peer_id}/verify-card — on-demand per-peer AgentCard re-verification)
+
+### Added
+- **`GET /peers/{peer_id}/verify-card`** — re-verify the AgentCard of a connected peer on demand.
+  - Query params: `force=1` (bypass cache), `trust=1` (apply trust integration), `ttl=N` (custom cache TTL)
+  - 404 if peer not connected; 422 if no AgentCard cached; 503 if fetch fails.
+- **`capabilities.peer_verify_card: True`** in AgentCard.
+- **`/debug/inject`** extended to accept `agent_card` field for test fixture injection.
+
+### Tests
+- `tests/test_peer_verify_card.py`: **PVC-1..10 (10/10 PASS)**
+
+---
+
+## [2.54.0] — 2026-04-05 (POST /verify-card v2 — batch + fetch_and_verify + TTL cache + trust_integration)
+
+### Added
+- **`POST /verify-card` v2** — three modes in one endpoint:
+  - **single**: `{card: {...}}` — verify a provided AgentCard dict
+  - **batch**: `{cards: [{...}, ...]}` — verify multiple cards, returns per-card results
+  - **fetch_and_verify**: `{url: "..."}` — fetch AgentCard from URL then verify
+- **TTL cache** (`_verify_card_cache`) — default 300s, configurable via `ttl=N` query param. `ttl=0` bypasses both read and write (force-fresh verification).
+- **`trust_integration`** flag — when `true`, verification result updates the peer's trust score (requires `from_peer_id` in body).
+- **`_fetch_agent_card_from_url(url)`** — fetch AgentCard JSON from a remote URL with 5s timeout.
+
+### Tests
+- `tests/test_verify_card_v2.py`: **VC2-1..16 (16/16 PASS)**
+
+---
+
+## [2.53.0] — 2026-04-05 (skill.rate_limit — per-skill per-peer rate limiting)
+
+### Added
+- **`skill.rate_limit`** — per-skill rate limit object: `{max_calls, window_seconds, scope}`. Scope: `per_peer` (default) or `global`.
+- **`_check_rate_limit(skill_id, peer_id)`** — enforces rate limit; returns `(ok, detail)`. 429 `ERR_RATE_LIMIT` on exceeded.
+- **`_rate_limit_counters`** — in-memory counter store `{(skill_id, scope_key): [timestamps]}`.
+- **`_parse_rate_limit(raw)`** — parse `rate_limit` field from skill JSON.
+
+### Tests
+- `tests/test_rate_limit.py`: **RL-1..8 (8/8 PASS)**
+
+---
+
+## [2.52.0] — 2026-04-05 (skill.deprecation_notice — skill sunset declarations)
+
+### Added
+- **`skill.deprecation_notice`** — structured deprecation metadata: `{message, sunset_date?, replacement_skill_id?, severity}`. Severity: `info` / `warning` / `error`.
+- **`_parse_deprecation_notice(raw)`** — parse and normalize the deprecation_notice field.
+- **`GET /skills`** response now includes `deprecation_notice` field per skill.
+- **Audit entry**: `skill_invoked` event records `skill_id`, `peer_id`, `tier` at task creation.
+
+### Tests
+- `tests/test_deprecation.py`: **DEP-1..8 (8/8 PASS)**
+
+---
+
 ## [2.51.0] — 2026-04-05 (T3 human_confirmation — two-phase irreversible task execution)
 
 ### Added
