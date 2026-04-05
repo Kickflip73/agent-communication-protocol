@@ -507,6 +507,53 @@ components:
       allOf:
         - $ref: '#/components/schemas/CardVerifyResult'
 
+    PrincipalChainEntry:
+      type: object
+      description: A single OBO delegation entry in a principal_chain[] list (v2.56).
+      required: [did]
+      properties:
+        did:
+          type: string
+          description: DID of the principal (did:acp / did:key / any DID method)
+        role:
+          type: string
+          description: "Role label (e.g. orchestrator, delegator, owner). Free-form string."
+          default: delegator
+        added_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp when this entry was added to the chain
+
+    PrincipalChainResponse:
+      type: object
+      description: |
+        Response body for GET /principal-chain and GET /peers/{peer_id}/principal-chain (v2.56).
+      required: [ok, count, principal_chain]
+      properties:
+        ok:
+          type: boolean
+        count:
+          type: integer
+          description: Number of entries in the chain
+        principal_chain:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrincipalChainEntry'
+        self_did:
+          type: string
+          nullable: true
+          description: "This agent's own DID (only present in GET /principal-chain response)"
+        peer_id:
+          type: string
+          nullable: true
+          description: "Peer identifier (only present in GET /peers/{id}/principal-chain response)"
+        source:
+          type: string
+          enum: [agent_card, none]
+          nullable: true
+          description: "Where the chain was read from (peer-endpoint only)"
+
     PeerVerifyCardResponse:
       type: object
       description: |
