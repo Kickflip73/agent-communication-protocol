@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.56.0"  # v2.56: principal_chain[] OBO delegation chain — trust block, message propagation, GET/POST/DELETE /principal-chain
+VERSION = "2.57.0"  # v2.57: capability_token — SINT-format Ed25519 signed tokens, POST /skills/{id}/capability-token issuance, task enforcement gate
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -429,6 +429,7 @@ _did_key: str = None              # v0.8: did:key:z6Mk... W3C did:key identifier
 _ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certificate (hybrid identity)
 _delegation_chain: list = []      # v2.16: signed delegation entries [{delegator_did, scope, expires_at, sig}]
 _principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, added_at}] — "on behalf of" principal stack
+_capability_tokens: dict = {}     # v2.57: issued capability tokens {token_id: CapabilityTokenObject}
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -1296,6 +1297,8 @@ def _parse_skill_obj(s):
         human_conf = bool(s.get("human_confirmation_required", False))
         # v2.53: parse rate_limit
         rate_limit = _parse_rate_limit(s.get("rate_limit"))
+        # v2.57: parse capability_token_required
+        cap_token_req = bool(s.get("capability_token_required", False))
         # v2.52: parse deprecation_notice
         raw_dep = s.get("deprecation_notice")
         if isinstance(raw_dep, dict) and raw_dep.get("deprecated"):
@@ -1327,6 +1330,7 @@ def _parse_skill_obj(s):
             "human_confirmation_required": human_conf,        # v2.51: T3 requires human sign-off
             "deprecation_notice":          dep_notice,        # v2.52: skill sunset declaration or None
             "rate_limit":                  rate_limit,        # v2.53: per-skill/per-peer rate limit or None
+            "capability_token_required":   cap_token_req,     # v2.57: if True, POST /tasks must include valid capability_token
         }
     else:
         sid = str(s).strip()
@@ -1348,6 +1352,7 @@ def _parse_skill_obj(s):
             "param_constraints":           None,  # v2.50: no param constraints = unrestricted
             "human_confirmation_required": False, # v2.51: default no confirmation needed
             "deprecation_notice":          None,  # v2.52: no deprecation by default
+            "capability_token_required":   False, # v2.57: no cap token required by default
         }
     return obj
 
@@ -1431,6 +1436,135 @@ def _delegation_chain_status() -> dict:
         "entries":  entries,
         "has_valid": any(not e["expired"] for e in entries),
     }
+
+
+# ── v2.57: Capability Token helpers (SINT Protocol format) ────────────────────
+
+def _issue_capability_token(
+    subject_did: str,
+    skill_id: str,
+    tier: str,
+    constraints: dict | None = None,
+    ttl_seconds: int = 3600,
+    actions: list | None = None,
+) -> dict:
+    """Issue a SINT-format Ed25519 signed capability token.
+
+    The token encodes the standard SINT fields:
+        jti (token id) — random 16-byte hex
+        iss             — this agent's DID (issuer)
+        sub             — subject DID (who holds this capability)
+        resource        — "acp://{agent_name}/skills/{skill_id}"
+        actions         — list of permitted actions (default: ["invoke"])
+        tier            — "T0" | "T1" | "T2" | "T3"
+        constraints     — dict of parameter constraints (optional)
+        iat             — issued-at (unix timestamp)
+        exp             — expiry (unix timestamp = iat + ttl_seconds)
+
+    Returns a dict with all fields plus:
+        signature       — hex-encoded Ed25519 sig over canonical JSON payload
+        scheme          — "sint_ed25519"
+        public_key      — hex-encoded public key for verification
+
+    Raises RuntimeError if no Ed25519 identity is loaded (--identity required).
+    """
+    import secrets as _sec
+    if not _ed25519_private or not (_did_acp or _did_key):
+        raise RuntimeError("capability_token issuance requires --identity (Ed25519 keypair)")
+
+    _VALID_CAP_TIERS = {"T0", "T1", "T2", "T3"}
+    if tier not in _VALID_CAP_TIERS:
+        raise ValueError(f"invalid tier '{tier}'; must be one of {sorted(_VALID_CAP_TIERS)}")
+
+    issuer_did   = _did_acp or _did_key
+    agent_name   = _status.get("agent_name", "unknown")
+    jti          = _sec.token_hex(16)
+    iat          = int(time.time())
+    exp          = iat + int(ttl_seconds)
+    resource     = f"acp://{agent_name}/skills/{skill_id}"
+    acts         = list(actions) if actions else ["invoke"]
+
+    payload = {
+        "jti":         jti,
+        "iss":         issuer_did,
+        "sub":         subject_did,
+        "resource":    resource,
+        "actions":     sorted(acts),
+        "tier":        tier,
+        "constraints": constraints or {},
+        "iat":         iat,
+        "exp":         exp,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    sig_bytes  = _ed25519_private.sign(canonical)
+    # Derive raw public key from private key (relay stores pub as base64 in _ed25519_public_b64)
+    import base64 as _b64mod
+    pub_hex = ""
+    if _ed25519_public_b64:
+        try:
+            pub_hex = _b64mod.urlsafe_b64decode(_ed25519_public_b64 + "==").hex()
+        except Exception:
+            pub_hex = ""
+
+    token = {
+        **payload,
+        "signature":  sig_bytes.hex(),
+        "scheme":     "sint_ed25519",
+        "public_key": pub_hex,
+    }
+    return token
+
+
+def _verify_capability_token(token: dict, required_skill_id: str | None = None,
+                              required_tier: str | None = None) -> tuple[bool, str]:
+    """Verify a SINT-format capability token.
+
+    Checks (in order):
+      1. Required fields present (jti, iss, sub, resource, tier, iat, exp, signature, public_key)
+      2. Not expired (exp > now)
+      3. Ed25519 signature valid over canonical payload
+      4. resource matches expected skill if required_skill_id is given
+      5. tier is sufficient if required_tier is given (T0 < T1 < T2 < T3)
+
+    Returns (valid: bool, reason: str).
+    """
+    REQUIRED = ("jti", "iss", "sub", "resource", "tier", "iat", "exp", "signature", "public_key")
+    for f in REQUIRED:
+        if f not in token:
+            return False, f"missing required field: {f}"
+
+    now = int(time.time())
+    if token["exp"] < now:
+        return False, f"token expired (exp={token['exp']}, now={now})"
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        pub_bytes = bytes.fromhex(token["public_key"])
+        verif_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
+        canonical_fields = {k: v for k, v in token.items()
+                            if k not in ("signature", "scheme", "public_key")}
+        canonical = json.dumps(canonical_fields, sort_keys=True, separators=(",", ":")).encode()
+        sig_bytes = bytes.fromhex(token["signature"])
+        verif_key.verify(sig_bytes, canonical)
+    except Exception as e:
+        return False, f"signature invalid: {e}"
+
+    if required_skill_id:
+        resource = token.get("resource", "")
+        expected_suffix = f"/skills/{required_skill_id}"
+        if not resource.endswith(expected_suffix):
+            return False, (f"token resource '{resource}' does not match skill '{required_skill_id}'")
+
+    if required_tier:
+        _TIER_ORDER = {"T0": 0, "T1": 1, "T2": 2, "T3": 3}
+        token_tier = token.get("tier", "")
+        tok_lvl = _TIER_ORDER.get(token_tier, -1)
+        req_lvl = _TIER_ORDER.get(required_tier, 0)
+        if tok_lvl < req_lvl:
+            return False, (f"token tier {token_tier} insufficient for required tier {required_tier}")
+
+    return True, "ok"
 
 
 # ── v2.17: Availability Schedule (CRON) helpers ──────────────────────────────
@@ -1636,6 +1770,7 @@ def _make_agent_card(name, skills):
             "verify_card_v2":              True,                              # v2.54: POST /verify-card — batch + fetch_and_verify + TTL cache + trust_integration
             "peer_verify_card":            True,                              # v2.55: GET /peers/{id}/verify-card — on-demand per-peer AgentCard re-verification + force/trust/ttl params
             "principal_chain":             bool(_principal_chain),            # v2.56: OBO delegation chain in trust block
+            "capability_token_issuance":   bool(_ed25519_private),            # v2.57: POST /skills/{id}/capability-token — SINT-format Ed25519 capability token issuance
         },
 
         "identity": ({
@@ -1672,7 +1807,8 @@ def _make_agent_card(name, skills):
             "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
             "verify_card_v2": "/verify-card",          # v2.54: enhanced — batch + fetch_and_verify + TTL cache + trust_integration
             "peer_verify_card": "/peers/{peer_id}/verify-card",  # v2.55: on-demand per-peer AgentCard re-verification
-            "peer_principal_chain": "/peers/{peer_id}/principal-chain",  # v2.56: GET OBO delegation chain for peer
+            "peer_principal_chain":       "/peers/{peer_id}/principal-chain",  # v2.56: GET OBO delegation chain for peer
+            "capability_token_issuance":  "/skills/{skill_id}/capability-token", # v2.57: POST — issue SINT-format Ed25519 capability token
             "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
@@ -4463,6 +4599,34 @@ class LocalHTTP(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
+        # ── GET /capability-tokens — list issued capability tokens (v2.57) ──
+        elif p == "/capability-tokens":
+            """
+            GET /capability-tokens — List all capability tokens issued by this relay.
+
+            Query params:
+              skill_id  — filter by skill (optional)
+              active    — if "1" or "true", only return non-expired tokens (optional)
+
+            Response 200:
+              { "ok": true, "count": <int>, "tokens": [{...}, ...] }
+            """
+            now_ts = int(time.time())
+            qs = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            filter_skill = qs.get("skill_id", "").strip()
+            filter_active = qs.get("active", "").lower() in ("1", "true")
+
+            tokens_out = []
+            for jti, tok in _capability_tokens.items():
+                if filter_skill and tok.get("skill_id") != filter_skill:
+                    continue
+                expired = tok.get("exp", 0) < now_ts
+                if filter_active and expired:
+                    continue
+                tokens_out.append({**tok, "expired": expired})
+
+            self._json({"ok": True, "count": len(tokens_out), "tokens": tokens_out})
+
         # ── GET /principal-chain — self principal_chain management (v2.56) ──
         elif p == "/principal-chain":
             """
@@ -5771,6 +5935,81 @@ class LocalHTTP(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         p = parsed.path
 
+        # ── v2.57: POST /skills/{skill_id}/capability-token — SINT-format token issuance ──
+        if p.startswith("/skills/") and p.endswith("/capability-token") and p.count("/") == 3:
+            """
+            POST /skills/{skill_id}/capability-token — Issue a SINT-format Ed25519 capability token.
+
+            Requires --identity (Ed25519 keypair loaded).
+
+            Body:
+              subject   (required)  — DID of the subject receiving this capability
+              tier      (optional)  — "T0"|"T1"|"T2"|"T3" (default: skill's authorization_tier or "T1")
+              ttl       (optional)  — token lifetime in seconds (default: 3600)
+              actions   (optional)  — list of permitted actions (default: ["invoke"])
+              constraints (optional) — dict of param constraints (e.g. {"max_amount": 1000})
+
+            Response 200:
+              {"ok": true, "token": {jti, iss, sub, resource, actions, tier, constraints,
+                                     iat, exp, signature, scheme, public_key}}
+            Response 400: missing subject, invalid tier
+            Response 403: --identity not loaded (no Ed25519 keypair)
+            Response 404: skill_id not found in AgentCard
+            """
+            skill_id_ct = p.split("/")[2]
+            try:
+                body = self._read_body()
+                subject = (body.get("subject") or "").strip()
+                if not subject:
+                    self._json({"ok": False, "error": "missing required field: subject"}, 400)
+                    return
+                if not _ed25519_private:
+                    self._json({"ok": False,
+                                "error": "capability_token issuance requires --identity (Ed25519 keypair)",
+                                "error_code": "ERR_IDENTITY_REQUIRED"}, 403)
+                    return
+
+                # Look up skill to get default tier
+                card_skills = (_status.get("agent_card") or {}).get("skills", [])
+                skill_obj = next((s for s in card_skills
+                                  if isinstance(s, dict) and s.get("id") == skill_id_ct), None)
+                if skill_obj is None:
+                    self._json({"ok": False,
+                                "error": f"skill '{skill_id_ct}' not found in AgentCard",
+                                "error_code": "ERR_SKILL_NOT_FOUND"}, 404)
+                    return
+
+                # Determine tier
+                tier_ct = (body.get("tier") or skill_obj.get("authorization_tier") or "T1").upper()
+                if tier_ct not in ("T0", "T1", "T2", "T3"):
+                    self._json({"ok": False,
+                                "error": f"invalid tier '{tier_ct}'; must be T0/T1/T2/T3"}, 400)
+                    return
+
+                ttl_ct   = int(body.get("ttl", 3600))
+                acts_ct  = list(body.get("actions") or ["invoke"])
+                cons_ct  = body.get("constraints") or {}
+
+                token = _issue_capability_token(
+                    subject_did=subject,
+                    skill_id=skill_id_ct,
+                    tier=tier_ct,
+                    constraints=cons_ct if cons_ct else None,
+                    ttl_seconds=ttl_ct,
+                    actions=acts_ct,
+                )
+                # Store issued token in global registry
+                _capability_tokens[token["jti"]] = {**token, "skill_id": skill_id_ct, "issued_at": _now()}
+                log.info(f"🎫 capability_token issued: jti={token['jti']} sub={subject} skill={skill_id_ct} tier={tier_ct} exp={token['exp']}")
+                self._json({"ok": True, "token": token})
+            except ValueError as e:
+                self._json({"ok": False, "error": str(e)}, 400)
+            except RuntimeError as e:
+                self._json({"ok": False, "error": str(e), "error_code": "ERR_IDENTITY_REQUIRED"}, 403)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
         # ── v2.56: Principal Chain management endpoints ──────────────────────
         if p == "/principal-chain":
             """
@@ -6919,16 +7158,34 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 # v2.49: authorization tier enforcement
                 skill_id_for_tier = body.get("skill_id") or (payload.get("skill_id") if isinstance(payload, dict) else None)
                 caller_peer_id    = body.get("peer_id") or body.get("from_peer_id")
-                tier_ok, tier_reason = _check_authorization_tier(skill_id_for_tier, caller_peer_id)
-                if not tier_ok:
+                # v2.57: if skill has capability_token_required=True, check token first
+                # (a valid capability_token satisfies tier enforcement implicitly)
+                _ct_card_skills_pre = (_status.get("agent_card") or {}).get("skills", [])
+                _ct_skill_pre = next((s for s in _ct_card_skills_pre
+                                      if isinstance(s, dict) and s.get("id") == skill_id_for_tier), {})
+                _cap_req_pre = _ct_skill_pre.get("capability_token_required", False)
+                raw_cap_token_pre = body.get("capability_token")
+                if _cap_req_pre and not raw_cap_token_pre:
                     self._json({
                         "ok":         False,
-                        "error_code": ERR_AUTHORIZATION_TIER,
-                        "error":      tier_reason,
+                        "error_code": "ERR_CAPABILITY_TOKEN_REQUIRED",
+                        "error":      f"skill '{skill_id_for_tier}' requires a capability_token",
                         "skill_id":   skill_id_for_tier,
-                        "peer_id":    caller_peer_id,
                     }, 403)
                     return
+                # Skip tier check if a capability_token is present (token carries tier authorization)
+                _skip_tier = bool(raw_cap_token_pre and skill_id_for_tier)
+                if not _skip_tier:
+                    tier_ok, tier_reason = _check_authorization_tier(skill_id_for_tier, caller_peer_id)
+                    if not tier_ok:
+                        self._json({
+                            "ok":         False,
+                            "error_code": ERR_AUTHORIZATION_TIER,
+                            "error":      tier_reason,
+                            "skill_id":   skill_id_for_tier,
+                            "peer_id":    caller_peer_id,
+                        }, 403)
+                        return
                 # v2.50: param_constraints enforcement
                 # (tier passed — audit entry recorded after task creation in skill_invoked)
                 task_params = body.get("params") or (payload.get("params") if isinstance(payload, dict) else None)
@@ -6952,6 +7209,27 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         **rl_detail,
                     }, 429)
                     return
+                # v2.57: capability_token enforcement gate
+                # If a raw capability_token dict is provided in the request body,
+                # validate it (signature, expiry, skill match, tier sufficiency).
+                # (capability_token_required check already ran above before tier check)
+                raw_cap_token = raw_cap_token_pre   # alias — same body["capability_token"]
+                if raw_cap_token and isinstance(raw_cap_token, dict) and skill_id_for_tier:
+                    ct_valid, ct_reason = _verify_capability_token(
+                        raw_cap_token,
+                        required_skill_id=skill_id_for_tier,
+                        required_tier=None,  # no minimum tier enforcement at call time
+                    )
+                    if not ct_valid:
+                        self._json({
+                            "ok":           False,
+                            "error_code":   "ERR_CAPABILITY_TOKEN_INVALID",
+                            "error":        f"capability_token invalid: {ct_reason}",
+                            "skill_id":     skill_id_for_tier,
+                        }, 403)
+                        return
+                    # Attach validated token fields to task for audit
+                    log.info(f"🎫 capability_token validated: jti={raw_cap_token.get('jti')} skill={skill_id_for_tier}")
                 # v2.51: T3 human_confirmation_required gate
                 t3_confirm = _needs_human_confirmation(skill_id_for_tier)
                 task = _create_task(payload,
