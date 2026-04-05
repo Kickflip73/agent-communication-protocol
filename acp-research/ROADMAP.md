@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-05 14:51（研究轮 #3：A2A 身份验证热度上升 #1672/#1712/#1716；ANP 停滞；v2.52 候选确定：audit-log + skill deprecation_notice；当前版本 v2.51.0，全量回归 201/201）
+> 最后更新：2026-04-05 15:51（文档轮 #4：v2.52 文档同步完成；当前版本 v2.52.0，全量回归 217/217）
 
 ---
 
@@ -662,7 +662,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.49** | **2026-04-05** | **skill.authorization_tier T0-T3 — per-skill 授权层（ref A2A #1716）+ ERR_AUTHORIZATION_TIER + POST /tasks 执行，SAT1-12=12/12** |
 | **v2.50** | **2026-04-05** | **skill.param_constraints — 参数级调用约束（ref SINT Protocol / A2A #1716 constraints 字段）+ ERR_PARAM_CONSTRAINT，SPC1-18=18/18** |
 | **v2.51** | **2026-04-05** | **T3 human_confirmation — confirmation_pending 状态 + :confirm/:reject 端点 + trust_override debug + --auto-confirm-t3，T3C1-14=14/14** |
-| **v2.52** | **🔜 下一目标** | **任务审计日志 `GET /tasks/{id}/audit-log` + `skill.deprecation_notice` — 三层防护可追溯 + Skill 优雅废弃** |
+| **v2.52** | **✅ 2026-04-05** | **任务审计日志 `GET /tasks/{id}/audit-log` + `skill.deprecation_notice` — 三层防护可追溯 + Skill 优雅废弃** |
 
 ---
 

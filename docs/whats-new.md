@@ -5,6 +5,152 @@
 
 ---
 
+### v2.52.0 — Task Audit Log + Skill Deprecation Notice (2026-04-05)
+
+Two new features completing the ACP compliance story: an immutable per-task audit trail for T3 accountability, and a graceful skill sunset mechanism.
+
+---
+
+#### 1 — Task Audit Log (`task.audit_log[]`)
+
+Every task now carries an **append-only, tamper-evident audit log** recording its full lifecycle. This is especially valuable for T3 (irreversible) skills where compliance mandates a verifiable record of who invoked what and who confirmed/rejected it.
+
+**Audit log structure:**
+
+Each entry is an object with the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Event type (see table below) |
+| `ts` | ISO-8601 string | Timestamp of the event |
+| `seq` | integer | Monotonically increasing sequence number (0-based) |
+| `detail` | object | Event-specific payload (optional) |
+
+**Event types:**
+
+| Event | When recorded | Key detail fields |
+|-------|--------------|-------------------|
+| `created` | `POST /tasks` — task object instantiated | `initial_status` |
+| `skill_invoked` | `POST /tasks` — after tier + param checks pass | `skill_id`, `peer_id`, `tier` |
+| `status_changed` | `_update_task()` — any state transition | `from`, `to`, `error` (if applicable) |
+| `confirmed` | `POST /tasks/{id}:confirm` — human approves | `by: "human"` |
+| `rejected` | `POST /tasks/{id}:reject` — human rejects | `by: "human"`, `reason` |
+
+**Example audit log (T3 confirmed flow):**
+```json
+{
+  "audit_log": [
+    {"event": "created",       "ts": "2026-04-05T07:30:01Z", "seq": 0, "detail": {"initial_status": "confirmation_pending"}},
+    {"event": "skill_invoked", "ts": "2026-04-05T07:30:01Z", "seq": 1, "detail": {"skill_id": "deploy_to_prod", "peer_id": "peer_ci", "tier": "T3"}},
+    {"event": "confirmed",     "ts": "2026-04-05T07:31:12Z", "seq": 2, "detail": {"by": "human"}},
+    {"event": "status_changed","ts": "2026-04-05T07:31:12Z", "seq": 3, "detail": {"from": "confirmation_pending", "to": "submitted"}},
+    {"event": "status_changed","ts": "2026-04-05T07:31:15Z", "seq": 4, "detail": {"from": "submitted", "to": "working"}},
+    {"event": "status_changed","ts": "2026-04-05T07:31:45Z", "seq": 5, "detail": {"from": "working", "to": "completed"}}
+  ]
+}
+```
+
+**New endpoint: `GET /tasks/{id}/audit-log`**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `since_seq` | integer | Return only entries with `seq > N` (incremental polling) |
+| `limit` | integer | Maximum entries to return (default: 200) |
+
+Response shape:
+```json
+{
+  "task_id":   "task_abc123",
+  "status":    "completed",
+  "audit_log": [ ... ],
+  "total":     6
+}
+```
+
+Returns **404** if the task is not found.
+
+`audit_log` is also embedded directly in the task object returned by `GET /tasks/{id}` and `POST /tasks`.
+
+**The three-layer protection chain + audit:**
+
+```
+POST /tasks
+  → tier check            (who may invoke)
+  → param_constraints     (with what arguments)
+  → human_confirmation    (T3: requires :confirm before execution)
+  → audit_log: created + skill_invoked events recorded
+       │
+  :confirm / :reject
+  → audit_log: confirmed / rejected + status_changed events recorded
+```
+
+---
+
+#### 2 — Skill Deprecation Notice (`skill.deprecation_notice`)
+
+Skills can now declare a **sunset timeline** via `deprecation_notice`. When a deprecated skill is invoked, `POST /tasks` still **succeeds (201)** — the task is created normally — but the response includes a top-level `deprecation_warning` object so callers can plan their migration.
+
+**AgentCard skill field:**
+
+```json
+{
+  "id": "transfer_funds_v1",
+  "name": "Transfer Funds (Legacy)",
+  "deprecation_notice": {
+    "deprecated":        true,
+    "deprecated_since":  "2026-03-01",
+    "sunset_at":         "2026-07-01",
+    "replacement_skill": "transfer_funds_v2",
+    "message":           "transfer_funds_v1 is deprecated. Migrate to transfer_funds_v2 before 2026-07-01."
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `deprecated` | boolean | yes | Must be `true` to trigger warning injection |
+| `deprecated_since` | string | no | ISO date when deprecation began |
+| `sunset_at` | string | no | ISO date after which the skill may be removed |
+| `replacement_skill` | string | no | `skill.id` of the recommended replacement |
+| `message` | string | no | Human-readable migration guidance |
+
+**Deprecation warning in POST /tasks response:**
+
+```json
+{
+  "ok": true,
+  "task": { ... },
+  "deprecation_warning": {
+    "deprecated":        true,
+    "deprecated_since":  "2026-03-01",
+    "sunset_at":         "2026-07-01",
+    "replacement_skill": "transfer_funds_v2",
+    "message":           "Migrate to transfer_funds_v2 before 2026-07-01."
+  }
+}
+```
+
+**Behaviour rules:**
+- `deprecated: false` (or `deprecation_notice` absent) → **no warning injected** (backward-compatible)
+- `deprecated: true` → **201** + `deprecation_warning` in body (task is still created)
+- Deprecation notice is visible in `GET /skills` skill objects
+- Combines with T3 human_confirmation: deprecated T3 skills return **both** `deprecation_warning` and `confirmation_pending`
+
+---
+
+#### New capabilities flags
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `task_audit_log` | `true` | `GET /tasks/{id}/audit-log` endpoint available; `audit_log[]` present on all tasks |
+| `skill_deprecation_notice` | `true` | `skill.deprecation_notice` field supported; `deprecation_warning` injected on deprecated invocations |
+
+---
+
+**Backward-compatible:** Existing tasks have empty `audit_log: []`. Existing skills without `deprecation_notice` are unaffected.
+
+---
+
 ### v2.51.0 — T3 Human Confirmation Gate (2026-04-05)
 
 New feature: `skill.human_confirmation_required` — a two-phase execution gate for T3 (irreversible) skills. When enabled, `POST /tasks` on a T3 skill enters `confirmation_pending` state instead of `submitted`, requiring explicit human approval before execution proceeds.

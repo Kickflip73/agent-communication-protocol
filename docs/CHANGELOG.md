@@ -7,7 +7,34 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## v2.49.0 — skill.authorization_tier T0–T3 (2026-04-05)
+## v2.52.0 — Task Audit Log + Skill Deprecation Notice (2026-04-05)
+
+Two compliance-focused features completing the ACP T3 accountability story.
+
+**Task Audit Log:**
+- `task.audit_log[]` — append-only, seq-monotonic audit trail on every task object
+- `_append_audit(task, event_type, detail)` helper — never removes or mutates entries
+- Events: `created` (seed), `skill_invoked` (skill_id/peer_id/tier), `status_changed` (from/to), `confirmed` (by human), `rejected` (by human + reason)
+- `GET /tasks/{id}/audit-log` endpoint — returns `{task_id, status, audit_log, total}`; supports `?since_seq=N` + `?limit=N` for incremental polling
+- `audit_log` also embedded in task objects from `GET /tasks/{id}` and `POST /tasks`
+- `capabilities.task_audit_log = True`
+
+**Skill Deprecation Notice:**
+- `skill.deprecation_notice` field in AgentCard skill objects — fields: `deprecated`, `deprecated_since`, `sunset_at`, `replacement_skill`, `message`
+- `POST /tasks` on deprecated skill → 201 + `deprecation_warning` top-level field (non-blocking)
+- `deprecated: false` or absent → no warning injected (backward-compatible)
+- Visible in `GET /skills` skill objects
+- `ERR_SKILL_DEPRECATED` error constant added (informational)
+- `capabilities.skill_deprecation_notice = True`
+- Works alongside T3 human_confirmation: deprecated T3 skills return both `deprecation_warning` AND enter `confirmation_pending`
+
+**Bug fix (development):** `_skills` NameError in POST /tasks — replaced with `(_status["agent_card"] or {}).get("skills", [])` lookup pattern, consistent with existing `_check_authorization_tier` / `_check_param_constraints`.
+
+AUD1–AUD10 + DEP1–DEP6: 16/16 PASS | full regression: 217/217 PASS | commit: ac55111
+
+---
+
+## v2.51.0 — T3 Human Confirmation Gate (2026-04-05)
 
 Per-skill authorization tier enforcement at `POST /tasks`. Inspired by A2A #1716 (SINT Protocol RFC); implemented without OAuth by reusing `trust.signals` (v2.14) + per-peer trust scores (v2.34).
 
