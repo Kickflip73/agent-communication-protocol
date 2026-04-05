@@ -7,6 +7,36 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.54.0 — POST /verify-card (v2) — Batch + Fetch + TTL Cache + Trust Integration (2026-04-05)
+
+### Added
+- `POST /verify-card` — enhanced AgentCard verification endpoint (v2), three modes:
+  - `mode=single` (default): verify one card with TTL cache (300 s default, `ttl=0` bypasses cache)
+  - `mode=batch`: verify up to 100 AgentCards in one request; returns `valid_count / invalid_count / unknown_count / results[]`
+  - `mode=fetch`: fetch AgentCard from URL (wrapped or raw) then verify; returns `fetched_from + card_name`
+- Optional params on all modes: `ttl` (int), `trust_integration` (bool), `peer_id` (str)
+- `_verify_card_cache` dict + `_VERIFY_CARD_CACHE_TTL = 300` — module-level TTL cache
+- `_verify_card_cache_key(card)` — stable `(public_key, card_sig)` cache key
+- `_verify_card_cached(card, ttl)` — cached wrapper around `_verify_agent_card()`
+- `_fetch_agent_card_from_url(url, timeout)` — URL fetcher with wrapped/raw support
+- `_verify_card_batch(cards, ttl)` — batch verifier with per-result `index` field
+- `_apply_trust_integration(vr, peer_id)` — upserts `card_verified` signal into `trust.signals`
+- `capabilities.verify_card_v2 = True` in AgentCard
+- `endpoints.verify_card_v2 = "/verify-card"` in AgentCard
+
+### Behaviour
+- `ttl=0` now correctly bypasses cache on both read and write paths (bug fix from initial design)
+- `mode=batch` non-dict items in list → `valid=False, error="not a JSON object"` (no crash)
+- `mode=fetch` failures → `422 Unprocessable Entity` with `{ok: false, error: "..."}`
+- `trust_integration=true` + `valid=false` → `trust_signal_written=false` (no spurious signals)
+- Result cache is keyed by card signature, not card content — ordering-independent
+
+### Tests
+- `tests/test_verify_card_v2.py` — VC2-1..16 (16/16 PASS)
+- Full regression: 237/237 PASS
+
+---
+
 ## v2.53.0 — skill.rate_limit — Per-Skill / Per-Peer Invocation Frequency Limiting (2026-04-05)
 
 ### Added

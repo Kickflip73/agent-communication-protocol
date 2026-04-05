@@ -410,6 +410,103 @@ components:
           type: string
           description: Human-readable error message
 
+    # ── v2.54: /verify-card schemas ──────────────────────────────────────────
+
+    CardVerifyResult:
+      type: object
+      description: |
+        Result of a single AgentCard Ed25519 signature verification (v2.54).
+        Returned by POST /verify-card in single mode and as elements of
+        batch results[].
+      properties:
+        valid:
+          type: boolean
+          nullable: true
+          description: |
+            true = signature valid; false = invalid; null = Ed25519 library unavailable.
+        did:
+          type: string
+          nullable: true
+          description: "did:acp: or did:key: identifier from card.identity.did"
+        did_consistent:
+          type: boolean
+          nullable: true
+          description: |
+            true if did matches the public_key derivation; null if DID scheme not checked.
+        public_key:
+          type: string
+          nullable: true
+          description: Base64url-encoded Ed25519 public key from card.identity.public_key
+        scheme:
+          type: string
+          description: "Identity scheme from card.identity.scheme (e.g. ed25519)"
+        error:
+          type: string
+          nullable: true
+          description: Human-readable failure reason when valid=false
+        cached:
+          type: boolean
+          description: true if this result was served from the TTL cache
+        cache_expires_in:
+          type: integer
+          nullable: true
+          description: Seconds until the cached result expires (only present when cached=true)
+        index:
+          type: integer
+          nullable: true
+          description: Position in the input cards array (batch mode only)
+
+    CardVerifyBatchResponse:
+      type: object
+      description: Response body for POST /verify-card with mode=batch (v2.54).
+      required: [ok, mode, total, valid_count, invalid_count, unknown_count, results]
+      properties:
+        ok:
+          type: boolean
+        mode:
+          type: string
+          enum: [batch]
+        total:
+          type: integer
+          description: Total number of cards submitted
+        valid_count:
+          type: integer
+          description: Cards where valid=true
+        invalid_count:
+          type: integer
+          description: Cards where valid=false
+        unknown_count:
+          type: integer
+          description: Cards where valid=null (library unavailable)
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardVerifyResult'
+
+    CardVerifyFetchResponse:
+      type: object
+      description: Response body for POST /verify-card with mode=fetch (v2.54).
+      required: [ok, mode, fetched_from]
+      properties:
+        ok:
+          type: boolean
+        mode:
+          type: string
+          enum: [fetch]
+        fetched_from:
+          type: string
+          format: uri
+          description: URL the AgentCard was fetched from
+        card_name:
+          type: string
+          nullable: true
+          description: "name field from the fetched AgentCard"
+        trust_signal_written:
+          type: boolean
+          description: true if trust_integration=true and valid=true (signal upserted)
+      allOf:
+        - $ref: '#/components/schemas/CardVerifyResult'
+
 tags:
   - name: skills
     description: |

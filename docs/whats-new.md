@@ -5,6 +5,182 @@
 
 ---
 
+### v2.54.0 — POST /verify-card (v2) — Batch Verification + Fetch + TTL Cache + Trust Integration (2026-04-05)
+
+`POST /verify-card` is a significant upgrade over the original `POST /verify/card` (v1.8), adding three verification modes, a TTL result cache, remote card fetching, and optional trust signal integration — all motivated by the heated A2A issue #1672 discussion (292 comments, 3 competing implementations, no merge).
+
+---
+
+#### Three Verification Modes
+
+| Mode | Trigger | Description |
+|------|---------|-------------|
+| `single` (default) | `{"card": ...}` or raw card body | Verify one AgentCard with TTL cache |
+| `batch` | `{"mode": "batch", "cards": [...]}` | Verify up to 100 cards in one request |
+| `fetch` | `{"mode": "fetch", "url": "..."}` | Fetch AgentCard from URL then verify |
+
+---
+
+#### Mode: single
+
+```bash
+# Verify a card directly
+curl -s -X POST http://localhost:$HTTP_PORT/verify-card \
+  -H 'Content-Type: application/json' \
+  -d '{"card": <AgentCard JSON>}'
+```
+
+```json
+{
+  "ok": true,
+  "mode": "single",
+  "valid": true,
+  "did": "did:acp:Ab3...",
+  "did_consistent": true,
+  "public_key": "Ab3...",
+  "scheme": "ed25519",
+  "error": null,
+  "cached": false,
+  "trust_signal_written": false
+}
+```
+
+Second call within TTL (default 300 s):
+```json
+{ "cached": true, "cache_expires_in": 298, ... }
+```
+
+Use `"ttl": 0` to bypass the cache entirely (always re-verify).
+
+---
+
+#### Mode: batch
+
+Verify multiple AgentCards in one round-trip:
+
+```bash
+curl -s -X POST http://localhost:$HTTP_PORT/verify-card \
+  -H 'Content-Type: application/json' \
+  -d '{"mode": "batch", "cards": [<card1>, <card2>, ...]}'
+```
+
+```json
+{
+  "ok": true,
+  "mode": "batch",
+  "total": 3,
+  "valid_count": 2,
+  "invalid_count": 1,
+  "unknown_count": 0,
+  "results": [
+    {"index": 0, "valid": true,  "did": "did:acp:...", "cached": true,  ...},
+    {"index": 1, "valid": true,  "did": "did:acp:...", "cached": false, ...},
+    {"index": 2, "valid": false, "error": "identity.card_sig missing", ...}
+  ]
+}
+```
+
+Limits: max 100 cards per request (400 if exceeded). Non-dict items in the list are returned as `valid=false`.
+
+---
+
+#### Mode: fetch
+
+Fetch an AgentCard from a URL and verify it in one step:
+
+```bash
+curl -s -X POST http://localhost:$HTTP_PORT/verify-card \
+  -H 'Content-Type: application/json' \
+  -d '{"mode": "fetch", "url": "https://peer.example.com/.well-known/acp.json"}'
+```
+
+```json
+{
+  "ok": true,
+  "mode": "fetch",
+  "fetched_from": "https://peer.example.com/.well-known/acp.json",
+  "card_name": "PeerAgent",
+  "valid": true,
+  "did": "did:acp:...",
+  "cached": false,
+  ...
+}
+```
+
+Supports both wrapped (`{"self": card}`) and raw AgentCard responses. Returns `422` on fetch failure.
+
+---
+
+#### Trust Integration (all modes)
+
+When `"trust_integration": true` and the card verifies as valid, the relay automatically records a `card_verified` trust signal:
+
+```bash
+curl -s -X POST http://localhost:$HTTP_PORT/verify-card \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "mode": "fetch",
+    "url": "https://peer.example.com/.well-known/acp.json",
+    "trust_integration": true,
+    "peer_id": "peer-abc123"
+  }'
+```
+
+The signal is upserted into `trust.signals`:
+```json
+{
+  "type": "card_verified",
+  "peer_id": "peer-abc123",
+  "did": "did:acp:...",
+  "public_key": "...",
+  "verified_at": "2026-04-05T11:51:00Z",
+  "description": "AgentCard Ed25519 signature independently verified (v2.54)"
+}
+```
+
+---
+
+#### TTL Cache Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `ttl` | `300` | Cache TTL in seconds |
+| `ttl=0` | — | Bypass cache entirely (always re-verify) |
+
+Cache key is `(identity.public_key, identity.card_sig)` — same card always resolves to the same key regardless of field ordering.
+
+---
+
+#### New AgentCard Fields
+
+```json
+{
+  "capabilities": {
+    "verify_card_v2": true
+  },
+  "endpoints": {
+    "verify_card_v2": "/verify-card"
+  }
+}
+```
+
+---
+
+#### vs. A2A #1672
+
+A2A has been debating AgentCard verification since 2025 (issue #1672, 292 comments, 3 competing implementations). As of April 2026, no solution is merged. ACP v2.54 ships a complete implementation:
+
+| Feature | A2A #1672 | ACP v2.54 |
+|---------|-----------|-----------|
+| Single card verify | Proposed | ✅ `mode=single` |
+| Batch verify | Not discussed | ✅ `mode=batch` (up to 100) |
+| Remote fetch + verify | Not discussed | ✅ `mode=fetch` |
+| Result caching | Not discussed | ✅ TTL cache, `ttl=0` bypass |
+| Trust signal integration | Proposed (complex) | ✅ `trust_integration=true` |
+| External CA required | Some proposals require CA | ✅ Zero CA, self-contained |
+
+---
+
 ### v2.53.0 — skill.rate_limit — Per-Skill / Per-Peer Invocation Frequency Limiting (2026-04-05)
 
 Production-grade abuse prevention: each skill can now declare an invocation rate limit that is enforced per calling peer, transparently, with no extra infrastructure required.
