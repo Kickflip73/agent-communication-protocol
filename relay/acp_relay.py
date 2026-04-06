@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.69.0"  # v2.69: GET /limitations/runtime — dynamic runtime limitations endpoint (aligns with A2A #1694 @citriac stable/runtime split); returns current_load/queue_depth/active_tasks/memory_usage_mb; AgentCard capabilities.runtime_limitations=True + endpoints.runtime_limitations
+VERSION = "2.70.0"  # v2.70: trust.signals[] severity metadata + GET /trust/signals/schema — adds severity (critical/high/medium/low) + category (identity/integrity/authorization/discovery/attestation) to each of 12 trust signal types; finalizes canonical signal type names (A2A #1628 aligned); AgentCard capabilities.trust_signals_v270=True
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2004,6 +2004,7 @@ def _make_agent_card(name, skills):
             "event_replay":       True,                         # v2.13: ?since=<seq> replay on /stream and /ws/stream
             "trust_signals":      True,                         # v2.14: trust.signals[] structured evidence in AgentCard
             "trust_signals_v268": True,                         # v2.68: GET /trust/signals endpoint + 4 new signal types (bilateral_ir/capability_token/wtrmrk/external_token)
+            "trust_signals_v270": True,                         # v2.70: severity+category metadata per signal; GET /trust/signals/schema; canonical type names finalized (A2A #1628 aligned)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2121,6 +2122,7 @@ def _make_agent_card(name, skills):
             "agent_reject":          "/tasks/{id}:agent-reject",# v2.66: POST — agent-initiated task rejection → rejected terminal state
             "message_send":          "/message/send",           # v2.67: POST — Direct Message (no Task); A2A SendMessageResponse.oneof{Task,Message}
             "trust_signals":         "/trust/signals",          # v2.68: GET — full trust signal inventory (12 types; filterable by ?type= ?enabled=)
+            "trust_signals_schema":  "/trust/signals/schema",   # v2.70: GET — canonical schema for all 12 signal types (severity/category/description)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -2609,113 +2611,165 @@ def _generate_ir_test_vectors() -> dict:
 
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── v2.70: Trust Signal Schema — canonical type names, severity, category ─────
+# Severity levels (A2A #1628 @kenneives recommendation: consumer-side weighting):
+#   critical — cryptographic proof; forgery requires breaking Ed25519 or SHA-256
+#   high     — strong runtime verification; replay/tamper resistance
+#   medium   — structural/discovery evidence; not cryptographically binding
+#   low      — informational/optional enrichment
+# Category:
+#   identity      — who the agent is (key material, DID)
+#   integrity     — message/transport tamper protection
+#   authorization — per-invocation and per-skill access control
+#   discovery     — how consumers find/verify the agent
+#   attestation   — external/cross-protocol trust evidence
+TRUST_SIGNAL_SCHEMA = {
+    "hmac_message_signing":   {"severity": "high",     "category": "integrity"},
+    "ed25519_identity":       {"severity": "critical",  "category": "identity"},
+    "agent_card_signature":   {"severity": "critical",  "category": "identity"},
+    "peer_card_verification": {"severity": "high",     "category": "integrity"},
+    "replay_window":          {"severity": "high",     "category": "integrity"},
+    "did_document":           {"severity": "medium",   "category": "discovery"},
+    "jwks":                   {"severity": "medium",   "category": "discovery"},
+    "vouch_chain":            {"severity": "medium",   "category": "attestation"},
+    "bilateral_ir":           {"severity": "high",     "category": "attestation"},
+    "capability_token":       {"severity": "critical",  "category": "authorization"},
+    "wtrmrk":                 {"severity": "medium",   "category": "attestation"},
+    "external_token":         {"severity": "high",     "category": "authorization"},
+}
+
 def _build_trust_signals() -> list:
     """
-    Build trust.signals[] for the AgentCard (v2.14).
+    Build trust.signals[] for the AgentCard (v2.14, extended v2.70).
 
     Each signal is a dict:
       {
-        "type":        str,   # signal category (see below)
+        "type":        str,   # canonical signal type name (12 types, v2.70 finalized)
         "enabled":     bool,  # whether this signal is currently active
         "description": str,   # human-readable explanation
+        "severity":    str,   # v2.70: critical/high/medium/low (consumer-side weighting hint)
+        "category":    str,   # v2.70: identity/integrity/authorization/discovery/attestation
         "details":     dict,  # optional type-specific metadata
       }
 
-    Signal types:
+    Canonical signal type names (v2.70 finalized, A2A #1628 aligned):
       - "hmac_message_signing":   HMAC-SHA256 per-message signing (v0.7/v1.1)
       - "ed25519_identity":       Ed25519 keypair with DID (v0.8/v1.3)
       - "agent_card_signature":   AgentCard self-signed with Ed25519 key (v1.8)
       - "peer_card_verification": Auto-verify peer AgentCard on connect (v1.9)
       - "replay_window":          HMAC replay-window protection (v1.1)
       - "did_document":           W3C DID Document published (v1.3)
+      - "jwks":                   JWKS endpoint for key discovery (v2.18)
+      - "vouch_chain":            Structured endorsements from other agents (v2.27)
+      - "bilateral_ir":           Bilateral signed interaction records (v2.59)
+      - "capability_token":       SINT Ed25519 per-invocation capability tokens (v2.57)
+      - "wtrmrk":                 WTRMRK sequence-root attestation (v2.62)
+      - "external_token":         Cross-protocol SINT token verification (v2.63)
 
-    Rationale (A2A #1628):
-      A2A's trust.signals[] proposal aims to enumerate verifiable trust evidence in the
-      AgentCard. ACP already implements most of these as concrete features; this field
-      makes them discoverable in a structured, interoperable way.
+    Rationale (A2A #1628 @kenneives/@douglasborthwick, scan14 2026-04-07):
+      A2A confirmed that trust.signals[] is a boolean layer (met:true/false per signal);
+      consumer-side weighting is out of spec. ACP v2.70 adds severity+category as
+      advisory metadata to help consuming agents implement weighted trust scoring
+      without prescribing any specific formula.
     """
     signals = []
 
     # 1. HMAC-SHA256 per-message signing
-    signals.append({
-        "type":        "hmac_message_signing",
-        "enabled":     bool(_hmac_secret),
-        "description": "HMAC-SHA256 message signing (v0.7). Each message carries an `identity.sig` field signed with a shared secret.",
-        "details":     {"algorithm": "hmac-sha256"} if _hmac_secret else {},
-    })
+    def _sig(type_name: str, enabled: bool, description: str, **extra) -> dict:
+        """Helper: build a trust signal dict with v2.70 severity+category metadata."""
+        meta = TRUST_SIGNAL_SCHEMA.get(type_name, {"severity": "low", "category": "discovery"})
+        s = {
+            "type":        type_name,
+            "enabled":     enabled,
+            "severity":    meta["severity"],
+            "category":    meta["category"],
+            "description": description,
+        }
+        s.update(extra)
+        if "details" not in s:
+            s["details"] = {}
+        return s
+
+    # 1. HMAC-SHA256 per-message signing
+    signals.append(_sig(
+        "hmac_message_signing",
+        bool(_hmac_secret),
+        "HMAC-SHA256 message signing (v0.7). Each message carries an `identity.sig` field signed with a shared secret.",
+        details={"algorithm": "hmac-sha256"} if _hmac_secret else {},
+    ))
 
     # 2. Ed25519 self-sovereign identity
-    signals.append({
-        "type":        "ed25519_identity",
-        "enabled":     bool(_ed25519_private),
-        "description": "Ed25519 keypair with self-sovereign DID (v0.8/v1.3). Identity is generated locally, never shared with a central authority.",
-        "details": ({
+    signals.append(_sig(
+        "ed25519_identity",
+        bool(_ed25519_private),
+        "Ed25519 keypair with self-sovereign DID (v0.8/v1.3). Identity is generated locally, never shared with a central authority.",
+        details=({
             "scheme":  "ed25519+ca" if _ca_cert_pem else "ed25519",
             "did_acp": _did_acp,
             "did":     _did_key,
         } if _ed25519_private else {}),
-    })
+    ))
 
     # 3. AgentCard self-signature
-    signals.append({
-        "type":        "agent_card_signature",
-        "enabled":     bool(_ed25519_private),
-        "description": "AgentCard is self-signed with Ed25519 private key (v1.8). Receivers can verify card authenticity without a CA.",
-        "details":     {"algorithm": "ed25519", "field": "identity.card_sig"} if _ed25519_private else {},
-    })
+    signals.append(_sig(
+        "agent_card_signature",
+        bool(_ed25519_private),
+        "AgentCard is self-signed with Ed25519 private key (v1.8). Receivers can verify card authenticity without a CA.",
+        details={"algorithm": "ed25519", "field": "identity.card_sig"} if _ed25519_private else {},
+    ))
 
     # 4. Auto peer AgentCard verification on connect
-    signals.append({
-        "type":        "peer_card_verification",
-        "enabled":     True,   # always active (v1.9); verification result in /peer/verify
-        "description": "Peer's AgentCard is automatically verified on connection (v1.9). Result available at GET /peer/verify.",
-        "details":     {"endpoint": "/peer/verify"},
-    })
+    signals.append(_sig(
+        "peer_card_verification",
+        True,   # always active (v1.9); verification result in /peer/verify
+        "Peer's AgentCard is automatically verified on connection (v1.9). Result available at GET /peer/verify.",
+        details={"endpoint": "/peer/verify"},
+    ))
 
     # 5. HMAC replay-window protection
-    signals.append({
-        "type":        "replay_window",
-        "enabled":     bool(_hmac_secret),
-        "description": "HMAC replay-window: messages with duplicate nonces within 60s window are dropped (v1.1).",
-        "details":     {"window_seconds": 60} if _hmac_secret else {},
-    })
+    signals.append(_sig(
+        "replay_window",
+        bool(_hmac_secret),
+        "HMAC replay-window: messages with duplicate nonces within 60s window are dropped (v1.1).",
+        details={"window_seconds": 60} if _hmac_secret else {},
+    ))
 
     # 6. W3C DID Document
-    signals.append({
-        "type":        "did_document",
-        "enabled":     bool(_did_acp),
-        "description": "W3C DID Document published at /.well-known/did.json (v1.3). Contains Ed25519VerificationKey2020 and ACPRelay service endpoint.",
-        "details":     {"endpoint": "/.well-known/did.json", "did": _did_acp} if _did_acp else {},
-    })
+    signals.append(_sig(
+        "did_document",
+        bool(_did_acp),
+        "W3C DID Document published at /.well-known/did.json (v1.3). Contains Ed25519VerificationKey2020 and ACPRelay service endpoint.",
+        details={"endpoint": "/.well-known/did.json", "did": _did_acp} if _did_acp else {},
+    ))
 
     # 7. JWKS compatibility layer (v2.18)
-    signals.append({
-        "type":        "jwks",
-        "enabled":     bool(_ed25519_private),
-        "description": "Ed25519 public key published as JWK Set at /.well-known/jwks.json (v2.18, RFC 7517). Enables JWKS-based key discovery compatible with A2A IS#1628.",
-        "jwks_uri":    "/.well-known/jwks.json",
-        "alg":         "EdDSA",
-        "details":     {"endpoint": "/.well-known/jwks.json", "alg": "EdDSA", "kty": "OKP", "crv": "Ed25519"} if _ed25519_private else {},
-    })
+    signals.append(_sig(
+        "jwks",
+        bool(_ed25519_private),
+        "Ed25519 public key published as JWK Set at /.well-known/jwks.json (v2.18, RFC 7517). Enables JWKS-based key discovery compatible with A2A IS#1628.",
+        jwks_uri="/.well-known/jwks.json",
+        alg="EdDSA",
+        details={"endpoint": "/.well-known/jwks.json", "alg": "EdDSA", "kty": "OKP", "crv": "Ed25519"} if _ed25519_private else {},
+    ))
 
     # 8. Vouch chain (v2.27) — structured trust endorsements from other agents (A2A IS#1628 compatible)
-    signals.append({
-        "type":        "vouch_chain",
-        "enabled":     len(_vouch_chain) > 0,
-        "description": "Vouch chain: structured endorsements from other agents (v2.27). Compatible with A2A IS#1628 trust.signals specification.",
-        "details":     {
+    signals.append(_sig(
+        "vouch_chain",
+        len(_vouch_chain) > 0,
+        "Vouch chain: structured endorsements from other agents (v2.27). Compatible with A2A IS#1628 trust.signals specification.",
+        details={
             "count":   len(_vouch_chain),
             "endpoint": "/trust/vouch",
             "vouches":  _vouch_chain[-5:],  # expose last 5 for compactness in AgentCard
         },
-    })
+    ))
 
     # 9. Bilateral IR (v2.59+) — bilateral signed interaction records
-    signals.append({
-        "type":        "bilateral_ir",
-        "enabled":     True,   # always available (POST /tasks?record=true)
-        "description": "Bilateral signed interaction records (v2.59). Each task can be recorded with Ed25519 relay+caller signatures forming a tamper-evident audit chain.",
-        "details": {
+    signals.append(_sig(
+        "bilateral_ir",
+        True,   # always available (POST /tasks?record=true)
+        "Bilateral signed interaction records (v2.59). Each task can be recorded with Ed25519 relay+caller signatures forming a tamper-evident audit chain.",
+        details={
             "endpoint_create":  "/tasks?record=true",
             "endpoint_list":    "/interaction-records",
             "endpoint_import":  "/ir/import-evidence",
@@ -2724,14 +2778,14 @@ def _build_trust_signals() -> list:
             "bilateral":        True,
             "count":            len(_interaction_records),
         },
-    })
+    ))
 
     # 10. Capability token (v2.57) — per-invocation trust authorization
-    signals.append({
-        "type":        "capability_token",
-        "enabled":     bool(_ed25519_private),
-        "description": "SINT-format Ed25519 capability tokens for per-invocation trust authorization (v2.57). Skills can require a valid capability token before execution.",
-        "details": {
+    signals.append(_sig(
+        "capability_token",
+        bool(_ed25519_private),
+        "SINT-format Ed25519 capability tokens for per-invocation trust authorization (v2.57). Skills can require a valid capability token before execution.",
+        details={
             "endpoint_issue":   "/skills/{skill_id}/capability-token",
             "format":           "SINT",
             "algorithm":        "Ed25519",
@@ -2740,33 +2794,33 @@ def _build_trust_signals() -> list:
                 if isinstance(s, dict) and s.get("capability_token_required")
             ),
         } if _ed25519_private else {},
-    })
+    ))
 
     # 11. WTRMRK attestation (v2.62) — sequence root trust factor
-    signals.append({
-        "type":        "wtrmrk",
-        "enabled":     True,   # GET /identity/wtrmrk-status always available
-        "description": "WTRMRK sequence-root attestation as trust factor (v2.62). Contributes to effective_tier calculation as the 4th factor alongside tier_rule/depth_floor/reputation.",
-        "details": {
+    signals.append(_sig(
+        "wtrmrk",
+        True,   # GET /identity/wtrmrk-status always available
+        "WTRMRK sequence-root attestation as trust factor (v2.62). Contributes to effective_tier calculation as the 4th factor alongside tier_rule/depth_floor/reputation.",
+        details={
             "endpoint_status":  "/identity/wtrmrk-status",
             "factor_weight":    "±1 tier (asymmetric: +1 if present, -1 only if negative)",
             "contributes_to":   "effective_tier",
         },
-    })
+    ))
 
     # 12. External token verification (v2.63) — cross-protocol SINT token verify
-    signals.append({
-        "type":        "external_token",
-        "enabled":     bool(_ed25519_private),
-        "description": "Cross-protocol SINT token verification (v2.63). Validates externally-issued tokens from other ACP/APS agents using W3C did:key + Ed25519 signature verification.",
-        "details": {
+    signals.append(_sig(
+        "external_token",
+        bool(_ed25519_private),
+        "Cross-protocol SINT token verification (v2.63). Validates externally-issued tokens from other ACP/APS agents using W3C did:key + Ed25519 signature verification.",
+        details={
             "endpoint_verify":  "/verify/external-token",
             "endpoint_did_key": "/identity/did-key",
             "format":           "SINT",
             "algorithm":        "Ed25519",
             "did_method":       "did:key",
         } if _ed25519_private else {},
-    })
+    ))
 
     return signals
 
@@ -6667,6 +6721,31 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
 
         # ── GET /trust/signals — full trust signal inventory (v2.68) ────────
+        elif p == "/trust/signals/schema":
+            # v2.70: Returns canonical schema for all 12 trust signal types.
+            # Static reference: severity, category, canonical type name, description.
+            # Intended for consumer agents implementing weighted trust scoring
+            # (A2A #1628 @kenneives recommendation: consumer decides weighting, ACP provides hints).
+            schema_entries = []
+            # Build from TRUST_SIGNAL_SCHEMA + descriptions from a fresh signals list
+            all_signals = _build_trust_signals()
+            sig_by_type = {s["type"]: s for s in all_signals}
+            for type_name, meta in TRUST_SIGNAL_SCHEMA.items():
+                sig = sig_by_type.get(type_name, {})
+                schema_entries.append({
+                    "type":        type_name,
+                    "severity":    meta["severity"],
+                    "category":    meta["category"],
+                    "description": sig.get("description", ""),
+                })
+            self._json({
+                "ok":       True,
+                "schema":   schema_entries,
+                "count":    len(schema_entries),
+                "version":  VERSION,
+                "note":     "severity and category are advisory metadata for consumer-side trust scoring (A2A #1628 aligned). ACP signals are boolean (enabled=true/false); weighting is consumer responsibility.",
+            })
+
         elif p == "/trust/signals":
             # Returns the full trust.signals[] with live runtime details.
             # Unlike the AgentCard (which truncates vouch_chain to last 5),
@@ -6675,15 +6754,23 @@ class LocalHTTP(BaseHTTPRequestHandler):
             # Optional query params:
             #   ?type=<signal_type>   — filter to a single signal type
             #   ?enabled=true|false   — filter by enabled status
+            #   ?category=<cat>       — v2.70: filter by category (identity/integrity/authorization/discovery/attestation)
+            #   ?severity=<sev>       — v2.70: filter by severity (critical/high/medium/low)
             all_signals = _build_trust_signals()
-            type_filter    = qs.get("type",    [None])[0]
-            enabled_filter = qs.get("enabled", [None])[0]
+            type_filter     = qs.get("type",     [None])[0]
+            enabled_filter  = qs.get("enabled",  [None])[0]
+            category_filter = qs.get("category", [None])[0]   # v2.70
+            severity_filter = qs.get("severity", [None])[0]   # v2.70
             filtered = all_signals
             if type_filter:
                 filtered = [s for s in filtered if s.get("type") == type_filter]
             if enabled_filter is not None:
                 want_enabled = enabled_filter.lower() in ("true", "1", "yes")
                 filtered = [s for s in filtered if s.get("enabled") == want_enabled]
+            if category_filter:
+                filtered = [s for s in filtered if s.get("category") == category_filter]
+            if severity_filter:
+                filtered = [s for s in filtered if s.get("severity") == severity_filter]
             self._json({
                 "ok":      True,
                 "signals": filtered,
