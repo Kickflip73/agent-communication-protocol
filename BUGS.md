@@ -1527,3 +1527,11 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 - 状态：✅ 誤判，無需修復（實現正確）
 
 ---
+
+## BUG-054 ✅ [P1] `_build_trust_signals()` 引用未定義的 `_skills` 全域變數
+- 發現時間：2026-04-07（測試輪 #18）
+- 症狀：帶 `--identity` 啟動 relay 時，`_make_agent_card()` 在啟動期調用 `_build_trust_signals()`，後者引用 `_skills.values()`，而 `_skills` 不是模組級全域變數 → `NameError` crash，relay 無法啟動
+- 根因：v2.68 新增 signal #10 `capability_token` 時，誤用 `_skills.values()`（來自其他地方的命名慣例），實際 skills 存在 `_status["agent_card"]["skills"]`（list）中，且在 `_build_trust_signals()` 被調用時 `_status` 尚未填充 agent_card
+- 修復：改用 `(_status.get("agent_card") or {}).get("skills", [])` + `isinstance(s, dict)` 型別保護
+- 影響範圍：帶 `--identity` 的所有測試（test_ir_1_to_12、test_etv6..16、test_cs_*、test_wa_* 等）
+- 狀態：✅ 已修復（本次心跳）

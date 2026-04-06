@@ -2734,7 +2734,8 @@ def _build_trust_signals() -> list:
             "format":           "SINT",
             "algorithm":        "Ed25519",
             "capability_token_required_skills": sum(
-                1 for s in _skills.values() if s.get("capability_token_required")
+                1 for s in ((_status.get("agent_card") or {}).get("skills", []))
+                if isinstance(s, dict) and s.get("capability_token_required")
             ),
         } if _ed25519_private else {},
     })

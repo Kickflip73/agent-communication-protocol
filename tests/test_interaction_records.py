@@ -54,7 +54,7 @@ def _start_relay(ws_port: int, identity_file: str = None, skills_json: str = Non
     if skills_json:
         cmd += ["--skills", skills_json]
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    deadline = time.time() + 12
+    deadline = time.time() + 20   # v2.68: bumped from 12 → 20s (identity load adds latency)
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{http_port}/status", timeout=1) as r:
