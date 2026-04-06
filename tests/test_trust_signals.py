@@ -79,6 +79,7 @@ EXPECTED_SIGNAL_TYPES = {
     "capability_token",
     "wtrmrk",
     "external_token",
+    "security_posture",   # v2.71: 13th signal
 }
 
 
@@ -106,7 +107,7 @@ def test_ts1_basic_response(relay_url):
 
 
 def test_ts2_all_12_types_present(relay_url):
-    """TS-2: All 12 expected signal types are present in /trust/signals."""
+    """TS-2: All 13 expected signal types are present in /trust/signals (v2.71: +security_posture)."""
     d = get_signals(relay_url)
     found_types = {s["type"] for s in d["signals"]}
     assert EXPECTED_SIGNAL_TYPES == found_types, \
@@ -217,7 +218,7 @@ def test_ts13_unknown_type_filter(relay_url):
     assert d["ok"] is True
     assert d["count"] == 0
     assert d["signals"] == []
-    assert d["total"] == 12  # total is always all 12
+    assert d["total"] == 13  # v2.71: total is always all 13
 
 
 def test_ts14_no_identity_bilateral_ir_enabled(relay_url):

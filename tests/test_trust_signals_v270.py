@@ -99,8 +99,8 @@ def test_sc1_schema_basic(relay_url):
     assert "schema" in d
     assert "count" in d
     assert "version" in d
-    assert d["count"] == 12
-    assert len(d["schema"]) == 12
+    assert d["count"] == 13  # v2.71: 13 signal types (was 12; +security_posture)
+    assert len(d["schema"]) == 13
     assert d["version"].startswith("2.")
     assert "note" in d
 
@@ -230,7 +230,7 @@ def test_sf10_filter_severity_medium(relay_url):
 def test_sv11_signals_have_severity(relay_url):
     """SV-11: Every signal in GET /trust/signals has a severity field."""
     d = get_signals(relay_url)
-    assert d["count"] == 12
+    assert d["count"] == 13  # v2.71: 13 signals
     for sig in d["signals"]:
         assert "severity" in sig, f"Signal missing severity: {sig['type']}"
         assert sig["severity"] in VALID_SEVERITIES, \
