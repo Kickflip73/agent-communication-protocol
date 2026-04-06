@@ -151,7 +151,9 @@ def test_conc2_concurrent_confirm_race():
 # CONC3: confirm and reject race — task ends in submitted OR failed
 # ═══════════════════════════════════════════════════════════════
 def test_conc3_confirm_reject_race():
-    """CONC3: one thread confirms, one rejects simultaneously — task ends in submitted or failed (not hanging)."""
+    """CONC3: one thread confirms, one rejects simultaneously — task ends in submitted/failed/rejected (not hanging).
+    v2.66: :reject now yields 'rejected' terminal state instead of 'failed'.
+    """
     proc, hp = _start_relay(48002, [
         {"id": "dep", "name": "Dep", "authorization_tier": "T3", "human_confirmation_required": True}
     ])
@@ -180,7 +182,8 @@ def test_conc3_confirm_reject_race():
         t1.join(timeout=5); t2.join(timeout=5)
 
         _, final = _http("GET", hp, f"/tasks/{tid}")
-        assert final.get("status") in ("submitted", "failed"), \
+        # v2.66: :reject yields 'rejected' (not 'failed'); confirm yields 'submitted'
+        assert final.get("status") in ("submitted", "failed", "rejected"), \
             f"Task in unexpected state: {final.get('status')}"
         # Task must NOT be stuck in confirmation_pending
         assert final.get("status") != "confirmation_pending", "Task stuck in confirmation_pending!"
@@ -393,7 +396,9 @@ def test_int3_param_blocks_before_confirmation():
 # INT4: full rejection path — T3 + valid params + human rejects
 # ═══════════════════════════════════════════════════════════════
 def test_int4_full_rejection_path():
-    """INT4: T3 + valid params → confirmation_pending → :reject → failed."""
+    """INT4: T3 + valid params → confirmation_pending → :reject → rejected.
+    v2.66: status changed from 'failed' → 'rejected' (A2A v1.0.0 alignment).
+    """
     skills = [{
         "id": "nuke",
         "name": "Nuke",
@@ -416,11 +421,12 @@ def test_int4_full_rejection_path():
 
         s2, b2 = _http("POST", hp, f"/tasks/{tid}:reject", {"reason": "Absolutely not."})
         assert s2 == 200
-        assert b2["status"] == "failed"
+        assert b2["status"] == "rejected", \
+            f"v2.66: T3 :reject should yield 'rejected' (was 'failed'), got: {b2['status']}"
         assert "Absolutely not." in b2.get("reason", "")
 
         _, final = _http("GET", hp, f"/tasks/{tid}")
-        assert final.get("status") == "failed"
+        assert final.get("status") == "rejected"
     finally:
         proc.terminate(); proc.wait(timeout=5)
 
