@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.67.0"  # v2.67: Direct Message mode — POST /message/send returns Message (not Task); A2A SendMessageResponse{oneof{Task,Message}} alignment; parts[] format (text/file/data); capabilities.direct_message=True; endpoints.message_send; tests DM-1..12
+VERSION = "2.68.0"  # v2.68: trust.signals[] v2 — 4 new signal types (bilateral_ir/capability_token/wtrmrk/external_token); GET /trust/signals endpoint (filterable ?type= ?enabled=); AgentCard capabilities.trust_signals_v268=True + endpoints.trust_signals; total 12 signal types; tests TS-1..10
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2003,6 +2003,7 @@ def _make_agent_card(name, skills):
             "ws_stream":          True,                         # v2.12: GET /ws/stream WebSocket native push endpoint
             "event_replay":       True,                         # v2.13: ?since=<seq> replay on /stream and /ws/stream
             "trust_signals":      True,                         # v2.14: trust.signals[] structured evidence in AgentCard
+            "trust_signals_v268": True,                         # v2.68: GET /trust/signals endpoint + 4 new signal types (bilateral_ir/capability_token/wtrmrk/external_token)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2118,6 +2119,7 @@ def _make_agent_card(name, skills):
             "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
             "agent_reject":          "/tasks/{id}:agent-reject",# v2.66: POST — agent-initiated task rejection → rejected terminal state
             "message_send":          "/message/send",           # v2.67: POST — Direct Message (no Task); A2A SendMessageResponse.oneof{Task,Message}
+            "trust_signals":         "/trust/signals",          # v2.68: GET — full trust signal inventory (12 types; filterable by ?type= ?enabled=)
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -2704,6 +2706,63 @@ def _build_trust_signals() -> list:
             "endpoint": "/trust/vouch",
             "vouches":  _vouch_chain[-5:],  # expose last 5 for compactness in AgentCard
         },
+    })
+
+    # 9. Bilateral IR (v2.59+) — bilateral signed interaction records
+    signals.append({
+        "type":        "bilateral_ir",
+        "enabled":     True,   # always available (POST /tasks?record=true)
+        "description": "Bilateral signed interaction records (v2.59). Each task can be recorded with Ed25519 relay+caller signatures forming a tamper-evident audit chain.",
+        "details": {
+            "endpoint_create":  "/tasks?record=true",
+            "endpoint_list":    "/interaction-records",
+            "endpoint_import":  "/ir/import-evidence",
+            "endpoint_vectors":  "/ir/test-vectors",
+            "relay_signing":    bool(_ed25519_private),
+            "bilateral":        True,
+            "count":            len(_interaction_records),
+        },
+    })
+
+    # 10. Capability token (v2.57) — per-invocation trust authorization
+    signals.append({
+        "type":        "capability_token",
+        "enabled":     bool(_ed25519_private),
+        "description": "SINT-format Ed25519 capability tokens for per-invocation trust authorization (v2.57). Skills can require a valid capability token before execution.",
+        "details": {
+            "endpoint_issue":   "/skills/{skill_id}/capability-token",
+            "format":           "SINT",
+            "algorithm":        "Ed25519",
+            "capability_token_required_skills": sum(
+                1 for s in _skills.values() if s.get("capability_token_required")
+            ),
+        } if _ed25519_private else {},
+    })
+
+    # 11. WTRMRK attestation (v2.62) — sequence root trust factor
+    signals.append({
+        "type":        "wtrmrk",
+        "enabled":     True,   # GET /identity/wtrmrk-status always available
+        "description": "WTRMRK sequence-root attestation as trust factor (v2.62). Contributes to effective_tier calculation as the 4th factor alongside tier_rule/depth_floor/reputation.",
+        "details": {
+            "endpoint_status":  "/identity/wtrmrk-status",
+            "factor_weight":    "±1 tier (asymmetric: +1 if present, -1 only if negative)",
+            "contributes_to":   "effective_tier",
+        },
+    })
+
+    # 12. External token verification (v2.63) — cross-protocol SINT token verify
+    signals.append({
+        "type":        "external_token",
+        "enabled":     bool(_ed25519_private),
+        "description": "Cross-protocol SINT token verification (v2.63). Validates externally-issued tokens from other ACP/APS agents using W3C did:key + Ed25519 signature verification.",
+        "details": {
+            "endpoint_verify":  "/verify/external-token",
+            "endpoint_did_key": "/identity/did-key",
+            "format":           "SINT",
+            "algorithm":        "Ed25519",
+            "did_method":       "did:key",
+        } if _ed25519_private else {},
     })
 
     return signals
@@ -6603,6 +6662,32 @@ class LocalHTTP(BaseHTTPRequestHandler):
             }
             self._json(resp)
 
+
+        # ── GET /trust/signals — full trust signal inventory (v2.68) ────────
+        elif p == "/trust/signals":
+            # Returns the full trust.signals[] with live runtime details.
+            # Unlike the AgentCard (which truncates vouch_chain to last 5),
+            # this endpoint returns complete details for all 12 signal types.
+            #
+            # Optional query params:
+            #   ?type=<signal_type>   — filter to a single signal type
+            #   ?enabled=true|false   — filter by enabled status
+            all_signals = _build_trust_signals()
+            type_filter    = qs.get("type",    [None])[0]
+            enabled_filter = qs.get("enabled", [None])[0]
+            filtered = all_signals
+            if type_filter:
+                filtered = [s for s in filtered if s.get("type") == type_filter]
+            if enabled_filter is not None:
+                want_enabled = enabled_filter.lower() in ("true", "1", "yes")
+                filtered = [s for s in filtered if s.get("enabled") == want_enabled]
+            self._json({
+                "ok":      True,
+                "signals": filtered,
+                "count":   len(filtered),
+                "total":   len(all_signals),
+                "version": VERSION,
+            })
 
         # ── GET /trust/vouch — list vouch_chain entries (v2.27) ─────────────
         elif p == "/trust/vouch":

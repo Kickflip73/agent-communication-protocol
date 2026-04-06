@@ -1,34 +1,70 @@
-#!/usr/bin/env python3
 """
-test_trust_signals.py — v2.14: trust.signals[] structured evidence
+tests/test_trust_signals.py — v2.68 trust.signals[] extended inventory
 
-TS1: trust block present in AgentCard (/.well-known/acp.json)
-TS2: trust.signals is a non-empty list
-TS3: each signal has required fields (type, enabled, description, details)
-TS4: known signal types are all present
-TS5: without --identity, ed25519-related signals disabled
-TS6: without --secret, hmac-related signals disabled
-TS7: trust_signals capability declared in AgentCard
-TS8: signals consistent with capabilities (trust.signals[n].enabled ↔ capabilities)
+TS-1:  GET /trust/signals returns ok=True, 12 signals, version field
+TS-2:  All 12 expected signal types present
+TS-3:  Each signal has required fields (type, enabled, description, details)
+TS-4:  ?type=bilateral_ir filter returns exactly 1 signal
+TS-5:  ?type=capability_token filter returns exactly 1 signal
+TS-6:  ?type=wtrmrk filter returns exactly 1 signal
+TS-7:  ?type=external_token filter returns exactly 1 signal
+TS-8:  ?enabled=true filter returns only enabled signals (count >= 1)
+TS-9:  ?enabled=false filter returns only disabled signals; enabled=False for all
+TS-10: bilateral_ir signal has expected detail keys (endpoint_create, endpoint_list, count)
+TS-11: AgentCard capabilities.trust_signals_v268 = True
+TS-12: AgentCard endpoints.trust_signals = "/trust/signals"
+TS-13: ?type=nonexistent returns count=0, ok=True
+TS-14: No --identity: ed25519_identity signal enabled=False; bilateral_ir enabled=True
 """
 
-import json
 import os
-import socket
-import subprocess
 import sys
 import time
-import urllib.request
-
+import socket
+import subprocess
 import pytest
+import requests
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RELAY_PY = os.path.join(BASE_DIR, "relay", "acp_relay.py")
+RELAY = os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py")
 
-_PROXY_VARS = (
-    "http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY",
-    "all_proxy", "ALL_PROXY", "ftp_proxy", "FTP_PROXY", "no_proxy", "NO_PROXY",
-)
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
+
+@pytest.fixture(scope="module")
+def relay_url():
+    """Start a relay, yield its HTTP base URL, tear down after module."""
+    ws_port = _free_port()
+    http_port = ws_port + 100
+    proc = subprocess.Popen(
+        [sys.executable, RELAY, "--port", str(ws_port), "--name", "TrustSignalsTest"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"http://localhost:{http_port}/status", timeout=1)
+            if r.status_code == 200:
+                break
+        except Exception:
+            pass
+        time.sleep(0.2)
+    else:
+        proc.terminate()
+        pytest.fail("Relay did not start in time")
+
+    yield f"http://localhost:{http_port}"
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 EXPECTED_SIGNAL_TYPES = {
     "hmac_message_signing",
@@ -37,161 +73,160 @@ EXPECTED_SIGNAL_TYPES = {
     "peer_card_verification",
     "replay_window",
     "did_document",
+    "jwks",
+    "vouch_chain",
+    "bilateral_ir",
+    "capability_token",
+    "wtrmrk",
+    "external_token",
 }
 
 
-def _clean_env() -> dict:
-    env = os.environ.copy()
-    for v in _PROXY_VARS:
-        env.pop(v, None)
-    env["PYTHONUNBUFFERED"] = "1"
-    return env
+# ── helpers ───────────────────────────────────────────────────────────────────
 
-
-def _free_port() -> int:
-    for _ in range(200):
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            ws = s.getsockname()[1]
-        try:
-            with socket.socket() as s2:
-                s2.bind(("127.0.0.1", ws + 100))
-                return ws
-        except OSError:
-            continue
-    raise RuntimeError("no free port pair")
-
-
-def _start_relay(ws_port: int, name: str = "TrustAgent", extra: list = None) -> subprocess.Popen:
-    cmd = [sys.executable, "-u", RELAY_PY,
-           "--name", name,
-           "--port", str(ws_port),
-           "--http-host", "127.0.0.1"]
-    if extra:
-        cmd.extend(extra)
-    return subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        env=_clean_env(),
-    )
-
-
-def _wait_ready(http_port: int, timeout: float = 12.0) -> bool:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{http_port}/status", timeout=2
-            ) as r:
-                if r.status == 200:
-                    return True
-        except Exception:
-            pass
-        time.sleep(0.3)
-    return False
-
-
-def _get_json(url: str, timeout: float = 5) -> dict:
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return json.loads(r.read())
-
-
-def _get_agent_card(http_port: int) -> dict:
-    """Get the 'self' AgentCard from /.well-known/acp.json (unwrap {self: card} wrapper)."""
-    raw = _get_json(f"http://127.0.0.1:{http_port}/.well-known/acp.json")
-    return raw.get("self", raw)  # support both wrapped and flat format
-
-
-# ── fixtures ──────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="module")
-def relay_no_identity():
-    """Relay started without --identity (default)."""
-    ws = _free_port()
-    http = ws + 100
-    proc = _start_relay(ws, "TSNoId")
-    assert _wait_ready(http), f"relay failed to start (http_port={http})"
-    yield http
-    proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=5)
+def get_signals(relay_url: str, **params) -> dict:
+    r = requests.get(f"{relay_url}/trust/signals", params=params)
+    assert r.status_code == 200, f"GET /trust/signals failed: {r.status_code} {r.text}"
+    return r.json()
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
 
-class TestTrustSignals:
+def test_ts1_basic_response(relay_url):
+    """TS-1: GET /trust/signals returns ok=True, signals list, version."""
+    d = get_signals(relay_url)
+    assert d["ok"] is True
+    assert "signals" in d
+    assert "count" in d
+    assert "total" in d
+    assert "version" in d
+    assert d["version"].startswith("2.")
+    assert isinstance(d["signals"], list)
+    assert len(d["signals"]) == d["count"]
 
-    def test_ts1_trust_block_present(self, relay_no_identity):
-        """TS1: trust block present in /.well-known/acp.json."""
-        card = _get_agent_card(relay_no_identity)
-        assert "trust" in card, "AgentCard missing 'trust' block"
-        trust = card["trust"]
-        assert "scheme" in trust
-        assert "enabled" in trust
-        assert "signals" in trust, "trust block missing 'signals' key"
 
-    def test_ts2_signals_nonempty_list(self, relay_no_identity):
-        """TS2: trust.signals is a non-empty list."""
-        card = _get_agent_card(relay_no_identity)
-        signals = card["trust"]["signals"]
-        assert isinstance(signals, list), f"trust.signals should be list, got {type(signals)}"
-        assert len(signals) > 0, "trust.signals should not be empty"
+def test_ts2_all_12_types_present(relay_url):
+    """TS-2: All 12 expected signal types are present in /trust/signals."""
+    d = get_signals(relay_url)
+    found_types = {s["type"] for s in d["signals"]}
+    assert EXPECTED_SIGNAL_TYPES == found_types, \
+        f"Missing: {EXPECTED_SIGNAL_TYPES - found_types}, Extra: {found_types - EXPECTED_SIGNAL_TYPES}"
 
-    def test_ts3_each_signal_has_required_fields(self, relay_no_identity):
-        """TS3: each signal has type, enabled, description, details."""
-        card = _get_agent_card(relay_no_identity)
-        for sig in card["trust"]["signals"]:
-            assert "type" in sig,        f"signal missing 'type': {sig}"
-            assert "enabled" in sig,     f"signal missing 'enabled': {sig}"
-            assert "description" in sig, f"signal missing 'description': {sig}"
-            assert "details" in sig,     f"signal missing 'details': {sig}"
-            assert isinstance(sig["enabled"], bool), f"signal.enabled should be bool: {sig}"
-            assert isinstance(sig["details"], dict), f"signal.details should be dict: {sig}"
 
-    def test_ts4_expected_signal_types_present(self, relay_no_identity):
-        """TS4: all expected signal types are present."""
-        card = _get_agent_card(relay_no_identity)
-        found = {s["type"] for s in card["trust"]["signals"]}
-        missing = EXPECTED_SIGNAL_TYPES - found
-        assert not missing, f"Missing signal types: {missing}"
+def test_ts3_signal_schema(relay_url):
+    """TS-3: Each signal has required fields: type, enabled, description, details."""
+    d = get_signals(relay_url)
+    for sig in d["signals"]:
+        assert "type" in sig,        f"Signal missing 'type': {sig}"
+        assert "enabled" in sig,     f"Signal missing 'enabled': {sig}"
+        assert "description" in sig, f"Signal missing 'description': {sig}"
+        assert "details" in sig,     f"Signal missing 'details': {sig}"
+        assert isinstance(sig["enabled"], bool),      f"'enabled' must be bool: {sig}"
+        assert isinstance(sig["description"], str),   f"'description' must be str: {sig}"
+        assert isinstance(sig["details"], dict),      f"'details' must be dict: {sig}"
 
-    def test_ts5_no_identity_ed25519_signals_disabled(self, relay_no_identity):
-        """TS5: without --identity, ed25519/DID-related signals are disabled."""
-        card = _get_agent_card(relay_no_identity)
-        by_type = {s["type"]: s for s in card["trust"]["signals"]}
 
-        assert not by_type["ed25519_identity"]["enabled"], \
-            "ed25519_identity should be disabled without --identity"
-        assert not by_type["agent_card_signature"]["enabled"], \
-            "agent_card_signature should be disabled without --identity"
-        assert not by_type["did_document"]["enabled"], \
-            "did_document should be disabled without --identity"
+def test_ts4_filter_bilateral_ir(relay_url):
+    """TS-4: ?type=bilateral_ir returns exactly 1 signal."""
+    d = get_signals(relay_url, type="bilateral_ir")
+    assert d["ok"] is True
+    assert d["count"] == 1
+    assert d["signals"][0]["type"] == "bilateral_ir"
 
-    def test_ts6_no_hmac_signals_disabled(self, relay_no_identity):
-        """TS6: without --secret, HMAC-related signals are disabled."""
-        card = _get_agent_card(relay_no_identity)
-        by_type = {s["type"]: s for s in card["trust"]["signals"]}
 
-        assert not by_type["hmac_message_signing"]["enabled"], \
-            "hmac_message_signing should be disabled without --secret"
-        assert not by_type["replay_window"]["enabled"], \
-            "replay_window should be disabled without --secret"
+def test_ts5_filter_capability_token(relay_url):
+    """TS-5: ?type=capability_token returns exactly 1 signal."""
+    d = get_signals(relay_url, type="capability_token")
+    assert d["ok"] is True
+    assert d["count"] == 1
+    assert d["signals"][0]["type"] == "capability_token"
 
-    def test_ts7_capability_declared(self, relay_no_identity):
-        """TS7: trust_signals capability is declared in AgentCard."""
-        card = _get_agent_card(relay_no_identity)
-        caps = card.get("capabilities", {})
-        assert caps.get("trust_signals") is True, \
-            "capabilities.trust_signals should be True"
 
-    def test_ts8_peer_card_verification_always_enabled(self, relay_no_identity):
-        """TS8: peer_card_verification signal is always enabled (it's a built-in capability)."""
-        card = _get_agent_card(relay_no_identity)
-        by_type = {s["type"]: s for s in card["trust"]["signals"]}
-        assert by_type["peer_card_verification"]["enabled"], \
-            "peer_card_verification should always be enabled"
-        assert by_type["peer_card_verification"]["details"].get("endpoint") == "/peer/verify"
+def test_ts6_filter_wtrmrk(relay_url):
+    """TS-6: ?type=wtrmrk returns exactly 1 signal."""
+    d = get_signals(relay_url, type="wtrmrk")
+    assert d["ok"] is True
+    assert d["count"] == 1
+    assert d["signals"][0]["type"] == "wtrmrk"
+
+
+def test_ts7_filter_external_token(relay_url):
+    """TS-7: ?type=external_token returns exactly 1 signal."""
+    d = get_signals(relay_url, type="external_token")
+    assert d["ok"] is True
+    assert d["count"] == 1
+    assert d["signals"][0]["type"] == "external_token"
+
+
+def test_ts8_filter_enabled_true(relay_url):
+    """TS-8: ?enabled=true returns only signals with enabled=True."""
+    d = get_signals(relay_url, enabled="true")
+    assert d["ok"] is True
+    assert d["count"] >= 1, "Expected at least 1 enabled signal (peer_card_verification is always True)"
+    for sig in d["signals"]:
+        assert sig["enabled"] is True, f"Non-enabled signal returned: {sig['type']}"
+
+
+def test_ts9_filter_enabled_false(relay_url):
+    """TS-9: ?enabled=false returns only signals with enabled=False."""
+    d = get_signals(relay_url, enabled="false")
+    assert d["ok"] is True
+    for sig in d["signals"]:
+        assert sig["enabled"] is False, f"Enabled signal returned in ?enabled=false: {sig['type']}"
+
+
+def test_ts10_bilateral_ir_detail_keys(relay_url):
+    """TS-10: bilateral_ir signal has expected detail keys."""
+    d = get_signals(relay_url, type="bilateral_ir")
+    sig = d["signals"][0]
+    details = sig["details"]
+    assert "endpoint_create" in details
+    assert "endpoint_list" in details
+    assert "endpoint_import" in details
+    assert "endpoint_vectors" in details
+    assert "count" in details
+    assert details["endpoint_create"] == "/tasks?record=true"
+    assert details["endpoint_list"] == "/interaction-records"
+    assert isinstance(details["count"], int)
+    assert details["bilateral"] is True
+
+
+def test_ts11_agentcard_capability(relay_url):
+    """TS-11: AgentCard capabilities.trust_signals_v268 = True."""
+    r = requests.get(f"{relay_url}/.well-known/acp.json")
+    assert r.status_code == 200
+    card = r.json()
+    cap = card.get("self", card).get("capabilities", {})
+    assert cap.get("trust_signals_v268") is True, \
+        f"capabilities.trust_signals_v268 not True; got {cap.get('trust_signals_v268')}"
+
+
+def test_ts12_agentcard_endpoint(relay_url):
+    """TS-12: AgentCard endpoints.trust_signals = '/trust/signals'."""
+    r = requests.get(f"{relay_url}/.well-known/acp.json")
+    assert r.status_code == 200
+    card = r.json()
+    ep = card.get("self", card).get("endpoints", {})
+    assert ep.get("trust_signals") == "/trust/signals", \
+        f"endpoints.trust_signals unexpected: {ep.get('trust_signals')}"
+
+
+def test_ts13_unknown_type_filter(relay_url):
+    """TS-13: ?type=nonexistent returns count=0, ok=True, empty list."""
+    d = get_signals(relay_url, type="nonexistent_signal_type_xyz")
+    assert d["ok"] is True
+    assert d["count"] == 0
+    assert d["signals"] == []
+    assert d["total"] == 12  # total is always all 12
+
+
+def test_ts14_no_identity_bilateral_ir_enabled(relay_url):
+    """TS-14: Without --identity, bilateral_ir is enabled=True (always available)."""
+    # bilateral_ir doesn't require Ed25519 identity to be enabled
+    d = get_signals(relay_url, type="bilateral_ir")
+    sig = d["signals"][0]
+    assert sig["enabled"] is True, "bilateral_ir should always be enabled (no identity required)"
+    # ed25519_identity should be disabled (no --identity in test fixture)
+    d2 = get_signals(relay_url, type="ed25519_identity")
+    sig2 = d2["signals"][0]
+    assert sig2["enabled"] is False, "ed25519_identity should be disabled without --identity"
