@@ -7,6 +7,35 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.67.0] — 2026-04-06 (Direct Message mode — A2A v1.0.0 `SendMessageResponse` alignment)
+
+### Added
+- **`POST /message/send`** — Direct Message endpoint (no Task created, no state machine)
+  - Endpoint uses `/` separator (vs existing `/message:send` WS routing endpoint)
+  - Request: `{ role: "user"|"agent", parts?: Part[], text?: string, context_id?: string, message_id?: string }`
+  - Response: `{ ok, type:"message", message_id, role, parts[], context_id?, timestamp }`
+  - Supports both `parts[]` (A2A format) and legacy `text`/`content` shorthand
+  - `parts[]` format: A2A Part (text/file/data)
+  - Content-Type guard: non-JSON rejected with `400`
+  - Oversized body (>1MB) rejected with `413` via `_read_body()` guard (BUG-051)
+  - Deduplication via `message_id` (optional client-provided)
+- **AgentCard `capabilities.direct_message: true`**
+- **AgentCard `endpoints.message_send: "/message/send"`**
+
+### Fixed
+- **BUG-053** (false positive): `MAX_MSG_BYTES = 1MB` (not 64KB); `_read_body()` already enforces
+  size limit via `Content-Length`. 70KB < 1MB is correctly accepted; 1.1MB correctly returns `413`.
+
+### Tests
+- `tests/test_direct_message.py` — DM-1..14: **16 tests passed** (DM-14: size boundary regression)
+- All 843+ existing tests continue to pass (no regressions)
+
+### Alignment
+- A2A v1.0.0 `SendMessageResponse.oneof { Task task; Message message; }` — Direct Message is the
+  `Message` branch; ACP `/message:send` (existing) is the `Task` branch.
+
+---
+
 ## [2.66.0] — 2026-04-06 (Task `rejected` terminal state — A2A v1.0.0 alignment)
 
 ### Added

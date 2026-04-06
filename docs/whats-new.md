@@ -1,7 +1,84 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-04-06
+> Last updated: 2026-04-06 23:05
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+### v2.67.0 — Direct Message Mode — A2A v1.0.0 `SendMessageResponse` Alignment (2026-04-06)
+
+ACP v2.67 introduces **Direct Message mode**: a lightweight `POST /message/send` endpoint that
+returns a `Message` object directly — no Task created, no state machine, no lifecycle management.
+This aligns with A2A v1.0.0's `SendMessageResponse.oneof { Task task; Message message; }` pattern.
+
+#### When to use Direct Message vs Tasks
+
+| Use Case | Endpoint | Returns |
+|----------|----------|---------|
+| Simple query, ping, calculation | `POST /message/send` | `Message` (immediate) |
+| Long-running, stateful work | `POST /message:send` (existing) | `Task` (with lifecycle) |
+
+#### `POST /message/send`
+
+```bash
+curl -X POST http://localhost:8765/message/send \
+  -H "Content-Type: application/json" \
+  -d '{"role": "user", "text": "What is 2+2?", "context_id": "ctx-001"}'
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "type": "message",
+  "message_id": "msg-a1b2c3d4",
+  "role": "user",
+  "parts": [{"type": "text", "text": "What is 2+2?"}],
+  "context_id": "ctx-001",
+  "timestamp": "2026-04-06T14:00:00Z"
+}
+```
+
+#### Parts format (A2A aligned)
+
+`parts[]` follows the A2A Part model with three types:
+
+```json
+// Text part
+{"type": "text", "text": "hello"}
+
+// File part
+{"type": "file", "file": {"name": "doc.txt", "mimeType": "text/plain", "bytes": "<base64>"}}
+
+// Data part
+{"type": "data", "data": {"key": "value"}}
+```
+
+Shorthand: `"text": "..."` is auto-converted to `[{"type":"text","text":"..."}]`.
+
+#### AgentCard
+
+```json
+{
+  "capabilities": { "direct_message": true },
+  "endpoints": { "message_send": "/message/send" }
+}
+```
+
+#### Size limit
+
+Bodies >1MB return `413`. 70KB and below are accepted normally (limit is `MAX_MSG_BYTES = 1MB`).
+
+#### Tests
+
+`tests/test_direct_message.py` — DM-1..14: **16 tests passed**
+- DM-1..3: happy path (text shorthand, parts[], context_id passthrough)
+- DM-4..6: role validation, missing role, invalid role
+- DM-7..9: parts validation, empty parts fallback, data part
+- DM-10..11: message_id dedup / client-provided message_id
+- DM-12: Content-Type guard
+- DM-13: file part round-trip
+- DM-14: size boundary (70KB=200, 1.1MB=413)
 
 ---
 

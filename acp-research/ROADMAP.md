@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-06 17:55（开发轮 #18：v2.66.0 完成；TASK_REJECTED+TERMINAL_STATES；T3:reject→rejected；POST :agent-reject；RJ-1..10 PASS；T3C5/T3C11 更新；commit f56758d）
+> 最后更新：2026-04-06 23:05（文档轮：v2.67.0 标记完成；DM-1..14 16 tests PASS；v2.68 trust.signals[] 规划；scan12 ANP 降频；commit pending）
 
 ---
 
@@ -684,7 +684,8 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.64** | **✅ 2026-04-06** | **双边 IR 测试向量 + governance live_endpoint（APS 对齐）：`GET /ir/test-vectors`（4 个确定性 Ed25519 测试向量：tv-ir-001 双边有效/tv-ir-002 单边/tv-ir-003 篡改负面测试/tv-ir-004 did:key 格式）+ SHA-256 seeded 确定性密钥对 + 哈希链 previous_hash + canonical_bytes_hex 一致性 + `governance_metadata.live_endpoint: /governance-metadata`（APS serviceEndpoint 对齐，A2A #1717）+ AgentCard capabilities.ir_test_vectors + endpoints.ir_test_vectors + 503 无 identity 时 + ITV-1..18 PASS + **860 全量回归** — commit a61f9f0** |
 | **v2.65** | **✅ 2026-04-06** | **`POST /ir/import-evidence` — APS importBilateralEvidence() 对齐（A2A #1718）：接受外部双边 IR → 验证 relay_signature + caller_signature（Ed25519）→ 返回 trust_delta（+1 双边验证/0 单边/−1 篡改）+ freshness_hint + aps_schema:v1；`GET /ir/imported-evidence`（列表/过滤/分页）；`_verify_ir_signatures()` + `_build_reputation_update()` 内部 helper；AgentCard capabilities.import_evidence + endpoints.import_evidence；BUG-052 修复（test_t3c3 端口竞争：`_kill_port()` + `websockets.serve(reuse_address=True)` + timeout 20s）；IE-1..20 PASS + **843 全量回归** — commit c5e53e3** |
 | **v2.66** | **✅ 2026-04-06** | **Task `rejected` 终态对齐 A2A v1.0.0**：新增 `rejected` 作为第 6 个 Task 状态（agent 主动拒绝 task）；`GET /tasks/{id}` 返回 rejected；人工确认 skill 可产生 rejected 状态；`GET /tasks` 列表过滤支持 `status=rejected`；AgentCard capabilities.rejected_state = True；测试 RJ-1..10 |
-| **v2.67** | 🔲 规划中 | **Direct Message 模式**（对齐 A2A v1.0.0 `SendMessageResponse.oneof{Task,Message}`）：新增 `POST /message:send` 端点，直接返回 `{type:"message", message_id, role, parts[]}` 不创建 Task；适合简单查询/ping/计算类交互；`parts[]` 格式对齐 A2A Part（text/file/data）；AgentCard `capabilities.direct_message=True` + `endpoints.message_send`；测试 DM-1..12（见 scan11 设计文档） |
+| **v2.67** | **✅ 2026-04-06** | **Direct Message 模式（对齐 A2A v1.0.0 `SendMessageResponse.oneof{Task,Message}`）**：新增 `POST /message/send` 端点（slash，区别于已有的 `/message:send` WS 路由），直接返回 `{ok, type:"message", message_id, role, parts[], context_id?, timestamp}` 不创建 Task；适合简单查询/ping/计算类交互；`parts[]` 格式对齐 A2A Part（text/file/data）；AgentCard `capabilities.direct_message=True` + `endpoints.message_send="/message/send"`；`MAX_MSG_BYTES` 大小校驗（via `_read_body()`，1MB 限制）；DM-14 大小边界测试（70KB=200, 1.1MB=413）；测试 DM-1..14（16 tests）PASS — commit c10290a |
+| **v2.68** | 🔲 规划中 | **`trust.signals[]` per-invocation 信任扩展**（对齐 A2A #1628）：扩展 `capability_token` 支持 per-invocation 信任要求声明；`trust.signals[]` 标准化 4 类信号（bilateral_ir / capability_token / wtrmrk / external_token）；`GET /trust/signals` 返回当前 Agent 信任信号集合；AgentCard `capabilities.trust_signals=True`；测试 TS-1..10 |
 
 ---
 

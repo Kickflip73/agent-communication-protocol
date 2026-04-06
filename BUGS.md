@@ -1337,7 +1337,7 @@ websockets 库报 `sent 1011 (internal error); then received 1011`，所有 5 �
 
 ---
 
-## BUG-047 [P1] connection_type 初始值为 None
+## BUG-047 ✅ [P1] connection_type 初始值为 None
 - 发现时间：2026-03-30
 - 症状：GET /status 返回 connection_type=null，测试期望合法字符串
 - 根因：_status 初始化时 connection_type 未设默认值（值为 None）
