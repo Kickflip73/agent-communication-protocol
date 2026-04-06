@@ -7,6 +7,34 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.66.0] — 2026-04-06 (Task `rejected` terminal state — A2A v1.0.0 alignment)
+
+### Added
+- **`TASK_REJECTED = "rejected"`** — New Task terminal state constant
+- **`TERMINAL_STATES`** updated to include `rejected`
+- **`POST /tasks/{id}:agent-reject`** — Agent-initiated task rejection
+  - Accepts `reason` (string) and `reject_code` (string) in request body
+  - Transitions any non-terminal task to `rejected`
+  - Idempotent: already-terminal tasks return `ok: true` + `note: "already in terminal state"`
+  - Unknown task → `404`
+- **`GET /tasks?status=rejected`** — Task list filter now accepts `status=rejected`
+- **AgentCard `capabilities.rejected_state: true`**
+- **AgentCard `endpoints.agent_reject: "/tasks/{id}:agent-reject"`**
+
+### Changed
+- **`POST /tasks/{id}:reject`** (T3 human confirmation): `confirmation_pending → rejected`
+  (previously `→ failed`). Semantically: human reviewer *actively declines*, not an error.
+
+### Tests
+- `tests/test_task_rejected.py` — RJ-1..10: 9 passed, 1 skipped
+- `tests/test_t3_human_confirmation.py` — T3C5, T3C11 assertions updated: `failed` → `rejected`
+
+### Motivation
+A2A v1.0.0 distinguishes `failed` (error/timeout) from `rejected` (agent actively refuses).
+ACP v2.66 aligns with this semantic, giving callers precise signal on *why* a task did not complete.
+
+---
+
 ## [2.65.0] — 2026-04-06 (POST /ir/import-evidence — APS-compatible bilateral IR import + reputation_update)
 
 ### Added

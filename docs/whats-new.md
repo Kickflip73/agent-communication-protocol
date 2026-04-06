@@ -5,6 +5,74 @@
 
 ---
 
+### v2.66.0 — Task `rejected` Terminal State — A2A v1.0.0 Alignment (2026-04-06)
+
+ACP v2.66 introduces `rejected` as a first-class terminal Task state, aligning with the
+[A2A v1.0.0 specification](https://a2a-protocol.org) which distinguishes between a task
+that *errored* (`failed`) and a task that an agent *actively refuses to execute* (`rejected`).
+
+#### Why `rejected` ≠ `failed`
+
+| State | Meaning | Triggered by |
+|-------|---------|--------------|
+| `failed` | Unexpected error, timeout, or system fault | Runtime exception |
+| `rejected` | Agent explicitly declines the task | Agent decision / policy |
+| `canceled` | Requester cancels an in-progress task | Caller (`POST :cancel`) |
+
+`rejected` is a terminal state — once set, the task cannot be re-activated.
+
+#### New: `POST /tasks/{id}:agent-reject`
+
+Agent-initiated rejection for any non-terminal task.
+
+```bash
+curl -X POST http://localhost:8765/tasks/task-abc:agent-reject \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Skill not available for this input", "reject_code": "skill_unavailable"}'
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "task_id": "task-abc",
+  "status": "rejected",
+  "reason": "Skill not available for this input",
+  "reject_code": "skill_unavailable"
+}
+```
+
+- Idempotent: calling on an already-terminal task returns `ok: true` + `note: "already in terminal state"`
+- Unknown task → `404`
+- Accepts optional `reason` (string) and `reject_code` (string) in request body
+
+#### Updated: T3 `POST /tasks/{id}:reject`
+
+The human-confirmation rejection endpoint now transitions `confirmation_pending → rejected`
+(previously `→ failed`). This better represents the semantics: a human reviewer *actively
+declined* the task, not that it errored.
+
+#### Updated: `GET /tasks?status=rejected`
+
+The task list filter now accepts `status=rejected`.
+
+#### AgentCard Updates
+
+```json
+{
+  "capabilities": {
+    "rejected_state": true
+  },
+  "endpoints": {
+    "agent_reject": "/tasks/{id}:agent-reject"
+  }
+}
+```
+
+**Tests**: RJ-1..10 — 9 passed, 1 skipped (T3 human-confirm scenario requires T3 skill)
+
+---
+
 ### v2.65.0 — `POST /ir/import-evidence` — APS-Compatible Reputation Update (2026-04-06)
 
 ACP v2.65 closes the bilateral IR → reputation loop by providing a standardized
