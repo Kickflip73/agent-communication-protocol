@@ -1,7 +1,80 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-04-06 23:05
+> Last updated: 2026-04-07 01:44
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+### v2.69.0 — Runtime Limitations Endpoint (2026-04-07)
+
+ACP v2.69 adds **`GET /limitations/runtime`** — a live runtime metrics endpoint that complements
+the static `limitations[]` declared in the AgentCard (v2.29). Aligns with A2A #1694 @citriac
+Agent Exchange Hub v0.4.0's stable/runtime limitations split.
+
+#### Metrics returned
+
+```bash
+curl http://localhost:8765/limitations/runtime
+```
+
+```json
+{
+  "ok": true,
+  "runtime": {
+    "current_load": 2,
+    "queue_depth": 1,
+    "active_tasks": 3,
+    "total_tasks": 47,
+    "memory_usage_mb": 52.4,
+    "memory_source": "psutil",
+    "peer_count": 2
+  },
+  "version": "2.69.0",
+  "timestamp": 1744034400.0
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `current_load` | Active WebSocket peer connections |
+| `queue_depth` | Tasks in `submitted` state |
+| `active_tasks` | Non-terminal tasks (submitted/working/input_required) |
+| `total_tasks` | All tasks ever created |
+| `memory_usage_mb` | Process RSS (psutil → `resource.getrusage` fallback) |
+| `peer_count` | Same as `current_load` |
+
+**AgentCard** declares `capabilities.runtime_limitations = true` and `endpoints.runtime_limitations = "/limitations/runtime"`.
+
+---
+
+### v2.68.0 — `trust.signals[]` v2: 12 Signal Types + `GET /trust/signals` (2026-04-06)
+
+ACP v2.68 extends the trust signal inventory to **12 types** and exposes them via a queryable
+endpoint, aligning with A2A #1628's `trust.signals[]` proposal.
+
+#### New signal types (v2.68)
+
+| Type | Description |
+|------|-------------|
+| `bilateral_ir` | Bilateral signed interaction records (v2.59+) |
+| `capability_token` | SINT-format Ed25519 capability tokens (v2.57) |
+| `wtrmrk` | WTRMRK sequence-root attestation as trust factor (v2.62) |
+| `external_token` | Cross-protocol SINT token verification (v2.63) |
+
+#### `GET /trust/signals`
+
+```bash
+# All 12 signals
+curl http://localhost:8765/trust/signals
+
+# Filter by type
+curl "http://localhost:8765/trust/signals?type=bilateral_ir"
+
+# Only enabled signals
+curl "http://localhost:8765/trust/signals?enabled=true"
+```
+
+**AgentCard** declares `capabilities.trust_signals_v268 = true` and `endpoints.trust_signals = "/trust/signals"`.
 
 ---
 
