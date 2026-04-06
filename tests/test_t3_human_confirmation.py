@@ -237,9 +237,11 @@ def test_t3c4_confirm_transitions_to_submitted():
         proc.terminate(); proc.wait(timeout=5)
 
 
-# ── T3C5: :reject transitions confirmation_pending → failed ─────────────────
+# ── T3C5: :reject transitions confirmation_pending → rejected (v2.66) ────────
 def test_t3c5_reject_transitions_to_failed():
-    """T3C5: POST /tasks/{id}:reject on confirmation_pending task → 200 + failed."""
+    """T3C5: POST /tasks/{id}:reject on confirmation_pending task → 200 + rejected.
+    v2.66: status changed from 'failed' → 'rejected' (A2A v1.0.0 alignment).
+    """
     ws, hp = 47004, 47104
     proc = _start_relay(ws, [T3_SKILL_WITH_CONFIRM])
     try:
@@ -254,11 +256,12 @@ def test_t3c5_reject_transitions_to_failed():
         s, b = _http("POST", hp, f"/tasks/{task_id}:reject", {"reason": "Too risky"})
         assert s == 200, f"{s}: {b}"
         assert b.get("ok") is True
-        assert b.get("status") == "failed"
+        assert b.get("status") == "rejected", \
+            f"v2.66: T3 :reject should yield 'rejected' (was 'failed'), got: {b.get('status')}"
         assert "Too risky" in b.get("reason", "")
 
         _, tget = _http("GET", hp, f"/tasks/{task_id}")
-        assert tget.get("status") == "failed"
+        assert tget.get("status") == "rejected"
     finally:
         proc.terminate(); proc.wait(timeout=5)
 
@@ -351,7 +354,9 @@ def test_t3c10_get_task_shows_confirmation_flag():
 
 # ── T3C11: :reject with no reason body → default reason ──────────────────────
 def test_t3c11_reject_no_body_default_reason():
-    """T3C11: :reject with no request body → 200 + failed with default reason."""
+    """T3C11: :reject with no request body → 200 + rejected with default reason.
+    v2.66: status changed from 'failed' → 'rejected' (A2A v1.0.0 alignment).
+    """
     ws, hp = 47010, 47110
     proc = _start_relay(ws, [T3_SKILL_WITH_CONFIRM])
     try:
@@ -364,7 +369,8 @@ def test_t3c11_reject_no_body_default_reason():
         s, b = _http("POST", hp, f"/tasks/{tid}:reject")
         assert s == 200, f"{s}: {b}"
         assert b.get("ok") is True
-        assert b.get("status") == "failed"
+        assert b.get("status") == "rejected", \
+            f"v2.66: T3 :reject should yield 'rejected' (was 'failed'), got: {b.get('status')}"
         assert b.get("reason")  # some reason present
     finally:
         proc.terminate(); proc.wait(timeout=5)

@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.65.0"  # v2.65: POST /ir/import-evidence — import external bilateral IR + APS-compatible reputation_update payload; _verify_ir_signatures + _build_reputation_update helpers; trust_delta(-1/0/+1); freshness_hint; aps_schema v1 (@aeoess A2A #1718 importBilateralEvidence alignment)
+VERSION = "2.66.0"  # v2.66: Task `rejected` terminal state — A2A v1.0.0 alignment; TASK_REJECTED constant; TERMINAL_STATES updated; T3 :reject → rejected (not failed); new POST /tasks/{id}:agent-reject (agent-initiated rejection for any task); AgentCard capabilities.rejected_state=True
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -301,11 +301,12 @@ TASK_WORKING        = "working"
 TASK_COMPLETED      = "completed"
 TASK_FAILED         = "failed"
 TASK_CANCELED       = "canceled"
+TASK_REJECTED       = "rejected"       # v2.66: A2A v1.0.0 alignment — agent-initiated rejection
 TASK_CANCELLING     = "cancelling"     # v2.6: intermediate cancel state (ACP-unique)
 TASK_INPUT_REQUIRED       = "input_required"
 TASK_CONFIRMATION_PENDING = "confirmation_pending"   # v2.51: T3 awaiting human sign-off
 
-TERMINAL_STATES    = {TASK_COMPLETED, TASK_FAILED, TASK_CANCELED}
+TERMINAL_STATES    = {TASK_COMPLETED, TASK_FAILED, TASK_CANCELED, TASK_REJECTED}  # v2.66: +rejected
 INTERRUPTED_STATES = {TASK_INPUT_REQUIRED}
 CONFIRMATION_PENDING_STATES = {TASK_CONFIRMATION_PENDING}  # v2.51
 # States that represent an in-progress cancel (not yet terminal)
@@ -2044,6 +2045,7 @@ def _make_agent_card(name, skills):
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
             "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
             "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
+            "rejected_state":              True,                               # v2.66: TASK_REJECTED terminal state (A2A v1.0.0 alignment); :reject → rejected; POST /tasks/{id}:agent-reject
         },
 
         "identity": ({
@@ -2105,6 +2107,7 @@ def _make_agent_card(name, skills):
             "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
             "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
             "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
+            "agent_reject":          "/tasks/{id}:agent-reject",# v2.66: POST — agent-initiated task rejection → rejected terminal state
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -6774,7 +6777,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
             VALID_STATUSES = {
                 TASK_SUBMITTED, TASK_WORKING, TASK_COMPLETED,
-                TASK_FAILED, TASK_CANCELED, TASK_INPUT_REQUIRED,
+                TASK_FAILED, TASK_CANCELED, TASK_REJECTED,          # v2.66: +rejected
+                TASK_INPUT_REQUIRED,
             }
 
             # ── Parameter parsing ──────────────────────────────────────────────
@@ -8790,7 +8794,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": True, "task_id": task_id, "status": TASK_SUBMITTED})
 
         # /tasks/{id}:reject — v2.51: reject a confirmation_pending T3 task  [stable]
-        # Transitions task from confirmation_pending → failed, broadcasts SSE status event.
+        # v2.66: transitions task from confirmation_pending → rejected (was: failed), A2A v1.0.0 alignment.
         elif p.startswith("/tasks/") and p.endswith(":reject"):
             task_id = p[len("/tasks/"):-len(":reject")]
             task = _tasks.get(task_id)
@@ -8811,8 +8815,31 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 reason = body.get("reason", "human rejected T3 task") if isinstance(body, dict) else "human rejected T3 task"
                 task.pop("confirmation_required", None)
                 _append_audit(task, "rejected", {"by": "human", "reason": reason})  # v2.52
-                _update_task(task_id, TASK_FAILED, error=reason)
-                self._json({"ok": True, "task_id": task_id, "status": TASK_FAILED, "reason": reason})
+                _update_task(task_id, TASK_REJECTED, error=reason)   # v2.66: → rejected (not failed)
+                self._json({"ok": True, "task_id": task_id, "status": TASK_REJECTED, "reason": reason})
+
+        # /tasks/{id}:agent-reject — v2.66: agent-initiated rejection for any non-terminal task
+        # A2A v1.0.0 alignment: agent can proactively reject a task it cannot or will not process.
+        # Works on any task in non-terminal state (submitted/working/input_required/confirmation_pending).
+        elif p.startswith("/tasks/") and p.endswith(":agent-reject"):
+            task_id = p[len("/tasks/"):-len(":agent-reject")]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            else:
+                try:
+                    body = self._read_body()
+                except Exception:
+                    body = {}
+                reason = body.get("reason", "agent rejected task") if isinstance(body, dict) else "agent rejected task"
+                reject_code = body.get("reject_code", "agent_reject") if isinstance(body, dict) else "agent_reject"
+                _append_audit(task, "agent_rejected", {"reason": reason, "reject_code": reject_code})
+                _update_task(task_id, TASK_REJECTED, error=reason)
+                self._json({"ok": True, "task_id": task_id, "status": TASK_REJECTED,
+                            "reason": reason, "reject_code": reject_code})
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # 比 SSE subscribe 更简单，适合 Agent 调用
