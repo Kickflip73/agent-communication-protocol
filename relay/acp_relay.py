@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.63.0"  # v2.63: cross-protocol SINT-format capability token verification — POST /verify/external-token + GET /identity/did-key; Ed25519 + did:key (multicodec 0xed01+base58btc); APS/SINT cross-compatible (A2A #1713 9/9 PASS)
+VERSION = "2.64.0"  # v2.64: bilateral IR test vectors — GET /ir/test-vectors (4 deterministic vectors, @aeoess A2A #1718 request); governance live_endpoint (APS serviceEndpoint alignment, A2A #1717)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1897,6 +1897,7 @@ def _make_agent_card(name, skills):
             "wtrmrk_attestation":          True,                               # v2.62: wtrmrk_sequence_root Factor 4 in effective_tier — attestation_history_adjustment from WTRMRK registry
             "external_token_verify":       bool(_ed25519_private),             # v2.63: POST /verify/external-token — SINT-format Ed25519 cap token cross-protocol verification (APS/SINT compatible)
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
+            "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
         },
 
         "identity": ({
@@ -1956,6 +1957,7 @@ def _make_agent_card(name, skills):
             "pubkey_discovery":  "/identity/pubkey-discovery",   # v2.33: GET|POST — resolve DID → Ed25519 pubkey (offline)
             "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
             "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
+            "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -2161,12 +2163,284 @@ def _build_governance_metadata() -> dict:
     if "audit_trail_reference" not in gm:
         gm["audit_trail_reference"] = "/interaction-records" if _interaction_records else None
 
+    # v2.64: live_endpoint — APS serviceEndpoint pattern (A2A #1717, @aeoess production impl)
+    # Receivers can hit this endpoint to get the current trust profile on demand,
+    # rather than relying on the static trust_score in the Agent Card.
+    # Compatible with: passportToAgentCard() serviceEndpoint in APS v1.32.0+
+    if "live_endpoint" not in gm:
+        gm["live_endpoint"] = "/governance-metadata"
+
     # Live counters (always override)
     gm["interaction_record_count"] = len(_interaction_records)
     gm["peer_count"]               = len(_peers)
     gm["task_count"]               = len(_tasks)
 
     return gm
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _generate_ir_test_vectors() -> dict:
+    """
+    v2.64: Generate deterministic bilateral IR test vectors for cross-implementation
+    verification. Requested by @aeoess (A2A #1718) to enable third-party APS/SINT
+    implementations to verify bilateral interaction record format compatibility.
+
+    Uses a fixed ephemeral Ed25519 key pair (generated from a deterministic seed)
+    so the test vectors are reproducible across runs and implementations.
+
+    Returns a dict with:
+      {
+        "schema_version": "1.0",
+        "generated_by":   "ACP/2.64",
+        "generated_at":   <ISO8601>,
+        "note":           <description>,
+        "keys": {
+          "relay":  { "public_key_b64": ..., "public_key_hex": ..., "did_key": ..., "did_acp": ... },
+          "caller": { "public_key_b64": ..., "public_key_hex": ..., "did_key": ..., "did_acp": ... }
+        },
+        "vectors": [
+          {
+            "id":          <str>,
+            "description": <str>,
+            "canonical_payload": { ... },       # JSON object used for signing
+            "canonical_bytes_hex": <str>,        # hex of canonical JSON bytes
+            "relay_signature":   <str b64url>,   # relay Ed25519 sig over canonical_bytes
+            "caller_signature":  <str b64url>,   # caller Ed25519 sig over canonical_bytes
+            "relay_signature_valid":   true,
+            "caller_signature_valid":  true,
+            "bilateral":  true,
+            "record":     { ... },              # full interaction_record object
+          },
+          ...
+        ]
+      }
+    """
+    if not _ED25519_AVAILABLE:
+        return {"error": "Ed25519 not available — install cryptography package"}
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        # ── Deterministic key derivation from fixed seeds ─────────────────
+        # seed = sha256("ACP-IR-TEST-VECTOR-RELAY-v2.64") and "...CALLER..."
+        relay_seed  = hashlib.sha256(b"ACP-IR-TEST-VECTOR-RELAY-v2.64").digest()
+        caller_seed = hashlib.sha256(b"ACP-IR-TEST-VECTOR-CALLER-v2.64").digest()
+
+        relay_priv  = Ed25519PrivateKey.from_private_bytes(relay_seed)
+        caller_priv = Ed25519PrivateKey.from_private_bytes(caller_seed)
+
+        relay_pub_bytes  = relay_priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        caller_pub_bytes = caller_priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+        relay_pub_b64  = _base64.urlsafe_b64encode(relay_pub_bytes).rstrip(b"=").decode()
+        caller_pub_b64 = _base64.urlsafe_b64encode(caller_pub_bytes).rstrip(b"=").decode()
+
+        relay_pub_hex  = relay_pub_bytes.hex()
+        caller_pub_hex = caller_pub_bytes.hex()
+
+        relay_did_key_tv  = _pubkey_to_did_key(relay_pub_bytes)
+        caller_did_key_tv = _pubkey_to_did_key(caller_pub_bytes)
+
+        relay_did_acp_tv  = "did:acp:" + relay_pub_b64
+        caller_did_acp_tv = "did:acp:" + caller_pub_b64
+
+        keys = {
+            "relay": {
+                "public_key_b64": relay_pub_b64,
+                "public_key_hex": relay_pub_hex,
+                "did_key":        relay_did_key_tv,
+                "did_acp":        relay_did_acp_tv,
+                "seed_source":    "sha256('ACP-IR-TEST-VECTOR-RELAY-v2.64')",
+            },
+            "caller": {
+                "public_key_b64": caller_pub_b64,
+                "public_key_hex": caller_pub_hex,
+                "did_key":        caller_did_key_tv,
+                "did_acp":        caller_did_acp_tv,
+                "seed_source":    "sha256('ACP-IR-TEST-VECTOR-CALLER-v2.64')",
+            },
+        }
+
+        def _sign(priv_key, payload_dict: dict) -> tuple[str, str]:
+            """Sign canonical JSON; return (sig_b64url, canonical_hex)."""
+            canonical = json.dumps(payload_dict, sort_keys=True, separators=(",", ":")).encode()
+            sig = priv_key.sign(canonical)
+            return _base64.urlsafe_b64encode(sig).rstrip(b"=").decode(), canonical.hex()
+
+        # ── Vector 1: Full bilateral — both signatures valid ──────────────
+        v1_id = "tv-ir-001"
+        v1_payload = {
+            "id":            v1_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_acp_tv,
+            "caller_did":    caller_did_acp_tv,
+            "task_id":       "task-tv-001",
+            "skill_id":      "code_review",
+            "sequence_a":    1,
+            "previous_hash": "genesis",
+            "timestamp":     "2026-04-06T00:00:00Z",
+        }
+        v1_relay_sig, v1_canonical_hex = _sign(relay_priv, v1_payload)
+        v1_caller_sig, _              = _sign(caller_priv, v1_payload)
+
+        vector1 = {
+            "id":                       v1_id,
+            "description":              "Full bilateral — both relay and caller sign the same canonical payload",
+            "canonical_payload":        v1_payload,
+            "canonical_bytes_hex":      v1_canonical_hex,
+            "relay_signature":          v1_relay_sig,
+            "caller_signature":         v1_caller_sig,
+            "relay_public_key":         relay_pub_b64,
+            "caller_public_key":        caller_pub_b64,
+            "relay_signature_valid":    True,
+            "caller_signature_valid":   True,
+            "bilateral":                True,
+            "record": {
+                **v1_payload,
+                "quality_hint":           None,
+                "caller_token_hash":      None,
+                "relay_signature":        v1_relay_sig,
+                "relay_public_key":       relay_pub_b64,
+                "caller_signature":       v1_caller_sig,
+                "caller_public_key":      caller_pub_b64,
+                "caller_signature_valid": True,
+                "bilateral":              True,
+            },
+        }
+
+        # ── Vector 2: Relay-only (unilateral) — caller_signature absent ───
+        v2_id = "tv-ir-002"
+        v2_payload = {
+            "id":            v2_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_acp_tv,
+            "caller_did":    caller_did_acp_tv,
+            "task_id":       "task-tv-002",
+            "skill_id":      "data_analysis",
+            "sequence_a":    2,
+            "previous_hash": "sha256:" + hashlib.sha256(
+                json.dumps(v1_payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "timestamp":     "2026-04-06T00:01:00Z",
+        }
+        v2_relay_sig, v2_canonical_hex = _sign(relay_priv, v2_payload)
+
+        vector2 = {
+            "id":                      v2_id,
+            "description":             "Relay-only (unilateral) — relay signs, no caller signature. bilateral=false",
+            "canonical_payload":       v2_payload,
+            "canonical_bytes_hex":     v2_canonical_hex,
+            "relay_signature":         v2_relay_sig,
+            "caller_signature":        None,
+            "relay_public_key":        relay_pub_b64,
+            "caller_public_key":       None,
+            "relay_signature_valid":   True,
+            "caller_signature_valid":  None,
+            "bilateral":               False,
+            "record": {
+                **v2_payload,
+                "quality_hint":           None,
+                "caller_token_hash":      None,
+                "relay_signature":        v2_relay_sig,
+                "relay_public_key":       relay_pub_b64,
+                "caller_signature":       None,
+                "caller_public_key":      None,
+                "caller_signature_valid": None,
+                "bilateral":              False,
+            },
+        }
+
+        # ── Vector 3: Tampered — caller_signature_valid=false ─────────────
+        v3_id = "tv-ir-003"
+        v3_payload = {
+            "id":            v3_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_acp_tv,
+            "caller_did":    caller_did_acp_tv,
+            "task_id":       "task-tv-003",
+            "skill_id":      "send_email",
+            "sequence_a":    3,
+            "previous_hash": "sha256:" + hashlib.sha256(
+                json.dumps(v2_payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "timestamp":     "2026-04-06T00:02:00Z",
+        }
+        v3_relay_sig, v3_canonical_hex = _sign(relay_priv, v3_payload)
+        # Tampered caller signature: sign a different payload then use that sig
+        v3_tampered_payload = {**v3_payload, "skill_id": "transfer_funds"}  # tampered
+        v3_bad_caller_sig, _ = _sign(caller_priv, v3_tampered_payload)
+
+        vector3 = {
+            "id":                      v3_id,
+            "description":             "Tampered — caller signature is for a different payload (skill_id changed). caller_signature_valid=false, bilateral=false",
+            "canonical_payload":       v3_payload,
+            "canonical_bytes_hex":     v3_canonical_hex,
+            "relay_signature":         v3_relay_sig,
+            "caller_signature":        v3_bad_caller_sig,
+            "relay_public_key":        relay_pub_b64,
+            "caller_public_key":       caller_pub_b64,
+            "relay_signature_valid":   True,
+            "caller_signature_valid":  False,
+            "bilateral":               False,
+            "note":                    "caller_signature was generated over a payload with skill_id='transfer_funds' instead of 'send_email' — tampering detected",
+        }
+
+        # ── Vector 4: did:key cross-verify ────────────────────────────────
+        # Same as vector 1 but uses did:key DIDs — for APS/SINT cross-verify
+        v4_id = "tv-ir-004"
+        v4_payload = {
+            "id":            v4_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_key_tv,    # did:key instead of did:acp
+            "caller_did":    caller_did_key_tv,   # did:key instead of did:acp
+            "task_id":       "task-tv-004",
+            "skill_id":      "code_review",
+            "sequence_a":    4,
+            "previous_hash": "genesis",
+            "timestamp":     "2026-04-06T00:03:00Z",
+        }
+        v4_relay_sig, v4_canonical_hex = _sign(relay_priv, v4_payload)
+        v4_caller_sig, _               = _sign(caller_priv, v4_payload)
+
+        vector4 = {
+            "id":                      v4_id,
+            "description":             "did:key cross-verify — same as vector 1 but using did:key identifiers (W3C multicodec 0xed01 + base58btc). For APS v1.32.0 / SINT cross-protocol verification",
+            "canonical_payload":       v4_payload,
+            "canonical_bytes_hex":     v4_canonical_hex,
+            "relay_signature":         v4_relay_sig,
+            "caller_signature":        v4_caller_sig,
+            "relay_public_key":        relay_pub_b64,
+            "caller_public_key":       caller_pub_b64,
+            "relay_signature_valid":   True,
+            "caller_signature_valid":  True,
+            "bilateral":               True,
+        }
+
+        return {
+            "schema_version": "1.0",
+            "generated_by":   f"ACP/{VERSION}",
+            "generated_at":   _now(),
+            "note":           (
+                "Deterministic bilateral interaction record test vectors for cross-implementation "
+                "verification. Keys are derived from fixed seeds (sha256 of known strings) so "
+                "vectors are reproducible. Compatible with APS v1.32.0 and SINT bilateral IR format. "
+                "Requested by @aeoess (A2A Issue #1718, 2026-04-06)."
+            ),
+            "canonical_payload_format": (
+                "JSON object with keys: id, type, relay_did, caller_did, task_id, skill_id, "
+                "sequence_a, previous_hash, timestamp — serialized with sort_keys=True, "
+                "separators=(',', ':'), UTF-8 encoded. Same payload used by both relay and caller."
+            ),
+            "signature_algorithm": "Ed25519",
+            "did_key_derivation":  "multicodec [0xed, 0x01] + base58btc (W3C spec, APS v1.32.0 toDIDKey() compatible)",
+            "keys":    keys,
+            "vectors": [vector1, vector2, vector3, vector4],
+        }
+
+    except Exception as e:
+        return {"error": f"test vector generation failed: {e}"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5271,6 +5545,45 @@ class LocalHTTP(BaseHTTPRequestHandler):
               { "ok": true, "governance_metadata": { ... } }
             """
             self._json({"ok": True, "governance_metadata": _build_governance_metadata()})
+
+        # ── GET /ir/test-vectors — bilateral IR deterministic test vectors (v2.64) ──
+        elif p == "/ir/test-vectors":
+            """
+            GET /ir/test-vectors — Deterministic bilateral interaction record test vectors (v2.64).
+
+            Returns reproducible Ed25519-signed test vectors for cross-implementation
+            verification of bilateral interaction record format. Keys are derived from
+            fixed seeds (sha256 of known strings) to ensure identical output across runs.
+
+            Vectors:
+              tv-ir-001: Full bilateral (both relay + caller sign same canonical payload)
+              tv-ir-002: Relay-only / unilateral (caller_signature=null, bilateral=false)
+              tv-ir-003: Tampered caller signature (caller_signature_valid=false, bilateral=false)
+              tv-ir-004: did:key cross-verify (using W3C did:key DIDs instead of did:acp)
+
+            Requires Ed25519 support (--identity or cryptography package).
+            Requested by @aeoess (A2A Issue #1718, 2026-04-06).
+
+            Response 200:
+              {
+                "ok": true,
+                "schema_version": "1.0",
+                "generated_by": "ACP/<version>",
+                "keys": { "relay": {...}, "caller": {...} },
+                "vectors": [ { "id": "tv-ir-001", ... }, ... ]
+              }
+            """
+            if not _ED25519_AVAILABLE:
+                self._json({"ok": False, "error": "Ed25519 not available — install cryptography package"}, 503)
+                return
+            if not _ed25519_private:
+                self._json({"ok": False, "error": "No Ed25519 identity loaded — start relay with --identity"}, 503)
+                return
+            result = _generate_ir_test_vectors()
+            if "error" in result:
+                self._json({"ok": False, **result}, 500)
+            else:
+                self._json({"ok": True, **result})
 
         # ── GET /principal-chain — self principal_chain management (v2.56) ──
         elif p == "/principal-chain":
