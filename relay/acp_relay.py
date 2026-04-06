@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.61.0"  # v2.61: caller_signature in interaction_records — complete bilateral signing (relay_sig + caller_sig), closes unilateral-attestation gap (A2A #1718 validated)
+VERSION = "2.62.0"  # v2.62: wtrmrk_sequence_root external reputation query — Factor 4 in effective_tier (attestation_history_adjustment), fail-closed fallback, A2A #1716 @64R3N/@MoltyCel
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1894,6 +1894,7 @@ def _make_agent_card(name, skills):
             "effective_tier_computation":  True,                               # v2.58: dynamic three-factor effective_tier: max(tier_rule, depth_floor, rep_adj)
             "interaction_records":         True,                               # v2.59: bilateral interaction records — POST /tasks?record=true + GET /interaction-records
             "bilateral_interaction_records": True,                             # v2.61: full bilateral signing — caller_signature + caller_public_key + caller_signature_valid + bilateral flag
+            "wtrmrk_attestation":          True,                               # v2.62: wtrmrk_sequence_root Factor 4 in effective_tier — attestation_history_adjustment from WTRMRK registry
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
         },
 
@@ -3211,10 +3212,79 @@ def _check_rate_limit(skill_id: str | None, peer_id: str | None) -> tuple[bool, 
     return True, {}
 
 
-def _compute_effective_tier(skill_obj: dict, peer_id: str | None) -> tuple[str | None, dict]:
-    """v2.58: Compute the effective authorization tier using three-factor formula.
+# ---------------------------------------------------------------------------
+# v2.62: WTRMRK external reputation query helpers
+# ---------------------------------------------------------------------------
 
-    effective_tier = max(tier_rule, delegation_depth_floor, reputation_adj_tier)
+_WTRMRK_CACHE: dict[str, tuple[int | None, float]] = {}  # sequence_root → (grade, ts)
+_WTRMRK_CACHE_TTL = 300  # seconds; 0 = bypass cache
+
+def _query_wtrmrk(sequence_root: str) -> int | None:
+    """v2.62: Query WTRMRK registry for a wtrmrk_sequence_root Merkle commitment.
+
+    Returns the trust grade (0–3) if found, or None on failure (fail-closed → adj=0).
+    Responses are cached for _WTRMRK_CACHE_TTL seconds.
+
+    Grade semantics (from A2A #1716 @64R3N/@MoltyCel):
+      Grade 0 — completely unknown or no on-chain record
+      Grade 1 — basic activity, low history depth
+      Grade 2 — established agent, verified identity anchor
+      Grade 3 — high-reputation, hardware-attested or long track record
+    """
+    import urllib.request as _urlreq
+    import time as _time
+
+    now = _time.time()
+    cached = _WTRMRK_CACHE.get(sequence_root)
+    if cached and (now - cached[1]) < _WTRMRK_CACHE_TTL:
+        return cached[0]
+
+    try:
+        url = f"https://api.moltrust.ch/capability-token/validate?sequence_root={sequence_root}"
+        req = _urlreq.Request(url, headers={"Accept": "application/json"})
+        with _urlreq.urlopen(req, timeout=3) as resp:
+            import json as _json
+            data = _json.loads(resp.read().decode())
+            grade = int(data.get("grade", 0))
+            grade = max(0, min(3, grade))  # clamp 0-3
+            _WTRMRK_CACHE[sequence_root] = (grade, now)
+            return grade
+    except Exception as exc:
+        log.warning(f"wtrmrk query failed for sequence_root={sequence_root[:16]}...: {exc!r} — using neutral adj=0")
+        _WTRMRK_CACHE[sequence_root] = (None, now)  # cache the failure to avoid hammering
+        return None
+
+
+def _wtrmrk_to_adj(grade: int | None) -> int:
+    """v2.62: Map WTRMRK grade to attestation_history_adjustment (-1 / 0 / +1).
+
+    Mapping (from A2A #1716 discussion):
+      None   → 0   (query failed or no record — neutral, fail-closed)
+      0      → +1  (completely unknown agent — raise floor)
+      1      → 0   (basic history — neutral)
+      2      → 0   (established — neutral; separate from rep_adj)
+      3      → -1  (high-reputation, hardware-attested — allow lower floor)
+
+    Note: adj=-1 only activates for Grade 3 (equivalent to the existing rep_adj=-1
+    path) and only when base_tier >= T2 (same guard as reputation_adj).
+    """
+    if grade is None:
+        return 0
+    if grade >= 3:
+        return -1
+    if grade == 0:
+        return 1
+    return 0   # grades 1-2 → neutral
+
+
+def _compute_effective_tier(
+    skill_obj: dict,
+    peer_id: str | None,
+    wtrmrk_sequence_root: str | None = None,
+) -> tuple[str | None, dict]:
+    """v2.58/v2.62: Compute the effective authorization tier using four-factor formula.
+
+    effective_tier = max(tier_rule, delegation_depth_floor, combined_adj_tier)
 
     Factors:
       1. tier_rule: skill's declared authorization_tier (T0/T1/T2/T3/None)
@@ -3223,13 +3293,22 @@ def _compute_effective_tier(skill_obj: dict, peer_id: str | None) -> tuple[str |
          depth 1 → floor T1
          depth 2 → floor T2
          depth 3+ → floor T3
-      3. reputation_adj: adjustment based on peer's trust signals history
+      3. reputation_adj (v2.58): adjustment based on peer's trust signals history
          -1 → known peer with long+recent track record (verified_identity + msgs>100) → may lower floor
           0 → neutral (default)
          +1 → completely unknown peer (no card, no msgs) → raises floor
+      4. wtrmrk_adj (v2.62): external attestation history from WTRMRK registry
+         -1 → Grade 3 (hardware-attested, long track record) → may lower floor
+          0 → Grade 1-2, query failure, or not provided → neutral (fail-closed)
+         +1 → Grade 0 (completely unknown on-chain) → raises floor
+
+    Combined adjustment: reputation_adj + wtrmrk_adj, clamped to [-1, +1].
+    This means both signals must agree to lower the floor (-1), but either alone
+    can raise it (+1) — asymmetric and conservative by design.
 
     Tier ordering (for max()): None < T0 < T1 < T2 < T3
-    reputation_adj only applies when the base tier would be T1 or T2 (guards against -1 dropping T3).
+    Combined adj only applies when base_tier >= T2 (guards against -1 dropping T3).
+    T3 skills are immune to downgrade regardless of adj.
 
     Returns (effective_tier: str|None, factors: dict)
     """
@@ -3269,38 +3348,64 @@ def _compute_effective_tier(skill_obj: dict, peer_id: str | None) -> tuple[str |
         # no caller info → unknown → raise floor
         reputation_adj = 1
 
+    # Factor 4: wtrmrk_adj (v2.62) — external attestation history
+    wtrmrk_grade: int | None = None
+    wtrmrk_adj = 0
+    wtrmrk_queried = False
+    if wtrmrk_sequence_root:
+        wtrmrk_queried = True
+        wtrmrk_grade = _query_wtrmrk(wtrmrk_sequence_root)
+        wtrmrk_adj = _wtrmrk_to_adj(wtrmrk_grade)
+
+    # Combined adjustment: clamp to [-1, +1]
+    # -1 only if BOTH rep_adj AND wtrmrk_adj are -1 (both confirm high reputation)
+    # +1 if EITHER is +1 (conservative: any unknown signal raises floor)
+    # 0 otherwise
+    combined_adj = max(-1, min(1, reputation_adj + wtrmrk_adj))
+    # But if either factor is +1, combined cannot be -1 (asymmetric safety rule)
+    if reputation_adj == 1 or wtrmrk_adj == 1:
+        combined_adj = max(0, combined_adj)  # clamp to [0, +1]
+
     # Combine: max of tier_rule and depth_floor
     base_int = max(tier_int, depth_floor)
 
-    # Apply reputation_adj — only when base_int >= T2 (i.e. 2+).
-    # T0/T1 are always auto-execute; reputation cannot raise them to T2/T3
-    # (that would break backward-compat: T1 should remain T1 for unknown peers with no chain).
-    # reputation_adj applies only to skills that are already at T2+ (via tier_rule or depth_floor).
+    # Apply combined_adj — only when base_int >= T2 (i.e. 2+).
+    # T0/T1 are always auto-execute; adjustment cannot raise them to T2/T3.
     if raw_tier == "T3":
-        # T3 is absolute — reputation can't lower it
+        # T3 is absolute — no adjustment can lower it
         effective_int = 3
     elif base_int >= 2:
-        # T2/T3 range: apply reputation adjustment
-        effective_int = max(0, min(3, base_int + reputation_adj))
+        # T2/T3 range: apply combined adjustment
+        effective_int = max(0, min(3, base_int + combined_adj))
     else:
-        # T0/T1 range: reputation_adj not applied (preserve auto-execute semantics)
+        # T0/T1 range: no adjustment applied (preserve auto-execute semantics)
         effective_int = base_int
 
     effective_tier = _TIER_FROM_INT.get(effective_int, "T0") if effective_int > 0 else None
 
     factors = {
-        "tier_rule":           raw_tier,
-        "delegation_depth":    depth,
-        "depth_floor":         f"T{depth_floor}" if depth_floor > 0 else None,
-        "reputation_adj":      reputation_adj,
-        "effective_tier":      effective_tier,
+        "tier_rule":                    raw_tier,
+        "delegation_depth":             depth,
+        "depth_floor":                  f"T{depth_floor}" if depth_floor > 0 else None,
+        "reputation_adj":               reputation_adj,
+        "wtrmrk_sequence_root":         wtrmrk_sequence_root,
+        "wtrmrk_queried":               wtrmrk_queried,
+        "wtrmrk_grade":                 wtrmrk_grade,
+        "wtrmrk_adj":                   wtrmrk_adj if wtrmrk_queried else None,
+        "combined_adj":                 combined_adj,
+        "effective_tier":               effective_tier,
     }
     return effective_tier, factors
 
 
-def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tuple[bool, str]:
-    """v2.49/v2.58: Check whether the calling peer satisfies the skill's authorization_tier requirement.
+def _check_authorization_tier(
+    skill_id: str | None,
+    peer_id: str | None,
+    wtrmrk_sequence_root: str | None = None,
+) -> tuple[bool, str]:
+    """v2.49/v2.58/v2.62: Check whether the calling peer satisfies the skill's authorization_tier requirement.
     v2.58: uses _compute_effective_tier() for dynamic three-factor enforcement.
+    v2.62: accepts optional wtrmrk_sequence_root for Factor 4 attestation history adjustment.
 
     Returns (allowed: bool, reason: str).
     - allowed=True  → proceed with task creation
@@ -3332,14 +3437,20 @@ def _check_authorization_tier(skill_id: str | None, peer_id: str | None) -> tupl
     if skill_obj is None:
         return True, f"skill '{skill_id}' not found in agent card"
 
-    # v2.58: compute effective_tier via three-factor formula
-    effective_tier, tier_factors = _compute_effective_tier(skill_obj, peer_id)
+    # v2.58/v2.62: compute effective_tier via four-factor formula
+    effective_tier, tier_factors = _compute_effective_tier(skill_obj, peer_id, wtrmrk_sequence_root)
+
+    _wtrmrk_note = ""
+    if tier_factors.get("wtrmrk_queried"):
+        _wtrmrk_note = (f", wtrmrk_grade={tier_factors.get('wtrmrk_grade')}, "
+                        f"wtrmrk_adj={tier_factors.get('wtrmrk_adj'):+d}")
 
     if effective_tier is None or effective_tier in ("T0", "T1"):
         return True, (f"effective_tier={effective_tier!r} — auto-execute "
                       f"(rule={tier_factors['tier_rule']!r}, "
                       f"depth_floor={tier_factors['depth_floor']!r}, "
-                      f"rep_adj={tier_factors['reputation_adj']:+d})")
+                      f"rep_adj={tier_factors['reputation_adj']:+d}"
+                      f"{_wtrmrk_note})")
 
     # effective_tier is T2 or T3 — need peer trust score
     if not peer_id or peer_id not in _peers:
@@ -6176,25 +6287,32 @@ class LocalHTTP(BaseHTTPRequestHandler):
         # ── GET /skills/<id>/effective-tier — dynamic tier computation (v2.58) ──
         elif p.startswith("/skills/") and p.endswith("/effective-tier"):
             """
-            GET /skills/{skill_id}/effective-tier?peer_id=<peer_id>
+            GET /skills/{skill_id}/effective-tier?peer_id=<peer_id>&wtrmrk_sequence_root=<root>
 
             Returns the dynamically computed effective authorization tier for this skill,
-            combining tier_rule + delegation_depth_floor + reputation_adj.
+            combining tier_rule + delegation_depth_floor + reputation_adj + wtrmrk_adj (v2.62).
 
             Query params:
               peer_id  (optional) — DID or internal peer id to simulate; if omitted, uses
                                     anonymous caller (reputation_adj=+1 applied)
+              wtrmrk_sequence_root (optional, v2.62) — Merkle commitment to query WTRMRK registry;
+                                    if provided, Factor 4 (attestation_history_adjustment) is computed
 
             Response 200:
               {
                 "skill_id":        "...",
                 "effective_tier":  "T0"|"T1"|"T2"|"T3"|null,
                 "factors": {
-                  "tier_rule":       "T1"|...|null,
-                  "delegation_depth": 0,
-                  "depth_floor":     "T1"|null,
-                  "reputation_adj":  0,
-                  "effective_tier":  "T1"|...
+                  "tier_rule":               "T1"|...|null,
+                  "delegation_depth":        0,
+                  "depth_floor":             "T1"|null,
+                  "reputation_adj":          0,
+                  "wtrmrk_sequence_root":    "abc123...|null,
+                  "wtrmrk_queried":          true|false,
+                  "wtrmrk_grade":            0|1|2|3|null,
+                  "wtrmrk_adj":              -1|0|1|null,
+                  "combined_adj":            -1|0|1,
+                  "effective_tier":          "T1"|...
                 }
               }
             """
@@ -6217,7 +6335,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 return
             qs_et = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             caller_peer_id = (qs_et.get("peer_id") or [None])[0]
-            eff_tier, factors = _compute_effective_tier(skill_obj_req, caller_peer_id)
+            # v2.62: optional wtrmrk_sequence_root for Factor 4
+            wtrmrk_root_et = (qs_et.get("wtrmrk_sequence_root") or [None])[0]
+            eff_tier, factors = _compute_effective_tier(skill_obj_req, caller_peer_id, wtrmrk_root_et)
             self._json({
                 "skill_id":       skill_id_req,
                 "effective_tier": eff_tier,
@@ -7559,6 +7679,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 # v2.49: authorization tier enforcement
                 skill_id_for_tier = body.get("skill_id") or (payload.get("skill_id") if isinstance(payload, dict) else None)
                 caller_peer_id    = body.get("peer_id") or body.get("from_peer_id")
+                # v2.62: optional wtrmrk_sequence_root in task metadata for Factor 4
+                _task_metadata = body.get("metadata") or {}
+                _wtrmrk_root   = _task_metadata.get("wtrmrk_sequence_root") if isinstance(_task_metadata, dict) else None
                 # v2.57: if skill has capability_token_required=True, check token first
                 # (a valid capability_token satisfies tier enforcement implicitly)
                 _ct_card_skills_pre = (_status.get("agent_card") or {}).get("skills", [])
@@ -7577,7 +7700,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 # Skip tier check if a capability_token is present (token carries tier authorization)
                 _skip_tier = bool(raw_cap_token_pre and skill_id_for_tier)
                 if not _skip_tier:
-                    tier_ok, tier_reason = _check_authorization_tier(skill_id_for_tier, caller_peer_id)
+                    tier_ok, tier_reason = _check_authorization_tier(skill_id_for_tier, caller_peer_id, _wtrmrk_root)
                     if not tier_ok:
                         self._json({
                             "ok":         False,
