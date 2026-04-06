@@ -7,6 +7,72 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.62.0 — `wtrmrk_sequence_root` Factor 4: Attestation History Adjustment in effective_tier (2026-04-06)
+
+### Added
+- `_query_wtrmrk(sequence_root: str) → int | None` — queries WTRMRK registry (`api.moltrust.ch/capability-token/validate`), 300s TTL cache, fail-closed (returns `None` on any exception)
+- `_wtrmrk_to_adj(grade: int | None) → int` — maps WTRMRK grade to `attestation_history_adjustment`:
+  - Grade `None` (query failure) → `0` (neutral, fail-closed)
+  - Grade `0` (unknown on-chain) → `+1` (raise floor)
+  - Grade `1–2` (basic/established) → `0` (neutral)
+  - Grade `3` (hardware-attested, long track record) → `-1` (may lower floor)
+- `POST /tasks` body: `metadata.wtrmrk_sequence_root` — optional Merkle commitment; if present, triggers Factor 4 computation during tier check
+- `GET /skills/{id}/effective-tier`: new query param `wtrmrk_sequence_root=<base64url>` — activates Factor 4 in the response
+- `AgentCard capabilities.wtrmrk_attestation: True`
+- `tests/test_wtrmrk_attestation.py` — WA-1..14 (14/14 PASS)
+
+### Changed
+- `_compute_effective_tier(skill_obj, peer_id, wtrmrk_sequence_root=None)` — fourth factor added
+  - New factors{} fields: `wtrmrk_sequence_root`, `wtrmrk_queried` (bool), `wtrmrk_grade` (int|null), `wtrmrk_adj` (int|null), `combined_adj` (int)
+  - `combined_adj = clamp(-1, +1, reputation_adj + wtrmrk_adj)` with **asymmetric safety rule**: if either factor is `+1`, combined cannot be `-1`
+  - `combined_adj` replaces `reputation_adj` as the applied adjustment (when `base_int >= T2`)
+  - T3 skills remain immune to any `combined_adj` downgrade
+- `_check_authorization_tier(skill_id, peer_id, wtrmrk_sequence_root=None)` — passes `wtrmrk_sequence_root` through to `_compute_effective_tier`
+
+### Asymmetric Safety Rule
+```
+combined_adj = clamp(-1, +1, rep_adj + wtrmrk_adj)
+if rep_adj == +1 OR wtrmrk_adj == +1:
+    combined_adj = max(0, combined_adj)   # cannot be -1 if either signal is hostile
+```
+
+This means:
+- Both signals must agree to **lower** the floor (combined=-1): requires Grade 3 WTRMRK AND established peer
+- **Either** signal alone can **raise** the floor (combined=+1): defense in depth
+- Grade 3 + Grade 0 signals cancel to neutral (combined=0), not hostile
+
+### Factor 4 Cache Behaviour
+- TTL: 300 seconds (configurable via `_WTRMRK_CACHE_TTL`)
+- Cache key: `sequence_root` string
+- On cache hit: returns cached grade without network call
+- On failure: caches `(None, timestamp)` to avoid hammering failed endpoint
+
+### Four-Factor Formula (v2.62)
+```
+effective_tier = max(
+    tier_rule,          # Factor 1: declared authorization_tier
+    depth_floor,        # Factor 2: delegation chain depth → conservative floor
+    base + combined_adj # Factor 3+4: rep + wtrmrk combined (only when base >= T2)
+)
+```
+where `base = max(tier_rule_int, depth_floor_int)`
+
+### Tests
+- `tests/test_wtrmrk_attestation.py` — WA-1..14 (14/14 PASS, 29s)
+  - WA-1/2: No wtrmrk_sequence_root → `wtrmrk_queried=False`, adj fields null
+  - WA-3: wtrmrk_sequence_root query param → `wtrmrk_queried=True`
+  - WA-4: Query failure → fail-closed, `wtrmrk_grade=None`, no server crash
+  - WA-5: `_wtrmrk_to_adj` mapping: None→0, 0→+1, 1→0, 2→0, 3→-1 ✅
+  - WA-6: Without high-rep peer, `combined_adj >= 0` confirmed
+  - WA-7/8: Asymmetric safety rule: single +1 prevents combined=-1 ✅
+  - WA-9: T3 tier immune to downgrade even with Grade-3 wtrmrk ✅
+  - WA-10/11: POST /tasks metadata.wtrmrk_sequence_root accepted ✅
+  - WA-12: `AgentCard.capabilities.wtrmrk_attestation = True` ✅
+  - WA-13/14: T2+combined=-1→T1; T1 unaffected by combined=+1 (pure logic) ✅
+- Full regression: **525+ passed, 4 skipped, 0 failed** ✅
+
+---
+
 ## v2.61.0 — caller_signature: Complete Bilateral Signing in Interaction Records (2026-04-06)
 
 ### Added

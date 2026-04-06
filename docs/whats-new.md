@@ -5,6 +5,106 @@
 
 ---
 
+### v2.62.0 — `wtrmrk_sequence_root`: Factor 4 Attestation History in `effective_tier` (2026-04-06)
+
+ACP v2.62 adds the fourth factor to the `effective_tier` formula: **external attestation history**
+from the WTRMRK registry. Inspired by A2A Issue #1716 (@64R3N, @MoltyCel, @aeoess), who identified
+that `delegation_depth` is a proxy variable — the real signal is whether the agent has a verifiable
+on-chain attestation history.
+
+#### Background: Why a Fourth Factor?
+
+The v2.58 three-factor formula was:
+```
+effective_tier = max(tier_rule, delegation_depth_floor, base + reputation_adj)
+```
+
+`reputation_adj` is computed from **local relay knowledge** — messages seen, card verification, trust signals.
+This is useful for known peers, but is **blind to external reputation** for first-time connections.
+
+`wtrmrk_sequence_root` provides an external Merkle commitment anchored to a public registry, allowing
+the relay to query an attestation history that is independent of local peer memory.
+
+#### WTRMRK Grade → `attestation_history_adjustment`
+
+| Grade | Meaning | `wtrmrk_adj` |
+|-------|---------|--------------|
+| `None` | Query failed (network error, unknown root) | `0` — fail-closed, neutral |
+| `0` | No on-chain record — completely unknown | `+1` — raise floor |
+| `1` | Basic activity, low history depth | `0` — neutral |
+| `2` | Established agent, verified identity anchor | `0` — neutral |
+| `3` | High-reputation, hardware-attested, long track record | `-1` — may lower floor |
+
+#### Asymmetric Safety Rule
+
+```python
+combined_adj = clamp(-1, +1, reputation_adj + wtrmrk_adj)
+if reputation_adj == +1 or wtrmrk_adj == +1:
+    combined_adj = max(0, combined_adj)  # either hostile signal → cannot lower floor
+```
+
+This means:
+- **-1 requires agreement**: both `reputation_adj=-1` AND `wtrmrk_adj=-1` to lower the floor
+- **+1 wins alone**: a single hostile signal (unknown peer OR unknown on-chain) raises the floor
+- Defense in depth: two independent channels must both certify trust before floor is relaxed
+
+#### Usage
+
+```bash
+# POST /tasks with wtrmrk_sequence_root in metadata
+curl -X POST http://127.0.0.1:<http_port>/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "skill_id": "transfer_funds",
+    "role": "agent",
+    "payload": {"amount": 100, "to": "0xabc..."},
+    "metadata": {
+      "wtrmrk_sequence_root": "<base64url_merkle_commitment>"
+    }
+  }'
+
+# Inspect effective_tier factors with wtrmrk
+curl "http://127.0.0.1:<http_port>/skills/transfer_funds/effective-tier?wtrmrk_sequence_root=<root>"
+# Returns: factors.wtrmrk_queried=true, factors.wtrmrk_grade=2, factors.wtrmrk_adj=0, factors.combined_adj=0
+```
+
+#### Full Four-Factor Response Example
+
+```json
+{
+  "skill_id": "transfer_funds",
+  "effective_tier": "T2",
+  "factors": {
+    "tier_rule": "T2",
+    "delegation_depth": 0,
+    "depth_floor": null,
+    "reputation_adj": 0,
+    "wtrmrk_sequence_root": "abc123xyz",
+    "wtrmrk_queried": true,
+    "wtrmrk_grade": 2,
+    "wtrmrk_adj": 0,
+    "combined_adj": 0,
+    "effective_tier": "T2"
+  }
+}
+```
+
+#### AgentCard Capability
+
+```json
+{
+  "capabilities": {
+    "effective_tier_computation": true,
+    "wtrmrk_attestation": true
+  }
+}
+```
+
+Peers can check `wtrmrk_attestation` to know whether WTRMRK-based Factor 4 is active
+before including `metadata.wtrmrk_sequence_root` in task requests.
+
+---
+
 ### v2.61.0 — Complete Bilateral Signing: `caller_signature` in Interaction Records (2026-04-06)
 
 ACP v2.61 closes the **unilateral-attestation gap** in interaction records.

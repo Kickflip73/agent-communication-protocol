@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: ACP Skills Discovery API
-  version: "2.61.0"
+  version: "2.62.0"
   description: |
     ACP (Agent Communication Protocol) Skills Discovery endpoint.
     Allows agents to programmatically discover what skills a peer agent supports.
@@ -945,15 +945,15 @@ components:
     # ── v2.58: effective_tier computation schemas ──────────────────────────────
     EffectiveTierFactors:
       description: |
-        Detailed factor breakdown for _compute_effective_tier() (v2.58).
-        All three factors are returned for observability.
+        Detailed factor breakdown for _compute_effective_tier() (v2.58/v2.62).
+        All four factors are returned for observability and debugging.
       type: object
       properties:
         tier_rule:
           type: string
           nullable: true
           enum: [T0, T1, T2, T3, null]
-          description: Skill's declared authorization_tier (raw value)
+          description: "Factor 1: Skill's declared authorization_tier (raw value)"
         delegation_depth:
           type: integer
           minimum: 0
@@ -962,19 +962,46 @@ components:
           type: string
           nullable: true
           enum: [T0, T1, T2, T3, null]
-          description: Tier derived from delegation depth (min(depth, 3) mapped to T-tier)
+          description: "Factor 2: Tier derived from delegation depth (min(depth, 3) mapped to T-tier)"
         reputation_adj:
           type: integer
           enum: [-1, 0, 1]
           description: |
-            Reputation adjustment: -1 (known+verified+active peer, fast-track),
-            0 (neutral / sufficient history), +1 (unknown peer, conservative).
-            Only applied when base_int >= T2 (T0/T1 preserve auto-execute semantics).
+            Factor 3: Reputation adjustment from local relay knowledge.
+            -1 (known+verified+active peer), 0 (neutral), +1 (unknown peer, conservative).
+            Only applied (via combined_adj) when base_int >= T2.
+        wtrmrk_sequence_root:
+          type: string
+          nullable: true
+          description: "Factor 4 input (v2.62): Merkle commitment queried against WTRMRK registry. Null if not provided."
+        wtrmrk_queried:
+          type: boolean
+          description: "True if a wtrmrk_sequence_root was provided and a query was attempted."
+        wtrmrk_grade:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 3
+          description: "WTRMRK registry grade (0-3). Null if query failed or not attempted."
+        wtrmrk_adj:
+          type: integer
+          nullable: true
+          enum: [-1, 0, 1, null]
+          description: |
+            Factor 4 adjustment from WTRMRK grade.
+            Grade 3→-1, Grade 1-2/None→0, Grade 0→+1. Null if not queried.
+        combined_adj:
+          type: integer
+          enum: [-1, 0, 1]
+          description: |
+            Combined adjustment: clamp(-1, +1, reputation_adj + wtrmrk_adj).
+            Asymmetric safety rule: if either factor is +1, combined cannot be -1.
+            Applied (instead of reputation_adj alone) when base_int >= T2.
         effective_tier:
           type: string
           nullable: true
           enum: [T0, T1, T2, T3, null]
-          description: Final computed effective tier after all three factors
+          description: "Final computed effective tier after all four factors"
 
     EffectiveTierResponse:
       description: Response body for GET /skills/{id}/effective-tier (v2.58)
