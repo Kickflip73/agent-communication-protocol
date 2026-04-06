@@ -696,7 +696,7 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | `GET /.well-known/acp.json` 标准化（RFC 8615 对齐） | P1 | ✅ 已完成 | v2.47，`_json_well_known()` 新增 Cache-Control/Vary/X-Content-Type-Options；覆盖 acp.json/did.json/jwks.json；WH1-10 = 10/10 |
 | spec/core-v1.0.md 升版同步 | P1 | ✅ 已完成 | v2.47，Status=Stable，§5.3.1 capabilities.groups，§8.7 新增3条MUST+4条SHOULD，版本历史v2.7-v2.47，commit e9bcb1f |
 | AgentCard `identity` 字段正式规范化 | P2 | ✅ 已完成 | identity-v2.0.md (Stable)：Ed25519+CA hybrid §2, JWKS §3.2, trust.signals §5, capabilities.groups.identity §6, Conformance §9，commit 04fe33d |
-| `trust.signals[]` 枚举值最终确认 | P2 | ⏳ 待开发 | 待 A2A #1628 结论，确认 `type=jwks`/`type=ed25519_identity` 命名 |
+| `trust.signals[]` 枚举值最终确认 | P2 | ✅ 已完成 | v2.70 (2026-04-07): A2A #1628 @douglasborthwick 布林层设计确认；12 种 type 名称最终稳定；新增 severity+category 元数据字段；TRUST_SIGNAL_SCHEMA 常量；commit 12bbbdd |
 | CHANGELOG.md 自动生成（git log → 结构化） | P3 | ✅ 已完成 | v2.47.1，`scripts/gen_changelog.py`（Conventional Commits → 结构化条目，支持 `--since`/`--dry-run`/`--version`），commit 07a34c0 |
 | 兼容性测试矩阵（跨版本 AgentCard 互操作） | P3 | ✅ 已完成 | `docs/compatibility-matrix.md`：6版本矩阵、逐字段兼容表、连接矩阵、降级规则、升级路径，commit 见下 |
 | **Per-Peer Structured Trust Score** `GET /peers/<id>/trust` | P2 | ✅ 已完成 | v2.34，五维度加权信任评估（card_sig/did/ping/history/vouch），commit 2026-04-02 |

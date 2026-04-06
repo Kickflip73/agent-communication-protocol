@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-07 01:17（v2.68 trust.signals[] 标记完成；v2.69 runtime limitations endpoint 实现；RL-1..10 PASS）
+> 最后更新：2026-04-07 04:13（v2.70 trust.signals severity+category metadata + GET /trust/signals/schema 实现；SC-1..15 + TS-1..14 = 29/29 PASS；canonical 12 type names finalized，A2A #1628 aligned）
 
 ---
 
@@ -687,6 +687,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.67** | **✅ 2026-04-06** | **Direct Message 模式（对齐 A2A v1.0.0 `SendMessageResponse.oneof{Task,Message}`）**：新增 `POST /message/send` 端点（slash，区别于已有的 `/message:send` WS 路由），直接返回 `{ok, type:"message", message_id, role, parts[], context_id?, timestamp}` 不创建 Task；适合简单查询/ping/计算类交互；`parts[]` 格式对齐 A2A Part（text/file/data）；AgentCard `capabilities.direct_message=True` + `endpoints.message_send="/message/send"`；`MAX_MSG_BYTES` 大小校驗（via `_read_body()`，1MB 限制）；DM-14 大小边界测试（70KB=200, 1.1MB=413）；测试 DM-1..14（16 tests）PASS — commit c10290a |
 | **v2.68** | **✅ 2026-04-06** | **`trust.signals[]` per-invocation 信任扩展**（对齐 A2A #1628）：扩展 `capability_token` 支持 per-invocation 信任要求声明；`trust.signals[]` 标准化 4 类信号（bilateral_ir / capability_token / wtrmrk / external_token）；`GET /trust/signals` 返回当前 Agent 信任信号集合；AgentCard `capabilities.trust_signals=True`；测试 TS-1..10 |
 | **v2.69** | **✅ 2026-04-07** | **runtime limitations endpoint**（對齊 A2A #1694 @citriac stable/runtime 分離）：`GET /limitations/runtime` 返回動態 runtime 指標（current_load/queue_depth/active_tasks/total_tasks/memory_usage_mb）；psutil 優先降級 resource；AgentCard `capabilities.runtime_limitations=True`；測試 RL-1..10 PASS |
+| **v2.70** | **✅ 2026-04-07** | **trust.signals severity+category metadata + canonical type finalization**（A2A #1628 scan14 aligned）：新增 `TRUST_SIGNAL_SCHEMA` 常數（12 種 signal 的 severity/category 定義）；每個 signal 輸出新增 `severity`（critical/high/medium/low）和 `category`（identity/integrity/authorization/discovery/attestation）字段；`GET /trust/signals` 新增 `?category=` 和 `?severity=` 過濾參數；新端點 `GET /trust/signals/schema` 返回靜態規範（type+severity+category+description，advisory weighting hints for consumers）；AgentCard `capabilities.trust_signals_v270=True` + `endpoints.trust_signals_schema`；12 種 signal type 名稱最終確認（符合 A2A #1628 @douglasborthwick bool-layer 設計）；commit 12bbbdd；SC-1..15 = 15/15 PASS + TS-1..14 = 14/14 PASS（回歸全通過） |
 
 ---
 
