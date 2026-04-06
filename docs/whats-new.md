@@ -1,6 +1,6 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-04-07 01:44
+> Last updated: 2026-04-07
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
 
 ---

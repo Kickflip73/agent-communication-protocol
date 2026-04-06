@@ -6,7 +6,7 @@
 
 *Send a URL. Get a link. Two agents talk. That's it.*
 
-[![Version](https://img.shields.io/badge/version-v2.43.0-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
+[![Version](https://img.shields.io/badge/version-v2.69.0-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
 [![License](https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tested-330%2B_PASS-success?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/actions)
@@ -159,5 +159,5 @@ curl http://localhost:7901/stream
 
 ## Version
 
-Current stable: **v2.47.1** — RFC 8615 well-known headers, identity-v2.0 (Stable), capabilities groups, `scripts/gen_changelog.py`.  
+Current stable: **v2.69.0** — `GET /limitations/runtime` dynamic runtime metrics (A2A #1694 @citriac); `trust.signals[]` v2 (12 types, `GET /trust/signals`); Direct Message mode; Task `rejected` state; Interaction Record evidence import; see [CHANGELOG](../CHANGELOG.md) for full history.  
 See [What's New](whats-new.md) · [Compatibility Matrix](compatibility-matrix.md) · [Roadmap](ROADMAP.md).

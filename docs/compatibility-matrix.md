@@ -191,3 +191,14 @@ See [`spec/compatibility-certification.md`](../spec/compatibility-certification.
 ---
 
 *ACP Compatibility Matrix — v2.47.1 | Last updated 2026-04-04*
+
+## v2.69 New Fields
+
+| Field | Introduced | Backward-compatible |
+|-------|-----------|-------------------|
+| `GET /limitations/runtime` → `runtime.current_load` | v2.69 | ✅ new endpoint, ignored by older clients |
+| `GET /limitations/runtime` → `runtime.queue_depth` | v2.69 | ✅ |
+| `GET /limitations/runtime` → `runtime.active_tasks` | v2.69 | ✅ |
+| `GET /limitations/runtime` → `runtime.memory_usage_mb` | v2.69 | ✅ |
+| `capabilities.runtime_limitations` | v2.69 | ✅ unknown cap ignored |
+| `endpoints.runtime_limitations` | v2.69 | ✅ |
