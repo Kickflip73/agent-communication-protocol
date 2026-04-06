@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.60.0"  # v2.60: governance_metadata in AgentCard — trust_score + capability_manifest + policy_compliance + audit_trail_reference (A2A #1717 preempt)
+VERSION = "2.61.0"  # v2.61: caller_signature in interaction_records — complete bilateral signing (relay_sig + caller_sig), closes unilateral-attestation gap (A2A #1718 validated)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1574,27 +1574,32 @@ def _verify_capability_token(token: dict, required_skill_id: str | None = None,
 
 def _create_interaction_record(task: dict, caller_did: str | None,
                                 skill_id: str | None,
-                                caller_token_hash: str | None = None) -> dict:
-    """Create a lightweight bilateral interaction record for a completed task (v2.59).
+                                caller_token_hash: str | None = None,
+                                caller_signature: str | None = None,
+                                caller_public_key: str | None = None) -> dict:
+    """Create a bilateral interaction record for a completed task (v2.59/v2.61).
 
-    Inspired by A2A Issue #1718 (bilateral signed interaction records as trust primitive).
-    ACP lightweight version: relay signs the record; caller's identity anchored via
-    caller_did + optional caller_token_hash (hash of the capability_token.jti if provided).
+    v2.59: relay-anchored lightweight variant — relay signs the record; caller identity
+           anchored via caller_did + optional caller_token_hash.
 
-    Fields:
-        id               — unique record ID ("ir-<uuid>")
-        type             — "interaction"
-        relay_did        — relay's did:acp: or did:key: (or "did:acp:anonymous" if no identity)
-        caller_did       — caller's DID or peer_id (from request body / peer registry)
-        task_id          — the task this record attests
-        skill_id         — the skill invoked (if known)
-        sequence_a       — monotonic relay-side sequence counter (for chain continuity)
-        previous_hash    — sha256 of previous interaction record (or "genesis" if first)
-        timestamp        — ISO 8601 UTC timestamp
-        quality_hint     — null (relay has no quality data at creation; future: task outcome)
-        caller_token_hash — sha256 of capability_token.jti (if a cap token was provided)
-        relay_signature  — Ed25519 signature over canonical payload (if --identity loaded)
-        relay_public_key — relay's Ed25519 public key (base64url)
+    v2.61: FULL BILATERAL — caller can now also provide caller_signature + caller_public_key.
+           The relay verifies the caller's Ed25519 signature over the canonical payload before
+           including it.  If the caller_signature fails verification, it is stored but flagged
+           with caller_signature_valid=false.  This closes the unilateral-attestation gap
+           identified by A2A Issue #1718 (@aeoess): a relay-only signature can be forged by
+           a malicious relay; bilateral signing requires the caller to co-sign, making the
+           record genuinely non-repudiable by either party.
+
+    Canonical signing payload (same for both relay and caller):
+        { id, type, relay_did, caller_did, task_id, skill_id, sequence_a,
+          previous_hash, timestamp }
+
+    Fields added in v2.61:
+        caller_signature       — base64url Ed25519 signature from caller (or null)
+        caller_public_key      — base64url Ed25519 public key from caller (or null)
+        caller_signature_valid — true/false/null (null when no caller_sig provided)
+        bilateral              — true when BOTH relay_signature AND caller_signature present
+                                  and caller_signature_valid=true; false otherwise
     """
     global _ir_seq
 
@@ -1613,7 +1618,7 @@ def _create_interaction_record(task: dict, caller_did: str | None,
 
     ts = _now()
 
-    # Canonical payload for signing (deterministic field order)
+    # Canonical payload for signing (deterministic field order; same structure used by both sides)
     payload_for_sig: dict = {
         "id":                record_id,
         "type":              "interaction",
@@ -1626,23 +1631,56 @@ def _create_interaction_record(task: dict, caller_did: str | None,
         "timestamp":         ts,
     }
 
-    # Ed25519 signature (relay signs)
+    canonical_bytes = json.dumps(payload_for_sig, sort_keys=True, separators=(",", ":")).encode()
+
+    # ── Relay signature (relay side) ─────────────────────────────────────────
     relay_sig: str | None = None
     relay_pub: str | None = _ed25519_public_b64
     if _ed25519_private:
         try:
-            canonical = json.dumps(payload_for_sig, sort_keys=True, separators=(",", ":")).encode()
-            sig_bytes = _ed25519_private.sign(canonical)
+            sig_bytes = _ed25519_private.sign(canonical_bytes)
             relay_sig = _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
         except Exception as e:
-            log.warning(f"interaction_record: signature failed: {e}")
+            log.warning(f"interaction_record: relay signature failed: {e}")
+
+    # ── Caller signature (caller side, v2.61) ────────────────────────────────
+    caller_sig_valid: bool | None = None
+    if caller_signature and caller_public_key:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+            # Decode base64url (add padding)
+            def _b64url_decode(s: str) -> bytes:
+                s = s.replace("-", "+").replace("_", "/")
+                s += "=" * (-len(s) % 4)
+                return _base64.b64decode(s)
+
+            pub_bytes = _b64url_decode(caller_public_key)
+            caller_pub_key_obj = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            sig_bytes_caller = _b64url_decode(caller_signature)
+            caller_pub_key_obj.verify(sig_bytes_caller, canonical_bytes)
+            caller_sig_valid = True
+        except Exception as e:
+            log.warning(f"interaction_record: caller_signature verification failed: {e}")
+            caller_sig_valid = False
+    elif caller_signature or caller_public_key:
+        # Partial — only one of the two provided
+        caller_sig_valid = False
+        log.warning("interaction_record: caller_signature and caller_public_key must both be provided")
+
+    # bilateral = true only when both sides have verified signatures
+    bilateral = bool(relay_sig and caller_signature and caller_sig_valid is True)
 
     record: dict = {
         **payload_for_sig,
-        "quality_hint":       None,
-        "caller_token_hash":  caller_token_hash,
-        "relay_signature":    relay_sig,
-        "relay_public_key":   relay_pub,
+        "quality_hint":            None,
+        "caller_token_hash":       caller_token_hash,
+        "relay_signature":         relay_sig,
+        "relay_public_key":        relay_pub,
+        # v2.61: caller-side signing
+        "caller_signature":        caller_signature,
+        "caller_public_key":       caller_public_key,
+        "caller_signature_valid":  caller_sig_valid,
+        "bilateral":               bilateral,
     }
 
     _interaction_records.append(record)
@@ -1855,6 +1893,7 @@ def _make_agent_card(name, skills):
             "capability_token_issuance":   bool(_ed25519_private),            # v2.57: POST /skills/{id}/capability-token — SINT-format Ed25519 capability token issuance
             "effective_tier_computation":  True,                               # v2.58: dynamic three-factor effective_tier: max(tier_rule, depth_floor, rep_adj)
             "interaction_records":         True,                               # v2.59: bilateral interaction records — POST /tasks?record=true + GET /interaction-records
+            "bilateral_interaction_records": True,                             # v2.61: full bilateral signing — caller_signature + caller_public_key + caller_signature_valid + bilateral flag
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
         },
 
@@ -7509,8 +7548,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
             try:
                 body = self._read_body()
                 # BUG-010 fix: validate required 'role' field
+                # role may be at top-level body OR nested inside payload — check both
                 payload = body.get("payload", body)
-                role = payload.get("role") if isinstance(payload, dict) else body.get("role")
+                role = body.get("role") or (payload.get("role") if isinstance(payload, dict) else None)
                 if not role:
                     e_body, e_code = _err(ERR_INVALID_REQUEST,
                                           "missing required field: role (must be: agent, user, or system)")
@@ -7637,11 +7677,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         _jti = raw_cap_token.get("jti", "")
                         if _jti:
                             _ir_ct_hash = "sha256:" + hashlib.sha256(_jti.encode()).hexdigest()
+                    # v2.61: optional caller_signature + caller_public_key for full bilateral signing
+                    _ir_caller_sig = body.get("caller_signature")
+                    _ir_caller_pub = body.get("caller_public_key")
                     ir = _create_interaction_record(
                         task,
                         caller_did=_ir_caller_did,
                         skill_id=skill_id_for_tier,
                         caller_token_hash=_ir_ct_hash,
+                        caller_signature=_ir_caller_sig,
+                        caller_public_key=_ir_caller_pub,
                     )
                     resp["interaction_record"] = ir
                     task["interaction_record"] = ir  # attach to task for GET /tasks/{id}
