@@ -1515,3 +1515,14 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
   - 长期：在 conftest.py 中添加 session-scope fixture 自动清理残留 relay 进程
 
 **优先级**: P2（偶发，手动清理即可恢复）
+
+## BUG-053 🟡 P2 — /message/send 未對超大消息執行大小限制
+- 发现时间：2026-04-06（測試輪 #17）
+- 症状：POST /message/send 傳入 70KB text 返回 200，期望 400 或 413
+- 根因：`/message/send` handler 未調用 `MAX_MSG_BYTES` 大小校驗（現有 `/message:send` 有此校驗）
+- 影響：DM 端點可被用於傳輸超大 payload，繞過 64KB 限制
+- 修復方案：在 `/message/send` handler 中加入 `len(body_raw) > MAX_MSG_BYTES → 413` 校驗
+- 优先级：P2（體驗/安全邊界問題，不影響核心 DM 功能）
+- 状态：待修复
+
+---
