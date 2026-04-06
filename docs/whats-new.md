@@ -5,6 +5,39 @@
 
 ---
 
+### v2.65.0 — `POST /ir/import-evidence` — APS-Compatible Reputation Update (2026-04-06)
+
+ACP v2.65 closes the bilateral IR → reputation loop by providing a standardized
+endpoint for importing external interaction records and generating APS-compatible
+`reputation_update` payloads. Aligns with A2A Issue #1718 (`importBilateralEvidence()`).
+
+**New: `POST /ir/import-evidence`**
+- Accepts an external bilateral IR record from a peer relay
+- Verifies `relay_signature` and `caller_signature` (Ed25519) independently
+- Returns `verify` block: `relay_sig_valid`, `caller_sig_valid`, `bilateral_verified`, `errors`
+- Returns APS-compatible `reputation_update` payload with `trust_delta`:
+  - `+1` — bilateral verified (both signatures valid)
+  - `0`  — relay-only verified (no caller signature)
+  - `-1` — tampered or no signatures
+
+**New: `GET /ir/imported-evidence`**
+- Lists all records previously imported via `POST /ir/import-evidence`
+- Supports `?agent_did=` filter and `?limit=` pagination
+
+**New helpers (internal)**
+- `_verify_ir_signatures(ir)` — dual Ed25519 verification with error collection
+- `_build_reputation_update(ir, verify_result)` — APS `reputation_update` builder
+  with `freshness_hint` (seconds since interaction), `aps_schema: "v1"`
+
+**AgentCard**: `capabilities.import_evidence` + `endpoints.import_evidence: "/ir/import-evidence"`
+
+**Tests**: IE-1..20 (20 new tests) — all passing
+
+**Bug fix (BUG-052)**: `test_t3c3` port contention fixed — `_kill_port()` pre-clean +
+`websockets.serve(reuse_address=True)` + `wait_http_ready` timeout 20s
+
+---
+
 ### v2.64.0 — Bilateral IR Test Vectors + Governance `live_endpoint` (2026-04-06)
 
 ACP v2.64 delivers two interoperability features driven by A2A community discussion:

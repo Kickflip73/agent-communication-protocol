@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.64.0"  # v2.64: bilateral IR test vectors — GET /ir/test-vectors (4 deterministic vectors, @aeoess A2A #1718 request); governance live_endpoint (APS serviceEndpoint alignment, A2A #1717)
+VERSION = "2.65.0"  # v2.65: POST /ir/import-evidence — import external bilateral IR + APS-compatible reputation_update payload; _verify_ir_signatures + _build_reputation_update helpers; trust_delta(-1/0/+1); freshness_hint; aps_schema v1 (@aeoess A2A #1718 importBilateralEvidence alignment)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -432,6 +432,7 @@ _principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, add
 _capability_tokens: dict = {}     # v2.57: issued capability tokens {token_id: CapabilityTokenObject}
 _interaction_records: list = []  # v2.59: bilateral interaction records [{id, task_id, relay_did, caller_did, ...}]
 _ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
+_imported_evidence: list = []    # v2.65: externally-imported bilateral IR evidence [{import_id, source_ir, reputation_update, ...}]
 _governance_metadata: dict = {}  # v2.60: governance metadata (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
 
 
@@ -1687,6 +1688,150 @@ def _create_interaction_record(task: dict, caller_did: str | None,
     return record
 
 
+def _build_reputation_update(ir: dict, verify_result: dict) -> dict:
+    """Build an APS-compatible reputation_update payload from a bilateral IR record (v2.65).
+
+    APS importBilateralEvidence() expects a payload that can be fed into the APS
+    reputation registry to update an agent's trust score based on interaction evidence.
+
+    Spec alignment: A2A #1718 (@aeoess): APS importBilateralEvidence() schema.
+
+    Fields:
+      evidence_type    — always "bilateral_interaction_record"
+      source_relay_did — DID of the relay that generated the IR
+      agent_did        — DID of the agent whose reputation is being updated (caller)
+      task_id          — task identifier for correlation
+      skill_id         — skill invoked (for per-skill reputation scoping)
+      sequence_a       — relay-generated monotonic sequence (freshness signal)
+      timestamp        — ISO-8601 timestamp of the original interaction
+      bilateral        — bool: true if both relay + caller signatures verified
+      relay_sig_valid  — bool: relay signature verified against relay_public_key
+      caller_sig_valid — bool/null: caller signature verified (null if not provided)
+      trust_delta      — +1 (bilateral verified) / 0 (relay-only) / -1 (tampered)
+      freshness_hint   — seconds since the original interaction (caller to check TTL)
+      aps_schema       — "v1" (APS reputation update schema version)
+    """
+    relay_sig_valid = verify_result.get("relay_sig_valid", False)
+    caller_sig_valid_val = verify_result.get("caller_sig_valid")  # True/False/None
+    bilateral_verified = verify_result.get("bilateral_verified", False)
+
+    # trust_delta: +1 bilateral verified, 0 relay-only verified, -1 tampered/invalid
+    if bilateral_verified:
+        trust_delta = 1
+    elif relay_sig_valid:
+        trust_delta = 0
+    else:
+        trust_delta = -1
+
+    # Freshness hint: seconds since timestamp
+    freshness_hint: int | None = None
+    try:
+        from datetime import datetime, timezone
+        ts_str = ir.get("timestamp", "")
+        if ts_str:
+            ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            now_dt = datetime.now(timezone.utc)
+            freshness_hint = int((now_dt - ts_dt).total_seconds())
+    except Exception:
+        freshness_hint = None
+
+    return {
+        "evidence_type":    "bilateral_interaction_record",
+        "source_relay_did": ir.get("relay_did"),
+        "agent_did":        ir.get("caller_did"),
+        "task_id":          ir.get("task_id"),
+        "skill_id":         ir.get("skill_id"),
+        "sequence_a":       ir.get("sequence_a"),
+        "timestamp":        ir.get("timestamp"),
+        "bilateral":        ir.get("bilateral", False),
+        "relay_sig_valid":  relay_sig_valid,
+        "caller_sig_valid": caller_sig_valid_val,
+        "trust_delta":      trust_delta,
+        "freshness_hint":   freshness_hint,
+        "aps_schema":       "v1",
+    }
+
+
+def _verify_ir_signatures(ir: dict) -> dict:
+    """Verify relay_signature and caller_signature in an imported IR record (v2.65).
+
+    Returns:
+      {
+        relay_sig_valid:    True/False/None (None if no relay_public_key),
+        caller_sig_valid:   True/False/None (None if no caller_signature),
+        bilateral_verified: True if BOTH verified,
+        errors:             [str, ...]
+      }
+    """
+    errors: list[str] = []
+
+    def _b64url_decode(s: str) -> bytes:
+        s = s.replace("-", "+").replace("_", "/")
+        s += "=" * (-len(s) % 4)
+        return _base64.b64decode(s)
+
+    # Reconstruct canonical payload (same fields as _create_interaction_record)
+    canonical_fields = {
+        "id":            ir.get("id"),
+        "type":          ir.get("type", "interaction"),
+        "relay_did":     ir.get("relay_did"),
+        "caller_did":    ir.get("caller_did"),
+        "task_id":       ir.get("task_id"),
+        "skill_id":      ir.get("skill_id"),
+        "sequence_a":    ir.get("sequence_a"),
+        "previous_hash": ir.get("previous_hash"),
+        "timestamp":     ir.get("timestamp"),
+    }
+    canonical_bytes = json.dumps(canonical_fields, sort_keys=True, separators=(",", ":")).encode()
+
+    # ── Relay signature verification ─────────────────────────────────────────
+    relay_sig_valid: bool | None = None
+    relay_sig = ir.get("relay_signature")
+    relay_pub  = ir.get("relay_public_key")
+    if relay_sig and relay_pub:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+            pub_bytes = _b64url_decode(relay_pub)
+            pub_obj   = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            sig_bytes = _b64url_decode(relay_sig)
+            pub_obj.verify(sig_bytes, canonical_bytes)
+            relay_sig_valid = True
+        except Exception as e:
+            relay_sig_valid = False
+            errors.append(f"relay_signature invalid: {e}")
+    elif relay_sig or relay_pub:
+        relay_sig_valid = False
+        errors.append("relay_signature and relay_public_key must both be present")
+
+    # ── Caller signature verification ─────────────────────────────────────────
+    caller_sig_valid: bool | None = None
+    caller_sig = ir.get("caller_signature")
+    caller_pub = ir.get("caller_public_key")
+    if caller_sig and caller_pub:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+            pub_bytes = _b64url_decode(caller_pub)
+            pub_obj   = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            sig_bytes = _b64url_decode(caller_sig)
+            pub_obj.verify(sig_bytes, canonical_bytes)
+            caller_sig_valid = True
+        except Exception as e:
+            caller_sig_valid = False
+            errors.append(f"caller_signature invalid: {e}")
+    elif caller_sig or caller_pub:
+        caller_sig_valid = False
+        errors.append("caller_signature and caller_public_key must both be present")
+
+    bilateral_verified = (relay_sig_valid is True and caller_sig_valid is True)
+
+    return {
+        "relay_sig_valid":    relay_sig_valid,
+        "caller_sig_valid":   caller_sig_valid,
+        "bilateral_verified": bilateral_verified,
+        "errors":             errors,
+    }
+
+
 # ── v2.17: Availability Schedule (CRON) helpers ──────────────────────────────
 
 def _parse_cron_field(field: str, lo: int, hi: int) -> list:
@@ -1898,6 +2043,7 @@ def _make_agent_card(name, skills):
             "external_token_verify":       bool(_ed25519_private),             # v2.63: POST /verify/external-token — SINT-format Ed25519 cap token cross-protocol verification (APS/SINT compatible)
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
             "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
+            "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
         },
 
         "identity": ({
@@ -1958,6 +2104,7 @@ def _make_agent_card(name, skills):
             "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
             "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
             "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
+            "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -5585,6 +5732,44 @@ class LocalHTTP(BaseHTTPRequestHandler):
             else:
                 self._json({"ok": True, **result})
 
+        # ── GET /ir/imported-evidence — list imported bilateral IR evidence (v2.65) ──
+        elif p == "/ir/imported-evidence":
+            """
+            GET /ir/imported-evidence — List all externally-imported bilateral IR evidence records (v2.65).
+
+            These are records imported via POST /ir/import-evidence.
+            Each entry includes the source IR, signature verification result, and
+            APS-compatible reputation_update payload.
+
+            Query params:
+              agent_did — filter by agent_did (optional)
+              limit     — max records to return (default: 100)
+
+            Response 200:
+              { "ok": true, "count": int, "total": int, "records": [{...}, ...] }
+            """
+            qs_ie = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            filter_agent_ie = qs_ie.get("agent_did", "").strip()
+            try:
+                limit_ie = int(qs_ie.get("limit", 100))
+            except (ValueError, TypeError):
+                limit_ie = 100
+
+            recs_ie = []
+            for rec in _imported_evidence:
+                rep = rec.get("reputation_update", {})
+                if filter_agent_ie and filter_agent_ie not in (rep.get("agent_did") or ""):
+                    continue
+                recs_ie.append(rec)
+
+            total_ie = len(recs_ie)
+            self._json({
+                "ok":     True,
+                "count":  min(len(recs_ie), limit_ie),
+                "total":  total_ie,
+                "records": recs_ie[-limit_ie:],
+            })
+
         # ── GET /principal-chain — self principal_chain management (v2.56) ──
         elif p == "/principal-chain":
             """
@@ -7234,6 +7419,83 @@ class LocalHTTP(BaseHTTPRequestHandler):
             result["relay_did_key"] = _did_key
             status_code = 200 if result.get("ok") else (400 if not result.get("valid") else 200)
             self._json(result, status_code)
+
+        # ── v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS reputation update ──
+        elif p == "/ir/import-evidence":
+            """
+            POST /ir/import-evidence — Import an external bilateral interaction record and
+            generate an APS-compatible reputation_update payload (v2.65).
+
+            Aligns with A2A Issue #1718 (@aeoess): APS importBilateralEvidence() interface.
+            This endpoint allows a relay to:
+              1. Accept a bilateral IR record from a peer relay
+              2. Verify both relay_signature and caller_signature (Ed25519)
+              3. Return an APS-compatible reputation_update payload that can be fed into
+                 an APS reputation registry to update an agent's trust score
+
+            Body (required):
+              ir   (object)  — the bilateral interaction record to import
+                Fields: id, type, relay_did, caller_did, task_id, skill_id, sequence_a,
+                        previous_hash, timestamp, relay_signature, relay_public_key,
+                        [caller_signature, caller_public_key] (optional for bilateral)
+
+            Response 200 — import succeeded (even if signatures invalid):
+              {
+                "ok": true,
+                "import_id": "imp-<id>",
+                "verify": {
+                  "relay_sig_valid": bool|null,
+                  "caller_sig_valid": bool|null,
+                  "bilateral_verified": bool,
+                  "errors": [str]
+                },
+                "reputation_update": {
+                  "evidence_type": "bilateral_interaction_record",
+                  "source_relay_did": str, "agent_did": str,
+                  "task_id": str, "skill_id": str, "sequence_a": int,
+                  "timestamp": str, "bilateral": bool,
+                  "relay_sig_valid": bool, "caller_sig_valid": bool|null,
+                  "trust_delta": -1|0|1,
+                  "freshness_hint": int|null,
+                  "aps_schema": "v1"
+                }
+              }
+            Response 400: missing ir field, ir not an object
+            """
+            body_ie = self._read_body()
+            if body_ie is None:
+                return
+
+            ir_obj = body_ie.get("ir")
+            if ir_obj is None:
+                self._json({"ok": False, "error": "missing required field: ir"}, 400)
+                return
+            if not isinstance(ir_obj, dict):
+                self._json({"ok": False, "error": "ir must be an object"}, 400)
+                return
+
+            # Verify signatures
+            verify_result = _verify_ir_signatures(ir_obj)
+
+            # Build APS-compatible reputation_update
+            rep_update = _build_reputation_update(ir_obj, verify_result)
+
+            import_id = f"imp-{_make_id()}"
+            import_record = {
+                "import_id":        import_id,
+                "imported_at":      _now(),
+                "source_ir":        ir_obj,
+                "verify":           verify_result,
+                "reputation_update": rep_update,
+            }
+            _imported_evidence.append(import_record)
+
+            self._json({
+                "ok":               True,
+                "import_id":        import_id,
+                "verify":           verify_result,
+                "reputation_update": rep_update,
+            })
 
         # ── v2.17: POST /availability/heartbeat ───────────────────────────────
         if p == "/availability/heartbeat":
