@@ -5,6 +5,82 @@
 
 ---
 
+### v2.64.0 — Bilateral IR Test Vectors + Governance `live_endpoint` (2026-04-06)
+
+ACP v2.64 delivers two interoperability features driven by A2A community discussion:
+a deterministic test vector suite for bilateral Interaction Record verification (A2A #1718, @aeoess),
+and explicit `live_endpoint` alignment with the APS `serviceEndpoint` governance pattern (A2A #1717).
+
+#### `GET /ir/test-vectors` — Cross-Implementation IR Verification
+
+Requested by @aeoess (A2A Issue #1718): a canonical, deterministic set of test vectors that any ACP-compatible
+implementation can use to verify bilateral IR signature logic without running a live relay.
+
+Returns 4 test vectors with SHA-256 seeded Ed25519 keys (fully reproducible):
+
+| ID | Type | Scenario |
+|---|---|---|
+| `tv-ir-001` | bilateral | Both relay + caller signatures valid |
+| `tv-ir-002` | unilateral | Relay-only signature (caller not enrolled) |
+| `tv-ir-003` | negative | Tampered payload → `caller_signature_valid: false` |
+| `tv-ir-004` | did:key | W3C did:key format in canonical payload, bilateral valid |
+
+**Chain integrity:** `tv-ir-002.previous_hash = sha256(tv-ir-001.canonical_payload)` — same hash-chain
+algorithm as live interaction records.
+
+**Determinism guarantee:** Same seed bytes → same Ed25519 keys → same signatures on every call.
+The `canonical_bytes_hex` field decodes exactly to `json.dumps(canonical_payload, sort_keys=True)`.
+
+```bash
+# Fetch test vectors
+curl http://localhost:7901/ir/test-vectors | jq .
+
+# Verify a signature (Python)
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+import base64, json, requests
+
+data = requests.get("http://localhost:7901/ir/test-vectors").json()
+v = next(v for v in data["vectors"] if v["id"] == "tv-ir-001")
+pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(data["keys"]["relay"]["public_key_b64"] + "=="))
+pub.verify(base64.b64decode(v["relay_signature"] + "=="), bytes.fromhex(v["canonical_bytes_hex"]))
+print("✅ relay signature valid")
+```
+
+**Capability gate:** Requires `--identity` (Ed25519 key loaded). Returns `503` otherwise.
+
+#### `governance_metadata.live_endpoint` — APS serviceEndpoint Alignment
+
+Inspired by A2A #1717 (`passportToAgentCard()` APS live governance endpoint pattern):
+`GET /governance-metadata` now includes a `live_endpoint` field pointing back to itself.
+
+```json
+{
+  "governance_metadata": {
+    "live_endpoint": "/governance-metadata",
+    "trust_score": 0.85,
+    ...
+  }
+}
+```
+
+This matches the APS pattern where an `AgentCard.serviceEndpoint` URL allows the receiver to
+query a live trust profile rather than relying on a static snapshot embedded in a token.
+
+#### New AgentCard fields
+
+```json
+{
+  "capabilities": {
+    "ir_test_vectors": true
+  },
+  "endpoints": {
+    "ir_test_vectors": "/ir/test-vectors"
+  }
+}
+```
+
+---
+
 ### v2.63.0 — Cross-Protocol Token Verification: `GET /identity/did-key` + `POST /verify/external-token` (2026-04-06)
 
 ACP v2.63 closes the cross-protocol interoperability gap identified in A2A Issue #1713 (@pshkv, @viftode4).
