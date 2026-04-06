@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: ACP Skills Discovery API
-  version: "2.62.0"
+  version: "2.63.0"
   description: |
     ACP (Agent Communication Protocol) Skills Discovery endpoint.
     Allows agents to programmatically discover what skills a peer agent supports.
@@ -1137,6 +1137,157 @@ components:
                   expired:
                     type: boolean
 
+    DidKeyResponse:
+      type: object
+      description: Relay's W3C did:key identifier and public key material (v2.63)
+      properties:
+        ok:
+          type: boolean
+        did_key:
+          type: string
+          description: W3C did:key identifier (multicodec 0xed01 + base58btc, z6Mk... prefix)
+          example: "did:key:z6MkpK7WQSpmbJUMxqa3EP2CeA7DTrD12H1Xhuwo5VaCPP9m"
+        did_acp:
+          type: string
+          description: ACP-native DID (raw base64url pubkey)
+        public_key_b64:
+          type: string
+          description: Ed25519 public key, base64url encoded (32 bytes)
+        public_key_hex:
+          type: string
+          description: Ed25519 public key, 64 hex chars
+        algorithm:
+          type: string
+          enum: [Ed25519]
+        multicodec:
+          type: string
+          enum: ["0xed01"]
+          description: Multicodec prefix used in did:key derivation
+
+    SintToken:
+      type: object
+      description: SINT-format cross-protocol capability token (A2A #1716 / APS v1.32.0 compatible)
+      required: [subject, resource, actions, tier, signature]
+      properties:
+        subject:
+          type: string
+          description: Issuer's Ed25519 public key, 64 hex chars (32 bytes)
+          minLength: 64
+          maxLength: 64
+        resource:
+          type: string
+          description: Resource URI this token grants access to
+          example: "acp://relay.example/skills/invoke"
+        actions:
+          type: array
+          items:
+            type: string
+          description: List of permitted actions
+          example: ["invoke"]
+        tier:
+          type: string
+          description: Authorization tier (T0_public / T1_read / T2_act / T3_admin)
+          example: "T2_act"
+        exp:
+          type: integer
+          format: int64
+          description: Expiry as Unix timestamp (omit or 0 = no expiry)
+        signature:
+          type: string
+          description: Ed25519 signature over canonical payload (hex), see spec for payload format
+
+    ExternalTokenVerifyRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          $ref: "#/components/schemas/SintToken"
+
+    ExternalTokenVerifyResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: true if token is cryptographically valid and not expired
+        valid:
+          type: boolean
+          description: true if signature verification passed
+        expired:
+          type: boolean
+          description: true if exp field is present and in the past
+        subject_did:
+          type: string
+          description: did:key derived from token subject pubkey
+        relay_did_key:
+          type: string
+          description: This relay's did:key (for cross-reference; null if no identity loaded)
+        fields_verified:
+          type: array
+          items:
+            type: string
+          description: Ordered list of verification steps completed successfully
+          example: ["required_fields","expiry_not_expired","subject_pubkey_decoded","did_key_derived","canonical_payload_built","signature_valid"]
+        error:
+          type: string
+          description: Human-readable error message when ok=false
+
+  /identity/did-key:
+    get:
+      summary: Get relay's W3C did:key identifier and public key material (v2.63)
+      description: |
+        Returns this relay's Ed25519 public key as a W3C did:key identifier
+        (multicodec 0xed01 + base58btc). Compatible with APS v1.32.0 toDIDKey()
+        and SINT keyToDid(). Cross-verify benchmark: 9/9 PASS (A2A #1713, 2026-04-06).
+      tags: [identity]
+      responses:
+        "200":
+          description: Relay DID and public key material
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DidKeyResponse"
+        "404":
+          description: No Ed25519 identity loaded (relay started without --identity)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /verify/external-token:
+    post:
+      summary: Verify a SINT-format cross-protocol capability token (v2.63)
+      description: |
+        Accepts a SINT-format Ed25519-signed capability token and performs
+        7-step cryptographic verification:
+          1. Required fields check
+          2. Expiry (exp) check
+          3. Subject pubkey decode (64 hex chars → 32 bytes Ed25519)
+          4. did:key derivation (multicodec 0xed01 + base58btc)
+          5. Canonical payload construction: subject|resource|actions_csv|tier|exp_or_0
+          6. Ed25519 signature verification
+          7. Optional MoltTrust registry query (if configured)
+        Compatible with APS v1.32.0 and SINT token formats.
+      tags: [identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalTokenVerifyRequest"
+      responses:
+        "200":
+          description: Verification result (ok=true for valid, ok=false for invalid/expired)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalTokenVerifyResponse"
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 tags:
   - name: skills
     description: |
@@ -1147,3 +1298,7 @@ tags:
     description: |
       SINT-format Ed25519 signed capability token issuance and management (v2.57).
       Implements the capability token model from A2A IS#1716 (SINT Protocol).
+  - name: identity
+    description: |
+      Ed25519 identity endpoints: did:key exposure and cross-protocol token verification (v2.63).
+      Compatible with APS v1.32.0 toDIDKey() and SINT keyToDid() (A2A #1713 cross-verify 9/9 PASS).

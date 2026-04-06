@@ -5,6 +5,115 @@
 
 ---
 
+### v2.63.0 — Cross-Protocol Token Verification: `GET /identity/did-key` + `POST /verify/external-token` (2026-04-06)
+
+ACP v2.63 closes the cross-protocol interoperability gap identified in A2A Issue #1713 (@pshkv, @viftode4).
+Any agent holding a SINT-format capability token — issued by APS v1.32.0 or SINT — can now present it to an
+ACP relay for cryptographic verification, without any code changes on either side.
+
+**The problem:** ACP relays could issue their own capability tokens (v2.57), but had no way to verify tokens
+from other systems (APS, SINT, future protocols). The `did:key` derivation algorithm was compatible, but the
+verification endpoint didn't exist.
+
+**The solution:** Two new endpoints complete the interoperability story.
+
+#### `GET /identity/did-key`
+
+Returns this relay's W3C [did:key](https://w3c-ccg.github.io/did-method-key/) identifier and full public key material:
+
+```json
+{
+  "ok": true,
+  "did_key": "did:key:z6MkpK7WQSpmbJUMxqa3EP2CeA7DTrD12H1Xhuwo5VaCPP9m",
+  "did_acp": "did:acp:kn6RtnQsQuntheAxlH1tCUV806wLfIC1ISEZ05M3btQ",
+  "public_key_b64": "kn6RtnQsQuntheAxlH1tCUV806wLfIC1ISEZ05M3btQ",
+  "public_key_hex": "92...7e",
+  "algorithm": "Ed25519",
+  "multicodec": "0xed01"
+}
+```
+
+The `did_key` field uses multicodec `[0xed, 0x01]` + base58btc encoding — byte-for-byte identical
+to APS v1.32.0 `toDIDKey()` and SINT `keyToDid()`. No adaptation layer required.
+
+#### `POST /verify/external-token`
+
+Accepts a SINT-format capability token and performs 7-step cryptographic verification:
+
+```bash
+curl -s http://localhost:18363/verify/external-token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": {
+      "subject": "<64-hex-char-Ed25519-pubkey>",
+      "resource": "acp://relay.example/skills/invoke",
+      "actions":  ["invoke"],
+      "tier":     "T2_act",
+      "exp":      1775000000,
+      "signature":"<Ed25519-hex-sig>"
+    }
+  }'
+```
+
+Response (valid token):
+```json
+{
+  "ok": true,
+  "valid": true,
+  "expired": false,
+  "subject_did": "did:key:z6Mkq3dfNXFN...",
+  "relay_did_key": "did:key:z6MkpK7WQ...",
+  "fields_verified": [
+    "required_fields",
+    "expiry_not_expired",
+    "subject_pubkey_decoded",
+    "did_key_derived",
+    "canonical_payload_built",
+    "signature_valid"
+  ]
+}
+```
+
+#### The 7-Step Verification Pipeline
+
+| Step | Check | Failure Mode |
+|------|-------|-------------|
+| 1 | Required fields present | `ok=false, error="missing required fields"` |
+| 2 | Expiry (`exp`) check | `ok=false, expired=true` |
+| 3 | Subject pubkey decode (64 hex → 32 bytes) | `ok=false, error="subject must be 64 hex chars"` |
+| 4 | did:key derivation (multicodec 0xed01 + base58btc) | — |
+| 5 | Canonical payload: `subject\|resource\|actions_csv\|tier\|exp_or_0` | — |
+| 6 | Ed25519 signature verification | `ok=false, valid=false` |
+| 7 | Optional MoltTrust registry query (if configured) | — |
+
+#### Cross-Protocol Compatibility
+
+ACP's `did:key` derivation is validated against the published cross-verify benchmark from A2A #1713:
+**9/9 test vectors pass** with zero code changes between APS v1.32.0, SINT, and ACP.
+
+This means:
+- A token issued by an APS relay can be verified by an ACP relay
+- A token issued by an ACP relay carries a `subject_did` recognizable to SINT implementations
+- The `relay_did_key` in every response lets the receiving party verify which relay attested the token
+
+#### AgentCard
+
+```json
+{
+  "capabilities": {
+    "external_token_verify": true
+  },
+  "endpoints": {
+    "did_key":               "/identity/did-key",
+    "external_token_verify": "/verify/external-token"
+  }
+}
+```
+
+`external_token_verify` is `true` only when the relay has an Ed25519 identity loaded (`--identity`).
+
+---
+
 ### v2.62.0 — `wtrmrk_sequence_root`: Factor 4 Attestation History in `effective_tier` (2026-04-06)
 
 ACP v2.62 adds the fourth factor to the `effective_tier` formula: **external attestation history**
