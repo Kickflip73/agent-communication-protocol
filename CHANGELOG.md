@@ -7,6 +7,44 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.69.0] — 2026-04-07 (runtime limitations endpoint — A2A #1694 @citriac stable/runtime split)
+
+### Added
+- **`GET /limitations/runtime`** — Dynamic runtime limitations endpoint
+  - Aligns with A2A #1694 @citriac Agent Exchange Hub v0.4.0 stable/runtime limitations split
+  - Complements static `limitations[]` in AgentCard (v2.29) with live runtime metrics
+  - Response: `{ ok, runtime: { current_load, queue_depth, active_tasks, total_tasks, memory_usage_mb, memory_source, peer_count }, version, timestamp }`
+  - `current_load` — number of currently connected WS peers
+  - `queue_depth` — tasks in `submitted` state
+  - `active_tasks` — tasks not in terminal states (`completed/failed/canceled/rejected`)
+  - `total_tasks` — total tasks ever created in this relay session
+  - `memory_usage_mb` — process RSS in MB (psutil preferred, resource.getrusage fallback)
+  - `memory_source` — `"psutil"` | `"resource"` (indicates which library was used)
+  - `peer_count` — total registered peers (connected + disconnected)
+  - psutil is optional — lazy import inside function body; graceful degradation to `resource` module
+- **AgentCard `capabilities.runtime_limitations: true`**
+- **AgentCard `endpoints.runtime_limitations: "/limitations/runtime"`**
+
+### Tests
+- `tests/test_runtime_limitations.py` — RL-1..10: **10 tests passed**
+  - RL-1: Response shape (ok/runtime/version/timestamp)
+  - RL-2: All required keys present
+  - RL-3: memory_usage_mb > 0
+  - RL-4: active_tasks == 0 initially
+  - RL-5: queue_depth >= 0 initially
+  - RL-6: active_tasks >= 0 after task creation
+  - RL-7: AgentCard capabilities.runtime_limitations == True
+  - RL-8: AgentCard endpoints.runtime_limitations == "/limitations/runtime"
+  - RL-9: peer_count == 0 with no WS peers
+  - RL-10: total_tasks >= 0; memory_source in ("psutil", "resource")
+
+### Alignment
+- A2A #1694 @citriac proposes stable/runtime limitations separation in Agent Exchange Hub v0.4.0
+- ACP v2.29 already had static `limitations[]` (LimitationObject format)
+- v2.69 completes the split with dynamic runtime metrics endpoint
+
+---
+
 ## [2.67.0] — 2026-04-06 (Direct Message mode — A2A v1.0.0 `SendMessageResponse` alignment)
 
 ### Added

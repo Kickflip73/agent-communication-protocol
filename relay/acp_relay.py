@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.68.0"  # v2.68: trust.signals[] v2 — 4 new signal types (bilateral_ir/capability_token/wtrmrk/external_token); GET /trust/signals endpoint (filterable ?type= ?enabled=); AgentCard capabilities.trust_signals_v268=True + endpoints.trust_signals; total 12 signal types; tests TS-1..10
+VERSION = "2.69.0"  # v2.69: GET /limitations/runtime — dynamic runtime limitations endpoint (aligns with A2A #1694 @citriac stable/runtime split); returns current_load/queue_depth/active_tasks/memory_usage_mb; AgentCard capabilities.runtime_limitations=True + endpoints.runtime_limitations
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2056,6 +2056,7 @@ def _make_agent_card(name, skills):
             "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
             "rejected_state":              True,                               # v2.66: TASK_REJECTED terminal state (A2A v1.0.0 alignment); :reject → rejected; POST /tasks/{id}:agent-reject
             "direct_message":              True,                               # v2.67: POST /message/send — Direct Message mode; returns Message (not Task); A2A SendMessageResponse.oneof{Task,Message} alignment
+            "runtime_limitations":         True,                               # v2.69: GET /limitations/runtime — dynamic runtime metrics
         },
 
         "identity": ({
@@ -2120,6 +2121,7 @@ def _make_agent_card(name, skills):
             "agent_reject":          "/tasks/{id}:agent-reject",# v2.66: POST — agent-initiated task rejection → rejected terminal state
             "message_send":          "/message/send",           # v2.67: POST — Direct Message (no Task); A2A SendMessageResponse.oneof{Task,Message}
             "trust_signals":         "/trust/signals",          # v2.68: GET — full trust signal inventory (12 types; filterable by ?type= ?enabled=)
+            "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -6688,6 +6690,68 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "count":   len(filtered),
                 "total":   len(all_signals),
                 "version": VERSION,
+            })
+
+        # ── GET /limitations/runtime — dynamic runtime limitations (v2.69) ──
+        elif p == "/limitations/runtime":
+            # Returns dynamic runtime metrics (aligns with A2A #1694 @citriac stable/runtime split).
+            # Static limitations[] live in AgentCard; this endpoint exposes live runtime state.
+            #
+            # Metrics:
+            #   current_load   — number of active WS peers
+            #   queue_depth    — tasks in "submitted" state
+            #   active_tasks   — tasks not in terminal states
+            #   total_tasks    — total tasks ever created
+            #   memory_usage_mb — process RSS (psutil preferred, resource fallback)
+            #   memory_source  — "psutil" | "resource"
+            #   peer_count     — total registered peers
+
+            # Compute task metrics
+            all_tasks = list(_tasks.values())
+            active_tasks = sum(
+                1 for t in all_tasks if t.get("status") not in TERMINAL_STATES
+            )
+            queue_depth = sum(
+                1 for t in all_tasks if t.get("status") == TASK_SUBMITTED
+            )
+            total_tasks = len(all_tasks)
+
+            # Compute peer metrics
+            peer_count   = len(_peers)
+            current_load = sum(
+                1 for p_info in _peers.values() if p_info.get("connected", False)
+            )
+
+            # Memory usage — psutil preferred, resource fallback
+            try:
+                import psutil as _psutil
+                rss = _psutil.Process().memory_info().rss
+                memory_usage_mb = round(rss / 1024 / 1024, 2)
+                memory_source   = "psutil"
+            except ImportError:
+                import resource as _resource
+                usage = _resource.getrusage(_resource.RUSAGE_SELF)
+                # ru_maxrss is in KB on Linux, bytes on macOS
+                import sys as _sys
+                if _sys.platform == "darwin":
+                    memory_usage_mb = round(usage.ru_maxrss / 1024 / 1024, 2)
+                else:
+                    memory_usage_mb = round(usage.ru_maxrss / 1024, 2)
+                memory_source = "resource"
+
+            self._json({
+                "ok": True,
+                "runtime": {
+                    "current_load":    current_load,
+                    "queue_depth":     queue_depth,
+                    "active_tasks":    active_tasks,
+                    "total_tasks":     total_tasks,
+                    "memory_usage_mb": memory_usage_mb,
+                    "memory_source":   memory_source,
+                    "peer_count":      peer_count,
+                },
+                "version":   VERSION,
+                "timestamp": time.time(),
             })
 
         # ── GET /trust/vouch — list vouch_chain entries (v2.27) ─────────────
