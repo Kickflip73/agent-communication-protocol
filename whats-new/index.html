@@ -1015,6 +1015,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2650-post-irimport-evidence-aps-compatible-reputation-update-2026-04-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.65.0 — POST /ir/import-evidence — APS-Compatible Reputation Update (2026-04-06)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2640-bilateral-ir-test-vectors-governance-live_endpoint-2026-04-06" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1888,6 +1899,30 @@
 <p>Last updated: 2026-04-06
 For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 </blockquote>
+<hr />
+<h3 id="v2650-post-irimport-evidence-aps-compatible-reputation-update-2026-04-06">v2.65.0 — <code>POST /ir/import-evidence</code> — APS-Compatible Reputation Update (2026-04-06)<a class="headerlink" href="#v2650-post-irimport-evidence-aps-compatible-reputation-update-2026-04-06" title="Permanent link">&para;</a></h3>
+<p>ACP v2.65 closes the bilateral IR → reputation loop by providing a standardized
+endpoint for importing external interaction records and generating APS-compatible
+<code>reputation_update</code> payloads. Aligns with A2A Issue #1718 (<code>importBilateralEvidence()</code>).</p>
+<p><strong>New: <code>POST /ir/import-evidence</code></strong>
+- Accepts an external bilateral IR record from a peer relay
+- Verifies <code>relay_signature</code> and <code>caller_signature</code> (Ed25519) independently
+- Returns <code>verify</code> block: <code>relay_sig_valid</code>, <code>caller_sig_valid</code>, <code>bilateral_verified</code>, <code>errors</code>
+- Returns APS-compatible <code>reputation_update</code> payload with <code>trust_delta</code>:
+  - <code>+1</code> — bilateral verified (both signatures valid)
+  - <code>0</code>  — relay-only verified (no caller signature)
+  - <code>-1</code> — tampered or no signatures</p>
+<p><strong>New: <code>GET /ir/imported-evidence</code></strong>
+- Lists all records previously imported via <code>POST /ir/import-evidence</code>
+- Supports <code>?agent_did=</code> filter and <code>?limit=</code> pagination</p>
+<p><strong>New helpers (internal)</strong>
+- <code>_verify_ir_signatures(ir)</code> — dual Ed25519 verification with error collection
+- <code>_build_reputation_update(ir, verify_result)</code> — APS <code>reputation_update</code> builder
+  with <code>freshness_hint</code> (seconds since interaction), <code>aps_schema: "v1"</code></p>
+<p><strong>AgentCard</strong>: <code>capabilities.import_evidence</code> + <code>endpoints.import_evidence: "/ir/import-evidence"</code></p>
+<p><strong>Tests</strong>: IE-1..20 (20 new tests) — all passing</p>
+<p><strong>Bug fix (BUG-052)</strong>: <code>test_t3c3</code> port contention fixed — <code>_kill_port()</code> pre-clean +
+<code>websockets.serve(reuse_address=True)</code> + <code>wait_http_ready</code> timeout 20s</p>
 <hr />
 <h3 id="v2640-bilateral-ir-test-vectors-governance-live_endpoint-2026-04-06">v2.64.0 — Bilateral IR Test Vectors + Governance <code>live_endpoint</code> (2026-04-06)<a class="headerlink" href="#v2640-bilateral-ir-test-vectors-governance-live_endpoint-2026-04-06" title="Permanent link">&para;</a></h3>
 <p>ACP v2.64 delivers two interoperability features driven by A2A community discussion:
