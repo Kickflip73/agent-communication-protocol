@@ -1873,6 +1873,48 @@ subject to the per-feature notes.</p>
 <p>See <a href="../spec/compatibility-certification.md"><code>spec/compatibility-certification.md</code></a> for full certification criteria.</p>
 <hr />
 <p><em>ACP Compatibility Matrix — v2.47.1 | Last updated 2026-04-04</em></p>
+<h2 id="v269-new-fields">v2.69 New Fields<a class="headerlink" href="#v269-new-fields" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Introduced</th>
+<th>Backward-compatible</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /limitations/runtime</code> → <code>runtime.current_load</code></td>
+<td>v2.69</td>
+<td>✅ new endpoint, ignored by older clients</td>
+</tr>
+<tr>
+<td><code>GET /limitations/runtime</code> → <code>runtime.queue_depth</code></td>
+<td>v2.69</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET /limitations/runtime</code> → <code>runtime.active_tasks</code></td>
+<td>v2.69</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET /limitations/runtime</code> → <code>runtime.memory_usage_mb</code></td>
+<td>v2.69</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>capabilities.runtime_limitations</code></td>
+<td>v2.69</td>
+<td>✅ unknown cap ignored</td>
+</tr>
+<tr>
+<td><code>endpoints.runtime_limitations</code></td>
+<td>v2.69</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
 
 
 
