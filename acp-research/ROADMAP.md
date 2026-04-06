@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-06 06:48（文档轮 #11：v2.59 文档同步完成；当前版本 v2.59.0，IR-1..12 PASS）
+> 最后更新：2026-04-06 08:28（研究轮 #9：A2A 第五次扫描；v2.61/v2.62 目标新增；当前版本 v2.59.0，549 passed）
 
 ---
 
@@ -670,7 +670,9 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.57** | **✅ 2026-04-06** | **`capability_token` — SINT-format Ed25519 signed capability tokens，POST /skills/{id}/capability-token 发行，GET /capability-tokens 列表，POST /tasks enforcement gate（required 先检查 + 签名验证 + tier 绕过），CT-1..12 PASS — A2A #1716 抢先实现** |
 | **v2.58** | **✅ 2026-04-06** | **`effective_tier` 三因子动态计算 — `_compute_effective_tier()`: max(tier_rule, depth_floor(chain.len), rep_adj) + GET /skills/{id}/effective-tier 调试端点 + DELETE /principal-chain URL-decode 修复 + ET-1..12 PASS — A2A #1716 @64R3N 公式抢先实现** |
 | **v2.59** | **✅ 2026-04-06** | **双边交互记录（Bilateral Signed Interaction Record）轻量版：`_create_interaction_record()` + `POST /tasks?record=true` + `GET /interaction-records` + relay Ed25519 签名 + sha256 链 + caller_token_hash — A2A #1718 抢先实现（0💬 时 ACP 已发布），IR-1..12 PASS** |
-| **v2.60** | **🔜 下一目标** | **governance_metadata in AgentCard（trust_score + capability_manifest + policy_compliance + audit_trail_reference）— A2A #1717（Microsoft agent-governance-toolkit）** |
+| **v2.60** | **🔜 下一目标** | **governance_metadata in AgentCard（trust_score + capability_manifest + policy_compliance + audit_trail_reference）— A2A #1717（Microsoft agent-governance-toolkit，0💬）** |
+| **v2.61** | **📋 计划中** | **optional caller_signature in interaction_records — 完整双边签名（relay_sig + caller_sig），A2A #1718 外部验证：unilateral attestation 是弱点，bilateral closes the gap** |
+| **v2.62** | **📋 计划中** | **wtrmrk_sequence_root 外部 reputation 查询：POST /tasks metadata.wtrmrk_sequence_root → WTRMRK registry 查询 → attestation_history_adjustment，fail-closed fallback — A2A #1716 @64R3N 建议** |
 
 ---
 
