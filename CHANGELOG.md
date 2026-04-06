@@ -7,6 +7,112 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.65.0] — 2026-04-06 (POST /ir/import-evidence — APS-compatible bilateral IR import + reputation_update)
+
+### Added
+- **`POST /ir/import-evidence`** — Import an external bilateral interaction record and generate an APS-compatible `reputation_update` payload.
+  - Verifies `relay_signature` and `caller_signature` independently (Ed25519)
+  - Returns `verify` block: `relay_sig_valid`, `caller_sig_valid`, `bilateral_verified`, `errors[]`
+  - Returns `reputation_update` payload (APS v1 schema):
+    - `trust_delta`: `+1` (bilateral verified) / `0` (relay-only) / `-1` (tampered/missing)
+    - `freshness_hint`: seconds elapsed since the original interaction timestamp
+    - `aps_schema: "v1"`, `evidence_type: "bilateral_interaction_record"`
+    - Fields: `source_relay_did`, `agent_did`, `task_id`, `skill_id`, `sequence_a`, `timestamp`, `bilateral`
+  - `import_id`: `"imp-<uuid>"` — stable identifier for the imported record
+  - Imported records stored in `_imported_evidence[]` (separate from `_interaction_records[]`)
+- **`GET /ir/imported-evidence`** — List all imported bilateral IR evidence records
+  - Supports `?agent_did=` filter and `?limit=` pagination
+  - Returns `{ok, count, total, records[]}`
+- **`_verify_ir_signatures(ir)`** — dual Ed25519 verification helper with error collection
+- **`_build_reputation_update(ir, verify_result)`** — APS v1 reputation_update builder with `freshness_hint`
+- **AgentCard**: `capabilities.import_evidence = bool(_ed25519_private)`, `endpoints.import_evidence = "/ir/import-evidence"`
+- **`_imported_evidence: list`** global state
+
+### A2A Alignment
+- Implements `importBilateralEvidence()` interface discussed in A2A Issue #1718 (@aeoess)
+- `trust_delta` scoring aligns with APS reputation registry update semantics
+
+### Tests
+- `tests/test_import_evidence.py` — **IE-1..20: 20/20 PASS**
+- Full regression: **843 passed, 8 skipped, 0 failed** (pre-existing flaky excluded)
+
+### Bug Fixes
+- **BUG-052** (test_t3c3 port contention): `websockets.serve(reuse_address=True)` + `_kill_port()` pre-clean + `wait_http_ready` timeout 20s
+
+---
+
+## [2.64.0] — 2026-04-06 (bilateral IR test vectors + governance live_endpoint — APS serviceEndpoint alignment)
+
+### Added
+- **`GET /ir/test-vectors`** — 4 deterministic bilateral interaction record test vectors for cross-implementation verification
+  - `tv-ir-001`: bilateral valid (both relay+caller signatures valid)
+  - `tv-ir-002`: relay-only (no caller signature), `previous_hash = sha256(tv-ir-001.canonical_payload)`
+  - `tv-ir-003`: tampered relay_signature (negative test — `verify=false`)
+  - `tv-ir-004`: did:key format consistency test (canonical_bytes_hex for interoperability)
+  - Keys derived via SHA-256 seeding → fully deterministic and reproducible across implementations
+  - Includes `canonical_bytes_hex` for payload consistency verification
+  - Returns 503 if no `--identity` loaded
+- **`governance_metadata.live_endpoint: "/governance-metadata"`** — APS `serviceEndpoint` pattern alignment (A2A #1717)
+- **AgentCard**: `capabilities.ir_test_vectors = bool(_ed25519_private)`, `endpoints.ir_test_vectors = "/ir/test-vectors"`
+
+### A2A Alignment
+- `GET /ir/test-vectors` directly addresses @aeoess's request in A2A #1718 for bilateral IR test vectors to implement `importBilateralEvidence()`
+- `live_endpoint` mirrors APS `passportToAgentCard()` `serviceEndpoint` pattern (A2A #1717 @aeoess)
+
+### Tests
+- `tests/test_ir_test_vectors.py` — **ITV-1..18: 18/18 PASS**
+- Full regression: **860 passed, 8 skipped, 0 failed**
+
+---
+
+## [2.62.0] — 2026-04-06 (effective_tier Factor 4 — wtrmrk_sequence_root external reputation query)
+
+### Added
+- **Factor 4**: `wtrmrk_sequence_root` external reputation signal added to `_compute_effective_tier()`
+- **`_query_wtrmrk(sequence_root)`** — queries MoltTrust `api.moltrust.ch/capability/verify` for external attestation
+- **`_wtrmrk_to_adj(result)`** — converts MoltTrust response to `+1 / 0 / -1` adjustment
+- **Asymmetric safety rule**: `combined_adj = rep_adj + wtrmrk_adj` with rule: *either +1 wins; both -1 needed to lower floor*
+- **Four-factor formula**: `effective_tier = max(tier_rule, depth_floor(chain_len), base + combined_adj)`
+- **`POST /tasks metadata.wtrmrk_sequence_root`** — callers can pass external attestation root with task invocations
+- **`GET /skills/{id}/effective-tier?wtrmrk_sequence_root=`** — optional factor 4 query param
+- **AgentCard**: `capabilities.wtrmrk_attestation = bool(_ed25519_private)`
+
+### A2A Alignment
+- `wtrmrk_sequence_root` aligns with A2A #1716 (@64R3N/@MoltyCel/@aeoess) — Merkle commitment anchored reputation
+- ACP asymmetric safety rule prevents single compromised factor from downgrading tier
+
+### Tests
+- `tests/test_wtrmrk_attestation.py` — **WA-1..14: 14/14 PASS**
+- Full regression: **525+ passed, 4 skipped, 0 failed**
+
+---
+
+## [2.61.0] — 2026-04-06 (caller_signature — full bilateral signing closes unilateral forgery gap)
+
+### Added
+- **`caller_signature` + `caller_public_key`** fields in interaction records — closes unilateral attestation forgery vulnerability identified in A2A #1718 (@aeoess)
+- **`_create_interaction_record()`** extended: accepts `caller_signature`, `caller_public_key`, `verify_caller_sig=True` parameters
+- **Ed25519 verification** of caller signature over canonical payload: `{relay_did, caller_did, task_id, sequence_a, timestamp}` (JSON-sorted, compact)
+- **New IR fields**:
+  - `caller_signature` — Ed25519 signature (base64url), provided by caller
+  - `caller_public_key` — caller's raw Ed25519 public key (base64url)
+  - `caller_signature_valid` — `True` / `False` / `None` (not provided)
+  - `bilateral` — `true` when both relay and caller signatures are present and valid
+- **AgentCard**: `capabilities.bilateral_interaction_records = bool(_ed25519_private and _ED25519_AVAILABLE)`
+
+### Bug Fixes
+- **`POST /tasks` role resolution**: fixed logic that only read `role` from token payload, ignoring top-level body field → now correctly reads `body.get("role") or payload.get("role")`
+
+### A2A Alignment
+- Directly addresses @aeoess comment in A2A #1718: unilateral relay attestation can be forged; bilateral signing creates non-repudiable records
+- Canonical payload spec published in `docs/specs/bilateral-ir-canonical-payload.md`
+
+### Tests
+- `tests/test_caller_signature.py` — **CS-1..12: 12/12 PASS**
+- Full regression: **511+ passed, 4 skipped, 0 failed**
+
+---
+
 ## [2.63.0] — 2026-04-06 (cross-protocol token verify — GET /identity/did-key + POST /verify/external-token)
 
 ### Added
