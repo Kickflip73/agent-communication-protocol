@@ -5,6 +5,124 @@
 
 ---
 
+### v2.60.0 — Governance Metadata in AgentCard (2026-04-06)
+
+ACP v2.60 adds **governance metadata** to the AgentCard — a structured block declaring an agent's
+trust posture, capability manifest, policy compliance, and audit trail reference.
+Inspired by A2A Issue #1717 (Microsoft agent-governance-toolkit, 0 comments);
+ACP ships the working implementation before A2A spec discussion concludes.
+
+#### Governance Metadata Block
+
+```json
+{
+  "governance_metadata": {
+    "schema_version": "1.0",
+    "generated_at": "2026-04-06T09:28:00Z",
+    "trust_score": 0.78,
+    "capability_manifest": {
+      "transfer-funds": { "tier": "T3", "status": "available", "deprecated": false },
+      "summarize":      { "tier": "T1", "status": "available", "deprecated": false }
+    },
+    "policy_compliance": [
+      { "policy": "acp-security-v1", "status": "compliant" },
+      { "policy": "gdpr",            "status": "compliant"  }
+    ],
+    "audit_trail_reference": "/interaction-records",
+    "interaction_record_count": 42,
+    "peer_count": 3,
+    "task_count": 157
+  }
+}
+```
+
+#### How the trust_score is computed
+
+When no explicit override is set, the relay computes a heuristic trust score based on its
+own runtime activity:
+
+```
+trust_score = 0.3
+            + peer_count × 0.04
+            + interaction_record_count × 0.005
+            + task_count × 0.002
+  (clipped to [0.0, 1.0])
+```
+
+This reflects "earned" trust: a relay that has connected to many peers, completed many tasks,
+and generated many signed interaction records is treated as more trustworthy than a new relay
+with no history.
+
+#### Capability Manifest
+
+`capability_manifest` is auto-derived from the AgentCard's `skills[]` list:
+
+```json
+"capability_manifest": {
+  "<skill_id>": {
+    "tier":       "T0" | "T1" | "T2" | "T3",
+    "status":     "available" | ...,
+    "deprecated": false
+  }
+}
+```
+
+When `--governance-metadata` provides an explicit manifest, that overrides the auto-derived one.
+
+#### New CLI: `--governance-metadata`
+
+```bash
+python3 acp_relay.py --port 7700 \
+  --governance-metadata '{
+    "trust_score": 0.9,
+    "policy_compliance": [
+      {"policy": "acp-security-v1", "status": "compliant"}
+    ],
+    "audit_trail_reference": "https://audit.example.com/relay-1"
+  }'
+```
+
+Also accepts a path to a JSON file:
+
+```bash
+python3 acp_relay.py --governance-metadata /etc/acp/governance.json
+```
+
+#### New Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/governance-metadata` | Live governance metadata block (always fresh) |
+| `PATCH`| `/governance-metadata` | Update writable fields at runtime |
+
+**PATCH writable fields:** `trust_score` (0.0–1.0), `policy_compliance` (array), `audit_trail_reference` (string), `capability_manifest` (object), `schema_version` (string).
+**Read-only (auto-computed, silently ignored on PATCH):** `generated_at`, `peer_count`, `task_count`, `interaction_record_count`.
+
+```bash
+# Override trust_score at runtime
+curl -X PATCH http://localhost:7800/governance-metadata \
+  -H 'Content-Type: application/json' \
+  -d '{"trust_score": 0.95}'
+# → {"ok": true, "updated": ["trust_score"], "governance_metadata": {...}}
+```
+
+#### AgentCard Changes
+
+```json
+"capabilities": {
+  ...
+  "governance_metadata": true
+},
+"endpoints": {
+  ...
+  "governance_metadata": "/governance-metadata"
+}
+```
+
+`capabilities.governance_metadata` is `false` when `--governance-metadata` is not configured.
+
+---
+
 ### v2.59.0 — Bilateral Interaction Records: Signed Audit Trail per Task (2026-04-06)
 
 ACP v2.59 introduces **bilateral interaction records** — a lightweight, relay-signed audit primitive

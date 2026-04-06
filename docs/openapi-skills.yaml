@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: ACP Skills Discovery API
-  version: "2.59.0"
+  version: "2.60.0"
   description: |
     ACP (Agent Communication Protocol) Skills Discovery endpoint.
     Allows agents to programmatically discover what skills a peer agent supports.
@@ -185,6 +185,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /governance-metadata:
+    get:
+      summary: Get live governance metadata block (v2.60)
+      description: |
+        Returns the live governance metadata for this relay/agent.
+        Static fields (trust_score, policy_compliance, audit_trail_reference,
+        capability_manifest, schema_version) are configured via --governance-metadata
+        or updated via PATCH. Runtime counters (generated_at, peer_count, task_count,
+        interaction_record_count) are freshly computed on each call.
+        Inspired by A2A Issue #1717 (Microsoft agent-governance-toolkit).
+      responses:
+        "200":
+          description: Live governance metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GovernanceMetadataResponse"
+    patch:
+      summary: Update writable governance metadata fields at runtime (v2.60)
+      description: |
+        Updates writable fields in the governance metadata store.
+        Writable: trust_score (0.0-1.0), policy_compliance (array), audit_trail_reference,
+        capability_manifest (object), schema_version.
+        Read-only fields (generated_at, peer_count, task_count, interaction_record_count)
+        are silently ignored if provided.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GovernanceMetadataPatch"
+      responses:
+        "200":
+          description: Updated governance metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GovernanceMetadataPatchResponse"
+        "400":
+          description: Validation error (e.g. trust_score out of range, policy_compliance not array)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /interaction-records:
     get:
       summary: List bilateral interaction records (v2.59)
@@ -225,6 +270,111 @@ paths:
 
 components:
   schemas:
+    GovernanceMetadata:
+      type: object
+      description: Governance metadata block for an ACP relay/agent (v2.60)
+      properties:
+        schema_version:
+          type: string
+          example: "1.0"
+        generated_at:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC timestamp of when this block was generated (read-only)
+        trust_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Agent trust score (0.0 = untrusted, 1.0 = fully trusted)
+          example: 0.78
+        capability_manifest:
+          type: object
+          description: Map of skill_id to capability entry
+          additionalProperties:
+            type: object
+            properties:
+              tier:
+                type: string
+                enum: [T0, T1, T2, T3]
+              status:
+                type: string
+                example: available
+              deprecated:
+                type: boolean
+        policy_compliance:
+          type: array
+          items:
+            type: object
+            properties:
+              policy:
+                type: string
+                example: acp-security-v1
+              status:
+                type: string
+                example: compliant
+        audit_trail_reference:
+          type: string
+          nullable: true
+          description: URI pointing to an external audit trail for this agent
+          example: "https://audit.example.com/trail/relay-1"
+        interaction_record_count:
+          type: integer
+          description: Total bilateral interaction records generated (read-only, live counter)
+        peer_count:
+          type: integer
+          description: Current connected peer count (read-only, live counter)
+        task_count:
+          type: integer
+          description: Total tasks processed in this session (read-only, live counter)
+
+    GovernanceMetadataResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          example: true
+        governance_metadata:
+          $ref: "#/components/schemas/GovernanceMetadata"
+
+    GovernanceMetadataPatch:
+      type: object
+      description: Writable fields for PATCH /governance-metadata (v2.60)
+      properties:
+        trust_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        policy_compliance:
+          type: array
+          items:
+            type: object
+        audit_trail_reference:
+          type: string
+          nullable: true
+        capability_manifest:
+          type: object
+          additionalProperties:
+            type: object
+        schema_version:
+          type: string
+
+    GovernanceMetadataPatchResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          example: true
+        updated:
+          type: array
+          items:
+            type: string
+          description: List of field names that were actually updated
+          example: ["trust_score", "policy_compliance"]
+        governance_metadata:
+          $ref: "#/components/schemas/GovernanceMetadata"
+
     InteractionRecord:
       type: object
       description: A bilateral interaction record attesting a task invocation (v2.59)

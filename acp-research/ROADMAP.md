@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-06 08:28（研究轮 #9：A2A 第五次扫描；v2.61/v2.62 目标新增；当前版本 v2.59.0，549 passed）
+> 最后更新：2026-04-06 09:58（文档轮 #12：v2.60.0 文档同步；当前版本 v2.60.0，GM-1..14 PASS）
 
 ---
 
@@ -29,7 +29,7 @@
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
 | **MCP** (Anthropic) | — | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
 
-### ACP 差异化领先点（2026-03-29 更新）
+### ACP 差异化领先点（2026-04-06 更新）
 
 | 功能 | ACP | A2A | 领先方 |
 |------|-----|-----|--------|
@@ -42,6 +42,10 @@
 | **`delegation_chain` 身份委托链** | ✅ **v2.16 已实现** | ❌ #1696 Future Considerations | **ACP 首创** |
 | **`availability.schedule` CRON 调度** | ✅ **v2.17 已实现** | ❌ #1667 heartbeat 仍在提案 | **ACP 首创** |
 | **`/.well-known/jwks.json` JWKS 密钥发现** | ✅ **v2.18 已实现（RFC 7517/8037）** | ❌ IS#1628 仍在提案阶段 | **ACP 领先** |
+| **`capability_token` SINT-format 能力令牌** | ✅ **v2.57 已实现（POST /skills/{id}/capability-token + T0-T3 enforcement gate）** | ❌ #1716 提案讨论中 | **ACP 抢先实现** |
+| **`effective_tier` 三因子动态计算** | ✅ **v2.58 已实现（max(tier_rule, depth_floor, rep_adj)）** | ❌ #1716 @64R3N 公式未合并 | **ACP 抢先实现** |
+| **`interaction_records` 双边交互记录** | ✅ **v2.59 已实现（relay_signature + caller_token_hash + sha256 链）** | ❌ #1718 0💬 时 ACP 已发布 | **ACP 抢先实现** |
+| **`governance_metadata` 治理元数据** | ✅ **v2.60 已实现（trust_score + capability_manifest + GET/PATCH endpoints + CLI）** | ❌ #1717 0💬（Microsoft 提案）时 ACP 已发布 | **ACP 抢先实现** |
 | `tasks/list` 分页过滤 | ✅ v2.11 | ✅ v1.0.0 | 持平（ACP 超前实现）|
 | Python SDK | ✅ v1.7+ | 🟡 v1.0.0-alpha.0 | 版本号差距，ACP 更轻量 |
 
@@ -670,7 +674,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.57** | **✅ 2026-04-06** | **`capability_token` — SINT-format Ed25519 signed capability tokens，POST /skills/{id}/capability-token 发行，GET /capability-tokens 列表，POST /tasks enforcement gate（required 先检查 + 签名验证 + tier 绕过），CT-1..12 PASS — A2A #1716 抢先实现** |
 | **v2.58** | **✅ 2026-04-06** | **`effective_tier` 三因子动态计算 — `_compute_effective_tier()`: max(tier_rule, depth_floor(chain.len), rep_adj) + GET /skills/{id}/effective-tier 调试端点 + DELETE /principal-chain URL-decode 修复 + ET-1..12 PASS — A2A #1716 @64R3N 公式抢先实现** |
 | **v2.59** | **✅ 2026-04-06** | **双边交互记录（Bilateral Signed Interaction Record）轻量版：`_create_interaction_record()` + `POST /tasks?record=true` + `GET /interaction-records` + relay Ed25519 签名 + sha256 链 + caller_token_hash — A2A #1718 抢先实现（0💬 时 ACP 已发布），IR-1..12 PASS** |
-| **v2.60** | **🔜 下一目标** | **governance_metadata in AgentCard（trust_score + capability_manifest + policy_compliance + audit_trail_reference）— A2A #1717（Microsoft agent-governance-toolkit，0💬）** |
+| **v2.60** | **✅ 2026-04-06** | **governance_metadata in AgentCard（`_build_governance_metadata()`：trust_score 启发式 + capability_manifest auto-derive + policy_compliance + audit_trail_reference + live runtime counters）+ GET/PATCH /governance-metadata + `--governance-metadata` CLI + GM-1..14 PASS — A2A #1717（Microsoft，0💬）抢先实现** |
 | **v2.61** | **📋 计划中** | **optional caller_signature in interaction_records — 完整双边签名（relay_sig + caller_sig），A2A #1718 外部验证：unilateral attestation 是弱点，bilateral closes the gap** |
 | **v2.62** | **📋 计划中** | **wtrmrk_sequence_root 外部 reputation 查询：POST /tasks metadata.wtrmrk_sequence_root → WTRMRK registry 查询 → attestation_history_adjustment，fail-closed fallback — A2A #1716 @64R3N 建议** |
 

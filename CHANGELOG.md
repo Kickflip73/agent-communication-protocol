@@ -7,6 +7,63 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.60.0] — 2026-04-06 (governance_metadata — AgentCard Governance Block, A2A #1717 preempt)
+
+### Added
+- **`_build_governance_metadata()`** — Runtime-computed governance metadata block for the AgentCard.
+  - **Auto-derived static fields** (persist across calls, configured via `--governance-metadata`):
+    - `schema_version` (default `"1.0"`)
+    - `trust_score` — heuristic: `0.3 + peer_count×0.04 + ir_count×0.005 + task_count×0.002` (clipped 0.0–1.0)
+    - `policy_compliance` — list of `{ policy, status }` objects (default `[]`)
+    - `audit_trail_reference` — URI string or null (auto-infers `/interaction-records` when interaction_records present)
+    - `capability_manifest` — map of `skill_id → { tier, status, deprecated }` (auto-derived from AgentCard `skills[]`)
+  - **Live runtime counters** (always freshly computed on each call):
+    - `generated_at` — ISO-8601 UTC timestamp of this specific call
+    - `peer_count` — current number of connected peers
+    - `task_count` — total tasks processed in this session
+    - `interaction_record_count` — total bilateral interaction records generated
+
+- **`GET /governance-metadata`** — New endpoint returning the live governance metadata block.
+  - Response: `{ "ok": true, "governance_metadata": { ... } }`
+  - Always fresh: `generated_at`, `peer_count`, `task_count`, `interaction_record_count` recomputed on each call
+
+- **`PATCH /governance-metadata`** — Runtime update of writable governance metadata fields.
+  - Writable fields: `trust_score`, `policy_compliance`, `audit_trail_reference`, `capability_manifest`, `schema_version`
+  - Read-only fields (`generated_at`, `peer_count`, `task_count`, `interaction_record_count`) are **silently ignored**
+  - Validation: `trust_score` must be `float` in `[0.0, 1.0]` (400 if out of range); `policy_compliance` must be an array (400 if not); `capability_manifest` must be an object (400 if not)
+  - Response: `{ "ok": true, "updated": ["trust_score", ...], "governance_metadata": { ... } }`
+
+- **`--governance-metadata <JSON_OR_PATH>`** — New CLI argument to configure governance metadata at startup.
+  - Accepts: inline JSON string or path to a JSON file
+  - Same writable field set as `PATCH /governance-metadata`
+
+- **AgentCard changes**:
+  - `governance_metadata` block injected when `--governance-metadata` is configured
+  - `capabilities.governance_metadata: bool(_governance_metadata)` — `true` when configured, `false` by default
+  - `endpoints.governance_metadata: "/governance-metadata"`
+
+- **Global state**: `_governance_metadata: dict` — configured base values (merged with live runtime counters at query time)
+
+### Tests
+- `tests/test_governance_metadata.py` — GM-1..14 (14 cases, all PASS in 4.81s)
+  - GM-1: AgentCard includes governance_metadata block when `--governance-metadata` provided
+  - GM-2: governance_metadata NOT in AgentCard by default
+  - GM-3: GET /governance-metadata returns 200 with ok:true
+  - GM-4: Auto-computed fields always present (generated_at, peer_count, task_count, ir_count)
+  - GM-5/6: capabilities.governance_metadata true/false
+  - GM-7..10: PATCH updates trust_score / policy_compliance / audit_trail_reference / capability_manifest
+  - GM-11: Read-only fields silently ignored on PATCH
+  - GM-12/13: Validation errors return 400
+  - GM-14: AgentCard.endpoints.governance_metadata = '/governance-metadata'
+
+### Strategic Context
+Implements governance metadata in AgentCard (`trust_score`, `capability_manifest`, `policy_compliance`,
+`audit_trail_reference`) as proposed in A2A Issue #1717 (Microsoft agent-governance-toolkit, 0 comments
+at time of ACP implementation). ACP ships the working GET+PATCH endpoints and CLI arg before A2A reaches
+spec consensus — establishing ACP's governance_metadata as the reference implementation.
+
+---
+
 ## [2.59.0] — 2026-04-06 (interaction_records — Bilateral Signed Interaction Records, A2A #1718 lightweight preempt)
 
 ### Added
