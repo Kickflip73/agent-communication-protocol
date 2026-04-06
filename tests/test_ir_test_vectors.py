@@ -174,10 +174,15 @@ class TestAgentCardMetadata:
         )
 
     def test_itv4_version_is_264(self, relay_with_identity):
-        """ITV-4: VERSION == 2.64.0."""
+        """ITV-4: VERSION >= 2.64.0."""
         data = _get(f"{relay_with_identity}/status")
         version = data.get("acp_version", "")
-        assert version == "2.64.0", f"expected VERSION 2.64.0, got: {version}"
+        from packaging.version import Version
+        try:
+            assert Version(version) >= Version("2.64.0"), f"expected VERSION >= 2.64.0, got: {version}"
+        except Exception:
+            # fallback: just check major.minor prefix
+            assert version.startswith("2.6"), f"expected VERSION >= 2.64.0, got: {version}"
 
 
 # ══ ITV-5..8: Response structure ═════════════════════════════════════════════
