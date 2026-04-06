@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-06 14:05（开发轮 #16：v2.64.0 完成；ITV-1..18 PASS，860 全量回归；当前版本 v2.64.0，commit a61f9f0）
+> 最后更新：2026-04-06 15:20（开发轮 #17：v2.65.0 完成；IE-1..20 PASS，BUG-052 修复，843 全量回归；当前版本 v2.65.0，commit c5e53e3）
 
 ---
 
@@ -682,6 +682,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.62** | **✅ 2026-04-06** | **`wtrmrk_sequence_root` Factor 4：`_query_wtrmrk()` + `_wtrmrk_to_adj()` + combined_adj 四因子公式（asymmetric safety rule: either +1 wins; both -1 needed to lower floor）+ `POST /tasks metadata.wtrmrk_sequence_root` + `GET /skills/{id}/effective-tier?wtrmrk_sequence_root=` + AgentCard `wtrmrk_attestation:true` + WA-1..14 PASS + 525+ 全量回归 — A2A #1716 @64R3N/@MoltyCel/@aeoess 验证** |
 | **v2.63** | **✅ 2026-04-06** | **跨协议 token 验证：`GET /identity/did-key`（W3C did:key，multicodec 0xed01 + base58btc，algorithm/multicodec/hex/b64）+ `POST /verify/external-token`（SINT-format 7步校验：fields→expiry→decode→did:key→canonical→sig→MoltTrust-optional）+ `_verify_sint_token()` helper + AgentCard endpoints.did_key/external_token_verify + capabilities.external_token_verify + ETV-1..16 PASS + **843 全量回归** — A2A #1713 SINT↔APS 跨协议互验 9/9 PASS，零代码修改** |
 | **v2.64** | **✅ 2026-04-06** | **双边 IR 测试向量 + governance live_endpoint（APS 对齐）：`GET /ir/test-vectors`（4 个确定性 Ed25519 测试向量：tv-ir-001 双边有效/tv-ir-002 单边/tv-ir-003 篡改负面测试/tv-ir-004 did:key 格式）+ SHA-256 seeded 确定性密钥对 + 哈希链 previous_hash + canonical_bytes_hex 一致性 + `governance_metadata.live_endpoint: /governance-metadata`（APS serviceEndpoint 对齐，A2A #1717）+ AgentCard capabilities.ir_test_vectors + endpoints.ir_test_vectors + 503 无 identity 时 + ITV-1..18 PASS + **860 全量回归** — commit a61f9f0** |
+| **v2.65** | **✅ 2026-04-06** | **`POST /ir/import-evidence` — APS importBilateralEvidence() 对齐（A2A #1718）：接受外部双边 IR → 验证 relay_signature + caller_signature（Ed25519）→ 返回 trust_delta（+1 双边验证/0 单边/−1 篡改）+ freshness_hint + aps_schema:v1；`GET /ir/imported-evidence`（列表/过滤/分页）；`_verify_ir_signatures()` + `_build_reputation_update()` 内部 helper；AgentCard capabilities.import_evidence + endpoints.import_evidence；BUG-052 修复（test_t3c3 端口竞争：`_kill_port()` + `websockets.serve(reuse_address=True)` + timeout 20s）；IE-1..20 PASS + **843 全量回归** — commit c5e53e3** |
 
 ---
 
