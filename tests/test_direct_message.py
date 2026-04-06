@@ -308,3 +308,25 @@ def test_dm13_client_message_id_preserved(relay_url):
     d = r.json()
     assert d["message_id"] == custom_id, \
         f"Expected message_id={custom_id}, got {d.get('message_id')}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DM-14: MAX_MSG_BYTES boundary — 1MB+ rejected, 70KB accepted
+# (BUG-053 investigation: MAX_MSG_BYTES=1MB, not 64KB)
+# ─────────────────────────────────────────────────────────────────────────────
+def test_dm14_size_limit(relay_url):
+    """DM-14: Body > MAX_MSG_BYTES (1MB) returns 413; 70KB accepted (< 1MB)."""
+    import json as _json
+
+    # 70KB — well under 1MB limit, must succeed
+    r_small = requests.post(f"{relay_url}/message/send",
+                            json={"role": "user", "text": "x" * 70000})
+    assert r_small.status_code == 200, f"70KB should be accepted, got {r_small.status_code}"
+
+    # 1.1MB — over 1MB limit, must be rejected
+    big_payload = _json.dumps({"role": "user", "text": "x" * 1_100_000})
+    r_big = requests.post(f"{relay_url}/message/send",
+                          data=big_payload.encode(),
+                          headers={"Content-Type": "application/json"})
+    assert r_big.status_code == 413, \
+        f"1.1MB should return 413, got {r_big.status_code}"

@@ -1516,13 +1516,14 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 
 **优先级**: P2（偶发，手动清理即可恢复）
 
-## BUG-053 🟡 P2 — /message/send 未對超大消息執行大小限制
+## BUG-053 ✅ 誤判已關閉 — /message/send 大小限制實際正常
 - 发现时间：2026-04-06（測試輪 #17）
-- 症状：POST /message/send 傳入 70KB text 返回 200，期望 400 或 413
-- 根因：`/message/send` handler 未調用 `MAX_MSG_BYTES` 大小校驗（現有 `/message:send` 有此校驗）
-- 影響：DM 端點可被用於傳輸超大 payload，繞過 64KB 限制
-- 修復方案：在 `/message/send` handler 中加入 `len(body_raw) > MAX_MSG_BYTES → 413` 校驗
-- 优先级：P2（體驗/安全邊界問題，不影響核心 DM 功能）
-- 状态：待修复
+- 初步症状：POST /message/send 傳入 70KB text 返回 200（測試誤以為應返回 413）
+- 調查結論（修復輪，2026-04-06）：
+  - `MAX_MSG_BYTES = 1MB`（非 64KB），`_read_body()` 已通過 Content-Length 校驗（BUG-051 修復）
+  - 70KB << 1MB，返回 200 是正確行為
+  - 1.1MB payload → 正確返回 413 ✅
+  - `_LIMITATIONS.max_msg_bytes = 65536` 是 AgentCard 展示值（文件說明），不是實際 HTTP 限制
+- 状态：✅ 誤判，無需修復（實現正確）
 
 ---
