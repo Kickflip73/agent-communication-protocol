@@ -4726,7 +4726,7 @@ async def host_mode(token, ws_port, http_port):
         _status["relay_base_url"] = relay_base  # expose for DCUtR HTTP reflection (v1.4)
         asyncio.ensure_future(_http_relay_guest(relay_base, relay_token, http_port))
 
-    async with websockets.serve(on_guest, "0.0.0.0", ws_port):
+    async with websockets.serve(on_guest, "0.0.0.0", ws_port, reuse_address=True):
         _status["p2p_enabled"] = True   # v2.3: flag for supported_interfaces auto-derivation
         print(f"\n{'='*60}")
         print(f"ACP P2P v{VERSION} - service started")

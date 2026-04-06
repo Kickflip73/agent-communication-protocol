@@ -21,7 +21,7 @@ import sys
 RELAY_PY = os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py")
 
 
-def wait_http_ready(http_port, timeout=12):
+def wait_http_ready(http_port, timeout=20):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -34,8 +34,32 @@ def wait_http_ready(http_port, timeout=12):
     return False
 
 
+def _kill_port(port):
+    """Kill any process holding the given TCP port (best-effort)."""
+    import signal as _sig
+    try:
+        import subprocess as _sp
+        result = _sp.run(
+            ["ss", "-tlnp", f"sport = :{port}"],
+            capture_output=True, text=True, timeout=3
+        )
+        for line in result.stdout.splitlines():
+            if f":{port}" in line and "pid=" in line:
+                pid_str = line.split("pid=")[1].split(",")[0]
+                try:
+                    os.kill(int(pid_str), _sig.SIGKILL)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    time.sleep(0.3)
+
+
 def _start_relay(ws_port, skills, extra_flags=None):
     http_port = ws_port + 100
+    # Pre-clean: kill any lingering process on ws_port or http_port
+    _kill_port(ws_port)
+    _kill_port(http_port)
     env = os.environ.copy()
     for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
         env.pop(k, None)

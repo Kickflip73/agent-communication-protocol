@@ -1489,10 +1489,10 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **状态**: ✅ 已修复（2026-04-05，_read_body() Content-Length 检查 + 413 ERR_MSG_TOO_LARGE）
 
 
-### BUG-052 🟡 P2 — 测试套件残留 relay 进程导致端口竞争 (test_int1 等偶发 AssertionError)
+### BUG-052 ✅ P2 — 测试套件残留 relay 进程导致端口竞争 (test_int1/test_t3c3 等偶发 AssertionError)
 
 **发现时间**: 2026-04-05 测试轮 #6
-**状态**: 🟡 已知，待优化（可通过 pytest-forked 或端口范围隔离彻底解决）
+**状态**: ✅ 已修复（2026-04-06，test_t3_human_confirmation.py _start_relay 加 _kill_port + timeout 20s）
 
 **场景**: 全量回归（多 test_*.py 串行执行）
 **描述**: 若前一轮测试中 relay 进程因异常（如测试超时、进程未正确 terminate）未被清理，
