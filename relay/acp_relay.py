@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.59.0"  # v2.59: interaction_records — bilateral signed interaction records (A2A #1718 lightweight impl): POST /tasks?record=true + GET /interaction-records + relay Ed25519 signature + caller_token_hash
+VERSION = "2.60.0"  # v2.60: governance_metadata in AgentCard — trust_score + capability_manifest + policy_compliance + audit_trail_reference (A2A #1717 preempt)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -432,6 +432,7 @@ _principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, add
 _capability_tokens: dict = {}     # v2.57: issued capability tokens {token_id: CapabilityTokenObject}
 _interaction_records: list = []  # v2.59: bilateral interaction records [{id, task_id, relay_did, caller_did, ...}]
 _ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
+_governance_metadata: dict = {}  # v2.60: governance metadata (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -1854,6 +1855,7 @@ def _make_agent_card(name, skills):
             "capability_token_issuance":   bool(_ed25519_private),            # v2.57: POST /skills/{id}/capability-token — SINT-format Ed25519 capability token issuance
             "effective_tier_computation":  True,                               # v2.58: dynamic three-factor effective_tier: max(tier_rule, depth_floor, rep_adj)
             "interaction_records":         True,                               # v2.59: bilateral interaction records — POST /tasks?record=true + GET /interaction-records
+            "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
         },
 
         "identity": ({
@@ -1894,6 +1896,7 @@ def _make_agent_card(name, skills):
             "capability_token_issuance":  "/skills/{skill_id}/capability-token", # v2.57: POST — issue SINT-format Ed25519 capability token
             "effective_tier":             "/skills/{skill_id}/effective-tier",  # v2.58: GET — dynamic three-factor effective_tier computation
             "interaction_records":        "/interaction-records",               # v2.59: GET — bilateral signed interaction records list
+            "governance_metadata":        "/governance-metadata",               # v2.60: GET — governance metadata block; PATCH — runtime update
             "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
@@ -1949,6 +1952,10 @@ def _make_agent_card(name, skills):
             seen_uris.add(uri)
             merged_extensions.append(dict(ext))
     card["extensions"] = merged_extensions
+
+    # v2.60: attach governance_metadata block when configured (opt-in)
+    if _governance_metadata:
+        card["governance_metadata"] = _build_governance_metadata()
 
     return card
 
@@ -2053,6 +2060,72 @@ def _make_builtin_extensions() -> list:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Trust Signals (v2.14) — A2A Issue #1628 compatible
+def _build_governance_metadata() -> dict:
+    """
+    v2.60: Build the governance_metadata block for the AgentCard.
+
+    Structure (A2A #1717 governance_metadata proposal, ACP implementation):
+    {
+        "schema_version":     "1.0",
+        "generated_at":       <ISO8601>,
+        "trust_score":        <float 0.0-1.0 or null>,
+        "capability_manifest": { "<skill_id>": { "tier": "T0-T3", ... }, ... },
+        "policy_compliance":  [ { "policy": "<id>", "status": "compliant|non-compliant|unknown" }, ... ],
+        "audit_trail_reference": <URI or null>,
+        "interaction_record_count": <int>,
+        "peer_count": <int>,
+        "task_count": <int>
+    }
+    """
+    gm = dict(_governance_metadata)  # start from configured values
+
+    # Always inject live runtime stats
+    gm["schema_version"]  = gm.get("schema_version", "1.0")
+    gm["generated_at"]    = _now()
+
+    # trust_score: provided by config or computed from runtime signals
+    if "trust_score" not in gm:
+        # Compute lightweight trust_score from interaction evidence
+        peer_count  = len(_peers)
+        ir_count    = len(_interaction_records)
+        task_count  = len(_tasks)
+        # Simple heuristic: clamp to 0.0-1.0 based on relative activity
+        # More interactions + known peers → higher score, max at 1.0
+        computed = min(1.0, 0.3 + (min(peer_count, 10) * 0.04) + (min(ir_count, 50) * 0.005) + (min(task_count, 100) * 0.002))
+        gm["trust_score"] = round(computed, 3)
+
+    # capability_manifest: auto-derive from registered skills in AgentCard
+    if "capability_manifest" not in gm:
+        manifest = {}
+        card_skills = (_status.get("agent_card") or {}).get("skills", [])
+        for sk in card_skills:
+            if not isinstance(sk, dict):
+                continue
+            sk_id = sk.get("id", "")
+            if sk_id:
+                manifest[sk_id] = {
+                    "tier":       sk.get("authorization_tier", "T0"),
+                    "status":     sk.get("status", "available"),
+                    "deprecated": bool(sk.get("deprecation_notice")),
+                }
+        gm["capability_manifest"] = manifest
+
+    # policy_compliance: provided by config or empty list
+    if "policy_compliance" not in gm:
+        gm["policy_compliance"] = []
+
+    # audit_trail_reference: provided by config or auto-generated from interaction_records endpoint
+    if "audit_trail_reference" not in gm:
+        gm["audit_trail_reference"] = "/interaction-records" if _interaction_records else None
+
+    # Live counters (always override)
+    gm["interaction_record_count"] = len(_interaction_records)
+    gm["peer_count"]               = len(_peers)
+    gm["task_count"]               = len(_tasks)
+
+    return gm
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _build_trust_signals() -> list:
@@ -4849,6 +4922,19 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "total":  total_ir,
                 "records": recs_out[-limit_ir:],
             })
+
+        # ── GET /governance-metadata — relay governance metadata (v2.60) ──
+        elif p == "/governance-metadata":
+            """
+            GET /governance-metadata — Return current governance_metadata block (v2.60).
+
+            Returns the same block embedded in AgentCard, but always freshly computed
+            with live runtime counters (peer_count, task_count, interaction_record_count).
+
+            Response 200:
+              { "ok": true, "governance_metadata": { ... } }
+            """
+            self._json({"ok": True, "governance_metadata": _build_governance_metadata()})
 
         # ── GET /principal-chain — self principal_chain management (v2.56) ──
         elif p == "/principal-chain":
@@ -8341,8 +8427,65 @@ class LocalHTTP(BaseHTTPRequestHandler):
             })
             return
 
+        # ── Route: PATCH /governance-metadata (v2.60) ────────────────────────
+        if p == "/governance-metadata":
+            """
+            PATCH /governance-metadata — Update governance metadata fields at runtime (v2.60).
+
+            Accepted fields (merged into existing _governance_metadata):
+              trust_score          <float 0.0-1.0> — override computed trust score
+              policy_compliance    [{policy, status}] — replace policy compliance list
+              audit_trail_reference <str|null> — URI for external audit trail
+              capability_manifest  {<skill_id>: {tier, status, deprecated}} — override cap manifest
+              schema_version       <str> — governance metadata schema version
+
+            Read-only (always computed at runtime, silently ignored if provided):
+              generated_at, interaction_record_count, peer_count, task_count
+
+            Response 200: { "ok": true, "governance_metadata": <updated block> }
+            """
+            global _governance_metadata
+            try:
+                body_gm = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+            # Whitelist writable fields
+            writable_gm = {"trust_score", "policy_compliance", "audit_trail_reference",
+                           "capability_manifest", "schema_version"}
+            updated_gm = []
+            for k, v in body_gm.items():
+                if k not in writable_gm:
+                    continue  # silently ignore read-only or unknown keys
+                # Validate trust_score
+                if k == "trust_score":
+                    try:
+                        v = float(v)
+                        if not (0.0 <= v <= 1.0):
+                            self._json({"error": "trust_score must be between 0.0 and 1.0"}, 400)
+                            return
+                    except (TypeError, ValueError):
+                        self._json({"error": "trust_score must be a number"}, 400)
+                        return
+                # Validate policy_compliance
+                if k == "policy_compliance" and not isinstance(v, list):
+                    self._json({"error": "policy_compliance must be an array"}, 400)
+                    return
+                # Validate capability_manifest
+                if k == "capability_manifest" and not isinstance(v, dict):
+                    self._json({"error": "capability_manifest must be an object"}, 400)
+                    return
+                _governance_metadata[k] = v
+                updated_gm.append(k)
+            self._json({
+                "ok":                  True,
+                "updated":             updated_gm,
+                "governance_metadata": _build_governance_metadata(),
+            })
+            return
+
         if p not in ("/card", "/.well-known/acp.json"):
-            self._json({"error": "PATCH only supported on /.well-known/acp.json or /skills/<id>/limitations"}, 404)
+            self._json({"error": "PATCH only supported on /.well-known/acp.json, /governance-metadata, or /skills/<id>/limitations"}, 404)
             return
         try:
             body = self._read_body()
@@ -8952,6 +9095,16 @@ Examples:
                              "Example: --limitations-json '[{\"kind\":\"scale\",\"code\":\"max-10mb\","
                              "\"message\":\"Max 10MB files\",\"permanent\":true}]'. "
                              "Ref: A2A IS#1694 stable/runtime split.")
+    parser.add_argument("--governance-metadata", default=None, metavar="JSON_OR_PATH",
+                        help="(v2.60) Governance metadata for this relay/agent. JSON string or path to a JSON file. "
+                             "Populates AgentCard 'governance_metadata' block (A2A #1717 preempt). "
+                             "Accepted fields: trust_score (0.0-1.0), policy_compliance ([{policy,status}]), "
+                             "audit_trail_reference (URI|null), capability_manifest ({skill_id: {tier,status,deprecated}}), "
+                             "schema_version. Read-only fields (auto-computed): generated_at, "
+                             "interaction_record_count, peer_count, task_count. "
+                             "Runtime update: PATCH /governance-metadata. "
+                             "Example: --governance-metadata '{\"trust_score\": 0.85, "
+                             "\"policy_compliance\": [{\"policy\": \"acp-security-v1\", \"status\": \"compliant\"}]}'")
     parser.add_argument("--principal", action="append", default=[], metavar="DID[,role=ROLE]",
                         help="(v2.56) Add a principal to the OBO delegation chain (can be repeated). "
                              "Format: <did>  or  <did>,role=<role>  where role ∈ {orchestrator,delegator,owner,<str>}. "
@@ -9267,6 +9420,29 @@ Examples:
         _principal_chain.append({"did": did_p, "role": role_p, "added_at": _now()})
     if _principal_chain:
         log.info(f"🔗 Principal chain: {[e['did'] for e in _principal_chain]}")
+
+    # v2.60: --governance-metadata flag → _governance_metadata
+    global _governance_metadata
+    raw_gm = _get(getattr(args, "governance_metadata", None), "governance_metadata", None)
+    if raw_gm:
+        # Accept: JSON string or path to a JSON file
+        import os as _os_gm
+        if isinstance(raw_gm, str) and _os_gm.path.isfile(raw_gm):
+            try:
+                with open(raw_gm, "r", encoding="utf-8") as _f_gm:
+                    _governance_metadata = json.load(_f_gm)
+                log.info(f"🏛️  Governance metadata loaded from file: {raw_gm}")
+            except Exception as e:
+                log.warning(f"⚠️  Could not load governance metadata file '{raw_gm}': {e}")
+        elif isinstance(raw_gm, str):
+            try:
+                _governance_metadata = json.loads(raw_gm)
+                log.info(f"🏛️  Governance metadata loaded from JSON string ({len(_governance_metadata)} keys)")
+            except Exception as e:
+                log.warning(f"⚠️  Could not parse governance metadata JSON: {e}")
+        elif isinstance(raw_gm, dict):
+            _governance_metadata = raw_gm
+            log.info(f"🏛️  Governance metadata loaded from config ({len(_governance_metadata)} keys)")
 
     # v1.4: --relay flag now means "force Level 3" (skip L1+L2 NAT traversal)
     # Previously: "use relay instead of P2P"
