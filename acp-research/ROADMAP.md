@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-06 15:20（开发轮 #17：v2.65.0 完成；IE-1..20 PASS，BUG-052 修复，843 全量回归；当前版本 v2.65.0，commit c5e53e3）
+> 最后更新：2026-04-06 17:40（研究轮 #14：A2A v1.0.0 发布 + org 迁移 a2aproject；三层架构 + gRPC 绑定 + rejected 终态 + direct_message 模式；ROADMAP v2.66/v2.67 行动项已更新）
 
 ---
 
@@ -683,6 +683,8 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.63** | **✅ 2026-04-06** | **跨协议 token 验证：`GET /identity/did-key`（W3C did:key，multicodec 0xed01 + base58btc，algorithm/multicodec/hex/b64）+ `POST /verify/external-token`（SINT-format 7步校验：fields→expiry→decode→did:key→canonical→sig→MoltTrust-optional）+ `_verify_sint_token()` helper + AgentCard endpoints.did_key/external_token_verify + capabilities.external_token_verify + ETV-1..16 PASS + **843 全量回归** — A2A #1713 SINT↔APS 跨协议互验 9/9 PASS，零代码修改** |
 | **v2.64** | **✅ 2026-04-06** | **双边 IR 测试向量 + governance live_endpoint（APS 对齐）：`GET /ir/test-vectors`（4 个确定性 Ed25519 测试向量：tv-ir-001 双边有效/tv-ir-002 单边/tv-ir-003 篡改负面测试/tv-ir-004 did:key 格式）+ SHA-256 seeded 确定性密钥对 + 哈希链 previous_hash + canonical_bytes_hex 一致性 + `governance_metadata.live_endpoint: /governance-metadata`（APS serviceEndpoint 对齐，A2A #1717）+ AgentCard capabilities.ir_test_vectors + endpoints.ir_test_vectors + 503 无 identity 时 + ITV-1..18 PASS + **860 全量回归** — commit a61f9f0** |
 | **v2.65** | **✅ 2026-04-06** | **`POST /ir/import-evidence` — APS importBilateralEvidence() 对齐（A2A #1718）：接受外部双边 IR → 验证 relay_signature + caller_signature（Ed25519）→ 返回 trust_delta（+1 双边验证/0 单边/−1 篡改）+ freshness_hint + aps_schema:v1；`GET /ir/imported-evidence`（列表/过滤/分页）；`_verify_ir_signatures()` + `_build_reputation_update()` 内部 helper；AgentCard capabilities.import_evidence + endpoints.import_evidence；BUG-052 修复（test_t3c3 端口竞争：`_kill_port()` + `websockets.serve(reuse_address=True)` + timeout 20s）；IE-1..20 PASS + **843 全量回归** — commit c5e53e3** |
+| **v2.66** | 🔲 规划中 | **Task `rejected` 终态对齐 A2A v1.0.0**：新增 `rejected` 作为第 6 个 Task 状态（agent 主动拒绝 task）；`GET /tasks/{id}` 返回 rejected；人工确认 skill 可产生 rejected 状态；`GET /tasks` 列表过滤支持 `status=rejected`；AgentCard capabilities.rejected_state = True；测试 RJ-1..10 |
+| **v2.67** | 🔲 规划中 | **Direct Message 模式**（对齐 A2A v1.0.0 Message-only 响应）：`POST /message/send` 可直接返回 `{type:"message", ...}` 不创建 Task；适合简单查询/心跳类交互；AgentCard capabilities.direct_message = True；测试 DM-1..12 |
 
 ---
 
