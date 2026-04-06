@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.66.0"  # v2.66: Task `rejected` terminal state — A2A v1.0.0 alignment; TASK_REJECTED constant; TERMINAL_STATES updated; T3 :reject → rejected (not failed); new POST /tasks/{id}:agent-reject (agent-initiated rejection for any task); AgentCard capabilities.rejected_state=True
+VERSION = "2.67.0"  # v2.67: Direct Message mode — POST /message/send returns Message (not Task); A2A SendMessageResponse{oneof{Task,Message}} alignment; parts[] format (text/file/data); capabilities.direct_message=True; endpoints.message_send; tests DM-1..12
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1087,17 +1087,25 @@ def _make_data_part(data):
     return {"type": "data", "content": data}
 
 def _validate_part(part):
-    """Returns (ok:bool, error:str)."""
+    """Returns (ok:bool, error:str).
+
+    v2.67: Accepts both ACP legacy format and A2A v1.0.0 Part format:
+      text part: content (legacy) OR text (A2A v1.0.0)
+      file part: url required (both formats)
+      data part: content (legacy) OR data (A2A v1.0.0)
+    """
     t = part.get("type")
     if t == "text":
-        if not isinstance(part.get("content"), str):
-            return False, "text part requires string 'content'"
+        # Accept both legacy 'content' and A2A v1.0.0 'text' field
+        if not isinstance(part.get("content"), str) and not isinstance(part.get("text"), str):
+            return False, "text part requires string 'content' or 'text'"
     elif t == "file":
         if not part.get("url"):
             return False, "file part requires 'url'"
     elif t == "data":
-        if "content" not in part:
-            return False, "data part requires 'content'"
+        # Accept both legacy 'content' and A2A v1.0.0 'data' field
+        if "content" not in part and "data" not in part:
+            return False, "data part requires 'content' or 'data'"
     else:
         return False, f"unknown part type '{t}'; expected text|file|data"
     return True, ""
@@ -2046,6 +2054,7 @@ def _make_agent_card(name, skills):
             "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
             "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
             "rejected_state":              True,                               # v2.66: TASK_REJECTED terminal state (A2A v1.0.0 alignment); :reject → rejected; POST /tasks/{id}:agent-reject
+            "direct_message":              True,                               # v2.67: POST /message/send — Direct Message mode; returns Message (not Task); A2A SendMessageResponse.oneof{Task,Message} alignment
         },
 
         "identity": ({
@@ -2108,6 +2117,7 @@ def _make_agent_card(name, skills):
             "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
             "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
             "agent_reject":          "/tasks/{id}:agent-reject",# v2.66: POST — agent-initiated task rejection → rejected terminal state
+            "message_send":          "/message/send",           # v2.67: POST — Direct Message (no Task); A2A SendMessageResponse.oneof{Task,Message}
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -7836,6 +7846,94 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 _fmid = locals().get("message_id") or locals().get("_client_msg_id")
                 e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
                                      failed_message_id=_fmid)
+                self._json(e_body, e_code)
+
+        # /message/send — v2.67: Direct Message mode (A2A SendMessageResponse.oneof{Task,Message})
+        # Returns a Message object directly, without creating a Task.
+        # Suitable for simple queries, ping, and single-turn interactions.
+        # Body: {role, parts|text, message_id?, context_id?, task_id?, metadata?}
+        elif p == "/message/send":
+            try:
+                body = self._read_body()
+                _client_msg_id = body.get("message_id")
+
+                # ── Required: role ─────────────────────────────────────────
+                _VALID_ROLES_DM = {"user", "agent"}
+                role_raw = body.get("role")
+                if role_raw is None:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be 'user' or 'agent')",
+                                          400, failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+                if role_raw not in _VALID_ROLES_DM:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          f"invalid role '{role_raw}': must be 'user' or 'agent'",
+                                          400, failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+
+                # ── Required: parts ────────────────────────────────────────
+                parts = body.get("parts")
+                if parts:
+                    ok, err = _validate_parts(parts)
+                    if not ok:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err,
+                                              400, failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "missing required field: provide 'parts' (list) or 'text' (string)",
+                                              400, failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+
+                # ── Content-Type guard (DM-12) ─────────────────────────────
+                # Already enforced by _read_body() for POST, but guard explicitly
+                # if caller didn't set application/json (returns empty dict {})
+                _ct = self.headers.get("Content-Type", "")
+                if _ct and "application/json" not in _ct and "application/x-www-form-urlencoded" not in _ct:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "Content-Type must be application/json", 415,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+
+                # ── Build message_id ───────────────────────────────────────
+                message_id = _client_msg_id or _make_id("msg")
+
+                # ── Construct Direct Message response ──────────────────────
+                # Aligned with A2A Message data model:
+                # { message_id, context_id?, task_id?, role, parts[], metadata? }
+                dm_response = {
+                    "ok":         True,
+                    "type":       "message",          # A2A SendMessageResponse discriminator
+                    "message_id": message_id,
+                    "role":       role_raw,
+                    "parts":      parts,
+                    "timestamp":  _now(),
+                }
+                context_id = body.get("context_id")
+                if context_id:
+                    dm_response["context_id"] = context_id
+                task_id = body.get("task_id")
+                if task_id:
+                    dm_response["task_id"] = task_id
+                metadata = body.get("metadata")
+                if metadata and isinstance(metadata, dict):
+                    dm_response["metadata"] = metadata
+
+                log.debug(f"[direct_message] {message_id} role={role_raw} parts={len(parts)}")
+                self._json(dm_response, 200)
+
+            except Exception as e:
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
+                                      failed_message_id=_fmid)
                 self._json(e_body, e_code)
 
         # /message:typing — v2.37: send typing indicator to peer
