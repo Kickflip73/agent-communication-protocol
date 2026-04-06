@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.62.0"  # v2.62: wtrmrk_sequence_root external reputation query — Factor 4 in effective_tier (attestation_history_adjustment), fail-closed fallback, A2A #1716 @64R3N/@MoltyCel
+VERSION = "2.63.0"  # v2.63: cross-protocol SINT-format capability token verification — POST /verify/external-token + GET /identity/did-key; Ed25519 + did:key (multicodec 0xed01+base58btc); APS/SINT cross-compatible (A2A #1713 9/9 PASS)
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -1895,6 +1895,7 @@ def _make_agent_card(name, skills):
             "interaction_records":         True,                               # v2.59: bilateral interaction records — POST /tasks?record=true + GET /interaction-records
             "bilateral_interaction_records": True,                             # v2.61: full bilateral signing — caller_signature + caller_public_key + caller_signature_valid + bilateral flag
             "wtrmrk_attestation":          True,                               # v2.62: wtrmrk_sequence_root Factor 4 in effective_tier — attestation_history_adjustment from WTRMRK registry
+            "external_token_verify":       bool(_ed25519_private),             # v2.63: POST /verify/external-token — SINT-format Ed25519 cap token cross-protocol verification (APS/SINT compatible)
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
         },
 
@@ -1953,6 +1954,8 @@ def _make_agent_card(name, skills):
             "delegation":        "/identity/delegation",          # v2.16: GET — query delegation chain
             "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
             "pubkey_discovery":  "/identity/pubkey-discovery",   # v2.33: GET|POST — resolve DID → Ed25519 pubkey (offline)
+            "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
+            "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
             "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
@@ -3396,6 +3399,189 @@ def _compute_effective_tier(
         "effective_tier":               effective_tier,
     }
     return effective_tier, factors
+
+
+# v2.63: Cross-protocol external token verification helpers
+# ---------------------------------------------------------------------------
+
+def _hex_to_bytes(h: str) -> bytes:
+    """Convert hex string to bytes; returns empty bytes on failure."""
+    try:
+        return bytes.fromhex(h)
+    except Exception:
+        return b""
+
+
+def _verify_sint_token(token: dict) -> dict:
+    """v2.63: Verify a SINT-format capability token.
+
+    SINT token schema (from A2A #1716 @pshkv + #1713 cross-verify):
+    {
+      "subject":     "<64 hex chars — Ed25519 public key>",
+      "resource":    "a2a://agent.example.com/skills/transfer_funds",
+      "actions":     ["invoke"],
+      "tier":        "T0_observe|T1_read|T2_act|T3_commit",
+      "constraints": {},         (optional)
+      "exp":         1234567890, (optional UNIX timestamp)
+      "iat":         1234567890, (optional)
+      "signature":   "<Ed25519 signature over canonical payload — hex or base64url>"
+    }
+
+    Verification steps:
+      1. Validate required fields present
+      2. Check exp (if present) — reject if expired
+      3. Decode subject Ed25519 public key (64 hex chars → 32 bytes)
+      4. Derive did:key from subject (multicodec [0xed, 0x01] + base58btc)
+         — follows W3C did:key spec; identical to APS toDIDKey() and SINT keyToDid()
+         — confirmed 9/9 cross-verify with pshkv (A2A #1713, 2026-04-06)
+      5. Build canonical payload (same as SINT token signing payload):
+         "<subject>|<resource>|<actions_sorted_csv>|<tier>|<exp_or_0>"
+      6. Verify Ed25519 signature over canonical payload
+      7. Optionally query api.moltrust.ch/capability/verify for confidence score
+
+    Returns:
+    {
+      "ok":          bool,
+      "valid":       bool,
+      "subject_did": "did:key:z6Mk...",
+      "tier":        "T2_act",
+      "resource":    "...",
+      "expired":     bool,
+      "grade":       int | None,   (from moltrust confidence, None if not queried)
+      "confidence":  float | None,
+      "error":       str | None,
+      "fields_verified": [...]     (list of verification steps that passed)
+    }
+    """
+    import time as _time
+
+    result: dict = {
+        "ok":             False,
+        "valid":          False,
+        "subject_did":    None,
+        "tier":           None,
+        "resource":       None,
+        "expired":        False,
+        "grade":          None,
+        "confidence":     None,
+        "error":          None,
+        "fields_verified": [],
+    }
+
+    # Step 1: required fields
+    required = {"subject", "resource", "actions", "tier", "signature"}
+    missing = required - set(token.keys())
+    if missing:
+        result["error"] = f"missing required fields: {sorted(missing)}"
+        return result
+    result["fields_verified"].append("required_fields")
+
+    subject_hex = token["subject"]
+    resource    = token["resource"]
+    actions     = token["actions"]
+    tier        = token["tier"]
+    exp         = token.get("exp")
+    sig_raw     = token["signature"]
+
+    result["tier"]     = tier
+    result["resource"] = resource
+
+    # Step 2: expiry check
+    if exp is not None:
+        now = _time.time()
+        if now > exp:
+            result["expired"] = True
+            result["error"]   = f"token expired at {exp} (now={int(now)})"
+            return result
+        result["fields_verified"].append("expiry_ok")
+    else:
+        result["fields_verified"].append("expiry_none")
+
+    # Step 3: decode subject public key (64 hex chars = 32 bytes)
+    if len(subject_hex) != 64:
+        result["error"] = f"subject must be 64 hex chars (32-byte Ed25519 pubkey), got {len(subject_hex)}"
+        return result
+    pub_raw = _hex_to_bytes(subject_hex)
+    if len(pub_raw) != 32:
+        result["error"] = "subject: invalid hex encoding"
+        return result
+    result["fields_verified"].append("subject_pubkey_decoded")
+
+    # Step 4: derive did:key (W3C spec — multicodec [0xed, 0x01] + base58btc + 'z' prefix)
+    derived_did = _pubkey_to_did_key(pub_raw)
+    result["subject_did"] = derived_did
+    result["fields_verified"].append("did_key_derived")
+
+    # Step 5: build canonical payload — SINT signing convention
+    # Canonical: "<subject>|<resource>|<actions_sorted_csv>|<tier>|<exp_or_0>"
+    actions_csv = ",".join(sorted(actions) if isinstance(actions, list) else [str(actions)])
+    exp_str     = str(int(exp)) if exp is not None else "0"
+    canonical   = f"{subject_hex}|{resource}|{actions_csv}|{tier}|{exp_str}"
+    result["fields_verified"].append("canonical_payload_built")
+
+    # Step 6: verify Ed25519 signature
+    if not _ED25519_AVAILABLE:
+        result["error"] = "Ed25519 verification unavailable (install: pip install cryptography)"
+        return result
+
+    # Decode signature: accept hex (128 chars = 64 bytes) or base64url
+    sig_bytes = b""
+    if len(sig_raw) == 128:
+        sig_bytes = _hex_to_bytes(sig_raw)
+    else:
+        # try base64url
+        try:
+            import base64 as _b64
+            padded = sig_raw + "=" * (4 - len(sig_raw) % 4)
+            sig_bytes = _b64.urlsafe_b64decode(padded)
+        except Exception:
+            pass
+    if len(sig_bytes) != 64:
+        result["error"] = f"signature: cannot decode as 64-byte Ed25519 signature (got {len(sig_bytes)}B from '{sig_raw[:16]}...')"
+        return result
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.exceptions import InvalidSignature
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        pub_key.verify(sig_bytes, canonical.encode("utf-8"))
+        result["valid"] = True
+        result["fields_verified"].append("signature_valid")
+    except InvalidSignature:
+        result["error"] = "signature verification failed — Ed25519 signature does not match canonical payload"
+        return result
+    except Exception as exc:
+        result["error"] = f"signature verification error: {exc!r}"
+        return result
+
+    # Step 7: optional MoltTrust confidence query
+    # POST api.moltrust.ch/capability/verify with token subject + resource + tier
+    try:
+        import urllib.request as _urlreq, json as _json
+        payload = _json.dumps({
+            "subject":  subject_hex,
+            "resource": resource,
+            "tier":     tier,
+        }).encode()
+        req = _urlreq.Request(
+            "https://api.moltrust.ch/capability/verify",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=3) as resp:
+            mt_data = _json.loads(resp.read().decode())
+            result["confidence"] = mt_data.get("confidence_score") or mt_data.get("confidence")
+            mt_grade = mt_data.get("grade")
+            if mt_grade is not None:
+                result["grade"] = int(mt_grade)
+            result["fields_verified"].append("moltrust_queried")
+    except Exception:
+        # Non-critical: MoltTrust query is best-effort; token is already verified locally
+        pass
+
+    result["ok"] = True
+    return result
 
 
 def _check_authorization_tier(
@@ -5957,6 +6143,44 @@ class LocalHTTP(BaseHTTPRequestHandler):
             result = _resolve_did_to_pubkey(did_param)
             self._json(result, 200 if result.get("ok") else 400)
 
+        # ── v2.63: GET /identity/did-key ─────────────────────────────────────
+        elif p == "/identity/did-key":
+            """Return this relay's W3C did:key identifier and public key material.
+
+            v2.63: Exposes the relay's Ed25519 public key as a did:key:z6Mk... DID.
+            This enables APS/SINT cross-protocol identity verification — the same
+            multicodec [0xed, 0x01] + base58btc encoding confirmed cross-compatible
+            with APS v1.32.0 toDIDKey() and SINT keyToDid() (A2A #1713, 9/9 PASS).
+
+            Response (identity available):
+            {
+              "ok":          true,
+              "did_key":     "did:key:z6Mk...",
+              "did_acp":     "did:acp:<base64url>",   (if available)
+              "public_key_b64": "<base64url 32-byte Ed25519 pubkey>",
+              "public_key_hex": "<64 hex chars>",
+              "algorithm":   "Ed25519",
+              "multicodec":  "0xed01"
+            }
+
+            Response (no identity):
+            { "ok": false, "error": "no Ed25519 identity — start relay with --identity" }
+            """
+            if not _ed25519_private or not _did_key:
+                self._json({"ok": False, "error": "no Ed25519 identity — start relay with --identity"}, 400)
+                return
+            import base64 as _b64
+            pub_bytes = _b64.urlsafe_b64decode(_ed25519_public_b64 + "==")
+            self._json({
+                "ok":             True,
+                "did_key":        _did_key,
+                "did_acp":        _did_acp,
+                "public_key_b64": _ed25519_public_b64,
+                "public_key_hex": pub_bytes.hex() if len(pub_bytes) == 32 else None,
+                "algorithm":      "Ed25519",
+                "multicodec":     "0xed01",
+            })
+
         # ── v2.16: GET /identity/delegation ──────────────────────────────────
         elif p == "/identity/delegation":
             # GET /identity/delegation
@@ -6633,6 +6857,70 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": True, "valid": valid, "entry": entry})
             return
         # ── end v2.16 ─────────────────────────────────────────────────────────
+
+        # ── v2.63: POST /verify/external-token ───────────────────────────────
+        elif p == "/verify/external-token":
+            """Cross-protocol SINT-format capability token verification.
+
+            v2.63: Accepts a SINT-format capability token and verifies:
+              1. Required fields present
+              2. Expiry (if exp field present)
+              3. Subject Ed25519 public key decoded (64 hex chars)
+              4. did:key derived (W3C spec: multicodec [0xed,0x01] + base58btc)
+                 — identical to APS v1.32.0 toDIDKey() and SINT keyToDid()
+                 — cross-verified 9/9 PASS with @pshkv (A2A #1713, 2026-04-06)
+              5. Canonical payload reconstructed and Ed25519 signature verified
+              6. Optional: query api.moltrust.ch/capability/verify for confidence
+
+            Request body:
+            {
+              "token": {
+                "subject":    "<64 hex chars — Ed25519 public key>",
+                "resource":   "a2a://agent.example.com/skills/transfer_funds",
+                "actions":    ["invoke"],
+                "tier":       "T2_act",
+                "exp":        1234567890,  (optional)
+                "signature":  "<Ed25519 sig — 128 hex or base64url>"
+              }
+            }
+
+            Response (valid):
+            {
+              "ok":           true,
+              "valid":        true,
+              "subject_did":  "did:key:z6Mk...",
+              "tier":         "T2_act",
+              "resource":     "...",
+              "expired":      false,
+              "grade":        2,          (from MoltTrust; null if unavailable)
+              "confidence":   0.82,       (from MoltTrust; null if unavailable)
+              "fields_verified": [...],
+              "relay_did_key": "did:key:z6Mk..."  (this relay's DID, for reference)
+            }
+
+            Response (invalid / error):
+            {
+              "ok":   false,
+              "error": "...",
+              "valid": false
+            }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            token_obj = body.get("token")
+            if not isinstance(token_obj, dict):
+                self._json({"ok": False, "error": "'token' field required (object)"}, 400)
+                return
+
+            result = _verify_sint_token(token_obj)
+            # Annotate with this relay's did:key (for cross-reference)
+            result["relay_did_key"] = _did_key
+            status_code = 200 if result.get("ok") else (400 if not result.get("valid") else 200)
+            self._json(result, status_code)
 
         # ── v2.17: POST /availability/heartbeat ───────────────────────────────
         if p == "/availability/heartbeat":
