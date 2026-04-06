@@ -7,6 +7,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.63.0] — 2026-04-06 (cross-protocol token verify — GET /identity/did-key + POST /verify/external-token)
+
+### Added
+- **`GET /identity/did-key`** — returns relay's W3C did:key identifier plus full public key material
+  (`did_key`, `did_acp`, `public_key_b64`, `public_key_hex`, `algorithm=Ed25519`, `multicodec=0xed01`)
+- **`POST /verify/external-token`** — SINT-format cross-protocol token verification
+  - 7-step pipeline: required_fields → expiry → subject_pubkey_decode → did:key_derive → canonical_payload → Ed25519_sig_verify → optional MoltTrust query
+  - Response includes `subject_did`, `fields_verified[]`, `relay_did_key`, `expired`
+- **AgentCard endpoints**: `did_key` → `/identity/did-key`, `external_token_verify` → `/verify/external-token`
+- **AgentCard capabilities**: `external_token_verify = bool(_ed25519_private)`
+- **`_verify_sint_token()`** helper — reusable 7-step SINT verification function
+
+### Cross-protocol Compatibility
+- did:key derivation uses multicodec `[0xed, 0x01]` + base58btc — identical to APS v1.32.0 `toDIDKey()` and SINT `keyToDid()`
+- Cross-verify benchmark: 9/9 PASS (research round #11, A2A #1713, 2026-04-06)
+
+### Tests
+- `tests/test_external_token_verify.py` — **ETV-1..16: 16/16 PASS**
+- Full regression: **843 passed, 8 skipped, 0 failed**
+
+---
+
 ## [2.60.0] — 2026-04-06 (governance_metadata — AgentCard Governance Block, A2A #1717 preempt)
 
 ### Added
