@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-06 09:58（文档轮 #12：v2.60.0 文档同步；当前版本 v2.60.0，GM-1..14 PASS）
+> 最后更新：2026-04-06 11:10（文档轮 #13：v2.61.0 文档同步；当前版本 v2.61.0，CS-1..12 PASS，511+ 全量回归）
 
 ---
 
@@ -46,6 +46,7 @@
 | **`effective_tier` 三因子动态计算** | ✅ **v2.58 已实现（max(tier_rule, depth_floor, rep_adj)）** | ❌ #1716 @64R3N 公式未合并 | **ACP 抢先实现** |
 | **`interaction_records` 双边交互记录** | ✅ **v2.59 已实现（relay_signature + caller_token_hash + sha256 链）** | ❌ #1718 0💬 时 ACP 已发布 | **ACP 抢先实现** |
 | **`governance_metadata` 治理元数据** | ✅ **v2.60 已实现（trust_score + capability_manifest + GET/PATCH endpoints + CLI）** | ❌ #1717 0💬（Microsoft 提案）时 ACP 已发布 | **ACP 抢先实现** |
+| **`caller_signature` 完整双边签名** | ✅ **v2.61 已实现（Ed25519 caller_sig + bilateral=true 语义 + CS-1..12 PASS）** | ❌ #1718 外部评论指出 unilateral 弱点，ACP 先于 spec 完成实现 | **ACP 抢先实现** |
 | `tasks/list` 分页过滤 | ✅ v2.11 | ✅ v1.0.0 | 持平（ACP 超前实现）|
 | Python SDK | ✅ v1.7+ | 🟡 v1.0.0-alpha.0 | 版本号差距，ACP 更轻量 |
 
@@ -675,7 +676,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.58** | **✅ 2026-04-06** | **`effective_tier` 三因子动态计算 — `_compute_effective_tier()`: max(tier_rule, depth_floor(chain.len), rep_adj) + GET /skills/{id}/effective-tier 调试端点 + DELETE /principal-chain URL-decode 修复 + ET-1..12 PASS — A2A #1716 @64R3N 公式抢先实现** |
 | **v2.59** | **✅ 2026-04-06** | **双边交互记录（Bilateral Signed Interaction Record）轻量版：`_create_interaction_record()` + `POST /tasks?record=true` + `GET /interaction-records` + relay Ed25519 签名 + sha256 链 + caller_token_hash — A2A #1718 抢先实现（0💬 时 ACP 已发布），IR-1..12 PASS** |
 | **v2.60** | **✅ 2026-04-06** | **governance_metadata in AgentCard（`_build_governance_metadata()`：trust_score 启发式 + capability_manifest auto-derive + policy_compliance + audit_trail_reference + live runtime counters）+ GET/PATCH /governance-metadata + `--governance-metadata` CLI + GM-1..14 PASS — A2A #1717（Microsoft，0💬）抢先实现** |
-| **v2.61** | **📋 计划中** | **optional caller_signature in interaction_records — 完整双边签名（relay_sig + caller_sig），A2A #1718 外部验证：unilateral attestation 是弱点，bilateral closes the gap** |
+| **v2.61** | **✅ 2026-04-06** | **`caller_signature` 完整双边签名：`_create_interaction_record()` 扩展接受 caller_signature + caller_public_key，Ed25519 验证 canonical payload（relay_did\|caller_did\|task_id\|sequence_a\|ts），`bilateral: true` 仅当双方签名均有效 + CS-1..12 PASS + BUG FIX: POST /tasks role 从顶层 body 取值 — A2A #1718 外部验证：unilateral attestation 可伪造，bilateral closes the gap** |
 | **v2.62** | **📋 计划中** | **wtrmrk_sequence_root 外部 reputation 查询：POST /tasks metadata.wtrmrk_sequence_root → WTRMRK registry 查询 → attestation_history_adjustment，fail-closed fallback — A2A #1716 @64R3N 建议** |
 
 ---

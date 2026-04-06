@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: ACP Skills Discovery API
-  version: "2.60.0"
+  version: "2.61.0"
   description: |
     ACP (Agent Communication Protocol) Skills Discovery endpoint.
     Allows agents to programmatically discover what skills a peer agent supports.
@@ -427,6 +427,29 @@ components:
           type: string
           nullable: true
           description: Relay's Ed25519 public key (base64url)
+        caller_signature:
+          type: string
+          nullable: true
+          description: |
+            Caller's Ed25519 signature (base64url) over canonical payload:
+            "<relay_did>|<caller_did>|<task_id>|<sequence_a>|<timestamp>"
+            Null when no caller_signature was provided in POST /tasks.
+        caller_public_key:
+          type: string
+          nullable: true
+          description: Caller's raw Ed25519 public key (base64url). Used by relay to verify caller_signature.
+        caller_signature_valid:
+          type: boolean
+          nullable: true
+          description: |
+            True: caller_signature verified successfully.
+            False: caller_signature provided but verification failed.
+            null: no caller_signature was provided.
+        bilateral:
+          type: boolean
+          description: |
+            True only when BOTH relay_signature AND caller_signature are cryptographically valid.
+            Indicates the record is non-repudiable by both parties.
 
     InteractionRecordsResponse:
       type: object

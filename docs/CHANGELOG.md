@@ -7,6 +7,55 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.61.0 — caller_signature: Complete Bilateral Signing in Interaction Records (2026-04-06)
+
+### Added
+- `caller_signature` (str, optional) — base64url-encoded Ed25519 signature from the caller over the canonical IR payload
+- `caller_public_key` (str, optional) — base64url-encoded raw Ed25519 public key of the caller; required for verification
+- `caller_signature_valid` (bool|null) — `True` when signature verifies; `False` when signature present but invalid; `null` when no signature provided
+- `bilateral` (bool) — `True` only when **both** `relay_signature` and `caller_signature` are cryptographically valid; `False` otherwise
+- `AgentCard capabilities.bilateral_interaction_records: True` — signals full bilateral signing support to peers
+
+### Changed
+- `_create_interaction_record()` — expanded to accept `caller_signature` and `caller_public_key`; verifies caller's Ed25519 signature against canonical IR payload (`relay_did+caller_did+task_id+sequence_a+timestamp`); new return fields: `caller_signature`, `caller_public_key`, `caller_signature_valid`, `bilateral`
+- `POST /tasks` handler — extracts `caller_signature` and `caller_public_key` from the request body and passes them to `_create_interaction_record()`
+- `POST /tasks` role validation — **BUG FIX**: `role` field is now correctly looked up from the top-level request body first (`body.get("role")`), with `payload` as fallback; previously only checked nested `payload`, causing silent `400` when `role` was in the top level (correct position)
+
+### Canonical Payload for Caller Signature Verification
+The caller must sign the following canonical string (concatenated with `|`):
+```
+<relay_did>|<caller_did>|<task_id>|<sequence_a>|<timestamp>
+```
+Where `timestamp` is the ISO 8601 UTC timestamp of the interaction record.
+The relay verifies this signature using the provided `caller_public_key` (Ed25519 raw bytes).
+
+### Behaviour
+- `caller_signature` provided + `caller_public_key` absent → `caller_signature_valid: false`, `bilateral: false`
+- `caller_public_key` provided + `caller_signature` absent → `caller_signature_valid: false`, `bilateral: false`
+- Neither provided → `caller_signature: null`, `caller_public_key: null`, `caller_signature_valid: null`, `bilateral: false`
+- Invalid signature (e.g. wrong bytes) → `caller_signature_valid: false`, `bilateral: false`; record is **stored, not rejected**
+- `bilateral: true` is achieved only with a relay identity loaded (`--identity`) AND a valid caller signature
+
+### Design Rationale (A2A #1718)
+A2A Issue #1718 (bilateral signed interaction records) identified the core weakness of relay-only signing:
+the relay can forge or selectively reveal interaction records — making them **repudiable**.
+ACP v2.61 implements the caller-side signature in a fully backward-compatible manner:
+- Unilateral records (relay-only) continue to work as before — `bilateral: false`
+- Callers that supply `caller_signature` upgrade the record to **cryptographically non-repudiable bilateral evidence**
+- No new endpoints required; just add two fields to the existing `POST /tasks` body
+
+### Tests
+- `tests/test_caller_signature.py` — CS-1..12 (12/12 PASS, 3.98s)
+- Full regression (excluding known flaky/long-running files): **511+ passed, 4 skipped, 0 failed** ✅
+- CS-1: no caller_signature → bilateral=false, caller_signature_valid=null
+- CS-2: invalid sig (bad bytes) → caller_signature_valid=false, bilateral=false
+- CS-3: sig without pubkey → caller_signature_valid=false
+- CS-4: pubkey without sig → caller_signature_valid=false
+- CS-5: AgentCard.capabilities.bilateral_interaction_records=true
+- CS-6..12: GET /interaction-records bilateral field, chain linkage, field presence, None vs False semantics
+
+---
+
 ## v2.56.0 — principal_chain[] OBO Delegation Chain — Trust-Block Propagation + Runtime Management (2026-04-05)
 
 ### Added

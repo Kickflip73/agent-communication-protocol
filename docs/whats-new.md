@@ -5,6 +5,104 @@
 
 ---
 
+### v2.61.0 — Complete Bilateral Signing: `caller_signature` in Interaction Records (2026-04-06)
+
+ACP v2.61 closes the **unilateral-attestation gap** in interaction records.
+Inspired by A2A Issue #1718 (0 comments when ACP shipped); external community validation
+confirmed that relay-only signing is repudiable — the relay can forge or selectively reveal records.
+
+#### The Problem
+
+In v2.59, interaction records contained only a `relay_signature` — a signature by the relay itself.
+This is useful, but **unilateral**: the relay signs what it wants. A dishonest relay could fabricate
+records, change the `task_id`, or omit records entirely — and the caller has no cryptographic voice.
+
+#### The Solution: caller_signature
+
+```json
+{
+  "id": "ir_abc123",
+  "type": "interaction_record",
+  "relay_did": "did:acp:AbcXyz...",
+  "caller_did": "did:acp:DefGhi...",
+  "task_id": "task_abc",
+  "skill_id": "summarize",
+  "sequence_a": 7,
+  "previous_hash": "sha256:deadbeef...",
+  "timestamp": "2026-04-06T02:55:00Z",
+  "relay_signature": "base64url...",
+  "caller_token_hash": "sha256:...",
+  "caller_signature": "base64url...",
+  "caller_public_key": "base64url...",
+  "caller_signature_valid": true,
+  "bilateral": true
+}
+```
+
+#### Canonical Payload (what the caller signs)
+
+```
+<relay_did>|<caller_did>|<task_id>|<sequence_a>|<timestamp>
+```
+
+The caller creates an Ed25519 signature over this string, encoding result as base64url.
+The relay verifies it using `caller_public_key` (raw Ed25519 bytes, base64url).
+
+#### Usage
+
+```bash
+# Generate a keypair (one-time)
+python3 -c "
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
+import base64
+priv = Ed25519PrivateKey.generate()
+pub = priv.public_key()
+pub_b64 = base64.urlsafe_b64encode(pub.public_bytes(Encoding.Raw, PublicFormat.Raw)).rstrip(b'=').decode()
+priv_b64 = base64.urlsafe_b64encode(priv.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())).rstrip(b'=').decode()
+print('PUBLIC:', pub_b64)
+print('PRIVATE:', priv_b64)
+"
+
+# POST /tasks with caller_signature
+# (caller computes: relay_did|caller_did|task_id|sequence_a|timestamp, then signs)
+curl -X POST http://127.0.0.1:<http_port>/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "skill_id": "summarize",
+    "role": "agent",
+    "payload": {"text": "analyze this"},
+    "record": true,
+    "caller_signature": "<base64url_ed25519_sig>",
+    "caller_public_key": "<base64url_public_key>"
+  }'
+```
+
+#### `bilateral` Semantics
+
+| relay_signature | caller_signature_valid | bilateral |
+|----------------|----------------------|-----------|
+| present (relay has `--identity`) | `true` | **`true`** ✅ |
+| present | `false` (bad sig) | `false` |
+| present | `null` (no sig given) | `false` |
+| absent (no `--identity`) | `true` | `false` |
+
+#### AgentCard Capability
+
+```json
+{
+  "capabilities": {
+    "interaction_records": true,
+    "bilateral_interaction_records": true
+  }
+}
+```
+
+Peers can check `bilateral_interaction_records` to know whether their caller_signature
+will be verified before relying on non-repudiation semantics.
+
+---
+
 ### v2.60.0 — Governance Metadata in AgentCard (2026-04-06)
 
 ACP v2.60 adds **governance metadata** to the AgentCard — a structured block declaring an agent's
