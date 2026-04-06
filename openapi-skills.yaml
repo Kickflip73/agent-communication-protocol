@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: ACP Skills Discovery API
-  version: "2.63.0"
+  version: "2.65.0"
   description: |
     ACP (Agent Communication Protocol) Skills Discovery endpoint.
     Allows agents to programmatically discover what skills a peer agent supports.
@@ -267,6 +267,72 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InteractionRecordsResponse"
+
+  /ir/import-evidence:
+    post:
+      summary: Import external bilateral IR + generate APS reputation_update (v2.65)
+      description: |
+        Accepts an external bilateral interaction record from a peer relay, verifies
+        relay_signature and caller_signature (Ed25519), and returns an APS-compatible
+        reputation_update payload. Aligns with A2A #1718 importBilateralEvidence().
+      tags: [interaction-records]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportEvidenceRequest"
+      responses:
+        "200":
+          description: Import succeeded (even if signatures invalid — check verify block)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportEvidenceResponse"
+        "400":
+          description: Missing or invalid ir field
+
+  /ir/imported-evidence:
+    get:
+      summary: List imported bilateral IR evidence records (v2.65)
+      tags: [interaction-records]
+      parameters:
+        - in: query
+          name: agent_did
+          schema:
+            type: string
+          description: Filter by agent DID
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
+          description: Maximum number of records to return
+      responses:
+        "200":
+          description: List of imported evidence records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportedEvidenceListResponse"
+
+  /ir/test-vectors:
+    get:
+      summary: Deterministic bilateral IR test vectors for cross-implementation verification (v2.64)
+      description: |
+        Returns 4 deterministic bilateral interaction record test vectors with Ed25519
+        signatures for cross-implementation interoperability testing. Keys are derived
+        from SHA-256 seeds for full reproducibility. Aligns with A2A #1718 (@aeoess).
+      tags: [interaction-records]
+      responses:
+        "200":
+          description: Test vectors generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IrTestVectorsResponse"
+        "503":
+          description: Ed25519 not available or no identity loaded
 
 components:
   schemas:
@@ -1288,6 +1354,138 @@ components:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+    ImportEvidenceRequest:
+      type: object
+      required: [ir]
+      properties:
+        ir:
+          type: object
+          description: The bilateral interaction record to import
+          properties:
+            id:            { type: string }
+            type:          { type: string, default: "interaction" }
+            relay_did:     { type: string }
+            caller_did:    { type: string }
+            task_id:       { type: string }
+            skill_id:      { type: string }
+            sequence_a:    { type: integer }
+            previous_hash: { type: string }
+            timestamp:     { type: string, format: date-time }
+            relay_signature:   { type: string, nullable: true }
+            relay_public_key:  { type: string, nullable: true }
+            caller_signature:  { type: string, nullable: true }
+            caller_public_key: { type: string, nullable: true }
+            bilateral:         { type: boolean }
+
+    ImportEvidenceVerify:
+      type: object
+      properties:
+        relay_sig_valid:
+          type: boolean
+          nullable: true
+          description: True if relay_signature verified, False if invalid, null if not provided
+        caller_sig_valid:
+          type: boolean
+          nullable: true
+          description: True if caller_signature verified, False if invalid, null if not provided
+        bilateral_verified:
+          type: boolean
+          description: True only when BOTH relay and caller signatures are valid
+        errors:
+          type: array
+          items: { type: string }
+          description: List of verification errors (empty on full success)
+
+    ReputationUpdate:
+      type: object
+      description: APS-compatible reputation update payload (aps_schema v1)
+      properties:
+        evidence_type:
+          type: string
+          enum: [bilateral_interaction_record]
+        source_relay_did:  { type: string, nullable: true }
+        agent_did:         { type: string, nullable: true }
+        task_id:           { type: string, nullable: true }
+        skill_id:          { type: string, nullable: true }
+        sequence_a:        { type: integer, nullable: true }
+        timestamp:         { type: string, nullable: true, format: date-time }
+        bilateral:         { type: boolean }
+        relay_sig_valid:   { type: boolean, nullable: true }
+        caller_sig_valid:  { type: boolean, nullable: true }
+        trust_delta:
+          type: integer
+          enum: [-1, 0, 1]
+          description: "+1 bilateral verified / 0 relay-only / -1 tampered or no signatures"
+        freshness_hint:
+          type: integer
+          nullable: true
+          description: Seconds elapsed since original interaction timestamp
+        aps_schema:
+          type: string
+          enum: [v1]
+
+    ImportEvidenceResponse:
+      type: object
+      properties:
+        ok:          { type: boolean }
+        import_id:   { type: string, description: "Stable identifier: imp-<uuid>" }
+        verify:
+          $ref: "#/components/schemas/ImportEvidenceVerify"
+        reputation_update:
+          $ref: "#/components/schemas/ReputationUpdate"
+
+    ImportedEvidenceRecord:
+      type: object
+      properties:
+        import_id:   { type: string }
+        imported_at: { type: string, format: date-time }
+        source_ir:
+          type: object
+          description: The original imported IR record
+        verify:
+          $ref: "#/components/schemas/ImportEvidenceVerify"
+        reputation_update:
+          $ref: "#/components/schemas/ReputationUpdate"
+
+    ImportedEvidenceListResponse:
+      type: object
+      properties:
+        ok:      { type: boolean }
+        count:   { type: integer }
+        total:   { type: integer }
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportedEvidenceRecord"
+
+    IrTestVector:
+      type: object
+      description: A single deterministic bilateral IR test vector
+      properties:
+        id:                { type: string }
+        description:       { type: string }
+        canonical_fields:  { type: object }
+        canonical_bytes_hex: { type: string }
+        relay_public_key:  { type: string, nullable: true }
+        relay_signature:   { type: string, nullable: true }
+        caller_public_key: { type: string, nullable: true }
+        caller_signature:  { type: string, nullable: true }
+        verify:            { type: boolean, description: "Expected verify result" }
+        bilateral:         { type: boolean }
+        previous_hash:     { type: string, nullable: true }
+
+    IrTestVectorsResponse:
+      type: object
+      properties:
+        ok:         { type: boolean }
+        count:      { type: integer }
+        relay_did:  { type: string }
+        generated_at: { type: string, format: date-time }
+        vectors:
+          type: array
+          items:
+            $ref: "#/components/schemas/IrTestVector"
+
 tags:
   - name: skills
     description: |
@@ -1302,3 +1500,8 @@ tags:
     description: |
       Ed25519 identity endpoints: did:key exposure and cross-protocol token verification (v2.63).
       Compatible with APS v1.32.0 toDIDKey() and SINT keyToDid() (A2A #1713 cross-verify 9/9 PASS).
+  - name: interaction-records
+    description: |
+      Bilateral interaction records: creation (v2.59/v2.61), test vectors (v2.64),
+      and external evidence import with APS reputation_update (v2.65).
+      Aligns with A2A #1718 importBilateralEvidence() interface.
