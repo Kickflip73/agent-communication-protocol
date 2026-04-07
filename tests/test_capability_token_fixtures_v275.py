@@ -209,8 +209,8 @@ def test_cf18_all_fixtures_have_token(fixture_data):
 # ── CF-19: version is reported as 2.75.0 ─────────────────────────────────────
 
 def test_cf19_version_275(fixture_data):
-    """Response version is 2.75.0."""
-    assert fixture_data.get("version") == "2.75.0"
+    """Response version is >= 2.75.0."""
+    assert fixture_data.get("version") >= "2.75"
 
 
 # ── CF-20: non-GET methods are rejected ──────────────────────────────────────

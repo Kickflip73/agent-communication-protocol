@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.75.0"  # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture endpoint; A2A #1716 @pshkv minimal 4-deny+1-allow vector set; capabilities.capability_token_fixtures=True
+VERSION = "2.76.0"  # v2.76: effective_tier Factor 5 — attestation_history_adjustment from local bilateral IR log (+1/0/-1, merkle-committed); A2A #1716 @64R3N; GET /skills/{id}/effective-tier now returns bilateral_ir_adj + ir_merkle_root
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2053,6 +2053,7 @@ def _make_agent_card(name, skills):
             "principal_chain":             bool(_principal_chain),            # v2.56: OBO delegation chain in trust block
             "capability_token_issuance":   bool(_ed25519_private),            # v2.57: POST /skills/{id}/capability-token — SINT-format Ed25519 capability token issuance
             "effective_tier_computation":  True,                               # v2.58: dynamic three-factor effective_tier: max(tier_rule, depth_floor, rep_adj)
+            "effective_tier_five_factors": True,                               # v2.76: upgraded to 5-factor effective_tier (+ bilateral_ir_adj, A2A #1716 @64R3N)
             "interaction_records":         True,                               # v2.59: bilateral interaction records — POST /tasks?record=true + GET /interaction-records
             "bilateral_interaction_records": True,                             # v2.61: full bilateral signing — caller_signature + caller_public_key + caller_signature_valid + bilateral flag
             "wtrmrk_attestation":          True,                               # v2.62: wtrmrk_sequence_root Factor 4 in effective_tier — attestation_history_adjustment from WTRMRK registry
@@ -3894,6 +3895,95 @@ def _wtrmrk_to_adj(grade: int | None) -> int:
     return 0   # grades 1-2 → neutral
 
 
+def _bilateral_ir_merkle_root(peer_id: str | None) -> str | None:
+    """v2.76: Compute a merkle-style commitment root over bilateral interaction records.
+
+    Filters _interaction_records for bilateral=True entries involving peer_id.
+    Sorts records by timestamp ascending (deterministic ordering).
+    Leaf hashes: SHA-256 over JSON-canonical record id+timestamp+skill_id.
+    Tree: pairwise SHA-256 up the tree; odd node duplicated at each level.
+    Returns hex root, or None if no bilateral records found.
+
+    This mirrors the wtrmrk_sequence_root concept from A2A #1716 @64R3N but uses
+    the local bilateral IR log instead of an external chain registry.
+    """
+    import hashlib, json as _json
+
+    # Filter bilateral records involving this peer
+    records = [
+        r for r in _interaction_records
+        if r.get("bilateral") is True and (
+            peer_id is None or
+            r.get("caller_did") == peer_id or
+            r.get("callee_did") == peer_id or
+            r.get("peer_id") == peer_id
+        )
+    ]
+    if not records:
+        return None
+
+    # Sort deterministically by timestamp, then id
+    records = sorted(records, key=lambda r: (r.get("timestamp", ""), r.get("id", "")))
+
+    # Compute leaf hashes
+    def _leaf(r: dict) -> bytes:
+        canonical = _json.dumps(
+            {"id": r.get("id", ""), "ts": r.get("timestamp", ""), "skill": r.get("skill_id", "")},
+            sort_keys=True, separators=(",", ":")
+        ).encode()
+        return hashlib.sha256(canonical).digest()
+
+    hashes = [_leaf(r) for r in records]
+
+    # Build merkle tree
+    while len(hashes) > 1:
+        if len(hashes) % 2 == 1:
+            hashes.append(hashes[-1])  # duplicate last leaf
+        hashes = [
+            hashlib.sha256(hashes[i] + hashes[i + 1]).digest()
+            for i in range(0, len(hashes), 2)
+        ]
+
+    return hashes[0].hex()
+
+
+def _bilateral_ir_adj(peer_id: str | None) -> tuple[int, int, str | None]:
+    """v2.76: Compute attestation_history_adjustment from local bilateral IR log.
+
+    Factor 5 in effective_tier (A2A #1716 @64R3N proposal):
+      +1 → unknown peer (0 bilateral records) → raises tier floor
+       0 → known peer with 1-4 bilateral records → neutral
+      -1 → established peer (>=5 bilateral records) → may lower tier floor
+
+    The threshold of 5 records is conservative by design: a peer must demonstrate
+    sustained bilateral interactions before receiving any trust benefit.
+
+    Returns (adj: int, bilateral_count: int, merkle_root: str | None)
+    """
+    if peer_id is None:
+        return 1, 0, None  # no caller info → unknown → raise floor
+
+    count = sum(
+        1 for r in _interaction_records
+        if r.get("bilateral") is True and (
+            r.get("caller_did") == peer_id or
+            r.get("callee_did") == peer_id or
+            r.get("peer_id") == peer_id
+        )
+    )
+
+    merkle_root = _bilateral_ir_merkle_root(peer_id) if count > 0 else None
+
+    if count == 0:
+        adj = 1    # completely unknown → conservative floor raise
+    elif count >= 5:
+        adj = -1   # established bilateral history → allow floor reduction
+    else:
+        adj = 0    # 1-4 records → neutral
+
+    return adj, count, merkle_root
+
+
 def _compute_effective_tier(
     skill_obj: dict,
     peer_id: str | None,
@@ -3965,7 +4055,7 @@ def _compute_effective_tier(
         # no caller info → unknown → raise floor
         reputation_adj = 1
 
-    # Factor 4: wtrmrk_adj (v2.62) — external attestation history
+    # Factor 4: wtrmrk_adj (v2.62) — external attestation history (chain registry)
     wtrmrk_grade: int | None = None
     wtrmrk_adj = 0
     wtrmrk_queried = False
@@ -3974,14 +4064,25 @@ def _compute_effective_tier(
         wtrmrk_grade = _query_wtrmrk(wtrmrk_sequence_root)
         wtrmrk_adj = _wtrmrk_to_adj(wtrmrk_grade)
 
+    # Factor 5: bilateral_ir_adj (v2.76) — local bilateral interaction record history
+    # A2A #1716 @64R3N: attestation_history_adjustment from local bilateral IR log
+    # +1 → 0 bilateral records (unknown) | 0 → 1-4 records | -1 → >=5 records (established)
+    bilateral_ir_adj, bilateral_ir_count, bilateral_ir_merkle = _bilateral_ir_adj(peer_id)
+
     # Combined adjustment: clamp to [-1, +1]
-    # -1 only if BOTH rep_adj AND wtrmrk_adj are -1 (both confirm high reputation)
-    # +1 if EITHER is +1 (conservative: any unknown signal raises floor)
+    # -1 only if ALL THREE signals (rep, wtrmrk, bilateral_ir) are ≤ 0 AND at least one is -1
+    # +1 if ANY is +1 (conservative: any unknown signal raises floor)
     # 0 otherwise
-    combined_adj = max(-1, min(1, reputation_adj + wtrmrk_adj))
-    # But if either factor is +1, combined cannot be -1 (asymmetric safety rule)
-    if reputation_adj == 1 or wtrmrk_adj == 1:
-        combined_adj = max(0, combined_adj)  # clamp to [0, +1]
+    # Five-factor combination:
+    # Any +1 (unknown) overrides all → floor raised (conservative)
+    # -1 requires ALL three adj factors ≤ 0 with at least one -1 (unanimous confidence)
+    raw_combined = reputation_adj + wtrmrk_adj + bilateral_ir_adj
+    if reputation_adj == 1 or wtrmrk_adj == 1 or bilateral_ir_adj == 1:
+        combined_adj = max(0, min(1, raw_combined))  # at least 0, floor raised
+    else:
+        # All are 0 or -1 — require at least two of three to be -1 for combined=-1
+        neg_count = sum(1 for a in (reputation_adj, wtrmrk_adj, bilateral_ir_adj) if a == -1)
+        combined_adj = -1 if neg_count >= 2 else 0
 
     # Combine: max of tier_rule and depth_floor
     base_int = max(tier_int, depth_floor)
@@ -4009,8 +4110,13 @@ def _compute_effective_tier(
         "wtrmrk_queried":               wtrmrk_queried,
         "wtrmrk_grade":                 wtrmrk_grade,
         "wtrmrk_adj":                   wtrmrk_adj if wtrmrk_queried else None,
+        # v2.76: Factor 5 — bilateral IR attestation_history_adjustment (A2A #1716 @64R3N)
+        "bilateral_ir_adj":             bilateral_ir_adj,
+        "bilateral_ir_count":           bilateral_ir_count,
+        "bilateral_ir_merkle_root":     bilateral_ir_merkle,
         "combined_adj":                 combined_adj,
         "effective_tier":               effective_tier,
+        "factor_count":                 5,  # v2.76: upgraded from 4 to 5 factors
     }
     return effective_tier, factors
 
