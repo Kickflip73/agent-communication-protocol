@@ -7,6 +7,72 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.73.0] — 2026-04-07 (agent-limitations/schema — typed JSON Schema for constraint dict; A2A #1694 aligned)
+
+### Added
+- **`GET /agent-limitations/schema`** — JSON Schema for the `agent_limitations` structured constraint dict
+  - Returns JSON Schema (draft/2020-12) describing all fields in the `agent_limitations` dict
+  - Schema title: `AgentLimitations`; `$id: https://acp.dev/schema/agent-limitations/v2.73.json`
+  - Documented properties (6): `max_message_size_bytes` / `max_recv_queue_size` / `max_wait_seconds` / `max_peers` / `supported_message_roles` / `supported_priorities`
+  - Each property includes: `type`, `minimum`/`enum`, `description`, `x-acp-since` metadata
+  - `additionalProperties: false` — strict schema, no undeclared fields
+  - `current_values` field: actual `_LIMITATIONS` dict values for this relay instance
+  - Consumers can use schema to programmatically validate capability constraints
+- **AgentCard `capabilities.agent_limitations_schema: true`**
+- **AgentCard `endpoints.agent_limitations_schema: "/agent-limitations/schema"`**
+- Aligned with A2A #1694 typed limitations proposal (machine-readable constraint discovery)
+
+### Tests
+- `tests/test_agent_limitations_schema_v273.py` — AL-01..AL-22: **22 tests passed**
+  - AL-01..02: 200 status + ok=True
+  - AL-03: Schema title AgentLimitations
+  - AL-04: ≥6 schema properties
+  - AL-05..10: Each property type/enum correct
+  - AL-11..12: current_values correct (max_peers=100, max_message_size≥64KB)
+  - AL-13: Response version == acp_version
+  - AL-14..15: AgentCard capabilities + endpoints
+  - AL-16: Version 2.73.0
+  - AL-17: additionalProperties: False
+  - AL-18: $id contains "acp.dev"
+  - AL-19: note field present
+  - AL-20: POST returns 404/405
+  - AL-21: current_values roles contain "user"/"agent"
+  - AL-22: Full regression /status + /well-known/acp.json + /trust/bilateral-ir/log
+
+### Full Regression
+- **109/109 PASS** (AL×22 + BL×21 + SP×20 + SC×15 + TS×14 + B×7 + G×10)
+
+### Commit
+- `ad15e74`
+
+---
+
+## [2.72.0] — 2026-04-07 (trust/bilateral-ir/log — queryable bilateral IR record log; A2A #1718 @viftode4)
+
+### Added
+- **`GET /trust/bilateral-ir/log`** — Query the local bilateral interaction record log
+  - Returns paginated snapshot of `_interaction_records[]` with filters
+  - Filter params: `caller_did` (substring), `skill_id` (substring), `bilateral=true|false`, `since=<unix_ts>`, `limit` (max 500), `offset`
+  - Response includes `bilateral_count` — trust-depth quick metric (A2A #1718 aligned)
+  - Implements queryable bilateral IR log recommended by A2A #1718 @viftode4
+  - Bilateral records co-signed by relay+caller = non-repudiable trust evidence
+- **AgentCard `capabilities.bilateral_ir_log: true`**
+- **AgentCard `endpoints.bilateral_ir_log: "/trust/bilateral-ir/log"`**
+
+### Fixed
+- `?since=<float>` vs ISO timestamp comparison TypeError → relay crash
+  - Fix: ISO timestamp → epoch conversion via `fromisoformat()` in filter logic
+
+### Tests
+- `tests/test_bilateral_ir_log_v272.py` — BL-01..22: **21 tests passed, 1 skipped**
+  - Full filter matrix: caller_did / bilateral / since / limit / offset
+  - Regression: /status + /trust/signals + bilateral-ir/log
+
+### Commit
+- `cb35cfe` (feat), `b429d76` (docs)
+
+---
+
 ## [2.69.0] — 2026-04-07 (runtime limitations endpoint — A2A #1694 @citriac stable/runtime split)
 
 ### Added

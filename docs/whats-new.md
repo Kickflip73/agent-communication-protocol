@@ -5,6 +5,55 @@
 
 ---
 
+### v2.73.0 — Typed JSON Schema for agent_limitations (2026-04-07)
+
+ACP v2.73 adds **`GET /agent-limitations/schema`** — a JSON Schema (draft/2020-12) endpoint that
+makes the `agent_limitations` constraint dict machine-readable and validatable.
+
+**Why it matters**: A2A #1694 proposed typed limitations for programmatic constraint discovery.
+ACP v2.40 already shipped `agent_limitations` as a structured dict; v2.73 takes it further
+by exposing a formal JSON Schema so consumers can validate values without relying on prose docs.
+
+```bash
+curl http://localhost:8000/agent-limitations/schema
+# → { "ok": true, "schema": { "$schema": "...", "title": "AgentLimitations", "properties": {...} },
+#     "current_values": { "max_message_size_bytes": 65536, ... } }
+```
+
+**Schema properties** (6 fields, all optional):
+
+| Field | Type | Description |
+|---|---|---|
+| `max_message_size_bytes` | integer | Max message payload size in bytes |
+| `max_recv_queue_size` | integer | Max per-peer receive queue depth |
+| `max_wait_seconds` | integer | Max long-poll wait seconds |
+| `max_peers` | integer | Max concurrent peer connections |
+| `supported_message_roles` | array[string] | Valid `role` field values |
+| `supported_priorities` | array[enum] | Valid `priority` field values |
+
+- `additionalProperties: false` — strict schema
+- `current_values` — returns actual live values for this relay
+- AgentCard: `capabilities.agent_limitations_schema: true`
+- Tests: AL-01..AL-22 = **22/22 PASS**
+
+---
+
+### v2.72.0 — Queryable Bilateral IR Log (2026-04-07)
+
+ACP v2.72 adds **`GET /trust/bilateral-ir/log`** — a queryable log of bilateral interaction
+records inspired by A2A #1718 (@viftode4's proposal for bilateral signed IR as unified trust primitive).
+
+```bash
+curl "http://localhost:8000/trust/bilateral-ir/log?bilateral=true&limit=10"
+# → { "ok": true, "count": N, "bilateral_count": M, "records": [...] }
+```
+
+**Filter params**: `caller_did` / `skill_id` / `bilateral` / `since` / `limit` / `offset`
+
+`bilateral_count` is a quick trust-depth indicator: high ratio = strong non-repudiable evidence.
+
+---
+
 ### v2.69.0 — Runtime Limitations Endpoint (2026-04-07)
 
 ACP v2.69 adds **`GET /limitations/runtime`** — a live runtime metrics endpoint that complements
