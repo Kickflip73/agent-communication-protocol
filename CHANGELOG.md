@@ -7,6 +7,21 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.81.0 — task_evidence: lifecycle evidence anchoring (2026-04-08)
+
+### Features
+- `POST /tasks/{id}/evidence` — submit lifecycle evidence entries (requested/updated/completed/failed)
+- `GET /tasks/{id}/evidence` — list all evidence for a task
+- `GET /tasks/{id}/evidence/latest` — get most recent evidence entry
+- `capabilities.task_evidence: true` — declared in status and AgentCard
+- Sequential `seq` numbering per task for ordered audit trail
+- Differentiator: addresses A2A Issue #1721 (Assay framework task evidence) — ACP first to implement
+
+### Tests
+- `test_task_evidence.py`: TE1–TE12 = **12/12 PASS**
+
+---
+
 ## v2.80.0 — heartbeat_period_ms (2026-04-08)
 
 ### Features

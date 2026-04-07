@@ -679,6 +679,22 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
+### ✅ v2.81（完成 — 2026-04-08，开发轮）
+**主题：task_evidence — 任务生命周期证据锚点**
+
+| 特性 | 状态 |
+|------|------|
+| `POST /tasks/{id}/evidence`（提交证据） | ✅ |
+| `GET /tasks/{id}/evidence`（列表查询） | ✅ |
+| `GET /tasks/{id}/evidence/latest`（最新证据） | ✅ |
+| `capabilities.task_evidence: true` | ✅ |
+| `tests/test_task_evidence.py` TE1–TE12：12/12 PASS | ✅ |
+
+**差异化**：A2A Issue #1721 Assay 框架任务证据讨论中，ACP 率先落地完整任务证据锚点系统，
+形成 trust signals → capability token → task evidence 完整可信执行闭环。
+
+---
+
 ### 🔮 v0.9（规划中，目标：2026-06）
 **主题：协议健壮性 + 开发者体验**
 
