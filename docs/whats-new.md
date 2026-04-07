@@ -5,6 +5,34 @@
 
 ---
 
+### v2.77.0 — Dynamic SINT Token Validation (2026-04-07)
+
+ACP v2.77 adds **`POST /trust/signals/capability-token/fixtures/validate`** — the runtime enforcement endpoint that completes the SINT capability triad (A2A #1716 @pshkv).
+
+**SINT capability triad:**
+
+| Version | Endpoint | Role |
+|---------|----------|------|
+| v2.74 | `GET /trust/signals/capability-token` | Declaration — what this relay issues |
+| v2.75 | `GET /trust/signals/capability-token/fixtures` | Static fixture vectors (4-deny+1-allow) |
+| **v2.77** | `POST /trust/signals/capability-token/fixtures/validate` | **Dynamic validation — runtime enforcement** |
+
+**5-check validation pipeline:**
+
+| # | Check | Description |
+|---|-------|-------------|
+| 1 | `expiry` | Re-verifies `exp` at `use_time` (TOCTOU re-check) |
+| 2 | `scope` | `resource` URI tail must match `target_skill_id` |
+| 3 | `skill_id` | Resource path structural validation |
+| 4 | `subject` | `token.sub` must match `invoking_agent_did` |
+| 5 | `required_fields` | `{jti, iss, sub, resource, scheme}` all present |
+
+**Priority deny order:** `expiry > scope > skill_id > subject > required_fields`
+
+**Tests:** TV-01..TV-30 = 30/30 PASS | Full regression: 127/127 PASS | Commit: `7cb7f90`
+
+---
+
 ### v2.76.0 — effective_tier Factor 5: bilateral_ir_adj (2026-04-07)
 
 ACP v2.76 upgrades `effective_tier` to a **5-factor architecture**, adding `bilateral_ir_adj` derived from the local bilateral IR log — a tamper-evident attestation without requiring an external chain (A2A #1716 @64R3N).

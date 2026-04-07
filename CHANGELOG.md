@@ -7,6 +7,50 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.77.0] — 2026-04-07 (POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation; A2A #1716 @pshkv runtime enforcement)
+
+### Added
+- **`POST /trust/signals/capability-token/fixtures/validate`** — dynamic SINT capability token validation endpoint
+  - Accepts `{"token": {...}, "invocation_context": {...}}` body
+  - Runs 5-check validation pipeline:
+    1. **expiry** — re-verifies `exp` at `use_time` (TOCTOU re-check, not only at receipt)
+    2. **scope** — `resource` URI tail must match `invocation_context.target_skill_id`
+    3. **skill_id** — structural resource path validation (optional `explicit_skill_id` override)
+    4. **subject** — `token.sub` must match `invocation_context.invoking_agent_did`
+    5. **required_fields** — `{jti, iss, sub, resource, scheme}` all present
+  - Priority deny ordering: `expiry > scope > skill_id > subject > required_fields`
+  - Allow response: `{"ok": true, "authorized": true, "reason_code": "token_valid", "checks": [...]}`
+  - Deny response (403): `{"ok": true, "authorized": false, "deny_reason": "...", "http_status": 403, "deny_details": [...], "checks": [...]}`
+  - `GET` on this endpoint → 405 METHOD_NOT_ALLOWED
+  - Skips checks gracefully when context fields are absent (e.g. no `invoking_agent_did` → subject check skipped)
+  - Completes the **SINT capability triad**: v2.74 declaration + v2.75 fixtures + v2.77 validate
+- `capabilities.capability_token_validate = True` — advertised in AgentCard
+- `endpoints.capability_token_validate = "/trust/signals/capability-token/fixtures/validate"`
+
+### Tests
+- `tests/test_capability_token_validate_v277.py` — 30 test cases (TV-01..TV-30)
+  - Endpoint availability, version ≥ 2.77, capability/endpoint declaration
+  - Allow full context, no context, 5-check presence, all-pass
+  - DENY: expired, TOCTOU, missing exp, expiry priority over scope
+  - DENY: scope mismatch, skill_id mismatch, missing resource
+  - DENY: subject mismatch, skipped-no-did, missing sub
+  - DENY: missing required fields, empty token
+  - Bad request (no token key → 400)
+  - Integration: canonical fixtures from GET /fixtures used as POST inputs → deny confirmed
+
+### Full Regression
+- **127/127 PASS** (TV×30 + ET×30 + CF×20 + CT×25 + AL×22 — batched)
+
+### Commit
+- `7cb7f90`
+
+### References
+- A2A #1716 @pshkv SINT PR#111 — runtime enforcement reference implementation
+- ACP v2.74: `GET /trust/signals/capability-token` (declaration)
+- ACP v2.75: `GET /trust/signals/capability-token/fixtures` (static fixtures)
+
+---
+
 ## [2.76.0] — 2026-04-07 (effective_tier Factor 5 — bilateral_ir_adj; A2A #1716 @64R3N attestation_history_adjustment)
 
 ### Added

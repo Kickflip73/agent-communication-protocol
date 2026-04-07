@@ -6,7 +6,7 @@
 
 *Send a URL. Get a link. Two agents talk. That's it.*
 
-[![Version](https://img.shields.io/badge/version-v2.76.0-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
+[![Version](https://img.shields.io/badge/version-v2.77.0-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
 [![License](https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tested-330%2B_PASS-success?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/actions)
@@ -159,5 +159,5 @@ curl http://localhost:7901/stream
 
 ## Version
 
-Current stable: **v2.76.0** — `effective_tier` Factor 5: `bilateral_ir_adj` (local bilateral IR log Merkle commitment; A2A #1716 @64R3N); `GET /trust/signals/capability-token/fixtures` canonical authorization fixture; `GET /trust/signals/capability-token` SINT token declaration; see [CHANGELOG](../CHANGELOG.md) for full history.
+Current stable: **v2.77.0** — `POST /trust/signals/capability-token/fixtures/validate` dynamic SINT token validation (5-check pipeline: expiry/scope/skill_id/subject/required_fields); completes SINT triad with v2.74+v2.75; `effective_tier` Factor 5 `bilateral_ir_adj` (v2.76); see [CHANGELOG](../CHANGELOG.md) for full history.
 See [What's New](whats-new.md) · [Compatibility Matrix](compatibility-matrix.md) · [Roadmap](ROADMAP.md).
