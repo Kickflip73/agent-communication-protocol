@@ -5,6 +5,31 @@
 
 ---
 
+### v2.74.0 — SINT Capability Token Declaration Endpoint (2026-04-07)
+
+ACP v2.74 adds **`GET /trust/signals/capability-token`** — a dedicated endpoint that exposes
+full capability token issuance configuration and live stats in a single queryable resource.
+
+**Why it matters**: A2A #1716 (@pshkv, SINT PR#111) landed today, formalising the contract for
+capability token checks at the AgentSkill boundary. ACP now provides a first-class endpoint
+so consumer agents can inspect token requirements, SINT field specs, active token counts, and
+issuer DID without parsing the full AgentCard or trust signals inventory.
+
+**Key fields returned**:
+- `enabled` / `issuer_did` — identity state for token issuance
+- `sint_fields.required / optional` — canonical SINT Protocol field lists
+- `supported_tiers` — T0 / T1 / T2 / T3
+- `token_required_skills` — skills list requiring a capability token pre-invocation
+- `active_tokens` / `total_issued` — live token cache stats
+- `a2a_ref` — `https://github.com/google-a2a/A2A/issues/1716`
+
+**AgentCard**: `capabilities.capability_token_detail: true` +
+`endpoints.capability_token_detail: "/trust/signals/capability-token"`
+
+**Tests**: CT-01..CT-25 — 25/25 PASS. Full regression 152/152 PASS.
+
+---
+
 ### v2.73.0 — Typed JSON Schema for agent_limitations (2026-04-07)
 
 ACP v2.73 adds **`GET /agent-limitations/schema`** — a JSON Schema (draft/2020-12) endpoint that

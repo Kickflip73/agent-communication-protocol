@@ -7,6 +7,58 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.74.0] — 2026-04-07 (trust/signals/capability-token — SINT capability token declaration endpoint; A2A #1716 aligned)
+
+### Added
+- **`GET /trust/signals/capability-token`** — detailed capability token declaration for this relay
+  - `enabled`: whether Ed25519 identity is loaded (required for token issuance)
+  - `issuer_did`: issuer DID (`did:acp:` or `did:key:`) when enabled
+  - `agent_name`: relay agent name
+  - `scheme`: `sint_ed25519` (SINT Protocol format)
+  - `algorithm`: `Ed25519`
+  - `format`: `SINT`
+  - `sint_fields.required`: `["jti","iss","sub","resource","tier","iat","exp","signature","public_key"]`
+  - `sint_fields.optional`: `["actions","constraints"]`
+  - `supported_tiers`: `["T0","T1","T2","T3"]`
+  - `default_ttl_seconds`: `3600`
+  - `endpoint_issue`: `/skills/{skill_id}/capability-token`
+  - `endpoint_verify`: `/verify/external-token`
+  - `token_required_skills`: list of `{skill_id, name, tier}` for skills with `capability_token_required=True`
+  - `token_required_count`: integer count of above
+  - `active_tokens`: live count of non-expired tokens in issuance cache
+  - `total_issued`: total tokens ever issued (this session)
+  - `a2a_ref`: `https://github.com/google-a2a/A2A/issues/1716`
+- **AgentCard `capabilities.capability_token_detail: true`**
+- **AgentCard `endpoints.capability_token_detail: "/trust/signals/capability-token"`**
+- Aligned with A2A #1716 @pshkv SINT PR#111 (2026-04-07): canonical capability token check at AgentSkill boundary
+
+### Tests
+- `tests/test_capability_token_detail_v274.py` — CT-01..CT-25: **25 tests passed**
+  - CT-01..02: 200 + ok=True
+  - CT-03..04: enabled=False + issuer_did=None without identity
+  - CT-05..07: scheme/algorithm/format constants
+  - CT-08: supported_tiers = {T0,T1,T2,T3}
+  - CT-09..10: sint_fields required + optional field sets
+  - CT-11: default_ttl_seconds = 3600
+  - CT-12..13: endpoint_issue + endpoint_verify present
+  - CT-14..15: token_required_skills is list; count matches
+  - CT-16..17: active_tokens/total_issued are int ≥ 0
+  - CT-18: note contains "SINT"
+  - CT-19: a2a_ref contains "1716"
+  - CT-20: version starts with "2.74"
+  - CT-21: POST returns 4xx
+  - CT-22..23: AgentCard capabilities + endpoints
+  - CT-24: agent_name present in response
+  - CT-25: active_tokens ≤ total_issued
+
+### Full Regression
+- **152/152 PASS** (CT×25 + AL×22 + BL×21 + SP×20 + SC×15 + TS×14 + B×7 + G×10 + F×10 + AB×5 + H×3)
+
+### Commit
+- `1b46f83`
+
+---
+
 ## [2.73.0] — 2026-04-07 (agent-limitations/schema — typed JSON Schema for constraint dict; A2A #1694 aligned)
 
 ### Added
