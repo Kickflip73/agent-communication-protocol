@@ -7,6 +7,45 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.79.0] — 2026-04-07 (GET /protocol-binding + AgentCard protocol_binding — A2A §5.8 CPB URI identification; PR #1619 aligned)
+
+### Added
+- **`GET /protocol-binding`** — ACP custom protocol binding declaration (A2A §5.8)
+  - Returns `_PROTOCOL_BINDING` dict: binding_uri, binding_name, binding_version, transport, base_protocol, addressing, supports_sse, supports_ws, nat_traversal, nat_levels, description, a2a_ref, spec_url
+  - **binding_uri**: `urn:acp:binding:p2p-relay/v1` — canonical ACP protocol binding identifier
+  - **transport**: `p2p+relay` — P2P direct connection with relay fallback
+  - **addressing**: `acp://<relay_host>/<session_token>` — ACP link scheme
+  - **nat_traversal**: True, **nat_levels**: 3 — three-level NAT traversal (P2P → hole-punch → relay)
+  - **supports_sse**: True, **supports_ws**: True
+  - **a2a_ref**: A2A PR #1619 (merged 2026-04-07, §5.8)
+  - POST → 405 ERR_METHOD_NOT_ALLOWED
+- **AgentCard `protocol_binding` top-level field** — embedded in `/.well-known/acp.json` response
+- **`_PROTOCOL_BINDING` global** — single source of truth for binding declaration
+- `capabilities.protocol_binding = True`
+- `endpoints.protocol_binding = "/protocol-binding"`
+
+### Background
+A2A PR #1619 (merged 2026-04-07) added §5.8 to the spec, requiring custom protocol bindings to:
+1. Have a stable URI identifier
+2. Be declared in the AgentCard
+3. Specify key areas: data type mappings, service parameters, error mapping, streaming, auth, interop testing
+ACP v2.79 implements this for the ACP P2P Relay binding.
+
+### Tests
+- `test_protocol_binding_v279.py`: PB-01..PB-25 = **25/25 PASS**
+  - PB-01..05: basic endpoint (status, ok, binding_uri, version)
+  - PB-06..10: required fields (binding_name, transport, addressing, nat_traversal, nat_levels)
+  - PB-11..15: streaming + spec fields (sse, ws, description, a2a_ref, spec_url)
+  - PB-16..20: method guard (POST→405) + AgentCard integration
+  - PB-21..25: content consistency (agentcard ↔ endpoint binding_uri match, URN prefix, version)
+- Commit: `4764fed`
+
+### A2A Alignment
+- A2A PR #1619 (merged 2026-04-07): `docs/topics/custom-protocol-bindings.md` + spec §5.8
+- ACP `urn:acp:binding:p2p-relay/v1` is the first registered ACP protocol binding URI
+
+---
+
 ## [2.78.0] — 2026-04-07 (POST /trust/signals/capability-token/revoke + GET /revocations — active SINT token revocation; A2A #1716 full lifecycle)
 
 ### Added

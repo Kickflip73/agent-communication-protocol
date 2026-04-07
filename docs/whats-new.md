@@ -7,6 +7,36 @@
 
 ---
 
+---
+
+### v2.79.0 — Protocol Binding Declaration / A2A §5.8 CPB (2026-04-07)
+
+ACP v2.79 adds **`GET /protocol-binding`** and embeds `protocol_binding` in the AgentCard, aligned with A2A §5.8 (merged PR #1619, 2026-04-07).
+
+**Binding URI**: `urn:acp:binding:p2p-relay/v1`
+
+```bash
+curl http://localhost:18900/protocol-binding
+```
+```json
+{
+  "ok": true,
+  "version": "2.79.0",
+  "binding_uri": "urn:acp:binding:p2p-relay/v1",
+  "binding_name": "ACP P2P Relay",
+  "transport": "p2p+relay",
+  "addressing": "acp://<relay_host>/<session_token>",
+  "nat_traversal": true,
+  "nat_levels": 3,
+  "supports_sse": true,
+  "supports_ws": true
+}
+```
+
+The AgentCard (`/.well-known/acp.json`) now includes `protocol_binding` as a top-level field.
+
+Test coverage: PB-01..PB-25 = **25/25 PASS**; aligned with A2A PR #1619 §5.8
+
 ### v2.78.0 — Active SINT Token Revocation (2026-04-07)
 
 ACP v2.78 adds **`POST /trust/signals/capability-token/revoke`** and **`GET .../revocations`** — completing the SINT capability quad (A2A #1716).
