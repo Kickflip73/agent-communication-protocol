@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.72.0"  # v2.72: GET /trust/bilateral-ir/log — queryable bilateral IR record log with caller_did/skill_id/bilateral/since/limit/offset filters; bilateral_count summary; APS alignment (A2A #1718 @viftode4); capabilities.bilateral_ir_log=True
+VERSION = "2.73.0"  # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict; A2A #1694 typed limitations alignment; capabilities.agent_limitations_schema=True
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2006,7 +2006,8 @@ def _make_agent_card(name, skills):
             "trust_signals_v268": True,                         # v2.68: GET /trust/signals endpoint + 4 new signal types (bilateral_ir/capability_token/wtrmrk/external_token)
             "trust_signals_v270": True,                         # v2.70: severity+category metadata per signal; GET /trust/signals/schema; canonical type names finalized (A2A #1628 aligned)
             "trust_signals_v271": True,                         # v2.71: 13th trust signal security_posture; GET /trust/signals/security-posture; source-level CVE posture (A2A #1628 @douglasborthwick)
-            "bilateral_ir_log":   True,                         # v2.72: GET /trust/bilateral-ir/log — queryable IR record log (A2A #1718 @viftode4 bilateral_ir as trust primitive)
+            "bilateral_ir_log":             True,               # v2.72: GET /trust/bilateral-ir/log — queryable IR record log (A2A #1718 @viftode4 bilateral_ir as trust primitive)
+            "agent_limitations_schema":     True,               # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict (A2A #1694 aligned)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2126,7 +2127,8 @@ def _make_agent_card(name, skills):
             "trust_signals":         "/trust/signals",          # v2.68: GET — full trust signal inventory (12 types; filterable by ?type= ?enabled=)
             "trust_signals_schema":  "/trust/signals/schema",         # v2.70: GET — canonical schema for all 12 signal types (severity/category/description)
             "trust_signals_security_posture": "/trust/signals/security-posture",  # v2.71: GET — detailed security posture report (CVE scan, component versions)
-            "bilateral_ir_log":  "/trust/bilateral-ir/log",    # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
+            "bilateral_ir_log":          "/trust/bilateral-ir/log",        # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
+            "agent_limitations_schema":  "/agent-limitations/schema",      # v2.73: GET — JSON Schema for agent_limitations typed constraint dict
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -6067,6 +6069,109 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "bilateral=true means both parties co-signed (non-repudiable). "
                     "Use bilateral_count/total to assess trust depth. "
                     "A2A #1718 @viftode4: bilateral_ir as a unified trust primitive."
+                ),
+            })
+
+        # ── GET /agent-limitations/schema — JSON Schema for agent_limitations dict (v2.73) ──
+        elif p == "/agent-limitations/schema":
+            """
+            GET /agent-limitations/schema — Return the JSON Schema for the agent_limitations
+            structured constraint dict (v2.73, A2A #1694 typed limitations alignment).
+
+            The schema documents all fields in the _LIMITATIONS dict with types, ranges,
+            and descriptions so consumers can programmatically validate and reason about
+            capability constraints without relying on documentation prose.
+
+            Response 200:
+              {
+                "ok": true,
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "AgentLimitations",
+                  "description": "...",
+                  "type": "object",
+                  "properties": { ... }
+                },
+                "current_values": { ... },   # actual values from this relay
+                "version": "<VERSION>"
+              }
+            """
+            if self.command != "GET":
+                return self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED", "message": "Use GET /agent-limitations/schema"}, 405)
+
+            schema = {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "https://acp.dev/schema/agent-limitations/v2.73.json",
+                "title": "AgentLimitations",
+                "description": (
+                    "Structured numeric and enum constraints for an ACP relay agent. "
+                    "All fields are optional; unset fields indicate no declared limit. "
+                    "Aligned with A2A #1694 typed limitations proposal (ACP v2.73)."
+                ),
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "max_message_size_bytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum size of a single message payload in bytes.",
+                        "example": 65536,
+                        "x-acp-since": "v2.40",
+                    },
+                    "max_recv_queue_size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum number of messages held in the per-peer receive queue.",
+                        "example": 1000,
+                        "x-acp-since": "v2.40",
+                    },
+                    "max_wait_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum seconds a long-poll /messages request will block.",
+                        "example": 30,
+                        "x-acp-since": "v2.39",
+                    },
+                    "max_peers": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum number of concurrent peer connections accepted.",
+                        "example": 100,
+                        "x-acp-since": "v2.40",
+                    },
+                    "supported_message_roles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "uniqueItems": True,
+                        "description": "Valid values for the message `role` field.",
+                        "example": ["user", "agent", "system"],
+                        "x-acp-since": "v2.40",
+                    },
+                    "supported_priorities": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["critical", "high", "normal", "low"],
+                        },
+                        "minItems": 1,
+                        "uniqueItems": True,
+                        "description": "Valid values for the message `priority` field.",
+                        "example": ["critical", "high", "normal", "low"],
+                        "x-acp-since": "v2.40",
+                    },
+                },
+            }
+
+            return self._json({
+                "ok":             True,
+                "schema":         schema,
+                "current_values": _LIMITATIONS,
+                "version":        VERSION,
+                "note": (
+                    "This schema documents the agent_limitations dict published in AgentCard "
+                    "and GET /status. Consumers may use it for programmatic validation. "
+                    "A2A #1694 aligned: typed limitations enable machine-readable constraint discovery."
                 ),
             })
 
