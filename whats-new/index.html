@@ -1015,6 +1015,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2750-canonical-authorization-fixture-endpoint-2026-04-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.75.0 — Canonical Authorization Fixture Endpoint (2026-04-07)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2740-sint-capability-token-declaration-endpoint-2026-04-07" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2154,6 +2165,57 @@
 <p>Last updated: 2026-04-07
 For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 </blockquote>
+<hr />
+<h3 id="v2750-canonical-authorization-fixture-endpoint-2026-04-07">v2.75.0 — Canonical Authorization Fixture Endpoint (2026-04-07)<a class="headerlink" href="#v2750-canonical-authorization-fixture-endpoint-2026-04-07" title="Permanent link">&para;</a></h3>
+<p>ACP v2.75 adds <strong><code>GET /trust/signals/capability-token/fixtures</code></strong> — the minimal canonical
+authorization test fixture set proposed by @pshkv in A2A #1716 (SINT PR#111).</p>
+<p><strong>Why it matters</strong>: Cross-project interoperability requires shared, executable test vectors.
+@pshkv's proposal calls for a standard fixture contract at the <code>AgentSkill</code> boundary so that
+any SINT-compatible implementation can validate its token verification logic against the same
+scenarios. ACP is the first relay to ship this as a live queryable endpoint.</p>
+<p><strong>The 5 fixture vectors</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Verdict</th>
+<th>Scenario</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>allow_valid_subject_bound</code></td>
+<td>✅ allow</td>
+<td>All fields nominal, signature valid, not expired, scope + subject match</td>
+</tr>
+<tr>
+<td><code>deny_scope_mismatch</code></td>
+<td>❌ deny</td>
+<td>Token resource ≠ target skill — cross-skill token reuse blocked</td>
+</tr>
+<tr>
+<td><code>deny_expired_toctou</code></td>
+<td>❌ deny</td>
+<td>TOCTOU: valid at check time, expired at use time</td>
+</tr>
+<tr>
+<td><code>deny_skill_id_mismatch</code></td>
+<td>❌ deny</td>
+<td>Resource URI encodes different skill_id than invocation</td>
+</tr>
+<tr>
+<td><code>deny_subject_mismatch</code></td>
+<td>❌ deny</td>
+<td><code>sub</code> DID ≠ invoking agent DID — cross-agent token replay blocked</td>
+</tr>
+</tbody>
+</table>
+<p>Each fixture includes a <code>token</code> object with realistic SINT fields, <code>invocation_context</code>,
+and <code>expected_result</code> (<code>authorized</code>, <code>reason_code</code>, <code>http_status</code>). Timestamps are computed
+dynamically relative to <code>now</code> so fixtures are always temporally coherent.</p>
+<p><strong>AgentCard</strong>: <code>capabilities.capability_token_fixtures: true</code> +
+<code>endpoints.capability_token_fixtures: "/trust/signals/capability-token/fixtures"</code></p>
+<p><strong>Tests</strong>: CF-01..CF-20 — 20/20 PASS. Full regression 123/123 PASS.</p>
 <hr />
 <h3 id="v2740-sint-capability-token-declaration-endpoint-2026-04-07">v2.74.0 — SINT Capability Token Declaration Endpoint (2026-04-07)<a class="headerlink" href="#v2740-sint-capability-token-declaration-endpoint-2026-04-07" title="Permanent link">&para;</a></h3>
 <p>ACP v2.74 adds <strong><code>GET /trust/signals/capability-token</code></strong> — a dedicated endpoint that exposes
