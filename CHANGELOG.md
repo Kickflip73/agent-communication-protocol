@@ -7,6 +7,34 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.75.0] — 2026-04-07 (canonical authorization fixture endpoint; A2A #1716 @pshkv 4-deny+1-allow minimal vector set)
+
+### Added
+- **`GET /trust/signals/capability-token/fixtures`** — canonical authorization test fixture vectors for SINT capability tokens
+  - Proposed by @pshkv in A2A #1716 as the minimal canonical vector set
+  - **1 allow scenario**: `allow_valid_subject_bound` — valid subject-bound token, all fields nominal
+  - **4 deny scenarios**:
+    - `deny_scope_mismatch` — token resource scope does not match requested skill
+    - `deny_expired_toctou` — token expired + TOCTOU (time-of-check/time-of-use) attack scenario
+    - `deny_skill_id_mismatch` — token resource path encodes different skill_id than invocation target
+    - `deny_subject_mismatch` — token `sub` DID does not match the invoking agent's DID
+  - Each fixture includes: `id`, `verdict`, `deny_reason` (deny only), `description`, `token` object, `invocation_context` (deny), `expected_result` (`authorized`, `reason_code`, `http_status`)
+  - `fixture_count`: `{allow: 1, deny: 4, total: 5}`
+  - `deny_reasons_covered`: `["scope_mismatch", "expired_toctou", "skill_id_mismatch", "subject_mismatch"]`
+  - Timestamps in token fixtures are dynamically computed relative to `now` for always-valid context
+- `capabilities.capability_token_fixtures = True` — advertised in `/capabilities`
+- `endpoints.capability_token_fixtures = "/trust/signals/capability-token/fixtures"` — in endpoint map
+
+### Tests
+- `tests/test_capability_token_fixtures_v275.py` — 20 test cases (CF-01..CF-20)
+  - Endpoint availability, envelope structure, fixture counts
+  - Verdict validation (allow/deny), deny reason coverage
+  - Per-deny scenario presence (scope_mismatch / expired_toctou / skill_id_mismatch / subject_mismatch)
+  - authorized=False + http_status=403 for all deny scenarios
+  - Unique fixture IDs, token object presence, version string, method rejection
+
+---
+
 ## [2.74.0] — 2026-04-07 (trust/signals/capability-token — SINT capability token declaration endpoint; A2A #1716 aligned)
 
 ### Added

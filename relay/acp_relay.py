@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.74.0"  # v2.74: GET /trust/signals/capability-token — detailed capability token declaration endpoint; A2A #1716 SINT PR#111 alignment; capabilities.capability_token_detail=True
+VERSION = "2.75.0"  # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture endpoint; A2A #1716 @pshkv minimal 4-deny+1-allow vector set; capabilities.capability_token_fixtures=True
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2009,6 +2009,7 @@ def _make_agent_card(name, skills):
             "bilateral_ir_log":             True,               # v2.72: GET /trust/bilateral-ir/log — queryable IR record log (A2A #1718 @viftode4 bilateral_ir as trust primitive)
             "agent_limitations_schema":     True,               # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict (A2A #1694 aligned)
             "capability_token_detail":      True,               # v2.74: GET /trust/signals/capability-token — detailed capability token declaration (A2A #1716 SINT PR#111 aligned)
+            "capability_token_fixtures":    True,               # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2131,6 +2132,7 @@ def _make_agent_card(name, skills):
             "bilateral_ir_log":          "/trust/bilateral-ir/log",        # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
             "agent_limitations_schema":  "/agent-limitations/schema",      # v2.73: GET — JSON Schema for agent_limitations typed constraint dict
             "capability_token_detail":   "/trust/signals/capability-token", # v2.74: GET — detailed capability token declaration & issuance config (A2A #1716 SINT aligned)
+            "capability_token_fixtures": "/trust/signals/capability-token/fixtures", # v2.75: GET — canonical authorization fixture vectors (A2A #1716 @pshkv 4-deny+1-allow)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -7062,6 +7064,182 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 ),
                 "a2a_ref":          "https://github.com/google-a2a/A2A/issues/1716",
                 "version":          VERSION,
+            })
+
+        # ── GET /trust/signals/capability-token/fixtures — canonical authorization fixture (v2.75) ──
+        elif p == "/trust/signals/capability-token/fixtures":
+            # v2.75: Returns canonical authorization test fixture vectors for capability tokens.
+            # Proposed by @pshkv in A2A #1716 — minimal canonical set: 4 deny + 1 allow.
+            # Consumers use these as reference vectors for testing authorization logic.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token/fixtures"}, 405)
+                return
+
+            now_ts = int(time.time())
+            self._json({
+                "ok":      True,
+                "version": VERSION,
+                "a2a_ref": "https://github.com/google-a2a/A2A/issues/1716",
+                "note":    (
+                    "Canonical authorization fixture — minimal vector set proposed by @pshkv in A2A #1716. "
+                    "4 deny scenarios + 1 allow scenario cover the critical authorization failure modes "
+                    "for SINT-format capability tokens. Consumers should use these vectors to validate "
+                    "their capability token verification logic."
+                ),
+                "allow": [
+                    {
+                        "id":          "allow_valid_subject_bound",
+                        "verdict":     "allow",
+                        "description": "Valid subject-bound capability token — all fields nominal, "
+                                       "signature valid, not expired, scope matches, skill_id matches, "
+                                       "subject matches invoking agent.",
+                        "token": {
+                            "jti":        "urn:acp:cap:fixture:allow-01",
+                            "iss":        "did:key:z6MkFixtureIssuer",
+                            "sub":        "did:key:z6MkFixtureSubject",
+                            "resource":   "acp://relay.example/skills/demo-skill",
+                            "tier":       "T1",
+                            "iat":        now_ts - 60,
+                            "exp":        now_ts + 3540,
+                            "actions":    ["invoke"],
+                            "constraints": {"max_invocations": 10},
+                            "scheme":     "sint_ed25519",
+                            "signature":  "<valid-ed25519-signature-over-canonical-fields>",
+                            "public_key": "<issuer-ed25519-public-key>",
+                        },
+                        "expected_result": {
+                            "authorized":  True,
+                            "reason_code": "token_valid",
+                        },
+                    },
+                ],
+                "deny": [
+                    {
+                        "id":          "deny_scope_mismatch",
+                        "verdict":     "deny",
+                        "deny_reason": "scope_mismatch",
+                        "description": "Token resource scope does not match the requested skill. "
+                                       "The token was issued for 'demo-skill' but the invocation "
+                                       "targets 'other-skill'. ACP relays MUST reject cross-skill token reuse.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-scope-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkFixtureSubject",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 60,
+                            "exp":      now_ts + 3540,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "target_skill_id": "other-skill",
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "scope_mismatch",
+                            "http_status": 403,
+                        },
+                    },
+                    {
+                        "id":          "deny_expired_toctou",
+                        "verdict":     "deny",
+                        "deny_reason": "expired_toctou",
+                        "description": "Token is expired AND represents a TOCTOU (time-of-check "
+                                       "time-of-use) attack scenario. Token was valid at check time "
+                                       "but expired before use. exp is set 5 seconds in the past. "
+                                       "Relays MUST re-verify exp at invocation time, not only at receipt.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-toctou-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkFixtureSubject",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 3610,
+                            "exp":      now_ts - 5,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "target_skill_id": "demo-skill",
+                            "check_time":      now_ts - 10,
+                            "use_time":        now_ts,
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "token_expired",
+                            "http_status": 403,
+                        },
+                    },
+                    {
+                        "id":          "deny_skill_id_mismatch",
+                        "verdict":     "deny",
+                        "deny_reason": "skill_id_mismatch",
+                        "description": "Token resource path encodes skill 'demo-skill' but invocation "
+                                       "specifies skill_id 'premium-skill'. Even if scope namespace matches, "
+                                       "the specific skill_id embedded in the resource URI must match exactly.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-skillid-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkFixtureSubject",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 60,
+                            "exp":      now_ts + 3540,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "target_skill_id": "premium-skill",
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "skill_id_mismatch",
+                            "http_status": 403,
+                        },
+                    },
+                    {
+                        "id":          "deny_subject_mismatch",
+                        "verdict":     "deny",
+                        "deny_reason": "subject_mismatch",
+                        "description": "Token sub (subject) does not match the DID of the invoking agent. "
+                                       "Token was issued to 'did:key:z6MkSubjectA' but invocation is from "
+                                       "'did:key:z6MkSubjectB'. Subject-binding is a core SINT property; "
+                                       "tokens MUST NOT be transferable between agents.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-subject-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkSubjectA",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 60,
+                            "exp":      now_ts + 3540,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "invoking_agent_did": "did:key:z6MkSubjectB",
+                            "target_skill_id":    "demo-skill",
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "subject_mismatch",
+                            "http_status": 403,
+                        },
+                    },
+                ],
+                "fixture_count": {
+                    "allow": 1,
+                    "deny":  4,
+                    "total": 5,
+                },
+                "deny_reasons_covered": [
+                    "scope_mismatch",
+                    "expired_toctou",
+                    "skill_id_mismatch",
+                    "subject_mismatch",
+                ],
             })
 
         # ── GET /trust/signals — full trust signal inventory (v2.68) ────────
