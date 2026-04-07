@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.73.0"  # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict; A2A #1694 typed limitations alignment; capabilities.agent_limitations_schema=True
+VERSION = "2.74.0"  # v2.74: GET /trust/signals/capability-token — detailed capability token declaration endpoint; A2A #1716 SINT PR#111 alignment; capabilities.capability_token_detail=True
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2008,6 +2008,7 @@ def _make_agent_card(name, skills):
             "trust_signals_v271": True,                         # v2.71: 13th trust signal security_posture; GET /trust/signals/security-posture; source-level CVE posture (A2A #1628 @douglasborthwick)
             "bilateral_ir_log":             True,               # v2.72: GET /trust/bilateral-ir/log — queryable IR record log (A2A #1718 @viftode4 bilateral_ir as trust primitive)
             "agent_limitations_schema":     True,               # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict (A2A #1694 aligned)
+            "capability_token_detail":      True,               # v2.74: GET /trust/signals/capability-token — detailed capability token declaration (A2A #1716 SINT PR#111 aligned)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2129,6 +2130,7 @@ def _make_agent_card(name, skills):
             "trust_signals_security_posture": "/trust/signals/security-posture",  # v2.71: GET — detailed security posture report (CVE scan, component versions)
             "bilateral_ir_log":          "/trust/bilateral-ir/log",        # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
             "agent_limitations_schema":  "/agent-limitations/schema",      # v2.73: GET — JSON Schema for agent_limitations typed constraint dict
+            "capability_token_detail":   "/trust/signals/capability-token", # v2.74: GET — detailed capability token declaration & issuance config (A2A #1716 SINT aligned)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -6995,6 +6997,72 @@ class LocalHTTP(BaseHTTPRequestHandler):
             }
             self._json(resp)
 
+
+        # ── GET /trust/signals/capability-token — capability token declaration (v2.74) ──
+        elif p == "/trust/signals/capability-token":
+            # v2.74: Returns detailed capability token declaration for this relay.
+            # Reports the relay's capability token issuance config, supported SINT fields,
+            # skills that require capability tokens, and whether issuance is currently active.
+            # Aligned with A2A #1716 (SINT PR#111) — canonical token check at AgentSkill boundary.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token"}, 405)
+                return
+
+            identity_active = bool(_ed25519_private)
+            issuer_did = (_did_acp or _did_key) if identity_active else None
+            agent_name = _status.get("agent_name", "unknown")
+
+            # Collect skills with capability_token_required=True
+            card = _status.get("agent_card") or {}
+            skills_list = card.get("skills", [])
+            token_required_skills = [
+                {
+                    "skill_id":   s.get("id", ""),
+                    "name":       s.get("name", ""),
+                    "tier":       s.get("authorization_tier", "T1"),
+                }
+                for s in skills_list
+                if isinstance(s, dict) and s.get("capability_token_required")
+            ]
+
+            # Count active (non-expired) tokens in the issued cache
+            now_ts = int(time.time())
+            active_tokens = sum(
+                1 for t in _capability_tokens.values()
+                if isinstance(t, dict) and t.get("exp", 0) > now_ts
+            )
+            total_issued = len(_capability_tokens)
+
+            self._json({
+                "ok":               True,
+                "enabled":          identity_active,
+                "issuer_did":       issuer_did,
+                "agent_name":       agent_name,
+                "scheme":           "sint_ed25519",
+                "algorithm":        "Ed25519",
+                "format":           "SINT",
+                "sint_fields": {
+                    "required": ["jti", "iss", "sub", "resource", "tier", "iat", "exp",
+                                 "signature", "public_key"],
+                    "optional": ["actions", "constraints"],
+                },
+                "supported_tiers":  ["T0", "T1", "T2", "T3"],
+                "default_ttl_seconds": 3600,
+                "endpoint_issue":   "/skills/{skill_id}/capability-token",
+                "endpoint_verify":  "/verify/external-token",
+                "token_required_skills": token_required_skills,
+                "token_required_count":  len(token_required_skills),
+                "active_tokens":    active_tokens,
+                "total_issued":     total_issued,
+                "note":             (
+                    "Capability tokens follow SINT Protocol (sint_ed25519 scheme). "
+                    "Each token is Ed25519-signed and bound to a specific skill resource. "
+                    "Aligned with A2A #1716 @pshkv SINT PR#111 — canonical token check at AgentSkill boundary."
+                ),
+                "a2a_ref":          "https://github.com/google-a2a/A2A/issues/1716",
+                "version":          VERSION,
+            })
 
         # ── GET /trust/signals — full trust signal inventory (v2.68) ────────
         elif p == "/trust/signals/security-posture":

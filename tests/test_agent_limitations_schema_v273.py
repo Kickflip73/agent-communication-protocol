@@ -199,8 +199,10 @@ def test_al15_agentcard_endpoint(status_resp):
 
 
 def test_al16_version_2_73_0(status_resp):
-    """AL-16: Relay reports acp_version 2.73.0."""
-    assert status_resp.get("acp_version") == "2.73.0"
+    """AL-16: Relay reports acp_version >= 2.73.0."""
+    ver = status_resp.get("acp_version", "0.0.0")
+    major, minor, patch = (int(x) for x in ver.split(".")[:3])
+    assert (major, minor, patch) >= (2, 73, 0), f"Expected >= 2.73.0, got {ver}"
 
 
 def test_al17_additional_properties_false(schema_resp):
