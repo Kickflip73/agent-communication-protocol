@@ -5,6 +5,6 @@
     "calendar": null,
     "weather": null
   },
-  "notes": "2026-04-08 04:12 — 开发轮启动. v2.80 heartbeat_period_ms 特性（A2A #1667 对齐）. 子代理正在实现+测试. 下轮: 测试轮.",
-  "next_round": "test"
+  "notes": "2026-04-08 05:14 — 研究轮完成. scan19 生成. 下轮: 开发轮.",
+  "next_round": "dev"
 }

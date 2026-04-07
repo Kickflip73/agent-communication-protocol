@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.80.0"  # v2.80: heartbeat_period_ms — AgentCard heartbeat interval declaration (A2A Issue #1667)
+VERSION = "2.81.0"  # v2.81: task_evidence — lifecycle evidence anchoring (A2A Issue #1721)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -454,6 +454,7 @@ _PROTOCOL_BINDING: dict = {
 _interaction_records: list = []  # v2.59: bilateral interaction records [{id, task_id, relay_did, caller_did, ...}]
 _ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
 _imported_evidence: list = []    # v2.65: externally-imported bilateral IR evidence [{import_id, source_ir, reputation_update, ...}]
+_task_evidence: dict = {}        # v2.81: task lifecycle evidence {task_id: [evidence_entry, ...]}
 _governance_metadata: dict = {}  # v2.60: governance metadata (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
 
 
@@ -2087,6 +2088,7 @@ def _make_agent_card(name, skills):
             "rejected_state":              True,                               # v2.66: TASK_REJECTED terminal state (A2A v1.0.0 alignment); :reject → rejected; POST /tasks/{id}:agent-reject
             "direct_message":              True,                               # v2.67: POST /message/send — Direct Message mode; returns Message (not Task); A2A SendMessageResponse.oneof{Task,Message} alignment
             "runtime_limitations":         True,                               # v2.69: GET /limitations/runtime — dynamic runtime metrics
+            "task_evidence":               True,                               # v2.81: POST/GET /tasks/{id}/evidence — lifecycle evidence anchoring (A2A Issue #1721)
         },
 
         "identity": ({
@@ -8118,6 +8120,19 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "audit_log": audit,
                         "total":     len(task.get("audit_log", [])),
                     })
+            elif rest.endswith("/evidence/latest"):
+                # v2.81: GET /tasks/{id}/evidence/latest — get most recent evidence entry
+                task_id = rest[:-len("/evidence/latest")]
+                entries = _task_evidence.get(task_id, [])
+                if not entries:
+                    self._json({"error": "no evidence found", "task_id": task_id}, 404)
+                else:
+                    self._json(entries[-1])
+            elif rest.endswith("/evidence"):
+                # v2.81: GET /tasks/{id}/evidence — list all evidence for a task
+                task_id = rest[:-len("/evidence")]
+                entries = _task_evidence.get(task_id, [])
+                self._json({"task_id": task_id, "evidence": entries, "count": len(entries)})
             else:
                 task = _tasks.get(rest)
                 if task:
@@ -10068,6 +10083,45 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 _update_task(task_id, TASK_REJECTED, error=reason)
                 self._json({"ok": True, "task_id": task_id, "status": TASK_REJECTED,
                             "reason": reason, "reject_code": reject_code})
+
+        # v2.81: POST /tasks/{id}/evidence — submit lifecycle evidence entry (A2A Issue #1721)
+        elif p.startswith("/tasks/") and p.endswith("/evidence"):
+            task_id = p[len("/tasks/"):-len("/evidence")]
+            try:
+                body = self._read_body()
+            except Exception:
+                body = {}
+            if not isinstance(body, dict):
+                self._json({"error": "invalid request body"}, 400)
+                return
+            # event_type is required
+            if "event_type" not in body:
+                self._json({"error": "missing required field: event_type"}, 400)
+                return
+            VALID_EVIDENCE_TYPES = {"requested", "updated", "completed", "failed"}
+            event_type = body["event_type"]
+            if event_type not in VALID_EVIDENCE_TYPES:
+                self._json({"error": f"invalid event_type '{event_type}'; must be one of {sorted(VALID_EVIDENCE_TYPES)}"}, 400)
+                return
+            # Build and store evidence entry
+            entries = _task_evidence.setdefault(task_id, [])
+            seq = len(entries)
+            recorded_at = datetime.datetime.utcnow().isoformat() + "Z"
+            entry = {
+                "seq":         seq,
+                "event_type":  event_type,
+                "recorded_at": recorded_at,
+                "task_id":     task_id,
+            }
+            # optional fields
+            if "artifact" in body:
+                entry["artifact"] = body["artifact"]
+            if "consumer_id" in body:
+                entry["consumer_id"] = body["consumer_id"]
+            if "timestamp" in body:
+                entry["timestamp"] = body["timestamp"]
+            entries.append(entry)
+            self._json({"status": "recorded", "task_id": task_id, "seq": seq, "recorded_at": recorded_at})
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
         # 比 SSE subscribe 更简单，适合 Agent 调用
