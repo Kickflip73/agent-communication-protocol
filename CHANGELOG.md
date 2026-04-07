@@ -7,6 +7,48 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.78.0] — 2026-04-07 (POST /trust/signals/capability-token/revoke + GET /revocations — active SINT token revocation; A2A #1716 full lifecycle)
+
+### Added
+- **`POST /trust/signals/capability-token/revoke`** — active SINT capability token revocation
+  - Body: `{"jti": "<string>", "reason": "<string>", "revoked_by": "<did>"}`
+  - Revokes token by JTI; records in `_revoked_tokens` dict
+  - Reasons: `manual` (default) / `expired` / `compromised` / `policy_violation`
+  - Forward revocation: unknown JTI accepted (`token_known: false`)
+  - 409 `ERR_ALREADY_REVOKED` on duplicate revoke (idempotent conflict with original `revocation_id`)
+  - 400 `ERR_BAD_REQUEST` for missing/empty JTI or invalid JSON
+  - 405 for non-POST methods
+- **`GET /trust/signals/capability-token/revocations`** — list all revoked tokens
+  - Returns `{ok, version, total_revoked, revocations: [{jti, revocation_id, revoked_at, reason, revoked_by, token_known}]}`
+- **validate endpoint Check 6: revocation** — `POST .../fixtures/validate` now includes revocation check
+  - Checks `_revoked_tokens` for JTI presence; `passed=false` + `reason="token_revoked"` if found
+  - Priority: revocation check is **highest priority** in deny ordering (before expiry)
+  - Non-revoked tokens: `revocation: {passed: true, reason: "token_not_revoked"}`
+- Completes the **SINT capability quad**: v2.74 declare + v2.75 fixture + v2.77 validate + v2.78 revoke
+  - Full token lifecycle: issue → declare → fixture → validate → **revoke**
+- `capabilities.capability_token_revoke = True`
+- `endpoints.capability_token_revoke = "/trust/signals/capability-token/revoke"`
+- `endpoints.capability_token_revocations = "/trust/signals/capability-token/revocations"`
+- `_revoked_tokens: dict` global state store
+
+### Tests
+- `test_capability_token_revoke_v278.py`: RV-01..RV-30 = **30/30 PASS**
+  - RV-01..05: basic revocation (fields, defaults)
+  - RV-06..10: error cases (missing jti, duplicate, empty jti, bad JSON)
+  - RV-11..15: revocation list endpoint (structure, fields, a2a_ref)
+  - RV-16..20: validate endpoint revocation check (deny, check presence, deny_reason)
+  - RV-21..25: reason variants + forward revocation + version/a2a_ref
+  - RV-26..30: SINT lifecycle integration + AgentCard reflection
+- `test_capability_token_validate_v277.py`: TV-08/TV-10 updated for 6-check pipeline (≥5 / superset)
+- Full Regression: **157/157 PASS** (RV×30 + TV×30 + ET×30 + CF×20 + CT×25 + AL×22)
+- Commit: `06330bd`
+
+### A2A Alignment
+- A2A #1716 (SINT PR#111): complete SINT lifecycle reference implementation
+  - ACP now covers declare/fixture/validate/revoke — the full capability token management surface
+
+---
+
 ## [2.77.0] — 2026-04-07 (POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation; A2A #1716 @pshkv runtime enforcement)
 
 ### Added

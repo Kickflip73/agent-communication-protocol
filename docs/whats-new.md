@@ -5,6 +5,41 @@
 
 ---
 
+---
+
+### v2.78.0 — Active SINT Token Revocation (2026-04-07)
+
+ACP v2.78 adds **`POST /trust/signals/capability-token/revoke`** and **`GET .../revocations`** — completing the SINT capability quad (A2A #1716).
+
+**SINT capability quad — full token lifecycle:**
+
+| Version | Endpoint | Role |
+|---------|----------|------|
+| v2.74 | `GET /trust/signals/capability-token` | Declare: relay's token issuance config |
+| v2.75 | `GET /trust/signals/capability-token/fixtures` | Fixture: canonical 4-deny + 1-allow vectors |
+| v2.77 | `POST .../fixtures/validate` | Validate: runtime enforcement (6-check pipeline) |
+| **v2.78** | **`POST .../revoke`** | **Revoke: active JTI revocation** |
+
+**Revoke endpoint:**
+```bash
+curl -X POST http://localhost:18900/trust/signals/capability-token/revoke \
+  -H "Content-Type: application/json" \
+  -d '{"jti": "urn:acp:token:abc123", "reason": "compromised"}'
+# → {"ok": true, "revoked": true, "jti": "...", "revocation_id": "rev-...", ...}
+```
+
+**Revocation list:**
+```bash
+curl http://localhost:18900/trust/signals/capability-token/revocations
+# → {"ok": true, "total_revoked": 3, "revocations": [...]}
+```
+
+**Validate now includes Check 6 (revocation — highest priority):**
+- Revoked JTI → `authorized: false`, `deny_reason: "token_revoked"`
+- Clean JTI → `revocation: {passed: true, reason: "token_not_revoked"}`
+
+Test coverage: RV-01..RV-30 = **30/30 PASS**; full regression **157/157 PASS**
+
 ### v2.77.0 — Dynamic SINT Token Validation (2026-04-07)
 
 ACP v2.77 adds **`POST /trust/signals/capability-token/fixtures/validate`** — the runtime enforcement endpoint that completes the SINT capability triad (A2A #1716 @pshkv).
