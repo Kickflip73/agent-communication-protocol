@@ -402,7 +402,7 @@ Key commit: TBD（本轮）
 
 ---
 
-## ✅ 已完成里程碑摘要（v2.19–v2.22）
+## ✅ 已完成里程碑摘要（v2.19–v2.73）
 
 | 版本 | 特性 | Commit | 日期 |
 |------|------|--------|------|
@@ -410,6 +410,18 @@ Key commit: TBD（本轮）
 | v2.20.0 | Structured `limitations[]` — LimitationObject（kind/code/message/permanent）| — | 2026-03-31 |
 | v2.21.0 | `PATCH /.well-known/acp.json` + `?filter_limitations=` query | — | 2026-03-31 |
 | v2.22.0 | `POST /peers/broadcast` — fanout to all connected peers | d396969 | 2026-03-31 |
+| v2.23.0 | `GET /peers/broadcast/history` + target_peers 选择性广播 | — | 2026-04-07 |
+| v2.40.0 | `agent_limitations` structured dict (numeric/enum limits in AgentCard) | — | 2026-04-07 |
+| v2.56.0 | `GET /principal-chain` — OBO delegation stack management | — | 2026-04-07 |
+| v2.68.0 | trust.signals[] 12 种信号类型（bilateral_ir/capability_token/wtrmrk/external_token）| 230fc22 | 2026-04-07 |
+| v2.69.0 | `GET /limitations/runtime` — dynamic runtime limitations (A2A #1694 @citriac) | — | 2026-04-07 |
+| v2.70.0 | trust.signals severity+category metadata + `GET /trust/signals/schema` (A2A #1628) | 12bbbdd | 2026-04-07 |
+| v2.71.0 | security_posture 第 13 种 trust signal + `GET /trust/signals/security-posture` | 8278ef1 | 2026-04-07 |
+| v2.72.0 | `GET /trust/bilateral-ir/log` — 可查询双边 IR 记录日志 (A2A #1718 @viftode4) | cb35cfe | 2026-04-07 |
+| v2.73.0 | `GET /agent-limitations/schema` — typed JSON Schema (A2A #1694 aligned) | ad15e74 | 2026-04-07 |
+| v2.74.0 | `GET /trust/signals/capability-token` — SINT capability token declaration (A2A #1716 @pshkv PR#111) | 1b46f83 | 2026-04-07 |
+| v2.75.0 | `GET /trust/signals/capability-token/fixtures` — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow) | 2d5fbd7 | 2026-04-07 |
+| v2.76.0 | `effective_tier` Factor 5 — `bilateral_ir_adj` (+1/0/-1, local bilateral IR log Merkle commitment; A2A #1716 @64R3N) | a469555 | 2026-04-07 |
 
 ---
 
