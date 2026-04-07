@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.76.0"  # v2.76: effective_tier Factor 5 — attestation_history_adjustment from local bilateral IR log (+1/0/-1, merkle-committed); A2A #1716 @64R3N; GET /skills/{id}/effective-tier now returns bilateral_ir_adj + ir_merkle_root
+VERSION = "2.77.0"  # v2.77: POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (5-check pipeline: expiry/scope/skill_id/subject/required_fields); completes v2.74+v2.75+v2.77 SINT capability triad; A2A #1716 @pshkv runtime enforcement
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2010,6 +2010,7 @@ def _make_agent_card(name, skills):
             "agent_limitations_schema":     True,               # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict (A2A #1694 aligned)
             "capability_token_detail":      True,               # v2.74: GET /trust/signals/capability-token — detailed capability token declaration (A2A #1716 SINT PR#111 aligned)
             "capability_token_fixtures":    True,               # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow)
+            "capability_token_validate":    True,               # v2.77: POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (5-check pipeline)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2133,7 +2134,8 @@ def _make_agent_card(name, skills):
             "bilateral_ir_log":          "/trust/bilateral-ir/log",        # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
             "agent_limitations_schema":  "/agent-limitations/schema",      # v2.73: GET — JSON Schema for agent_limitations typed constraint dict
             "capability_token_detail":   "/trust/signals/capability-token", # v2.74: GET — detailed capability token declaration & issuance config (A2A #1716 SINT aligned)
-            "capability_token_fixtures": "/trust/signals/capability-token/fixtures", # v2.75: GET — canonical authorization fixture vectors (A2A #1716 @pshkv 4-deny+1-allow)
+            "capability_token_fixtures":  "/trust/signals/capability-token/fixtures",          # v2.75: GET — canonical authorization fixture vectors (A2A #1716 @pshkv 4-deny+1-allow)
+            "capability_token_validate":  "/trust/signals/capability-token/fixtures/validate",  # v2.77: POST — dynamic SINT capability token validation (5-check pipeline)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -7348,6 +7350,177 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 ],
             })
 
+        # ── POST /trust/signals/capability-token/fixtures/validate — dynamic token validation (v2.77) ──
+        elif p == "/trust/signals/capability-token/fixtures/validate":
+            # v2.77: Dynamic SINT capability token validation endpoint.
+            # Accepts a token + invocation_context, runs all SINT checks, returns allow/deny + reason.
+            # Completes the SINT capability loop: v2.74 declaration + v2.75 fixtures + v2.77 validate.
+            # A2A #1716 SINT PR#111 runtime enforcement — ACP reference implementation.
+            if self.command != "POST":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use POST /trust/signals/capability-token/fixtures/validate"}, 405)
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw    = self.rfile.read(length) if length > 0 else b"{}"
+                body   = json.loads(raw)
+            except Exception as exc:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": f"Invalid JSON body: {exc}"}, 400)
+                return
+
+            if not isinstance(body, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Body must be a JSON object"}, 400)
+                return
+
+            token = body.get("token")
+            if not isinstance(token, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Missing or invalid 'token' field (must be an object)"}, 400)
+                return
+
+            ctx = body.get("invocation_context", {})
+            if not isinstance(ctx, dict):
+                ctx = {}
+
+            now_ts = int(time.time())
+            checks = []  # list of {check, passed, reason} for audit trail
+
+            # ── Check 1: token expiry ─────────────────────────────────────────
+            exp = token.get("exp")
+            iat = token.get("iat")
+            check_time = ctx.get("check_time", now_ts)
+            use_time   = ctx.get("use_time",   now_ts)
+
+            if exp is None:
+                checks.append({"check": "expiry", "passed": False, "reason": "missing_exp_field"})
+            elif not isinstance(exp, (int, float)):
+                checks.append({"check": "expiry", "passed": False, "reason": "invalid_exp_type"})
+            elif use_time > exp:
+                # TOCTOU: re-verify at use_time, not only check_time
+                checks.append({"check": "expiry", "passed": False,
+                                "reason": "token_expired",
+                                "detail": f"exp={exp} < use_time={use_time} (TOCTOU re-check)"})
+            else:
+                checks.append({"check": "expiry", "passed": True,
+                                "reason": "token_valid",
+                                "detail": f"exp={exp}, use_time={use_time}, ttl_remaining={exp - use_time}s"})
+
+            # ── Check 2: scope / resource match ─────────────────────────────
+            resource        = token.get("resource", "")
+            target_skill_id = ctx.get("target_skill_id", "")
+
+            if not resource:
+                checks.append({"check": "scope", "passed": False, "reason": "missing_resource_field"})
+            elif not target_skill_id:
+                # No invocation context provided — skip scope check
+                checks.append({"check": "scope", "passed": True,
+                                "reason": "skipped_no_target_skill",
+                                "detail": "invocation_context.target_skill_id not provided; scope check skipped"})
+            else:
+                # resource URI must contain the target skill_id
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                if resource_tail != target_skill_id:
+                    checks.append({"check": "scope", "passed": False,
+                                   "reason": "scope_mismatch",
+                                   "detail": f"resource ends with '{resource_tail}', target_skill_id='{target_skill_id}'"})
+                else:
+                    checks.append({"check": "scope", "passed": True,
+                                   "reason": "scope_match",
+                                   "detail": f"resource skill_id='{resource_tail}' matches target"})
+
+            # ── Check 3: skill_id embedded in resource ───────────────────────
+            # Redundant with scope check when target_skill_id present; kept as explicit named check.
+            # When no target_skill_id, verify resource has a non-empty path tail (structural validity).
+            if not resource:
+                checks.append({"check": "skill_id", "passed": False, "reason": "missing_resource_field"})
+            else:
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                explicit_skill = ctx.get("explicit_skill_id", target_skill_id)
+                if explicit_skill and resource_tail != explicit_skill:
+                    checks.append({"check": "skill_id", "passed": False,
+                                   "reason": "skill_id_mismatch",
+                                   "detail": f"resource embeds '{resource_tail}', explicit_skill_id='{explicit_skill}'"})
+                elif not resource_tail:
+                    checks.append({"check": "skill_id", "passed": False,
+                                   "reason": "empty_skill_id_in_resource"})
+                else:
+                    checks.append({"check": "skill_id", "passed": True,
+                                   "reason": "skill_id_valid",
+                                   "detail": f"embedded skill_id='{resource_tail}'"})
+
+            # ── Check 4: subject binding ─────────────────────────────────────
+            token_sub       = token.get("sub", "")
+            invoking_did    = ctx.get("invoking_agent_did", "")
+
+            if not token_sub:
+                checks.append({"check": "subject", "passed": False, "reason": "missing_sub_field"})
+            elif not invoking_did:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "skipped_no_invoking_did",
+                                "detail": "invocation_context.invoking_agent_did not provided; subject check skipped"})
+            elif token_sub != invoking_did:
+                checks.append({"check": "subject", "passed": False,
+                                "reason": "subject_mismatch",
+                                "detail": f"token.sub='{token_sub}', invoking_did='{invoking_did}'"})
+            else:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "subject_match",
+                                "detail": f"sub='{token_sub}' matches invoking agent"})
+
+            # ── Check 5: required fields ─────────────────────────────────────
+            required = {"jti", "iss", "sub", "resource", "scheme"}
+            missing  = required - set(token.keys())
+            if missing:
+                checks.append({"check": "required_fields", "passed": False,
+                                "reason": "missing_required_fields",
+                                "detail": f"missing: {sorted(missing)}"})
+            else:
+                checks.append({"check": "required_fields", "passed": True,
+                                "reason": "all_required_fields_present"})
+
+            # ── Aggregate result ──────────────────────────────────────────────
+            failed_checks = [c for c in checks if not c["passed"]]
+            authorized    = len(failed_checks) == 0
+
+            # Determine primary deny reason (first hard failure, expiry > scope > skill_id > subject > required)
+            deny_reason  = None
+            http_status  = 200
+            if not authorized:
+                # Priority order: expiry → scope → skill_id → subject → required_fields
+                priority_order = ["expiry", "scope", "skill_id", "subject", "required_fields"]
+                deny_reason = failed_checks[0]["reason"]
+                for po in priority_order:
+                    for fc in failed_checks:
+                        if fc["check"] == po:
+                            deny_reason = fc["reason"]
+                            break
+                    else:
+                        continue
+                    break
+                http_status = 403
+
+            response = {
+                "ok":          True,
+                "version":     VERSION,
+                "authorized":  authorized,
+                "checks":      checks,
+                "a2a_ref":     "https://github.com/google-a2a/A2A/issues/1716",
+            }
+            if not authorized:
+                response["deny_reason"]  = deny_reason
+                response["http_status"]  = http_status
+                response["deny_details"] = [
+                    {"check": c["check"], "reason": c["reason"], "detail": c.get("detail", "")}
+                    for c in failed_checks
+                ]
+            else:
+                response["reason_code"] = "token_valid"
+
+            self._json(response, http_status)
+
         # ── GET /trust/signals — full trust signal inventory (v2.68) ────────
         elif p == "/trust/signals/security-posture":
             # v2.71: Returns detailed security posture for this relay instance.
@@ -10272,6 +10445,147 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     **vr,
                 })
                 return
+
+        # ── POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (v2.77) ──
+        elif p == "/trust/signals/capability-token/fixtures/validate":
+            now_ts = int(time.time())
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw    = self.rfile.read(length) if length > 0 else b"{}"
+                body   = json.loads(raw)
+            except Exception as exc:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": f"Invalid JSON body: {exc}"}, 400)
+                return
+
+            if not isinstance(body, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Body must be a JSON object"}, 400)
+                return
+
+            token = body.get("token")
+            if not isinstance(token, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Missing or invalid 'token' field (must be an object)"}, 400)
+                return
+
+            ctx = body.get("invocation_context", {})
+            if not isinstance(ctx, dict):
+                ctx = {}
+
+            checks = []
+
+            # Check 1: expiry (TOCTOU re-check at use_time)
+            exp      = token.get("exp")
+            use_time = ctx.get("use_time", now_ts)
+            if exp is None:
+                checks.append({"check": "expiry", "passed": False, "reason": "missing_exp_field"})
+            elif not isinstance(exp, (int, float)):
+                checks.append({"check": "expiry", "passed": False, "reason": "invalid_exp_type"})
+            elif use_time > exp:
+                checks.append({"check": "expiry", "passed": False,
+                                "reason": "token_expired",
+                                "detail": f"exp={exp} < use_time={use_time} (TOCTOU re-check)"})
+            else:
+                checks.append({"check": "expiry", "passed": True,
+                                "reason": "token_valid",
+                                "detail": f"exp={exp}, ttl_remaining={exp - use_time}s"})
+
+            # Check 2: scope (resource URI ends with target_skill_id)
+            resource        = token.get("resource", "")
+            target_skill_id = ctx.get("target_skill_id", "")
+            if not resource:
+                checks.append({"check": "scope", "passed": False, "reason": "missing_resource_field"})
+            elif not target_skill_id:
+                checks.append({"check": "scope", "passed": True,
+                                "reason": "skipped_no_target_skill"})
+            else:
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                if resource_tail != target_skill_id:
+                    checks.append({"check": "scope", "passed": False,
+                                   "reason": "scope_mismatch",
+                                   "detail": f"resource skill='{resource_tail}', target='{target_skill_id}'"})
+                else:
+                    checks.append({"check": "scope", "passed": True,
+                                   "reason": "scope_match"})
+
+            # Check 3: skill_id embedded in resource
+            if not resource:
+                checks.append({"check": "skill_id", "passed": False, "reason": "missing_resource_field"})
+            else:
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                explicit_skill = ctx.get("explicit_skill_id", target_skill_id)
+                if explicit_skill and resource_tail != explicit_skill:
+                    checks.append({"check": "skill_id", "passed": False,
+                                   "reason": "skill_id_mismatch",
+                                   "detail": f"resource='{resource_tail}', explicit='{explicit_skill}'"})
+                else:
+                    checks.append({"check": "skill_id", "passed": True,
+                                   "reason": "skill_id_valid"})
+
+            # Check 4: subject binding
+            token_sub    = token.get("sub", "")
+            invoking_did = ctx.get("invoking_agent_did", "")
+            if not token_sub:
+                checks.append({"check": "subject", "passed": False, "reason": "missing_sub_field"})
+            elif not invoking_did:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "skipped_no_invoking_did"})
+            elif token_sub != invoking_did:
+                checks.append({"check": "subject", "passed": False,
+                                "reason": "subject_mismatch",
+                                "detail": f"sub='{token_sub}', invoking='{invoking_did}'"})
+            else:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "subject_match"})
+
+            # Check 5: required fields
+            required = {"jti", "iss", "sub", "resource", "scheme"}
+            missing  = required - set(token.keys())
+            if missing:
+                checks.append({"check": "required_fields", "passed": False,
+                                "reason": "missing_required_fields",
+                                "detail": f"missing: {sorted(missing)}"})
+            else:
+                checks.append({"check": "required_fields", "passed": True,
+                                "reason": "all_required_fields_present"})
+
+            failed_checks = [c for c in checks if not c["passed"]]
+            authorized    = len(failed_checks) == 0
+
+            deny_reason = None
+            http_status = 200
+            if not authorized:
+                priority_order = ["expiry", "scope", "skill_id", "subject", "required_fields"]
+                deny_reason = failed_checks[0]["reason"]
+                for po in priority_order:
+                    for fc in failed_checks:
+                        if fc["check"] == po:
+                            deny_reason = fc["reason"]
+                            break
+                    else:
+                        continue
+                    break
+                http_status = 403
+
+            response = {
+                "ok":       True,
+                "version":  VERSION,
+                "authorized": authorized,
+                "checks":   checks,
+                "a2a_ref":  "https://github.com/google-a2a/A2A/issues/1716",
+            }
+            if not authorized:
+                response["deny_reason"]  = deny_reason
+                response["http_status"]  = http_status
+                response["deny_details"] = [
+                    {"check": c["check"], "reason": c["reason"], "detail": c.get("detail", "")}
+                    for c in failed_checks
+                ]
+            else:
+                response["reason_code"] = "token_valid"
+
+            self._json(response, http_status)
 
         # ── POST /trust/vouch — add a vouch_chain entry (v2.27) ──────────────
         elif p == "/trust/vouch":
