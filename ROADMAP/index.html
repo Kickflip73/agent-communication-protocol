@@ -1533,6 +1533,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#v280-2026-04-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.80（完成 — 2026-04-08，开发轮）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#v092026-06" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3197,6 +3208,40 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>MCP:  https://github.com/modelcontextprotocol/specification
 </span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 候选参考）
 </span></code></pre></div>
+<hr />
+<h3 id="v280-2026-04-08">✅ v2.80（完成 — 2026-04-08，开发轮）<a class="headerlink" href="#v280-2026-04-08" title="Permanent link">&para;</a></h3>
+<p><strong>主题：heartbeat_period_ms — AgentCard 心跳周期声明</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>heartbeat_period_ms</code> AgentCard 顶层字段</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>--heartbeat-period-ms</code> CLI flag</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>capabilities.heartbeat_period_declared</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>/availability</code> + <code>/availability/heartbeat</code> 响应同步</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>tests/test_heartbeat_period.py</code> HP1–HP10：10/10 PASS</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化</strong>：A2A Issue #1667 heartbeat agents 讨论中，ACP 率先落地可声明 heartbeat 周期的 AgentCard 字段。</p>
 <hr />
 <h3 id="v092026-06">🔮 v0.9（规划中，目标：2026-06）<a class="headerlink" href="#v092026-06" title="Permanent link">&para;</a></h3>
 <p><strong>主题：协议健壮性 + 开发者体验</strong></p>
