@@ -1544,6 +1544,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#v281-2026-04-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v2.81（完成 — 2026-04-08，开发轮）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#v092026-06" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3242,6 +3253,41 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </tbody>
 </table>
 <p><strong>差异化</strong>：A2A Issue #1667 heartbeat agents 讨论中，ACP 率先落地可声明 heartbeat 周期的 AgentCard 字段。</p>
+<hr />
+<h3 id="v281-2026-04-08">✅ v2.81（完成 — 2026-04-08，开发轮）<a class="headerlink" href="#v281-2026-04-08" title="Permanent link">&para;</a></h3>
+<p><strong>主题：task_evidence — 任务生命周期证据锚点</strong></p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /tasks/{id}/evidence</code>（提交证据）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET /tasks/{id}/evidence</code>（列表查询）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET /tasks/{id}/evidence/latest</code>（最新证据）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>capabilities.task_evidence: true</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>tests/test_task_evidence.py</code> TE1–TE12：12/12 PASS</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>差异化</strong>：A2A Issue #1721 Assay 框架任务证据讨论中，ACP 率先落地完整任务证据锚点系统，
+形成 trust signals → capability token → task evidence 完整可信执行闭环。</p>
 <hr />
 <h3 id="v092026-06">🔮 v0.9（规划中，目标：2026-06）<a class="headerlink" href="#v092026-06" title="Permanent link">&para;</a></h3>
 <p><strong>主题：协议健壮性 + 开发者体验</strong></p>
