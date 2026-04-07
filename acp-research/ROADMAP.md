@@ -422,6 +422,7 @@ Key commit: TBD（本轮）
 | v2.74.0 | `GET /trust/signals/capability-token` — SINT capability token declaration (A2A #1716 @pshkv PR#111) | 1b46f83 | 2026-04-07 |
 | v2.75.0 | `GET /trust/signals/capability-token/fixtures` — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow) | 2d5fbd7 | 2026-04-07 |
 | v2.76.0 | `effective_tier` Factor 5 — `bilateral_ir_adj` (+1/0/-1, local bilateral IR log Merkle commitment; A2A #1716 @64R3N) | a469555 | 2026-04-07 |
+| v2.77.0 | `POST /trust/signals/capability-token/fixtures/validate` — dynamic SINT token validation, 5-check pipeline (A2A #1716 @pshkv runtime enforcement; SINT triad complete) | 7cb7f90 | 2026-04-07 |
 
 ---
 
