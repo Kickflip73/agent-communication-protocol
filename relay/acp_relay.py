@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.78.0"  # v2.78: POST /trust/signals/capability-token/revoke + GET /trust/signals/capability-token/revocations — active SINT token revocation; completes v2.74+v2.75+v2.77+v2.78 SINT capability quad; A2A #1716 full lifecycle
+VERSION = "2.79.0"  # v2.79: GET /protocol-binding + AgentCard protocol_binding declaration — A2A §5.8 custom protocol binding URI identification; ACP binding URI urn:acp:binding:p2p-relay/v1
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -432,6 +432,23 @@ _delegation_chain: list = []      # v2.16: signed delegation entries [{delegator
 _principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, added_at}] — "on behalf of" principal stack
 _capability_tokens: dict = {}     # v2.57: issued capability tokens {token_id: CapabilityTokenObject}
 _revoked_tokens: dict = {}        # v2.78: actively revoked token JTIs {jti: revocation_record}
+
+# v2.79: Protocol Binding declaration (A2A §5.8 CPB URI identification)
+_PROTOCOL_BINDING: dict = {
+    "binding_uri":      "urn:acp:binding:p2p-relay/v1",
+    "binding_name":     "ACP P2P Relay",
+    "binding_version":  "1.0",
+    "transport":        "p2p+relay",
+    "base_protocol":    "http+websocket",
+    "addressing":       "acp://<relay_host>/<session_token>",
+    "supports_sse":     True,
+    "supports_ws":      True,
+    "nat_traversal":    True,
+    "nat_levels":       3,
+    "description":      "ACP custom protocol binding: P2P direct connection with 3-level NAT traversal fallback to HTTP relay. Zero-config, Skill-driven. A2A §5.8 aligned.",
+    "a2a_ref":          "https://github.com/google-a2a/A2A/pull/1619",
+    "spec_url":         "https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/core-v0.9.md",
+}
 _interaction_records: list = []  # v2.59: bilateral interaction records [{id, task_id, relay_did, caller_did, ...}]
 _ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
 _imported_evidence: list = []    # v2.65: externally-imported bilateral IR evidence [{import_id, source_ir, reputation_update, ...}]
@@ -2013,6 +2030,7 @@ def _make_agent_card(name, skills):
             "capability_token_fixtures":    True,               # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow)
             "capability_token_validate":    True,               # v2.77: POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (5-check pipeline)
             "capability_token_revoke":      True,               # v2.78: POST /trust/signals/capability-token/revoke + GET revocations — active token revocation (SINT lifecycle complete)
+            "protocol_binding":             True,               # v2.79: GET /protocol-binding — A2A §5.8 CPB URI identification (urn:acp:binding:p2p-relay/v1)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2140,6 +2158,7 @@ def _make_agent_card(name, skills):
             "capability_token_validate":  "/trust/signals/capability-token/fixtures/validate",  # v2.77: POST — dynamic SINT capability token validation (5-check pipeline)
             "capability_token_revoke":    "/trust/signals/capability-token/revoke",              # v2.78: POST — active SINT token revocation
             "capability_token_revocations": "/trust/signals/capability-token/revocations",      # v2.78: GET — list all revoked tokens
+            "protocol_binding":             "/protocol-binding",  # v2.79: GET — A2A §5.8 CPB declaration (binding_uri, transport, addressing, nat_traversal)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -2148,6 +2167,9 @@ def _make_agent_card(name, skills):
     }
     # v0.9: inject capabilities.groups — structured grouping of flat capabilities (A2A v1.0 aligned)
     card["capabilities"]["groups"] = _build_capabilities_groups(card["capabilities"])
+
+    # v2.79: inject protocol_binding top-level declaration (A2A §5.8 CPB URI identification)
+    card["protocol_binding"] = dict(_PROTOCOL_BINDING)
 
     # v1.2: attach availability block only when configured (opt-in)
     if _availability:
@@ -7370,6 +7392,22 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "a2a_ref":       "https://github.com/google-a2a/A2A/issues/1716",
             })
 
+        # ── GET /protocol-binding — A2A §5.8 CPB declaration (v2.79) ──────────────────────────────────
+        elif p == "/protocol-binding":
+            # v2.79: Returns the ACP custom protocol binding declaration.
+            # Aligned with A2A §5.8 (merged PR #1619, 2026-04-07): URI-based CPB identification.
+            # ACP binding URI: urn:acp:binding:p2p-relay/v1
+            # Describes transport mechanism, addressing scheme, NAT traversal, streaming support.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /protocol-binding"}, 405)
+                return
+            self._json({
+                "ok":      True,
+                "version": VERSION,
+                **_PROTOCOL_BINDING,
+            })
+
         # ── POST /trust/signals/capability-token/fixtures/validate — dynamic token validation (v2.77) ──
         elif p == "/trust/signals/capability-token/fixtures/validate":
             # v2.77: Dynamic SINT capability token validation endpoint.
@@ -10729,6 +10767,12 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "revocations":  revocations,
                 "a2a_ref":      "https://github.com/google-a2a/A2A/issues/1716",
             })
+
+        # ── GET /protocol-binding — A2A §5.8 CPB declaration (v2.79) — POST guard ──────────────────────
+        elif p == "/protocol-binding":
+            # v2.79: GET-only endpoint; POST/PUT/DELETE return 405.
+            self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                        "message": "Use GET /protocol-binding"}, 405)
 
         # ── POST /trust/vouch — add a vouch_chain entry (v2.27) ──────────────
         elif p == "/trust/vouch":
