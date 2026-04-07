@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.69.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.81.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -317,6 +317,11 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | Create task | POST | `/tasks` |
 | Update task | POST | `/tasks/{id}:update` |
 | Cancel task | POST | `/tasks/{id}:cancel` |
+| Submit task evidence | POST | `/tasks/{id}/evidence` |
+| List task evidence | GET | `/tasks/{id}/evidence` |
+| Get latest evidence | GET | `/tasks/{id}/evidence/latest` |
+| Heartbeat report | POST | `/availability/heartbeat` |
+| Query availability | GET | `/availability` |
 
 HTTP default port: `7901` · WebSocket port: `7801`
 
@@ -525,6 +530,8 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | **v2.41** | ✅ | **`GET /skills` OpenAPI 3.1 spec** — `docs/openapi-skills.yaml`（`SkillsResponse`/`Skill` Schema + 示例）；`AgentCard.skills_schema_url`；`GET /docs/openapi-skills.yaml` CORS 静态服务；`capabilities.skills_openapi_spec: true`；SO1-5 = 5/5 |
 | **v2.46** | ✅ | **AgentCard `capabilities.groups`** — 5 分组结构（messaging/tasks/identity/transport/discovery）与旧扁平字段并列；`_build_capabilities_groups()` 自动生成；`GET /status` 同步返回；向后兼容；CG1-8 = 8/8 |
 | **v2.45** | ✅ | **`GET /tasks` A2A v1.0 对齐分页** — `page_size`（默认20，最大100，自动 clamp）、`after`（keyset 游标，`task_id` exclusive）、`status` 多值逗号分隔过滤；响应新增 `total`/`has_more`/`next_cursor`；`capabilities.tasks_pagination: true`；向后兼容（无参数行为不变）；TP1-8 = 8/8 |
+| **v2.80** | ✅ | **`heartbeat_period_ms` — AgentCard 心跳周期声明** — AgentCard 顶层字段声明心跳间隔（ms）；`--heartbeat-period-ms` CLI flag；`capabilities.heartbeat_period_declared: true`；`GET /availability` + `POST /availability/heartbeat` 响应同步；HP1-10 = 10/10；领先 A2A #1667 |
+| **v2.81** | ✅ | **`task_evidence` — 任务生命周期证据锚点** — `POST /tasks/{id}/evidence` 提交证据；`GET /tasks/{id}/evidence` 列表查询；`GET /tasks/{id}/evidence/latest` 最新证据；顺序 `seq` 编号；`capabilities.task_evidence: true`；TE1-12 = 12/12；领先 A2A #1721 |
 
 ---
 

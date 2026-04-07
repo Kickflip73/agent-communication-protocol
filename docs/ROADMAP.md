@@ -695,6 +695,16 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
+### 🔮 v2.82（候选）
+**候选特性（待 Stark 先生确认）**：
+
+| 候选 | 来源 | 说明 |
+|------|------|------|
+| `GET /protocol-binding/compatibility` | A2A #1723 SLIMRPC | 协议绑定兼容性查询 |
+| `PUT /agent-card/availability` | A2A #1667 完整调度元数据 | scheduleType/nextActiveAt 等 |
+
+---
+
 ### 🔮 v0.9（规划中，目标：2026-06）
 **主题：协议健壮性 + 开发者体验**
 
