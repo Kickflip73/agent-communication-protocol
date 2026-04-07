@@ -1015,6 +1015,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v2760-effective_tier-factor-5-bilateral_ir_adj-2026-04-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v2.76.0 — effective_tier Factor 5: bilateral_ir_adj (2026-04-07)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v2750-canonical-authorization-fixture-endpoint-2026-04-07" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2165,6 +2176,63 @@
 <p>Last updated: 2026-04-07
 For the full history see <a href="../CHANGELOG.md">CHANGELOG.md</a></p>
 </blockquote>
+<hr />
+<h3 id="v2760-effective_tier-factor-5-bilateral_ir_adj-2026-04-07">v2.76.0 — effective_tier Factor 5: bilateral_ir_adj (2026-04-07)<a class="headerlink" href="#v2760-effective_tier-factor-5-bilateral_ir_adj-2026-04-07" title="Permanent link">&para;</a></h3>
+<p>ACP v2.76 upgrades <code>effective_tier</code> to a <strong>5-factor architecture</strong>, adding <code>bilateral_ir_adj</code> derived from the local bilateral IR log — a tamper-evident attestation without requiring an external chain (A2A #1716 @64R3N).</p>
+<p><strong>New computation functions:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Returns</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_bilateral_ir_merkle_root(peer_id)</code></td>
+<td><code>str \| None</code></td>
+<td>SHA-256 Merkle root over bilateral IR records for peer</td>
+</tr>
+<tr>
+<td><code>_bilateral_ir_adj(peer_id)</code></td>
+<td><code>(adj, count, merkle_root)</code></td>
+<td>Factor 5 adjustment value</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Threshold logic:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Bilateral records</th>
+<th><code>bilateral_ir_adj</code></th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 (unknown peer)</td>
+<td><code>+1</code></td>
+<td>Raises tier floor — conservative</td>
+</tr>
+<tr>
+<td>1–4</td>
+<td><code>0</code></td>
+<td>Neutral — limited history</td>
+</tr>
+<tr>
+<td>≥5</td>
+<td><code>−1</code></td>
+<td>Established peer — may lower floor</td>
+</tr>
+</tbody>
+</table>
+<p><strong>5-factor combination rule:</strong>
+- Any <code>+1</code> overrides immediately (conservative wins)
+- <code>−1</code> requires ≥2 of 3 adjustment factors to agree (consensus required to lower floor)</p>
+<p><strong>AgentCard:</strong> <code>capabilities.effective_tier_five_factors: true</code></p>
+<p><strong>Tests:</strong> ET-01..ET-30 = 30/30 PASS | Full regression: 153/153 PASS | Commit: <code>a469555</code></p>
 <hr />
 <h3 id="v2750-canonical-authorization-fixture-endpoint-2026-04-07">v2.75.0 — Canonical Authorization Fixture Endpoint (2026-04-07)<a class="headerlink" href="#v2750-canonical-authorization-fixture-endpoint-2026-04-07" title="Permanent link">&para;</a></h3>
 <p>ACP v2.75 adds <strong><code>GET /trust/signals/capability-token/fixtures</code></strong> — the minimal canonical
