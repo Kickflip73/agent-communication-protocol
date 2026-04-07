@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-07 07:02（v2.71 security_posture 第 13 种 trust signal + GET /trust/signals/security-posture；SP-1..20=20/20 + 回归 49/49 PASS；A2A #1628 @douglasborthwick "security_posture as 7th dimension" 已实现；commit 8278ef1）
+> 最后更新：2026-04-07 09:15（v2.72 GET /trust/bilateral-ir/log 查询双边 IR 记录日志；BL-01..22=21/21 PASS + 回归 77/77 PASS；修复 since= float-vs-string 崩溃 Bug；A2A #1718 @viftode4 "bilateral_ir as trust primitive" 已实现；commit cb35cfe）
 
 ---
 
@@ -688,6 +688,7 @@ Key commits: `bcf6b75`（Go SDK）, `641bae6`+`81bc73c`（集成测试）, `a97b
 | **v2.68** | **✅ 2026-04-06** | **`trust.signals[]` per-invocation 信任扩展**（对齐 A2A #1628）：扩展 `capability_token` 支持 per-invocation 信任要求声明；`trust.signals[]` 标准化 4 类信号（bilateral_ir / capability_token / wtrmrk / external_token）；`GET /trust/signals` 返回当前 Agent 信任信号集合；AgentCard `capabilities.trust_signals=True`；测试 TS-1..10 |
 | **v2.69** | **✅ 2026-04-07** | **runtime limitations endpoint**（對齊 A2A #1694 @citriac stable/runtime 分離）：`GET /limitations/runtime` 返回動態 runtime 指標（current_load/queue_depth/active_tasks/total_tasks/memory_usage_mb）；psutil 優先降級 resource；AgentCard `capabilities.runtime_limitations=True`；測試 RL-1..10 PASS |
 | **v2.70** | **✅ 2026-04-07** | **trust.signals severity+category metadata + canonical type finalization**（A2A #1628 scan14 aligned）：新增 `TRUST_SIGNAL_SCHEMA` 常數（12 種 signal 的 severity/category 定義）；每個 signal 輸出新增 `severity`（critical/high/medium/low）和 `category`（identity/integrity/authorization/discovery/attestation）字段；`GET /trust/signals` 新增 `?category=` 和 `?severity=` 過濾參數；新端點 `GET /trust/signals/schema` 返回靜態規範（type+severity+category+description，advisory weighting hints for consumers）；AgentCard `capabilities.trust_signals_v270=True` + `endpoints.trust_signals_schema`；12 種 signal type 名稱最終確認（符合 A2A #1628 @douglasborthwick bool-layer 設計）；commit 12bbbdd；SC-1..15 = 15/15 PASS + TS-1..14 = 14/14 PASS（回歸全通過） |
+| **v2.72** | **✅ 2026-04-07** | **GET /trust/bilateral-ir/log — 可查詢的雙邊 IR 記錄日誌**（A2A #1718 @viftode4 "bilateral_ir as trust primitive" 建議）：新端點 `GET /trust/bilateral-ir/log` 返回分頁的 `_interaction_records[]` 快照；過濾器：`caller_did`（子串）、`skill_id`（子串）、`bilateral=true/false`、`since=<unix_ts>`（ISO 字符串→epoch 自動轉換）、`limit`（max 500）、`offset`；響應包含 `bilateral_count`（trust-depth 快速指標）；修復 Bug：`?since=` 傳入 future float timestamp 時 ISO字符串 < float 比較 TypeError 導致 relay 崩潰（crash on string-vs-float）；AgentCard `capabilities.bilateral_ir_log=True` + `endpoints.bilateral_ir_log`；commit cb35cfe；BL-01..22=21/21 PASS + 回歸 77/77 PASS |
 | **v2.71** | **✅ 2026-04-07** | **security_posture 第 13 種 trust signal**（A2A #1628 @douglasborthwick "security dimension" 建議）：新增 `security_posture` signal（severity=high, category=integrity）；`_SECURITY_POSTURE` 常數 + `_init_security_posture()` 啟動時自動填充組件版本（importlib.metadata）；signal details 包含 posture_score/cve counts/scan_tool/endpoint；新端點 `GET /trust/signals/security-posture`（詳細 CVE 掃描報告，含 components/disclaimer）；`GET /trust/signals` count 13（+1）；`?category=integrity` 和 `?severity=high` 包含 security_posture；AgentCard `capabilities.trust_signals_v271=True` + `endpoints.trust_signals_security_posture`；commit 8278ef1；SP-1..20=20/20 PASS + 回歸 49/49 PASS |
 
 ---
