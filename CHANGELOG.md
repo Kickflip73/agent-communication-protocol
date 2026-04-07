@@ -7,6 +7,20 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.80.0 — heartbeat_period_ms (2026-04-08)
+
+### Features
+- `heartbeat_period_ms` field in AgentCard — declare agent heartbeat interval (ms)
+- `--heartbeat-period-ms <int>` CLI flag
+- `capabilities.heartbeat_period_declared: true` when declared
+- `GET /availability` and `POST /availability/heartbeat` responses include `heartbeat_period_ms`
+- Differentiator: addresses A2A Issue #1667 (heartbeat-based agents) — ACP first to implement
+
+### Tests
+- `test_heartbeat_period.py`: HP1–HP10 = **10/10 PASS**
+
+---
+
 ## [2.79.0] — 2026-04-07 (GET /protocol-binding + AgentCard protocol_binding — A2A §5.8 CPB URI identification; PR #1619 aligned)
 
 ### Added

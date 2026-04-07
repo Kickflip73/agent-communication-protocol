@@ -664,6 +664,21 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
+### ✅ v2.80（完成 — 2026-04-08，开发轮）
+**主题：heartbeat_period_ms — AgentCard 心跳周期声明**
+
+| 特性 | 状态 |
+|------|------|
+| `heartbeat_period_ms` AgentCard 顶层字段 | ✅ |
+| `--heartbeat-period-ms` CLI flag | ✅ |
+| `capabilities.heartbeat_period_declared` | ✅ |
+| `/availability` + `/availability/heartbeat` 响应同步 | ✅ |
+| `tests/test_heartbeat_period.py` HP1–HP10：10/10 PASS | ✅ |
+
+**差异化**：A2A Issue #1667 heartbeat agents 讨论中，ACP 率先落地可声明 heartbeat 周期的 AgentCard 字段。
+
+---
+
 ### 🔮 v0.9（规划中，目标：2026-06）
 **主题：协议健壮性 + 开发者体验**
 
