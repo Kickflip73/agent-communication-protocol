@@ -138,13 +138,13 @@ def test_tv07_allow_no_context(relay):
 
 
 def test_tv08_allow_5_checks_present(relay):
-    """TV-08: Full allow → exactly 5 checks in response"""
+    """TV-08: Full allow → at least 5 checks in response (v2.78 adds revocation check)"""
     r = _post(
         _good_token(sub="did:key:zSub"),
         {"target_skill_id": "demo", "invoking_agent_did": "did:key:zSub"}
     )
     d = r.json()
-    assert len(d["checks"]) == 5
+    assert len(d["checks"]) >= 5
 
 
 def test_tv09_allow_all_checks_passed(relay):
@@ -164,7 +164,7 @@ def test_tv10_allow_check_names(relay):
         {"target_skill_id": "demo", "invoking_agent_did": "did:key:zSub"}
     )
     names = {c["check"] for c in r.json()["checks"]}
-    assert names == {"expiry", "scope", "skill_id", "subject", "required_fields"}
+    assert {"expiry", "scope", "skill_id", "subject", "required_fields"} <= names
 
 
 # ══════════════════════════════════════════════════

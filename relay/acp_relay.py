@@ -161,7 +161,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.77.0"  # v2.77: POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (5-check pipeline: expiry/scope/skill_id/subject/required_fields); completes v2.74+v2.75+v2.77 SINT capability triad; A2A #1716 @pshkv runtime enforcement
+VERSION = "2.78.0"  # v2.78: POST /trust/signals/capability-token/revoke + GET /trust/signals/capability-token/revocations — active SINT token revocation; completes v2.74+v2.75+v2.77+v2.78 SINT capability quad; A2A #1716 full lifecycle
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -431,6 +431,7 @@ _ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certifi
 _delegation_chain: list = []      # v2.16: signed delegation entries [{delegator_did, scope, expires_at, sig}]
 _principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, added_at}] — "on behalf of" principal stack
 _capability_tokens: dict = {}     # v2.57: issued capability tokens {token_id: CapabilityTokenObject}
+_revoked_tokens: dict = {}        # v2.78: actively revoked token JTIs {jti: revocation_record}
 _interaction_records: list = []  # v2.59: bilateral interaction records [{id, task_id, relay_did, caller_did, ...}]
 _ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
 _imported_evidence: list = []    # v2.65: externally-imported bilateral IR evidence [{import_id, source_ir, reputation_update, ...}]
@@ -2011,6 +2012,7 @@ def _make_agent_card(name, skills):
             "capability_token_detail":      True,               # v2.74: GET /trust/signals/capability-token — detailed capability token declaration (A2A #1716 SINT PR#111 aligned)
             "capability_token_fixtures":    True,               # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow)
             "capability_token_validate":    True,               # v2.77: POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (5-check pipeline)
+            "capability_token_revoke":      True,               # v2.78: POST /trust/signals/capability-token/revoke + GET revocations — active token revocation (SINT lifecycle complete)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2136,6 +2138,8 @@ def _make_agent_card(name, skills):
             "capability_token_detail":   "/trust/signals/capability-token", # v2.74: GET — detailed capability token declaration & issuance config (A2A #1716 SINT aligned)
             "capability_token_fixtures":  "/trust/signals/capability-token/fixtures",          # v2.75: GET — canonical authorization fixture vectors (A2A #1716 @pshkv 4-deny+1-allow)
             "capability_token_validate":  "/trust/signals/capability-token/fixtures/validate",  # v2.77: POST — dynamic SINT capability token validation (5-check pipeline)
+            "capability_token_revoke":    "/trust/signals/capability-token/revoke",              # v2.78: POST — active SINT token revocation
+            "capability_token_revocations": "/trust/signals/capability-token/revocations",      # v2.78: GET — list all revoked tokens
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -7350,6 +7354,22 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 ],
             })
 
+        # ── GET /trust/signals/capability-token/revocations — list revoked tokens (v2.78) ──
+        elif p == "/trust/signals/capability-token/revocations":
+            # v2.78: List all actively revoked SINT capability tokens.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token/revocations"}, 405)
+                return
+            revocations = list(_revoked_tokens.values())
+            self._json({
+                "ok":            True,
+                "version":       VERSION,
+                "total_revoked": len(revocations),
+                "revocations":   revocations,
+                "a2a_ref":       "https://github.com/google-a2a/A2A/issues/1716",
+            })
+
         # ── POST /trust/signals/capability-token/fixtures/validate — dynamic token validation (v2.77) ──
         elif p == "/trust/signals/capability-token/fixtures/validate":
             # v2.77: Dynamic SINT capability token validation endpoint.
@@ -10550,6 +10570,17 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 checks.append({"check": "required_fields", "passed": True,
                                 "reason": "all_required_fields_present"})
 
+            # Check 6: revocation status (v2.78 — check _revoked_tokens)
+            token_jti = token.get("jti", "")
+            if token_jti and token_jti in _revoked_tokens:
+                rev_rec = _revoked_tokens[token_jti]
+                checks.append({"check": "revocation", "passed": False,
+                                "reason": "token_revoked",
+                                "detail": f"jti='{token_jti}' revoked_at={rev_rec.get('revoked_at')}, reason={rev_rec.get('reason')}"})
+            else:
+                checks.append({"check": "revocation", "passed": True,
+                                "reason": "token_not_revoked"})
+
             failed_checks = [c for c in checks if not c["passed"]]
             authorized    = len(failed_checks) == 0
 
@@ -10586,6 +10617,118 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 response["reason_code"] = "token_valid"
 
             self._json(response, http_status)
+
+        # ── POST /trust/signals/capability-token/revoke — active token revocation (v2.78) ──
+        elif p == "/trust/signals/capability-token/revoke":
+            """
+            v2.78: Actively revoke a SINT capability token by jti.
+            Completes the SINT capability token lifecycle:
+              v2.74 declare → v2.75 fixture → v2.77 validate → v2.78 revoke
+
+            Body:
+              {
+                "jti":     "<string>",   # required — token identifier to revoke
+                "reason":  "<string>",   # optional — revocation reason (expired/compromised/policy_violation/manual)
+                "revoked_by": "<did>"    # optional — DID of revoking principal
+              }
+
+            Returns:
+              200 { ok: true, revoked: true, jti: ..., revocation_id: ..., revoked_at: ..., reason: ... }
+              404 { ok: false, code: "ERR_TOKEN_NOT_FOUND", ... }   if jti not in _capability_tokens
+              409 { ok: false, code: "ERR_ALREADY_REVOKED", ... }   if already revoked
+              400 { ok: false, code: "ERR_BAD_REQUEST", ... }
+
+            A2A #1716: complements SINT runtime enforcement with active revocation.
+            Revoked JTIs are stored in _revoked_tokens and checked by validate endpoint.
+            """
+            if self.command != "POST":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use POST /trust/signals/capability-token/revoke"}, 405)
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw    = self.rfile.read(length) if length > 0 else b"{}"
+                body   = json.loads(raw)
+            except Exception as exc:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": f"Invalid JSON body: {exc}"}, 400)
+                return
+
+            if not isinstance(body, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Body must be a JSON object"}, 400)
+                return
+
+            jti = body.get("jti", "").strip()
+            if not jti:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Missing required field 'jti'"}, 400)
+                return
+
+            reason      = body.get("reason", "manual")
+            revoked_by  = body.get("revoked_by", "")
+            now_ts      = int(time.time())
+
+            # Check if already in revocation list
+            existing_rev = _revoked_tokens.get(jti)
+            if existing_rev:
+                self._json({
+                    "ok": False,
+                    "code": "ERR_ALREADY_REVOKED",
+                    "message": f"Token jti='{jti}' is already revoked",
+                    "revocation_id": existing_rev.get("revocation_id"),
+                    "revoked_at": existing_rev.get("revoked_at"),
+                    "reason": existing_rev.get("reason"),
+                }, 409)
+                return
+
+            # Record revocation (even if not in _capability_tokens — forward revocation)
+            revocation_id = f"rev-{jti[:8]}-{now_ts}"
+            revocation_record = {
+                "jti":           jti,
+                "revocation_id": revocation_id,
+                "revoked_at":    now_ts,
+                "reason":        reason,
+                "revoked_by":    revoked_by or "relay",
+                "token_known":   jti in _capability_tokens,
+            }
+            _revoked_tokens[jti] = revocation_record
+
+            # If token exists in issuance store, mark it revoked
+            if jti in _capability_tokens:
+                _capability_tokens[jti]["revoked"] = True
+                _capability_tokens[jti]["revoked_at"] = now_ts
+                _capability_tokens[jti]["revoke_reason"] = reason
+
+            self._json({
+                "ok":            True,
+                "revoked":       True,
+                "jti":           jti,
+                "revocation_id": revocation_id,
+                "revoked_at":    now_ts,
+                "reason":        reason,
+                "revoked_by":    revoked_by or "relay",
+                "token_known":   jti in _capability_tokens,
+                "version":       VERSION,
+                "a2a_ref":       "https://github.com/google-a2a/A2A/issues/1716",
+            })
+
+        # ── GET /trust/signals/capability-token/revocations — list revoked tokens (v2.78) ──
+        elif p == "/trust/signals/capability-token/revocations":
+            """v2.78: List all revoked capability tokens."""
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token/revocations"}, 405)
+                return
+            revocations = list(_revoked_tokens.values())
+            self._json({
+                "ok":           True,
+                "version":      VERSION,
+                "total_revoked": len(revocations),
+                "revocations":  revocations,
+                "a2a_ref":      "https://github.com/google-a2a/A2A/issues/1716",
+            })
 
         # ── POST /trust/vouch — add a vouch_chain entry (v2.27) ──────────────
         elif p == "/trust/vouch":
