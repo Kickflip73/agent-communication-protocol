@@ -5,6 +5,35 @@
 
 ---
 
+### v2.76.0 — effective_tier Factor 5: bilateral_ir_adj (2026-04-07)
+
+ACP v2.76 upgrades `effective_tier` to a **5-factor architecture**, adding `bilateral_ir_adj` derived from the local bilateral IR log — a tamper-evident attestation without requiring an external chain (A2A #1716 @64R3N).
+
+**New computation functions:**
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `_bilateral_ir_merkle_root(peer_id)` | `str \| None` | SHA-256 Merkle root over bilateral IR records for peer |
+| `_bilateral_ir_adj(peer_id)` | `(adj, count, merkle_root)` | Factor 5 adjustment value |
+
+**Threshold logic:**
+
+| Bilateral records | `bilateral_ir_adj` | Meaning |
+|-------------------|--------------------|---------|
+| 0 (unknown peer) | `+1` | Raises tier floor — conservative |
+| 1–4 | `0` | Neutral — limited history |
+| ≥5 | `−1` | Established peer — may lower floor |
+
+**5-factor combination rule:**
+- Any `+1` overrides immediately (conservative wins)
+- `−1` requires ≥2 of 3 adjustment factors to agree (consensus required to lower floor)
+
+**AgentCard:** `capabilities.effective_tier_five_factors: true`
+
+**Tests:** ET-01..ET-30 = 30/30 PASS | Full regression: 153/153 PASS | Commit: `a469555`
+
+---
+
 ### v2.75.0 — Canonical Authorization Fixture Endpoint (2026-04-07)
 
 ACP v2.75 adds **`GET /trust/signals/capability-token/fixtures`** — the minimal canonical

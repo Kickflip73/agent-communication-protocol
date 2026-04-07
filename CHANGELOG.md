@@ -7,6 +7,51 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [2.76.0] — 2026-04-07 (effective_tier Factor 5 — bilateral_ir_adj; A2A #1716 @64R3N attestation_history_adjustment)
+
+### Added
+- **`_bilateral_ir_merkle_root(peer_id)`** — SHA-256 Merkle commitment over local bilateral IR records for a given peer, sorted by timestamp; mirrors the `wtrmrk_sequence_root` concept without requiring an external chain
+- **`_bilateral_ir_adj(peer_id)`** — Factor 5 adjustment computation for `effective_tier`:
+  - `+1` (0 records) — unknown peer raises tier floor (conservative)
+  - ` 0` (1–4 records) — known but limited bilateral history; neutral
+  - `-1` (≥5 records) — established bilateral interaction history; may lower tier floor
+  - Returns `(adj, count, merkle_root)` tuple
+  - Only records with `bilateral=True` and matching `peer_id` are counted
+- **`effective_tier` upgraded to 5-factor architecture**:
+  - Factor 1: `tier_rule` (skill-declared authorization tier)
+  - Factor 2: `delegation_depth_floor` (deeper delegation = more conservative floor)
+  - Factor 3: `reputation_adj` (peer trust signals history)
+  - Factor 4: `wtrmrk_adj` (on-chain WTRMRK grade)
+  - Factor 5 ⭐: **`bilateral_ir_adj`** (local IR log Merkle commitment, A2A #1716 @64R3N)
+  - Combination rule: any `+1` immediately overrides (conservative); `-1` requires ≥2 of 3 adjustment factors to agree
+  - `factors` dict now includes: `bilateral_ir_adj`, `bilateral_ir_count`, `bilateral_ir_merkle_root`, `factor_count: 5`
+- **`capabilities.effective_tier_five_factors: True`** — advertised in AgentCard
+
+### Tests
+- `tests/test_effective_tier_v276.py` — 30 test cases (ET-01..ET-30)
+  - Version ≥ 2.76, capability declaration
+  - HTTP endpoint: `effective-tier` presence, `factor_count=5`
+  - `bilateral_ir_adj` / `bilateral_ir_count` / `bilateral_ir_merkle_root` field presence
+  - Unknown peer → `adj=+1`, `count=0`, `merkle_root=None`
+  - Merkle root with synthetic records → non-null 64-char SHA-256 hex
+  - Threshold tests: 1 record→0, 4 records→0, 5 records→−1, 10 records→−1
+  - `bilateral=False` records excluded from count
+  - Combined adj: any `+1` overrides; two-negative consensus required for `−1`
+  - `factor_count=5` always present; T3 immune to all factors
+  - Fix CF-19 version assertion in `test_capability_token_fixtures_v275.py` (== → >=)
+
+### Full Regression
+- **153/153 PASS** (ET×30 + CF×20 + CT×25 + AL×22 + BL×21 + SP×20 + SC×15 + TS×14 — batched)
+
+### Commit
+- `a469555`
+
+### References
+- A2A #1716 @64R3N: `effective_tier attestation_history_adjustment` proposal
+- ACP v2.62 Factor 4 (`wtrmrk_adj`) — local IR log analogue to `wtrmrk_sequence_root`
+
+---
+
 ## [2.75.0] — 2026-04-07 (canonical authorization fixture endpoint; A2A #1716 @pshkv 4-deny+1-allow minimal vector set)
 
 ### Added
