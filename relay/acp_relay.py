@@ -161,7 +161,9 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.79.0"  # v2.79: GET /protocol-binding + AgentCard protocol_binding declaration — A2A §5.8 custom protocol binding URI identification; ACP binding URI urn:acp:binding:p2p-relay/v1
+VERSION = "2.80.0"  # v2.80: heartbeat_period_ms — AgentCard heartbeat interval declaration (A2A Issue #1667)
+
+_heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
 # v2.38: valid priority levels and sort order (lower index = higher priority)
 VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
@@ -2170,6 +2172,11 @@ def _make_agent_card(name, skills):
 
     # v2.79: inject protocol_binding top-level declaration (A2A §5.8 CPB URI identification)
     card["protocol_binding"] = dict(_PROTOCOL_BINDING)
+
+    # v2.80: inject heartbeat_period_ms top-level field when declared
+    if _heartbeat_period_ms is not None:
+        card["heartbeat_period_ms"] = _heartbeat_period_ms
+        card["capabilities"]["heartbeat_period_declared"] = True
 
     # v1.2: attach availability block only when configured (opt-in)
     if _availability:
@@ -6767,12 +6774,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     )
                 else:
                     avail["last_active_at"] = _now()
-            self._json({
+            resp = {
                 "ok":           True,
                 "availability": avail,
                 "mode":         avail.get("mode", "persistent"),
                 "has_schedule": bool(avail.get("schedule")),
-            })
+            }
+            # v2.80: include heartbeat_period_ms when declared
+            if _heartbeat_period_ms is not None:
+                resp["heartbeat_period_ms"] = _heartbeat_period_ms
+            self._json(resp)
 
         # ── GET /skills — Skills-lite structured skill list (v2.10) ──────────
         elif p == "/skills":  # [stable] structured skill discovery + filtering (v2.10)
@@ -8655,12 +8666,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     _availability["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
             log.info(f"[v2.17] heartbeat stamped: last_active_at={now_str} "
                      f"next_active_at={_availability.get('next_active_at')}")
-            self._json({
+            hb_resp = {
                 "ok":            True,
                 "last_active_at": now_str,
                 "next_active_at": _availability.get("next_active_at"),
                 "availability":   dict(_availability),
-            })
+            }
+            # v2.80: include heartbeat_period_ms when declared
+            if _heartbeat_period_ms is not None:
+                hb_resp["heartbeat_period_ms"] = _heartbeat_period_ms
+            self._json(hb_resp)
             return
         # ── end v2.17 ─────────────────────────────────────────────────────────
 
@@ -11580,6 +11595,12 @@ Examples:
                         help="(v1.2) Heartbeat/cron wake interval in seconds. "
                              "Used with --availability-mode heartbeat|cron. "
                              "Sets availability.interval_seconds and task_latency_max_seconds.")
+    parser.add_argument("--heartbeat-period-ms", type=int, default=None, metavar="MS",
+                        help="(v2.80) Declare agent heartbeat period in milliseconds. "
+                             "Adds heartbeat_period_ms to AgentCard top-level and "
+                             "capabilities.heartbeat_period_declared=true. "
+                             "Consumers may treat agents as offline after 2-3x this interval "
+                             "without a heartbeat. Example: --heartbeat-period-ms 30000 (30s).")
     parser.add_argument("--next-active-at", default=None, metavar="ISO8601",
                         help="(v1.2) ISO-8601 UTC timestamp of next scheduled wake "
                              "(e.g. 2026-03-22T07:00:00Z). Written into AgentCard availability block.")
@@ -11792,6 +11813,13 @@ Examples:
                  (f" (interval={hb_interval}s)" if hb_interval else ""))
     elif avail_mode == "persistent":
         _availability = {"mode": "persistent"}
+
+    # v2.80: --heartbeat-period-ms — declare agent heartbeat period in AgentCard
+    global _heartbeat_period_ms
+    hb_period_ms = _get(getattr(args, "heartbeat_period_ms", None), "heartbeat-period-ms", None)
+    if hb_period_ms is not None:
+        _heartbeat_period_ms = int(hb_period_ms)
+        log.info(f"💓 heartbeat_period_ms declared: {_heartbeat_period_ms}ms")
 
     # v1.3 / v2.8: parse --extension and --extensions flags into _extensions list
     raw_extensions = _get(getattr(args, "extension", []) or [], "extension", [])
