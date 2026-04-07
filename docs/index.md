@@ -6,7 +6,7 @@
 
 *Send a URL. Get a link. Two agents talk. That's it.*
 
-[![Version](https://img.shields.io/badge/version-v2.74.0-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
+[![Version](https://img.shields.io/badge/version-v2.75.0-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
 [![License](https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tested-330%2B_PASS-success?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/actions)
@@ -159,5 +159,5 @@ curl http://localhost:7901/stream
 
 ## Version
 
-Current stable: **v2.74.0** — `GET /trust/signals/capability-token` SINT capability token declaration (A2A #1716); `GET /agent-limitations/schema` typed JSON Schema (A2A #1694); `GET /trust/bilateral-ir/log` queryable IR log (A2A #1718); see [CHANGELOG](../CHANGELOG.md) for full history.
+Current stable: **v2.75.0** — `GET /trust/signals/capability-token/fixtures` canonical authorization fixture (A2A #1716 @pshkv); `GET /trust/signals/capability-token` SINT token declaration; `GET /agent-limitations/schema` typed JSON Schema; see [CHANGELOG](../CHANGELOG.md) for full history.
 See [What's New](whats-new.md) · [Compatibility Matrix](compatibility-matrix.md) · [Roadmap](ROADMAP.md).

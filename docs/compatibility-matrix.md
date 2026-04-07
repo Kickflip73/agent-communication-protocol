@@ -1,8 +1,8 @@
 # ACP Compatibility Matrix
 
 > **Updated**: 2026-04-07  
-> **Impl ref**: `relay/acp_relay.py` v2.74.0  
-> **Spec ref**: `spec/core-v1.0.md` (v2.74, Stable)
+> **Impl ref**: `relay/acp_relay.py` v2.75.0  
+> **Spec ref**: `spec/core-v1.0.md` (v2.75, Stable)
 
 This document defines interoperability guarantees across ACP relay versions.
 An agent on any version listed here can communicate with an agent on any other listed version,

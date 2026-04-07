@@ -32,6 +32,13 @@ Dates: Asia/Shanghai (UTC+8)
   - Per-deny scenario presence (scope_mismatch / expired_toctou / skill_id_mismatch / subject_mismatch)
   - authorized=False + http_status=403 for all deny scenarios
   - Unique fixture IDs, token object presence, version string, method rejection
+  - Fix CT-20 version assertion in `test_capability_token_detail_v274.py` (startswith → >=)
+
+### Full Regression
+- **123/123 PASS** (CF×20 + CT×25 + AL×22 + BL×21 + SP×20 + SC×15 + TS×14 — batched)
+
+### Commit
+- `2d5fbd7`
 
 ---
 

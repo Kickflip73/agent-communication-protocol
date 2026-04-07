@@ -5,6 +5,37 @@
 
 ---
 
+### v2.75.0 — Canonical Authorization Fixture Endpoint (2026-04-07)
+
+ACP v2.75 adds **`GET /trust/signals/capability-token/fixtures`** — the minimal canonical
+authorization test fixture set proposed by @pshkv in A2A #1716 (SINT PR#111).
+
+**Why it matters**: Cross-project interoperability requires shared, executable test vectors.
+@pshkv's proposal calls for a standard fixture contract at the `AgentSkill` boundary so that
+any SINT-compatible implementation can validate its token verification logic against the same
+scenarios. ACP is the first relay to ship this as a live queryable endpoint.
+
+**The 5 fixture vectors**:
+
+| ID | Verdict | Scenario |
+|----|---------|----------|
+| `allow_valid_subject_bound` | ✅ allow | All fields nominal, signature valid, not expired, scope + subject match |
+| `deny_scope_mismatch` | ❌ deny | Token resource ≠ target skill — cross-skill token reuse blocked |
+| `deny_expired_toctou` | ❌ deny | TOCTOU: valid at check time, expired at use time |
+| `deny_skill_id_mismatch` | ❌ deny | Resource URI encodes different skill_id than invocation |
+| `deny_subject_mismatch` | ❌ deny | `sub` DID ≠ invoking agent DID — cross-agent token replay blocked |
+
+Each fixture includes a `token` object with realistic SINT fields, `invocation_context`,
+and `expected_result` (`authorized`, `reason_code`, `http_status`). Timestamps are computed
+dynamically relative to `now` so fixtures are always temporally coherent.
+
+**AgentCard**: `capabilities.capability_token_fixtures: true` +
+`endpoints.capability_token_fixtures: "/trust/signals/capability-token/fixtures"`
+
+**Tests**: CF-01..CF-20 — 20/20 PASS. Full regression 123/123 PASS.
+
+---
+
 ### v2.74.0 — SINT Capability Token Declaration Endpoint (2026-04-07)
 
 ACP v2.74 adds **`GET /trust/signals/capability-token`** — a dedicated endpoint that exposes
