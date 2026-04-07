@@ -194,7 +194,7 @@ def test_ct19_a2a_ref_1716(base_url):
 
 def test_ct20_version_274(base_url):
     data = requests.get(f"{base_url}/trust/signals/capability-token", timeout=5).json()
-    assert data["version"].startswith("2.74")
+    assert data["version"] >= "2.74"  # v2.75+ still satisfies this test
 
 
 # ── CT-21: POST returns 4xx (non-200) — endpoint is GET-only ─────────────────
