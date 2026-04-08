@@ -713,8 +713,9 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 | 候选 | 来源 | 说明 |
 |------|------|------|
-| `GET /protocol-binding/compatibility` | A2A #1723 SLIMRPC | 协议绑定兼容性查询 |
-| `PUT /agent-card/availability` | A2A #1667 完整调度元数据 | scheduleType/nextActiveAt 等 |
+| `GET /protocol-binding/compatibility` | A2A #1723 SLIMRPC | 多协议绑定兼容性矩阵，声明 ACP 与 gRPC/REST/WebSocket 等协议的兼容性级别 |
+| `PUT /agent-card/schedule` | A2A #1667 延伸 | 完整调度元数据（scheduleType/cronExpression/nextActiveAt/taskLatencyMaxSeconds） |
+| `POST /tasks/{id}/evidence/batch` | ACP 内生 | 批量提交多条证据（减少 RTT） |
 
 ---
 

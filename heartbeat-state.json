@@ -1,5 +1,5 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-08 07:49 — 研究轮完成. scan20 生成. 下轮: 开发轮.",
-  "next_round": "dev"
+  "notes": "2026-04-08 09:09 — 文档轮完成. README/ROADMAP 已同步 v2.82. v2.83 候选已记录. 下轮: 测试轮.",
+  "next_round": "test"
 }

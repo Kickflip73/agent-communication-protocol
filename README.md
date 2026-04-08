@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.81.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.82.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -320,6 +320,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | Submit task evidence | POST | `/tasks/{id}/evidence` |
 | List task evidence | GET | `/tasks/{id}/evidence` |
 | Get latest evidence | GET | `/tasks/{id}/evidence/latest` |
+| Stream task evidence (SSE) | GET | `/tasks/{id}/evidence-stream` |
 | Heartbeat report | POST | `/availability/heartbeat` |
 | Query availability | GET | `/availability` |
 
@@ -351,6 +352,7 @@ HTTP default port: `7901` · WebSocket port: `7801`
 | Ed25519 identity | `--identity` | Requires `pip install cryptography` |
 | mDNS LAN discovery | `--advertise-mdns` | No zeroconf library needed |
 | Docker | `docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay` | Multi-arch, GHCR CI |
+| `evidence_stream` | _(always on)_ | 任务证据 SSE 实时订阅（v2.82）：`GET /tasks/{id}/evidence-stream`，支持 replay + 多订阅者 + keepalive |
 
 ---
 
