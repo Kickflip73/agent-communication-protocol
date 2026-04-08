@@ -1555,10 +1555,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#v282" class="md-nav__link">
+  <a href="#v282-evidence_stream-sse-lifecycle-subscription-2026-04-08" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔮 v2.82（候选）
+        ✅ v2.82 — evidence_stream: SSE lifecycle subscription (2026-04-08)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v283" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔮 v2.83（候选）
       
     </span>
   </a>
@@ -3300,7 +3311,50 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <p><strong>差异化</strong>：A2A Issue #1721 Assay 框架任务证据讨论中，ACP 率先落地完整任务证据锚点系统，
 形成 trust signals → capability token → task evidence 完整可信执行闭环。</p>
 <hr />
-<h3 id="v282">🔮 v2.82（候选）<a class="headerlink" href="#v282" title="Permanent link">&para;</a></h3>
+<h3 id="v282-evidence_stream-sse-lifecycle-subscription-2026-04-08">✅ v2.82 — evidence_stream: SSE lifecycle subscription (2026-04-08)<a class="headerlink" href="#v282-evidence_stream-sse-lifecycle-subscription-2026-04-08" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>状态</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /tasks/{id}/evidence-stream</code> — SSE real-time subscription for task lifecycle evidence</td>
+<td>✅ 已完成</td>
+<td>98bf92f</td>
+</tr>
+<tr>
+<td>Replay on connect: pushes all existing evidence entries before live stream</td>
+<td>✅ 已完成</td>
+<td>98bf92f</td>
+</tr>
+<tr>
+<td>Multi-subscriber support per task</td>
+<td>✅ 已完成</td>
+<td>98bf92f</td>
+</tr>
+<tr>
+<td>Keepalive interval: 5s</td>
+<td>✅ 已完成</td>
+<td>98bf92f</td>
+</tr>
+<tr>
+<td><code>capabilities.evidence_stream: true</code> in status and AgentCard</td>
+<td>✅ 已完成</td>
+<td>98bf92f</td>
+</tr>
+<tr>
+<td><code>test_evidence_stream.py</code>: ES1–ES12 = <strong>12/12 PASS</strong></td>
+<td>✅ 已完成</td>
+<td>98bf92f</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v283">🔮 v2.83（候选）<a class="headerlink" href="#v283" title="Permanent link">&para;</a></h3>
 <p><strong>候选特性（待 Stark 先生确认）</strong>：</p>
 <table>
 <thead>
