@@ -1,5 +1,5 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-08 22:20 — 테스트 라운드 완료. 시나리오 A+B+F+G+H: PASS. BUG-031 발견+수정: test_cs10 v2.85 Ed25519 default-on 적응(--no-identity 사용). 11/11 card_sig PASS. commit 11c5eb4. 下轮: 문서 라운드(ROADMAP v2.86 완료 기록 + CHANGELOG).",
-  "next_round": "doc"
+  "notes": "2026-04-08 23:55 — 테스트 라운드 완료. 시나리오B(7/7)+3-agent(25/25)+round12_b(내포)+scenario_e+ab(8/8)+round12_c(16/16) 전부 PASS. 미해결 P0/P1 없음. 下轮: 개발 라운드(v2.87 2-Agent demo 스크립트 준비).",
+  "next_round": "dev"
 }
