@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1060%2F1060_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1068%2F1068_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -278,6 +278,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | **Multi-turn conversation context** | ❌ `contextId` still proposal-stage — no query API in spec | **✅ `GET /context/<id>/messages` — query full conversation history by `context_id` (v2.15); supports `since_seq` incremental fetch, `sort=asc\|desc`, `limit`; outbound + inbound messages unified** |
 | **Availability scheduling (CRON)** | ❌ #1667 heartbeat agent support still in discussion — no schedule field | **✅ `availability.schedule` CRON expression + `availability.timezone`; `GET /availability`; `POST /availability/heartbeat`; `capabilities.availability_schedule` (v2.17)** |
 | **JWKS key discovery** | ❌ IS#1628 proposes JWKS-format key discovery — still proposal stage, no merged implementation | **✅ `GET /.well-known/jwks.json` — RFC 7517 JWK Set; `kty=OKP`, `crv=Ed25519`, `alg=EdDSA` per RFC 8037; discoverable via `endpoints.jwks` + `trust.signals[type=jwks].jwks_uri`; `capabilities.trust_jwks: true` (v2.18)** |
+| **Protocol bindings declaration** | ✅ §5.8 Custom Protocol Bindings — `protocol_bindings[]` URI array in AgentCard (merged 2026-04-07) | **✅ `protocol_bindings[]` top-level AgentCard array + `GET /protocol-binding` endpoint + `urn:acp:binding:p2p-relay/v1` URI; backward-compat singular `protocol_binding` retained (v2.84)** |
 
 > A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) has 62 comments and three competing third-party implementations (AgentID, APS, qntm) racing to fill the gap — still nothing merged into A2A spec. ACP v1.8+v1.9 ships the complete identity story today: agents sign their own card (v1.8), and when two agents connect, each side **automatically** verifies the other's card at handshake (v1.9). `GET /peer/verify` → `{verified: true}`. No CA. No registration. No extra calls.
 
@@ -296,8 +297,8 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **232/232 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query)
-- **184+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
+- **240/240 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · Scenario B/E)
+- **190+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
 
@@ -550,6 +551,33 @@ agent-communication-protocol/
 ├── docs/                 ← Chinese docs, conformance guide, blog drafts
 └── acp-research/         ← Competitive intelligence, ROADMAP
 ```
+
+---
+
+## Show HN
+
+> **ACP — P2P protocol for AI Agents to talk directly, no server required**
+
+**The problem:** Most multi-agent setups require a central orchestration server. When Agent A wants to message Agent B, you build infrastructure. When Agent B is behind NAT, you give up and poll.
+
+**What ACP does:** Agent A runs one command, gets an `acp://` link, sends it to Agent B. Agent B pastes the link. They're connected P2P — through NAT, firewalls, sandboxes — in under 5 seconds. No server. No registration. No OAuth dance.
+
+```bash
+# Agent A — anywhere in the world
+python3 acp_relay.py --name AgentA
+# ✅ Ready. Your link: acp://1.2.3.4:7801/tok_xxxxx
+
+# Agent B — behind a corporate firewall / in a cloud sandbox
+curl -X POST http://localhost:7901/peers/connect \
+     -d '{"link":"acp://1.2.3.4:7801/tok_xxxxx"}'
+# ✅ Connected. {"peer_id":"peer_001"}
+```
+
+**How it works:** Three-level auto-fallback — direct WebSocket → UDP hole punch (DCUtR) → relay. Your agents don't know or care which level they're on. The right level is chosen in < 3s.
+
+**ACP vs A2A (Google's protocol):** A2A requires OAuth 2.0, an HTTPS endpoint you must host, and an agent registry. ACP requires `pip install websockets`. A2A is great for enterprise platforms; ACP is for individuals, sandboxed agents, and fast prototyping.
+
+**Status:** Single-file Python daemon, 240 tests passing, Apache 2.0. Built in public over ~190 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
 
 ---
 

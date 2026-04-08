@@ -1,5 +1,5 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-08 12:23 — 研究轮完成. A2A 23066 stars, §5.8 protocol_bindings文档已合并, 新Logo品牌升级. ANP仍停更. v2.84行动建议: Show HN(P0) > protocol_bindings字段(P1) > client_msg_id(P2). 下轮: 开发轮(v2.84).",
-  "next_round": "dev"
+  "notes": "2026-04-08 12:53 — 开发轮v2.84完成. protocol_bindings[](A2A§5.8对齐)+client_msg_id幂等性. commit 2f42022. 8/8 tests PASS. 下轮: 文档轮(Show HN README polish + ROADMAP更新).",
+  "next_round": "doc"
 }

@@ -721,14 +721,19 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
-### 🔮 v2.84（候选，2026-04-08 提案）
-**候选特性（来源：NAT 穿透完成后的后续方向 + A2A/ANP 竞品研究）**：
+### ✅ v2.84（2026-04-08 完成）
+**来源：NAT 穿透完成后的后续方向 + A2A/ANP 竞品研究**
 
-| 候选 | 来源 | 优先级 | 说明 |
-|------|------|--------|------|
-| Show HN 发布准备 | 内生 | P0 | README 发布版精简（Show HN 格式）、demo 录制（NAT 穿透动态 gif/视频）、发布节点确认 |
-| AgentCard `protocol_bindings` URI 声明字段 | A2A §5.8 (Issue #1619) | P1 | 对齐 `GET /protocol-binding` 已实现的 CPB URI 声明（`urn:acp:binding:p2p-relay/v1`），将 `protocol_binding` 作为 AgentCard 顶层字段正式写入规范 §5.8 |
-| 消息层 `client_msg_id` 幂等性增强 | ANP 借鉴 | P2 | 客户端生成 `client_msg_id`，服务端幂等去重（防重放/断线重连场景），补全 v0.5 message_id 机制的客户端侧幂等保障 |
+| 特性 | 来源 | 优先级 | 状态 | Commit |
+|------|------|--------|------|--------|
+| Show HN 发布准备（README polish + ROADMAP 更新） | 内生 | P0 | ✅ 已完成 | 本轮 |
+| AgentCard `protocol_bindings[]` 数组字段（A2A §5.8 对齐） | A2A §5.8 §1619 | P1 | ✅ 已完成 | `2f42022` |
+| `client_msg_id` 幂等性增强（ANP §3.2 借鉴） | ANP 借鉴 | P2 | ✅ 已完成 | `2f42022` |
+
+**实现说明：**
+- `protocol_bindings[]`：AgentCard 顶层新增数组字段，单元素 `urn:acp:binding:p2p-relay/v1`；保留单数 `protocol_binding` 向后兼容；新 capability flag `protocol_bindings_array=true`
+- `client_msg_id`：`/message:send` 接受 `client_msg_id` 作为 `message_id` 别名（优先级：`message_id` > `client_msg_id` > 自动生成）；所有发送响应回显 `client_msg_id`；dedup 缓存覆盖两种形式
+- README version badge 更新 v2.82.0 → v2.84.0
 
 ---
 
