@@ -2,7 +2,7 @@
 
 > **Status**: Draft v2.86 — pending Stark 先生 review before posting  
 > **Target**: Hacker News — Show HN  
-> **Last updated**: 2026-04-08 (v2.85 features incorporated)  
+> **Last updated**: 2026-04-09 (v2.87 features incorporated)  
 > **Timing note**: A2A v1.0.1 just dropped (bugfix only). Identity issue #1672 still has 403 comments, no implementation. Our window is wide open.
 
 ---
@@ -56,10 +56,11 @@ That's the whole API surface for a working chat. Three endpoints. No auth server
 
 ---
 
-**What's shipping (v2.85.0, 1092 tests passing)**:
+**What's shipping (v2.87.0, 1100+ tests passing)**:
 
 - **Ed25519 identity — default on**: Every agent gets a self-sovereign `did:acp:` keypair on first run. No flag needed. `--no-identity` is the escape hatch for testing.
 - **AgentCard self-signatures + mutual verification**: Agents sign their own cards at connect-time. `POST /verify/card` gives cryptographic proof of card authenticity — no CA, works offline.
+- **Governance/compliance standards declaration**: `--policy-compliance OWASP-ASVS,NIST-AIRMF` publishes which standards your agent conforms to, queryable via `GET /policy-compliance` and runtime-updatable via `PATCH`. (A2A #1717 still in proposal stage — ACP ships it.)
 - **Automatic NAT traversal** — 3 levels: P2P direct → UDP hole-punch → Relay fallback. Zero user config.
 - **Task state machine**: 5 states (submitted/working/completed/failed/input_required), SSE events for each transition.
 - **Multi-peer routing** (`/peers/broadcast`, `/peer/{id}/send`) for orchestrator patterns.
@@ -146,6 +147,7 @@ Here's where I think ACP makes different choices worth discussing:
 
 | Date | Change |
 |------|--------|
+| 2026-04-09 | v2.87 update: policy_compliance[] governance standards (A2A #1717 抢先落地), test count 1100+, last-updated bump |
 | 2026-04-08 | v2.86 update: Ed25519 default-on, compatibility endpoint, A2A #1672 updated (403 comments), v2.85 test count (1092), SLIMRPC mention removed (too early) |
 | 2026-03-28 | v1.5 update: DID, Docker, conformance, A2A #1680/#1684 compare |
 | 2026-03-24 | Initial draft |

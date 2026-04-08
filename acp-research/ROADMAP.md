@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 04:30（文档轮；v2.86 Show HN 冲刺完成；当前版本 v2.86.0 commit abfc94a）
+> 最后更新：2026-04-09 06:44（文档轮；v2.87 policy_compliance[] 完成；当前版本 v2.87.0 commit cdde26f）
 
 ---
 
@@ -428,6 +428,8 @@ Key commit: TBD（本轮）
 | v2.84.0 | `client_msg_id` idempotency alias + `protocol_bindings[]` array (A2A §5.8 aligned) | d3f41e9 | 2026-04-08 |
 | v2.85.0 | **Ed25519 identity default-on** + `--no-identity` escape hatch + `/protocol-binding/compatibility` | 397823e | 2026-04-08 |
 | v2.86.0 | Show HN 发布冲刺：README polish + A2A diff update + BUG-031 test fix | abfc94a | 2026-04-08 |
+| v2.86.1 | BUG-058 fix: test_capability_token CT-1 Ed25519 default-on 兼容 | 6a160f1 | 2026-04-09 |
+| v2.87.0 | **policy_compliance[] governance standards** — AgentCard字段 + `--policy-compliance` CLI + `GET/PATCH /policy-compliance`（A2A #1717 inspired）; 10 tests PC-1..10 | cdde26f | 2026-04-09 |
 
 ---
 
