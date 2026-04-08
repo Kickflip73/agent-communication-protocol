@@ -3368,12 +3368,17 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <tr>
 <td><code>GET /protocol-binding/compatibility</code></td>
 <td>A2A #1723 SLIMRPC</td>
-<td>协议绑定兼容性查询</td>
+<td>多协议绑定兼容性矩阵，声明 ACP 与 gRPC/REST/WebSocket 等协议的兼容性级别</td>
 </tr>
 <tr>
-<td><code>PUT /agent-card/availability</code></td>
-<td>A2A #1667 完整调度元数据</td>
-<td>scheduleType/nextActiveAt 等</td>
+<td><code>PUT /agent-card/schedule</code></td>
+<td>A2A #1667 延伸</td>
+<td>完整调度元数据（scheduleType/cronExpression/nextActiveAt/taskLatencyMaxSeconds）</td>
+</tr>
+<tr>
+<td><code>POST /tasks/{id}/evidence/batch</code></td>
+<td>ACP 内生</td>
+<td>批量提交多条证据（减少 RTT）</td>
 </tr>
 </tbody>
 </table>
