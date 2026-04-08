@@ -236,27 +236,29 @@ curl http://localhost:7901/discover
 
 ---
 
-### ✅ v1.4（已完成，2026-03-23/24）
+### ✅ v1.4（已完成，2026-03-23/24 → 最终完成 2026-04-08）
 **主题：三级 NAT 穿透（DCUtR 风格 UDP 打洞）**
 
 | 特性 | 状态 | Commit |
 |------|------|--------|
 | `DCUtRPuncher` 类（~200 行，UDP 打洞状态机） | ✅ | `8c162d4` |
-| Level 1: P2P 直连（3 次重试） | ✅ | — |
-| Level 2: DCUtR UDP 打洞（STUN + 信令 WS） | ✅ | `8c162d4` |
-| Level 3: Cloudflare Worker 中继兜底 | ✅ | `8c162d4` |
+| `_connect_with_nat_traversal()` 三级自动降级主流程 | ✅ | `d90b328` |
+| Level 1: 直接 WebSocket（`ws://IP:port/token`，3s 超时） | ✅ | — |
+| Level 2: DCUtR UDP 打洞（STUN + 信令 WS，12s 超时） | ✅ | `8c162d4` |
+| Level 3: Relay 兜底（Cloudflare Worker，自动触发） | ✅ | `8c162d4` |
 | Cloudflare Worker v2.1（NAT 信令端点） | ✅ | `8c162d4` |
 | HTTP reflection 备用 IP 发现（STUN 失败时） | ✅ | `b3da914` |
+| `--relay` 语义更新：现触发强制 L3 bypass（不再手动） | ✅ | `d90b328` |
 | `spec/nat-traversal-v1.4.md` + `docs/nat-traversal.md` | ✅ | — |
-| 测试：17 项全绿（STUN/消息/降级/握手） | ✅ | — |
+| 测试：34 项全绿（test_dcutr_t1~t6, test_nat_traversal_integration T1~T5, test_nat_signaling, test_nat_http_reflect） | ✅ | `d90b328` |
 
 **三级降级架构（对应用层完全透明）：**
 ```
-Level 1: 真 P2P WebSocket 直连
-    ↓ 失败 3 次
-Level 2: DCUtR UDP 打洞（同时探测，TTL 递增）
-    ↓ 打洞失败（对称 NAT / CGNAT，约 25% 场景）
-Level 3: Cloudflare Worker 中继（100% 成功率兜底）
+Level 1: 直接 WebSocket (ws://IP:port/token)   [3s timeout]
+    ↓ 超时/失败
+Level 2: DCUtR UDP 打洞（STUN 发现地址 → 信令 WS 协商 → 同时探测）  [12s timeout]
+    ↓ 打洞失败（对称 NAT / CGNAT，约 30% 场景）
+Level 3: Cloudflare Worker 中继兜底（100% 成功率）
 ```
 
 ---
@@ -716,6 +718,17 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | `GET /protocol-binding/compatibility` | A2A #1723 SLIMRPC | 多协议绑定兼容性矩阵，声明 ACP 与 gRPC/REST/WebSocket 等协议的兼容性级别 |
 | `PUT /agent-card/schedule` | A2A #1667 延伸 | 完整调度元数据（scheduleType/cronExpression/nextActiveAt/taskLatencyMaxSeconds） |
 | `POST /tasks/{id}/evidence/batch` | ACP 内生 | 批量提交多条证据（减少 RTT） |
+
+---
+
+### 🔮 v2.84（候选，2026-04-08 提案）
+**候选特性（来源：NAT 穿透完成后的后续方向 + A2A/ANP 竞品研究）**：
+
+| 候选 | 来源 | 优先级 | 说明 |
+|------|------|--------|------|
+| Show HN 发布准备 | 内生 | P0 | README 发布版精简（Show HN 格式）、demo 录制（NAT 穿透动态 gif/视频）、发布节点确认 |
+| AgentCard `protocol_bindings` URI 声明字段 | A2A §5.8 (Issue #1619) | P1 | 对齐 `GET /protocol-binding` 已实现的 CPB URI 声明（`urn:acp:binding:p2p-relay/v1`），将 `protocol_binding` 作为 AgentCard 顶层字段正式写入规范 §5.8 |
+| 消息层 `client_msg_id` 幂等性增强 | ANP 借鉴 | P2 | 客户端生成 `client_msg_id`，服务端幂等去重（防重放/断线重连场景），补全 v0.5 message_id 机制的客户端侧幂等保障 |
 
 ---
 

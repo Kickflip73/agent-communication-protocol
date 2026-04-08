@@ -1,5 +1,5 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-08 10:28 — 开发轮完成. v1.4 _connect_with_nat_traversal() 实现. commit: d90b328. 下轮: 文档轮.",
-  "next_round": "doc"
+  "notes": "2026-04-08 11:03 — 文档轮完成. v1.4 README/ROADMAP/CHANGELOG 已同步. 下轮: 测试轮.",
+  "next_round": "test"
 }

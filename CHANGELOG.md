@@ -7,6 +7,22 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v1.4.0] - 2026-04-08
+### Added
+- `_connect_with_nat_traversal()` three-level auto-fallback (L1 direct → L2 DCUtR hole punch → L3 relay)
+  - Level 1: Direct WebSocket (`ws://IP:port/token`, 3s timeout)
+  - Level 2: DCUtR UDP hole punch via signaling relay WS (12s timeout); STUN address discovery + simultaneous probes
+  - Level 3: Cloudflare Worker relay fallback (auto-triggered on symmetric NAT / CGNAT)
+- DCUtR UDP hole punch via signaling relay WS (`STUNClient` + `DCUtRPuncher` classes)
+- `--relay` flag semantics updated: now triggers force-L3 bypass (no longer manual-only)
+- SSE events: `dcutr_started` → `dcutr_connected` / `relay_fallback`
+- `GET /status` returns `connection_type`: `p2p_direct` | `dcutr_direct` | `relay`
+### Tests
+- 34 passed covering test_dcutr_t1~t6, test_nat_traversal_integration T1~T5, test_nat_signaling, test_nat_http_reflect
+- Commit: `d90b328`
+
+---
+
 ## v2.82.0 — evidence_stream: SSE lifecycle subscription (2026-04-08)
 
 ### Features
