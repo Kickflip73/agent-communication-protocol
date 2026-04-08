@@ -107,6 +107,11 @@ def _wait_host_link(proc, http_port, timeout=60):
     Wait for host relay to emit acp:// link (stdout + HTTP fallback).
     Returns 'acp://127.0.0.1:<ws_port>/tok_xxx' or None.
     Handles both public-IP and local-IP link formats.
+
+    BUG-044 fix (2026-04-08): In sandbox environments there is no public IP,
+    so relay.link == null and /status never returns a usable link.
+    Fallback: extract token from agent_card or /status fields directly and
+    construct acp://127.0.0.1:<ws_port>/<token> from http_port-100 (ws_port = http_port - 100).
     """
     token_holder = {"link": None}
     lock = threading.Lock()
@@ -118,6 +123,12 @@ def _wait_host_link(proc, http_port, timeout=60):
                 if m and not token_holder["link"]:
                     with lock:
                         token_holder["link"] = f"acp://127.0.0.1:{m.group(1)}/{m.group(2)}"
+                # Also try bare token line: "tok_<hex>"
+                m2 = re.search(r"\b(tok_[a-f0-9]{16,})\b", line)
+                if m2 and not token_holder["link"]:
+                    ws_port = http_port - 100
+                    with lock:
+                        token_holder["link"] = f"acp://127.0.0.1:{ws_port}/{m2.group(1)}"
         except Exception:
             pass
 
@@ -140,6 +151,18 @@ def _wait_host_link(proc, http_port, timeout=60):
                     raw_link = d.get("link") or ""
                     if raw_link:
                         local = re.sub(r"acp://[^:]+:", "acp://127.0.0.1:", raw_link)
+                        with lock:
+                            token_holder["link"] = local
+                        return local
+                    # BUG-044 fallback: try to extract token from agent_card or self_card
+                    ac = d.get("agent_card") or d.get("self") or d
+                    token = ac.get("token") if isinstance(ac, dict) else None
+                    if not token:
+                        # try top-level token field
+                        token = d.get("token")
+                    if token and re.match(r"tok_[a-f0-9]+", token):
+                        ws_port = http_port - 100
+                        local = f"acp://127.0.0.1:{ws_port}/{token}"
                         with lock:
                             token_holder["link"] = local
                         return local
