@@ -1602,7 +1602,18 @@
   <a href="#v286-2026-04-08" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ✅ v2.86（完成 — 2026-04-08，开发轮）
+        ✅ v2.86（完成 — 2026-04-08，开发轮 + 测试轮）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v2872026-04-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔮 v2.87（候选，目标：2026-04-13）
       
     </span>
   </a>
@@ -3525,14 +3536,15 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 - 对标 A2A #1672（Ed25519 互操作性 PR 持续活跃）先发制人
 - Show HN pitch：「零配置 P2P Agent 通信，默认 Ed25519 身份验证，一行启动」</p>
 <hr />
-<h3 id="v286-2026-04-08">✅ v2.86（完成 — 2026-04-08，开发轮）<a class="headerlink" href="#v286-2026-04-08" title="Permanent link">&para;</a></h3>
-<p><strong>主题：Show HN 发布冲刺 — README polish + Show HN 稿件最终版</strong></p>
+<h3 id="v286-2026-04-08">✅ v2.86（完成 — 2026-04-08，开发轮 + 测试轮）<a class="headerlink" href="#v286-2026-04-08" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Show HN 发布冲刺 — README polish + Show HN 稿件最终版 + BUG-031 修复</strong></p>
 <table>
 <thead>
 <tr>
 <th>特性</th>
 <th>优先级</th>
 <th>状态</th>
+<th>Commit</th>
 <th>说明</th>
 </tr>
 </thead>
@@ -3541,24 +3553,68 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td>Show HN draft v2.86 全面更新</td>
 <td>P0</td>
 <td>✅</td>
+<td><code>4bd71d3</code></td>
 <td>Ed25519 default-on 角度重写；A2A #1672 更新至 403 评论；v2.85 测试数 1092；删除过时 v3.0.0 内容</td>
 </tr>
 <tr>
 <td>README A2A 对比表 — 评论数更新</td>
 <td>P0</td>
 <td>✅</td>
+<td><code>4bd71d3</code></td>
 <td>#1672: 62→403 comments (2026-04-08 实测)</td>
+</tr>
+<tr>
+<td>BUG-031 修复：test_cs10 适配 v2.85</td>
+<td>P2</td>
+<td>✅</td>
+<td><code>11c5eb4</code></td>
+<td>v2.85 Ed25519 default-on 导致 CS10 测试预期过时；改用 <code>--no-identity</code> 逃生舱；11/11 PASS</td>
+</tr>
+<tr>
+<td>竞品扫描报告 2026-04-08</td>
+<td>P1</td>
+<td>✅</td>
+<td><code>c9c48ba</code></td>
+<td>A2A v1.0.1 bugfix-only；#1672 仍 open（403 评论）；SLIMRPC 新提案</td>
 </tr>
 <tr>
 <td>Hacker News 发布</td>
 <td>P0</td>
-<td>⏳</td>
+<td>⏳ 待批准</td>
+<td>—</td>
 <td>等 Stark 先生 review + 2-Agent demo 录制</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Key commit</strong>: 见下次 push<br />
-<strong>下一步</strong>: 2-Agent demo 录제 + HN 发布（待 Stark 先生批准）</p>
+<p><strong>测试结果</strong>：场景 A+B+F+G+H 全部 PASS；card_signature 11/11；identity 全套通过</p>
+<h3 id="v2872026-04-13">🔮 v2.87（候选，目标：2026-04-13）<a class="headerlink" href="#v2872026-04-13" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Show HN 正式发布 + 2-Agent demo</strong></p>
+<table>
+<thead>
+<tr>
+<th>候选特性</th>
+<th>优先级</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2-Agent demo 终端录屏</td>
+<td>P0</td>
+<td>Alpha↔Beta curl 双向通信真实演示（asciinema 或 gif）</td>
+</tr>
+<tr>
+<td>Hacker News 发布</td>
+<td>P0</td>
+<td>最佳时间：周一/周二早 9-10 AM ET；需 Stark 先生最终批准</td>
+</tr>
+<tr>
+<td>README demo gif 嵌入</td>
+<td>P1</td>
+<td>让首屏更直观，降低新访客摩擦</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h3 id="v092026-06">🔮 v0.9（规划中，目标：2026-06）<a class="headerlink" href="#v092026-06" title="Permanent link">&para;</a></h3>
 <p><strong>主题：协议健壮性 + 开发者体验</strong></p>
