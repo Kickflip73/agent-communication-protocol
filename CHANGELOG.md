@@ -7,6 +7,21 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.84.0] - 2026-04-08
+### Added
+- `protocol_bindings[]` top-level AgentCard field (A2A §5.8 aligned plural form):
+  - Array of CPB URI objects for multi-binding advertisement forward compatibility
+  - Retains singular `protocol_binding` field for backward compatibility
+  - New capability flag `protocol_bindings_array: true`
+- `client_msg_id` idempotency enhancement (ANP §3.2 borrow):
+  - `/message:send` accepts `client_msg_id` as alias for `message_id`
+  - Priority: `message_id` → `client_msg_id` → auto-generated
+  - All send responses echo `client_msg_id` field for caller convenience
+  - Dedup cache (`_http_dedup_check`) now covers `client_msg_id` alias
+### Tests
+- 7/7 Scenario B PASS (BUG-055 three-layer root-cause fix)
+- 14/14 Scenario E + NAT tests PASS
+
 ## [v1.4.0] - 2026-04-08
 ### Added
 - `_connect_with_nat_traversal()` three-level auto-fallback (L1 direct → L2 DCUtR hole punch → L3 relay)

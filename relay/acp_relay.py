@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.82.0"  # v2.82: evidence_stream — SSE lifecycle evidence subscription
+VERSION = "2.84.0"  # v2.84: protocol_bindings[] top-level AgentCard field (A2A §5.8 aligned); client_msg_id idempotency
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2042,6 +2042,7 @@ def _make_agent_card(name, skills):
             "capability_token_validate":    True,               # v2.77: POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (5-check pipeline)
             "capability_token_revoke":      True,               # v2.78: POST /trust/signals/capability-token/revoke + GET revocations — active token revocation (SINT lifecycle complete)
             "protocol_binding":             True,               # v2.79: GET /protocol-binding — A2A §5.8 CPB URI identification (urn:acp:binding:p2p-relay/v1)
+            "protocol_bindings_array":      True,               # v2.84: protocol_bindings[] top-level AgentCard field (A2A §5.8 plural, array of CPB URI objects)
             "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
             "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
             "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
@@ -2183,6 +2184,13 @@ def _make_agent_card(name, skills):
 
     # v2.79: inject protocol_binding top-level declaration (A2A §5.8 CPB URI identification)
     card["protocol_binding"] = dict(_PROTOCOL_BINDING)
+
+    # v2.84: inject protocol_bindings[] array (A2A §5.8 aligned plural form).
+    # A2A §5.8 declares protocol_bindings as an array of CPB URI objects so that
+    # an agent can advertise multiple simultaneous transport bindings.  We expose
+    # the same data as a single-element array for forward compatibility while
+    # retaining the singular protocol_binding field for backward compatibility.
+    card["protocol_bindings"] = [dict(_PROTOCOL_BINDING)]
 
     # v2.80: inject heartbeat_period_ms top-level field when declared
     if _heartbeat_period_ms is not None:
@@ -8812,18 +8820,24 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         self._json(e_body, e_code)
                         return
 
-                message_id = body.get("message_id") or _make_id("msg")
+                # v2.84: accept client_msg_id as idempotency key alias (ANP §3.2 borrow).
+                # Priority: explicit message_id → client_msg_id → auto-generate.
+                # Both forms are echoed back in the response as client_msg_id for caller convenience.
+                _explicit_id = body.get("message_id") or body.get("client_msg_id")
+                message_id = _explicit_id or _make_id("msg")
+                _client_supplied_id = bool(_explicit_id)
 
                 # ── v2.32: HTTP-level message idempotency (30s TTL dedup) ────
                 # Only applies when the client supplies their own message_id.
                 # Auto-generated IDs are never duplicates.
-                if body.get("message_id"):
+                if _client_supplied_id:
                     _is_dup, _cached_seq = _http_dedup_check(message_id)
                     if _is_dup:
                         self._json({
                             "ok":           True,
                             "deduplicated": True,
                             "message_id":   message_id,
+                            "client_msg_id": message_id,  # v2.84: echo back for ANP-style callers
                             "server_seq":   _cached_seq,
                         })
                         return
@@ -8957,6 +8971,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         if task:
                             _update_task(task["id"], TASK_COMPLETED, artifact={"parts": reply.get("parts", [])})
                         self._json({"ok": True, "message_id": message_id,
+                                    "client_msg_id": message_id,  # v2.84: echo for ANP-style callers
                                     "server_seq": msg["server_seq"], "reply": reply, "task": task})
                     except asyncio.TimeoutError:
                         _sync_pending.pop(message_id, None)
@@ -8999,7 +9014,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     }
                     _recv_queue.append(_outbound_entry)
                     # v2.32: store server_seq in dedup cache so replay returns it
-                    if body.get("message_id"):
+                    # v2.84: also record when client used client_msg_id alias
+                    if _client_supplied_id:
                         _http_dedup_record_seq(message_id, seq)
 
                     # v2.36: send acp.read receipt — signal to peer that we consumed their last message
@@ -9030,7 +9046,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
                             except Exception as _re:
                                 log.debug(f"[read_receipt] Failed to send acp.read: {_re}")
 
-                    self._json({"ok": True, "message_id": message_id, "server_seq": seq, "task": task})
+                    self._json({"ok": True, "message_id": message_id,
+                               "client_msg_id": message_id,  # v2.84: echo for ANP-style callers
+                               "server_seq": seq, "task": task})
 
             except ConnectionError as e:
                 # message_id may be defined if we got past body parsing

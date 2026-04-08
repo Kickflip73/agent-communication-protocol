@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.82.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.84.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
