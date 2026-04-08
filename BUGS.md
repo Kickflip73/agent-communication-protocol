@@ -1564,3 +1564,28 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 3. `tests/test_scenario_b_team_round23.py` — 加 `--local-only` 跳过外网操作；`wait_ready` 同时等 WS port；`_wait_peer_ws_ready()` 在发消息前等 ws_ready=True
 
 **状态：✅ 已修复，7/7 PASS，7.24s**
+
+---
+
+## BUG-056 ✅ [P1] `/peer/{id}/send` 未支持 `client_msg_id` idempotency alias
+
+**发现日期**: 2026-04-08
+**发现方式**: 测试轮手动验证 v2.84 特性时发现
+**场景**: POST `/peer/{id}/send` 发送 `client_msg_id` 字段被忽略（不 echo、不 dedup）
+
+**根因**: `/peer/{id}/send` handler（line ~9238）只处理 `message_id` 做幂等，
+未实现 v2.84 的 `client_msg_id` alias 逻辑（仅在 `/message:send` 实现了）
+
+**修复**:
+- `message_id = body.get("message_id") or body.get("client_msg_id") or _make_id("msg")`
+- `_peer_client_supplied = bool(...)` 控制 dedup + echo
+- 成功响应加 `"client_msg_id": message_id`（当客户端提供 key 时）
+- dedup 缓存记录使用 `_peer_client_supplied` 而非 `body.get("message_id")`
+
+**验证**:
+- CM1: echo ✅
+- CM2: dedup second → `deduplicated: true` ✅
+- CM4: auto-id 不 dedup, ID 唯一 ✅
+- 回归：broadcast + scenario_b + bug037 (29/29) ✅
+
+**状态**: ✅ 已修复（2026-04-08 测试轮，commit 见下）

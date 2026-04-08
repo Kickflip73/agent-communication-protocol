@@ -9276,18 +9276,23 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         self._json(e_body, e_code)
                         return
 
-                message_id = body.get("message_id") or _make_id("msg")
+                # v2.84: client_msg_id alias (ANP §3.2 borrow) — same as /message:send
+                # Priority: explicit message_id → client_msg_id → auto-generate.
+                _explicit_peer_id = body.get("message_id") or body.get("client_msg_id")
+                message_id = _explicit_peer_id or _make_id("msg")
+                _peer_client_supplied = bool(_explicit_peer_id)
 
                 # ── v2.32: HTTP-level message idempotency (30s TTL dedup) ────
-                if body.get("message_id"):
+                if _peer_client_supplied:
                     _is_dup, _cached_seq = _http_dedup_check(message_id)
                     if _is_dup:
                         self._json({
-                            "ok":           True,
-                            "deduplicated": True,
-                            "message_id":   message_id,
-                            "peer_id":      peer_id,
-                            "server_seq":   _cached_seq,
+                            "ok":            True,
+                            "deduplicated":  True,
+                            "message_id":    message_id,
+                            "client_msg_id": message_id,  # v2.84: echo back
+                            "peer_id":       peer_id,
+                            "server_seq":    _cached_seq,
                         })
                         return
 
@@ -9344,10 +9349,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 peer_info["messages_sent"] = peer_info.get("messages_sent", 0) + 1
                 _status["messages_sent"] += 1
                 # v2.32: store server_seq in dedup cache so replay returns it
-                if body.get("message_id"):
+                # v2.84: also record when client used client_msg_id alias
+                if _peer_client_supplied:
                     _http_dedup_record_seq(message_id, msg["server_seq"])
-                self._json({"ok": True, "message_id": message_id, "peer_id": peer_id,
-                            "server_seq": msg["server_seq"]})
+                _peer_resp = {"ok": True, "message_id": message_id, "peer_id": peer_id,
+                              "server_seq": msg["server_seq"]}
+                if _peer_client_supplied:
+                    _peer_resp["client_msg_id"] = message_id  # v2.84: echo back for ANP-style callers
+                self._json(_peer_resp)
 
             except ConnectionError as e:
                 _fmid = locals().get("message_id") or locals().get("_client_msg_id")
