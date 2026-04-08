@@ -2,7 +2,7 @@
 
 Node.js client for the [Agent Communication Protocol (ACP)](../../README.md) P2P relay.
 
-**Version:** 2.47.0 | **Zero external dependencies** | **Node.js ≥ 18** | **ESM + CJS**
+**Version:** 2.84.0 | **Zero external dependencies** | **Node.js ≥ 18** | **ESM + CJS**
 
 ## Installation
 
@@ -62,6 +62,11 @@ if (groups.identity?.ed25519) {
 // v2.47 — RFC 8615 well-known headers
 const headers = await client.wellKnownHeaders();
 console.log(headers['cache-control']); // "max-age=300, stale-while-revalidate=60"
+
+// v2.84 — Idempotent send (client_msg_id)
+const r = await client.sendWithClientMsgId('Hello again!', 'my-idempotency-key');
+// If relay already processed this key, returns { ok: true, deduplicated: true }
+console.log(r.deduplicated); // false (first send) / true (duplicate)
 ```
 
 ## API Reference
@@ -103,6 +108,7 @@ console.log(headers['cache-control']); // "max-age=300, stale-while-revalidate=6
 | **`trustSignals()`** | **v2.47** | **Trust signals from AgentCard (`trust.signals[]`)** |
 | **`capabilityGroups()`** | **v2.46** | **Structured capability groups (messaging/tasks/identity/transport/discovery)** |
 | **`wellKnownHeaders()`** | **v2.47** | **RFC 8615 response headers (Cache-Control, Vary, X-Content-Type-Options)** |
+| **`sendWithClientMsgId(text, clientMsgId, [extra])`** | **v2.84** | **Idempotent send — relay deduplicates by `client_msg_id` key** |
 
 ## TypeScript
 
@@ -116,7 +122,7 @@ import type { RelayClient, AcpMessage, AcpPeer } from 'acp-relay-client';
 
 ```bash
 node --test tests/relay_client.test.js
-# 66 tests, 0 failures
+# 70 tests, 0 failures
 ```
 
 ## Links

@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1068%2F1068_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1072%2F1072_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>

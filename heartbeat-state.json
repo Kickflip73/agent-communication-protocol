@@ -1,5 +1,5 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-08 16:14 — 测试轮完成(部分). broadcast BC6-BC9修复(commit 81648bf: --local-only+_wait_peer_connected). 已验证: broadcast(10/10)+scenario_b(7/7)+scenario_e+nat_signaling+agentcard_limitations+capabilities_groups+bug037(45/45). 全套因sandbox超时无法单次完成，分批验证均通过. 下轮: 研究轮.",
-  "next_round": "research"
+  "notes": "2026-04-08 17:14 — 开发轮完成. Node SDK sendWithClientMsgId()+4 tests(70/70); Python SDK client_msg_id param; 两者版本→2.84.0. commit 68f6a6a. 下轮: 文档轮(Node npm包README完善 + GitHub Pages评估).",
+  "next_round": "doc"
 }
