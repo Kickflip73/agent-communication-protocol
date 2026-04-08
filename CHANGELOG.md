@@ -7,6 +7,21 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.82.0 — evidence_stream: SSE lifecycle subscription (2026-04-08)
+
+### Features
+- `GET /tasks/{id}/evidence-stream` — SSE real-time subscription for task lifecycle evidence
+- Replay: on connect, pushes all existing evidence entries before live stream
+- Multi-subscriber: multiple clients can subscribe to the same task concurrently
+- Keepalive interval: 5s (configurable via EVIDENCE_STREAM_KEEPALIVE_INTERVAL env var)
+- `capabilities.evidence_stream: true` — declared in status and AgentCard
+- Completes the evidence lifecycle: write (POST) → query (GET) → stream (SSE)
+
+### Tests
+- `test_evidence_stream.py`: ES1–ES12 = **12/12 PASS**
+
+---
+
 ## v2.81.0 — task_evidence: lifecycle evidence anchoring (2026-04-08)
 
 ### Features

@@ -695,7 +695,20 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
-### 🔮 v2.82（候选）
+### ✅ v2.82 — evidence_stream: SSE lifecycle subscription (2026-04-08)
+
+| 特性 | 状态 | Commit |
+|------|------|--------|
+| `GET /tasks/{id}/evidence-stream` — SSE real-time subscription for task lifecycle evidence | ✅ 已完成 | 98bf92f |
+| Replay on connect: pushes all existing evidence entries before live stream | ✅ 已完成 | 98bf92f |
+| Multi-subscriber support per task | ✅ 已完成 | 98bf92f |
+| Keepalive interval: 5s | ✅ 已完成 | 98bf92f |
+| `capabilities.evidence_stream: true` in status and AgentCard | ✅ 已完成 | 98bf92f |
+| `test_evidence_stream.py`: ES1–ES12 = **12/12 PASS** | ✅ 已完成 | 98bf92f |
+
+---
+
+### 🔮 v2.83（候选）
 **候选特性（待 Stark 先生确认）**：
 
 | 候选 | 来源 | 说明 |
