@@ -7,6 +7,222 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.84.0 — `protocol_bindings[]` AgentCard Array + `client_msg_id` Idempotency (2026-04-08)
+
+### Added
+- `protocol_bindings[]` — A2A §5.8 aligned plural array on AgentCard top-level; backward-compatible singular `protocol_binding` retained; `capabilities.protocol_bindings_array=True`
+- `client_msg_id` — accepted as alias for `message_id` on `/message:send` and `/peer/{id}/send`; echoed in all send responses; dedup cache covers both forms (ANP §3.2 borrow)
+- `tests/test_protocol_binding_v279.py` extended; `tests/test_client_msg_id_v284.py` added (CM1–CM4)
+
+### Fixed (BUG-056)
+- `/peer/{id}/send` was silently ignoring `client_msg_id` field — not echoed, not deduped. Fixed to match `/message:send` behaviour.
+
+---
+
+## v2.82.0 — `evidence_stream`: SSE Task Lifecycle Subscription (2026-04-08)
+
+### Added
+- `GET /tasks/{id}/evidence-stream` — SSE subscription to task lifecycle events (evidence anchoring, status transitions, artifact appends)
+- Events: `evidence.anchored`, `task.status`, `task.artifact`
+- `capabilities.evidence_stream=True`; `endpoints.evidence_stream` in AgentCard
+
+---
+
+## v2.81.0 — `task_evidence`: Lifecycle Evidence Anchoring (2026-04-08)
+
+### Added
+- `POST /tasks/{id}/evidence` — anchor arbitrary evidence payloads to a task
+- `GET /tasks/{id}/evidence` — retrieve all anchored evidence records
+- Evidence fields: `evidence_type`, `payload`, `anchored_at`, `anchor_id`
+- `capabilities.task_evidence=True`
+
+---
+
+## v2.80.0 — `heartbeat_period_ms`: AgentCard Heartbeat Interval Declaration (2026-04-08)
+
+### Added
+- `heartbeat_period_ms` field on AgentCard top-level — declares relay's preferred heartbeat polling interval (default 30 000 ms)
+- `capabilities.heartbeat_period_ms=True`
+
+---
+
+## v2.79.0 — `GET /protocol-binding` + AgentCard `protocol_binding` Declaration (2026-04-07)
+
+### Added
+- `_PROTOCOL_BINDING = "urn:acp:binding:p2p-relay/v1"` global constant
+- `GET /protocol-binding` — returns `{binding_uri, transport, addressing, nat_traversal, sse, ws, spec_url}`
+- AgentCard top-level `protocol_binding` field; `capabilities.protocol_binding=True`
+- PB-01..PB-25 = 25/25 PASS
+- Aligns with A2A PR #1619 (merged 2026-04-07) §5.8 URI-based CPB identification
+
+---
+
+## v2.78.0 — SINT Token Revocation: `POST /trust/signals/capability-token/revoke` (2026-04-07)
+
+### Added
+- `POST /trust/signals/capability-token/revoke` — revoke a SINT token by JTI with reason + revoked_by
+- `GET /revocations` — list all revoked tokens
+- `/fixtures/validate` Check 6: revocation status (highest priority check)
+- `409 ERR_ALREADY_REVOKED` on duplicate revoke; forward revocation (unknown JTI) supported
+- Completes SINT capability quad: v2.74 declare + v2.75 fixture + v2.77 validate + v2.78 revoke
+- RV-01..RV-30 = 30/30 PASS; full regression 157/157 PASS
+
+---
+
+## v2.77.0 — SINT Dynamic Token Validation: `POST /trust/signals/capability-token/fixtures/validate` (2026-04-07)
+
+### Added
+- `POST /trust/signals/capability-token/fixtures/validate` — 5-check validation pipeline: expiry (TOCTOU) → scope → skill_id → subject → required_fields
+- Priority deny ordering with `deny_details` audit trail
+- `405` on GET (must use POST)
+- TV-01..TV-30 = 30/30 PASS
+- Aligns with A2A #1716 @pshkv SINT PR#111 runtime enforcement
+
+---
+
+## v2.76.0 — `effective_tier` Factor 5: `bilateral_ir_adj` from Local IR Log (2026-04-07)
+
+### Added
+- Factor 5 in `_compute_effective_tier()`: `bilateral_ir_adj` derived from local bilateral IR record log
+- `_bilateral_ir_adj(peer_id) → int` — counts recent verified bilateral IRs; +1 for ≥2 clean, -1 for ≥1 flagged
+- Five-factor formula: `max(tier_rule, depth_floor, base + combined_adj5)`
+- `factors{}` extended with `bilateral_ir_count`, `bilateral_ir_adj`
+
+---
+
+## v2.75.0 — SINT Canonical Authorization Fixture: `GET /trust/signals/capability-token/fixtures` (2026-04-07)
+
+### Added
+- `GET /trust/signals/capability-token/fixtures` — canonical authorization fixture for SINT token generation
+- Fixture fields: `issuer_did`, `subject_did`, `skill_id`, `scope`, `exp_ttl_s`, `required_fields[]`
+- `capabilities.capability_token_fixtures=True`
+
+---
+
+## v2.74.0 — SINT Capability Token Declaration: `GET /trust/signals/capability-token` (2026-04-07)
+
+### Added
+- `GET /trust/signals/capability-token` — relay's SINT capability token declaration
+- Returns: `token_type`, `algorithm`, `issuer_did`, `supported_scopes[]`, `max_ttl_s`
+- `capabilities.capability_token=True`; `endpoints.capability_token` in AgentCard
+- Aligns with A2A #1716 SINT per-invocation token design (@pshkv)
+
+---
+
+## v2.73.0 — `GET /agent-limitations/schema`: Typed JSON Schema for `agent_limitations` (2026-04-07)
+
+### Added
+- `GET /agent-limitations/schema` — returns canonical JSON Schema for `agent_limitations` object
+- Schema covers all limitation fields with type, description, and default values
+- `capabilities.agent_limitations_schema=True`
+
+---
+
+## v2.72.0 — `GET /trust/bilateral-ir/log`: Queryable Bilateral IR Record Log (2026-04-07)
+
+### Added
+- `GET /trust/bilateral-ir/log` — queryable log of all bilateral interaction records
+- Filters: `?agent_did=`, `?since=`, `?limit=`, `?verified_only=true`
+- Returns: `{records[], count, total}`
+- Aligns with A2A #1718 `importBilateralEvidence()` interface
+
+---
+
+## v2.71.0 — `security_posture` as 13th Trust Signal Type (2026-04-07)
+
+### Added
+- `security_posture` as signal type #13 in `_build_trust_signals()`
+- Fields: `tls_enforced`, `auth_required`, `rate_limit_active`, `max_payload_enforced`
+- `capabilities.security_posture_signal=True`
+
+---
+
+## v2.70.0 — `trust.signals` Severity + Category Metadata + `GET /trust/signals/schema` (2026-04-07)
+
+### Added
+- `TRUST_SIGNAL_SCHEMA` constant: canonical `severity` (critical/high/medium/low) and `category` (identity/integrity/authorization/discovery/attestation) for all 12 signal types
+- Each signal in `_build_trust_signals()` now includes `severity` + `category` fields
+- `GET /trust/signals?category=<cat>&severity=<sev>` filter params
+- `GET /trust/signals/schema` — returns static canonical schema for all signal types
+- SC-1..15 = 15/15 PASS; TS-1..14 regression = 14/14 PASS
+
+---
+
+## v2.68.0 — `trust.signals[]` v2: 4 New Signal Types + `GET /trust/signals` (2026-04-06)
+
+### Added
+- Signal types #9–#12 added to `_build_trust_signals()` (total: 12):
+  - `bilateral_ir` — bilateral signed IR (v2.59)
+  - `capability_token` — SINT-format per-invocation token (v2.57)
+  - `wtrmrk` — WTRMRK sequence-root trust factor (v2.62)
+  - `external_token` — cross-protocol SINT verification (v2.63)
+- `GET /trust/signals` — full trust signal inventory, filterable by `?type=` and `?enabled=`
+
+### Fixed (BUG-054)
+- `NameError` in `_build_trust_signals()`: `_skills` global was referenced before definition
+
+---
+
+## v2.67.0 — Direct Message Mode: `POST /message/send` (2026-04-06)
+
+### Added
+- `POST /message/send` — returns `Message` directly (no Task created); A2A v1.0.0 `SendMessageResponse { oneof { Task task; Message message; } }` alignment
+- Response: `{ok, type:'message', message_id, role, parts[], timestamp}`
+- Optional: `context_id`, `task_id`, `metadata` echoed back
+- `role` required (user|agent); `parts` or `text` required; `415` on non-JSON
+- DM-1..14 = 14/14 PASS
+
+---
+
+## v2.66.0 — Task `rejected` Terminal State — A2A v1.0.0 Alignment (2026-04-06)
+
+### Added
+- `TASK_REJECTED = 'rejected'` constant; added to `TERMINAL_STATES`
+- `POST /tasks/{id}:agent-reject` — agent-initiated rejection for any task
+- `GET /tasks?status=rejected` filter support
+- T3 `:reject` endpoint: `confirmation_pending` → `rejected` (was `failed`)
+- `capabilities.rejected_state=True`; `endpoints.agent_reject` in AgentCard
+- RJ-1..10 = 9/10 PASS (1 skip: T3 skill not in test-mode)
+
+---
+
+## v2.65.0 — `POST /ir/import-evidence`: APS-Compatible Reputation Update Payload (2026-04-06)
+
+### Added
+- `POST /ir/import-evidence` — accept external bilateral IR, verify `relay_signature` + `caller_signature` (Ed25519), return `trust_delta(-1/0/+1)` + `freshness_hint`
+- `GET /ir/imported-evidence` — list imported evidence, filter by `agent_did` + `limit`
+- `_verify_ir_signatures()` — dual Ed25519 verification with error collection
+- `_build_reputation_update()` — APS v1 `reputation_update` builder
+- `capabilities.import_evidence=True`
+- IE-1..20 = 20/20 PASS
+- Aligns with A2A #1718 `importBilateralEvidence()` interface (@aeoess)
+
+---
+
+## v2.64.0 — Bilateral IR Test Vectors + Governance Live Endpoint (2026-04-06)
+
+### Added
+- `GET /ir/test-vectors` — 4 canonical deterministic test vectors for cross-implementation IR verification (A2A #1718 @aeoess)
+  - tv-ir-001: bilateral IR, both Ed25519 signatures valid
+  - tv-ir-002: unilateral IR, relay-only signature
+  - tv-ir-003: tampered payload, `caller_signature_valid=false` (negative test)
+  - tv-ir-004: did:key format in canonical payload
+- `GET /governance/live-endpoint` — APS live governance endpoint declaration
+- ITV-1..4 = 4/4 PASS
+
+---
+
+## v2.63.0 — Cross-Protocol Token Verify: `GET /identity/did-key` + `POST /verify/external-token` (2026-04-06)
+
+### Added
+- `GET /identity/did-key` — relay's `did:key` + public key material (algorithm, multicodec, hex, base64)
+  - Multicodec `[0xed, 0x01]` + base58btc — W3C spec, APS v1.32.0 `toDIDKey()` and SINT `keyToDid()` compatible
+- `POST /verify/external-token` — SINT-format token verify (7-step: fields → expiry → decode → did:key → canonical → sig → optional MoltTrust)
+- `capabilities.external_token_verify = bool(_ed25519_private)` (requires `--identity`)
+- ETV-1..16 = 16/16 PASS
+
+---
+
 ## v2.62.0 — `wtrmrk_sequence_root` Factor 4: Attestation History Adjustment in effective_tier (2026-04-06)
 
 ### Added
