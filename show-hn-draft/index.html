@@ -1192,7 +1192,7 @@
 <blockquote>
 <p><strong>Status</strong>: Draft v2.86 — pending Stark 先生 review before posting<br />
 <strong>Target</strong>: Hacker News — Show HN<br />
-<strong>Last updated</strong>: 2026-04-08 (v2.85 features incorporated)<br />
+<strong>Last updated</strong>: 2026-04-09 (v2.87 features incorporated)<br />
 <strong>Timing note</strong>: A2A v1.0.1 just dropped (bugfix only). Identity issue #1672 still has 403 comments, no implementation. Our window is wide open.</p>
 </blockquote>
 <hr />
@@ -1233,10 +1233,11 @@
 </span></code></pre></div>
 <p>That's the whole API surface for a working chat. Three endpoints. No auth server. No registration.</p>
 <hr />
-<p><strong>What's shipping (v2.85.0, 1092 tests passing)</strong>:</p>
+<p><strong>What's shipping (v2.87.0, 1100+ tests passing)</strong>:</p>
 <ul>
 <li><strong>Ed25519 identity — default on</strong>: Every agent gets a self-sovereign <code>did:acp:</code> keypair on first run. No flag needed. <code>--no-identity</code> is the escape hatch for testing.</li>
 <li><strong>AgentCard self-signatures + mutual verification</strong>: Agents sign their own cards at connect-time. <code>POST /verify/card</code> gives cryptographic proof of card authenticity — no CA, works offline.</li>
+<li><strong>Governance/compliance standards declaration</strong>: <code>--policy-compliance OWASP-ASVS,NIST-AIRMF</code> publishes which standards your agent conforms to, queryable via <code>GET /policy-compliance</code> and runtime-updatable via <code>PATCH</code>. (A2A #1717 still in proposal stage — ACP ships it.)</li>
 <li><strong>Automatic NAT traversal</strong> — 3 levels: P2P direct → UDP hole-punch → Relay fallback. Zero user config.</li>
 <li><strong>Task state machine</strong>: 5 states (submitted/working/completed/failed/input_required), SSE events for each transition.</li>
 <li><strong>Multi-peer routing</strong> (<code>/peers/broadcast</code>, <code>/peer/{id}/send</code>) for orchestrator patterns.</li>
@@ -1314,6 +1315,10 @@
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>2026-04-09</td>
+<td>v2.87 update: policy_compliance[] governance standards (A2A #1717 抢先落地), test count 1100+, last-updated bump</td>
+</tr>
 <tr>
 <td>2026-04-08</td>
 <td>v2.86 update: Ed25519 default-on, compatibility endpoint, A2A #1672 updated (403 comments), v2.85 test count (1092), SLIMRPC mention removed (too early)</td>
