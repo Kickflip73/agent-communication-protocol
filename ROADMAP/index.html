@@ -1252,10 +1252,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#v142026-03-2324" class="md-nav__link">
+  <a href="#v142026-03-2324-2026-04-08" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ✅ v1.4（已完成，2026-03-23/24）
+        ✅ v1.4（已完成，2026-03-23/24 → 最终完成 2026-04-08）
       
     </span>
   </a>
@@ -1570,6 +1570,17 @@
     <span class="md-ellipsis">
       
         🔮 v2.83（候选）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v2842026-04-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔮 v2.84（候选，2026-04-08 提案）
       
     </span>
   </a>
@@ -2292,7 +2303,7 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </table>
 <p><strong>设计亮点：</strong> DID = 公钥本身，无需中心注册，比 A2A #1672 提案提前实现。</p>
 <hr />
-<h3 id="v142026-03-2324">✅ v1.4（已完成，2026-03-23/24）<a class="headerlink" href="#v142026-03-2324" title="Permanent link">&para;</a></h3>
+<h3 id="v142026-03-2324-2026-04-08">✅ v1.4（已完成，2026-03-23/24 → 最终完成 2026-04-08）<a class="headerlink" href="#v142026-03-2324-2026-04-08" title="Permanent link">&para;</a></h3>
 <p><strong>主题：三级 NAT 穿透（DCUtR 风格 UDP 打洞）</strong></p>
 <table>
 <thead>
@@ -2309,17 +2320,22 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td><code>8c162d4</code></td>
 </tr>
 <tr>
-<td>Level 1: P2P 直连（3 次重试）</td>
+<td><code>_connect_with_nat_traversal()</code> 三级自动降级主流程</td>
+<td>✅</td>
+<td><code>d90b328</code></td>
+</tr>
+<tr>
+<td>Level 1: 直接 WebSocket（<code>ws://IP:port/token</code>，3s 超时）</td>
 <td>✅</td>
 <td>—</td>
 </tr>
 <tr>
-<td>Level 2: DCUtR UDP 打洞（STUN + 信令 WS）</td>
+<td>Level 2: DCUtR UDP 打洞（STUN + 信令 WS，12s 超时）</td>
 <td>✅</td>
 <td><code>8c162d4</code></td>
 </tr>
 <tr>
-<td>Level 3: Cloudflare Worker 中继兜底</td>
+<td>Level 3: Relay 兜底（Cloudflare Worker，自动触发）</td>
 <td>✅</td>
 <td><code>8c162d4</code></td>
 </tr>
@@ -2334,23 +2350,28 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td><code>b3da914</code></td>
 </tr>
 <tr>
+<td><code>--relay</code> 语义更新：现触发强制 L3 bypass（不再手动）</td>
+<td>✅</td>
+<td><code>d90b328</code></td>
+</tr>
+<tr>
 <td><code>spec/nat-traversal-v1.4.md</code> + <code>docs/nat-traversal.md</code></td>
 <td>✅</td>
 <td>—</td>
 </tr>
 <tr>
-<td>测试：17 项全绿（STUN/消息/降级/握手）</td>
+<td>测试：34 项全绿（test_dcutr_t1~t6, test_nat_traversal_integration T1~T5, test_nat_signaling, test_nat_http_reflect）</td>
 <td>✅</td>
-<td>—</td>
+<td><code>d90b328</code></td>
 </tr>
 </tbody>
 </table>
 <p><strong>三级降级架构（对应用层完全透明）：</strong>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Level 1: 真 P2P WebSocket 直连
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    ↓ 失败 3 次
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>Level 2: DCUtR UDP 打洞（同时探测，TTL 递增）
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    ↓ 打洞失败（对称 NAT / CGNAT，约 25% 场景）
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>Level 3: Cloudflare Worker 中继（100% 成功率兜底）
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Level 1: 直接 WebSocket (ws://IP:port/token)   [3s timeout]
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    ↓ 超时/失败
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>Level 2: DCUtR UDP 打洞（STUN 发现地址 → 信令 WS 协商 → 同时探测）  [12s timeout]
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    ↓ 打洞失败（对称 NAT / CGNAT，约 30% 场景）
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>Level 3: Cloudflare Worker 中继兜底（100% 成功率）
 </span></code></pre></div></p>
 <hr />
 <h3 id="v152026-03-24">✅ v1.5（已完成，2026-03-24）<a class="headerlink" href="#v152026-03-24" title="Permanent link">&para;</a></h3>
@@ -3379,6 +3400,39 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td><code>POST /tasks/{id}/evidence/batch</code></td>
 <td>ACP 内生</td>
 <td>批量提交多条证据（减少 RTT）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="v2842026-04-08">🔮 v2.84（候选，2026-04-08 提案）<a class="headerlink" href="#v2842026-04-08" title="Permanent link">&para;</a></h3>
+<p><strong>候选特性（来源：NAT 穿透完成后的后续方向 + A2A/ANP 竞品研究）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>候选</th>
+<th>来源</th>
+<th>优先级</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Show HN 发布准备</td>
+<td>内生</td>
+<td>P0</td>
+<td>README 发布版精简（Show HN 格式）、demo 录制（NAT 穿透动态 gif/视频）、发布节点确认</td>
+</tr>
+<tr>
+<td>AgentCard <code>protocol_bindings</code> URI 声明字段</td>
+<td>A2A §5.8 (Issue #1619)</td>
+<td>P1</td>
+<td>对齐 <code>GET /protocol-binding</code> 已实现的 CPB URI 声明（<code>urn:acp:binding:p2p-relay/v1</code>），将 <code>protocol_binding</code> 作为 AgentCard 顶层字段正式写入规范 §5.8</td>
+</tr>
+<tr>
+<td>消息层 <code>client_msg_id</code> 幂等性增强</td>
+<td>ANP 借鉴</td>
+<td>P2</td>
+<td>客户端生成 <code>client_msg_id</code>，服务端幂等去重（防重放/断线重连场景），补全 v0.5 message_id 机制的客户端侧幂等保障</td>
 </tr>
 </tbody>
 </table>
