@@ -7,6 +7,23 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.87.0] - 2026-04-09
+### Added
+- **policy_compliance[] in AgentCard** — governance/compliance standards field (inspired by A2A #1717 Microsoft agent-governance-toolkit proposal)
+  - `_policy_compliance: list` global; synced into `_status["policy_compliance"]`
+  - AgentCard top-level field `policy_compliance: string[]`
+  - `capabilities.policy_compliance: bool` — True when any standards declared
+  - `endpoints.policy_compliance: "/policy-compliance"` — endpoint registration
+  - `--policy-compliance STANDARDS` CLI flag (comma-separated)
+  - `GET /policy-compliance` — query current standards list with count + note
+  - `PATCH /policy-compliance` — replace mode `{"policy_compliance": [...]}` + incremental `{"add": [...], "remove": [...]}`
+  - `do_PATCH` router: `/policy-compliance` branch added (was falling through to 404)
+  - Well-known standard identifiers: `OWASP-ASVS`, `ATF-v2`, `NIST-AIRMF`, `ISO-42001`, `EU-AI-Act-conformant`
+- **Tests**: `test_policy_compliance_v287.py` — PC-1..PC-10, all passing (commit `1801806`)
+- Bump VERSION: `2.85.0` → `2.87.0`
+### Research
+- 2026-04-09 竞品扫描：A2A #1717（governance metadata，Microsoft）；A2A #1672 仍 403 评论无实现；ANP DID 活跃；ACP Ed25519 领先优势持续
+
 ## [v2.86.1] - 2026-04-09
 ### Fixed
 - **BUG-058**: `test_capability_token.py::test_ct_1_to_12` CT-1 — v2.85 Ed25519 default-on causes "no identity → 403" assertion to fail (same class as BUG-031); fixed by adding `no_identity=True` parameter to `_start_relay()` (adds `--no-identity` flag), and extending relay startup wait from 12s → 30s; test now 1/1 PASS
