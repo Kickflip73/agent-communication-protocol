@@ -759,17 +759,27 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
-### ✅ v2.86（完成 — 2026-04-08，开发轮）
-**主题：Show HN 发布冲刺 — README polish + Show HN 稿件最终版**
+### ✅ v2.86（完成 — 2026-04-08，开发轮 + 测试轮）
+**主题：Show HN 发布冲刺 — README polish + Show HN 稿件最终版 + BUG-031 修复**
 
-| 特性 | 优先级 | 状态 | 说明 |
-|------|--------|------|------|
-| Show HN draft v2.86 全面更新 | P0 | ✅ | Ed25519 default-on 角度重写；A2A #1672 更新至 403 评论；v2.85 测试数 1092；删除过时 v3.0.0 内容 |
-| README A2A 对比表 — 评论数更新 | P0 | ✅ | #1672: 62→403 comments (2026-04-08 实测) |
-| Hacker News 发布 | P0 | ⏳ | 等 Stark 先生 review + 2-Agent demo 录制 |
+| 特性 | 优先级 | 状态 | Commit | 说明 |
+|------|--------|------|--------|------|
+| Show HN draft v2.86 全面更新 | P0 | ✅ | `4bd71d3` | Ed25519 default-on 角度重写；A2A #1672 更新至 403 评论；v2.85 测试数 1092；删除过时 v3.0.0 内容 |
+| README A2A 对比表 — 评论数更新 | P0 | ✅ | `4bd71d3` | #1672: 62→403 comments (2026-04-08 实测) |
+| BUG-031 修复：test_cs10 适配 v2.85 | P2 | ✅ | `11c5eb4` | v2.85 Ed25519 default-on 导致 CS10 测试预期过时；改用 `--no-identity` 逃生舱；11/11 PASS |
+| 竞品扫描报告 2026-04-08 | P1 | ✅ | `c9c48ba` | A2A v1.0.1 bugfix-only；#1672 仍 open（403 评论）；SLIMRPC 新提案 |
+| Hacker News 发布 | P0 | ⏳ 待批准 | — | 等 Stark 先生 review + 2-Agent demo 录制 |
 
-**Key commit**: 见下次 push  
-**下一步**: 2-Agent demo 录제 + HN 发布（待 Stark 先生批准）
+**测试结果**：场景 A+B+F+G+H 全部 PASS；card_signature 11/11；identity 全套通过
+
+### 🔮 v2.87（候选，目标：2026-04-13）
+**主题：Show HN 正式发布 + 2-Agent demo**
+
+| 候选特性 | 优先级 | 说明 |
+|---------|--------|------|
+| 2-Agent demo 终端录屏 | P0 | Alpha↔Beta curl 双向通信真实演示（asciinema 或 gif） |
+| Hacker News 发布 | P0 | 最佳时间：周一/周二早 9-10 AM ET；需 Stark 先生最终批准 |
+| README demo gif 嵌入 | P1 | 让首屏更直观，降低新访客摩擦 |
 
 ---
 

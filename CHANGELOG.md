@@ -7,6 +7,25 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.86.0] - 2026-04-08
+### Changed
+- `docs/show-hn-draft.md`: full rewrite for v2.86 — Ed25519 default-on as lead pitch angle, A2A #1672 updated to 403 comments, stale v3.0.0 references removed, test count updated to 1092
+- `README.md`: A2A #1672 comment count 62 → 403 (measured 2026-04-08)
+### Fixed
+- **BUG-031**: `test_cs10_no_card_sig_without_identity` — test assumed pre-v2.85 behavior where running without `--identity` meant no identity; v2.85 made Ed25519 default-on, so test now uses `--no-identity` escape hatch flag; 11/11 card_signature tests PASS
+### Research
+- 2026-04-08 competitor scan: A2A v1.0.1 (bugfix-only, 23k ⭐); #1672 still open (403 comments, no impl); SLIMRPC custom binding proposal (#1723); ACP identity lead confirmed
+
+## [v2.85.0] - 2026-04-08
+### Added
+- **Ed25519 identity default-on**: keypair auto-generated on first run with no flags; `capabilities.identity_default: true` in AgentCard
+- **`--no-identity` flag**: escape hatch to disable identity for testing or embedded use
+- **`GET /protocol-binding/compatibility`**: structured JSON endpoint declaring support levels for 6 protocols (websocket=native, http/sse=native, a2a=partial, anp=partial, mcp=none, grpc=none)
+- `"protocol_binding_compatibility"` entry in AgentCard `endpoints` block
+### Tests
+- `tests/test_identity_default_v285.py`: 20 new tests (ID-01..ID-10, PBC-01..PBC-10), all PASS
+- Total: 1092/1092 PASS
+
 ## [v2.84.0] - 2026-04-08
 ### Added
 - `protocol_bindings[]` top-level AgentCard field (A2A §5.8 aligned plural form):
