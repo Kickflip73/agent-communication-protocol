@@ -1589,3 +1589,23 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 - 回归：broadcast + scenario_b + bug037 (29/29) ✅
 
 **状态**: ✅ 已修复（2026-04-08 测试轮，commit 见下）
+
+---
+
+## BUG-057 🔴 [P1] `test_broadcast_v23::test_BH5` — 피어 연결 후 broadcast history 비어있음
+
+**발견일**: 2026-04-08
+**테스트**: `tests/test_broadcast_v23.py::test_BH5_broadcast_populates_history`
+**재현**: 단독 실행에서도 재현됨 (비 intermittent)
+
+**증상**: `POST /peers/broadcast` 응답 `{"ok":False,"error_code":"ERR_NO_PEERS"}` → history 0건
+
+**근본 원인**: `two_peers_bc` fixture가 `/peers/connect` 호출 후 `time.sleep(2)`만 대기.
+실제 WebSocket 핸드셰이크 완료 전에 broadcast POST 전송 → `active_peers=[]` → 503 early return → `_broadcast_log.append` 미도달.
+
+**영향**: BH5, BH6, BH7, BH10 실패 가능 (history 의존 테스트)
+
+**수정 방향**: `two_peers_bc` fixture에서 `sleep(2)` 대신 `/peers` 엔드포인트 폴링으로 피어 연결 확인 후 진행
+
+**우선순위**: P1 (테스트 신뢰성 훼손)
+**상태**: ✅ 수정됨 (commit 다음 push에서 확인)

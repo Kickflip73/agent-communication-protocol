@@ -49,7 +49,7 @@ def _start(ws_port, name, wait=22):
     _free_port(http)
     time.sleep(0.3)
     proc = subprocess.Popen(
-        [sys.executable, RELAY, "--port", str(ws_port), "--name", name],
+        [sys.executable, RELAY, "--port", str(ws_port), "--name", name, "--local-only"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     deadline = time.time() + wait
@@ -184,9 +184,26 @@ def test_BH4_history_empty_on_start():
 
 # ── BH5–BH7: history populated after broadcast ───────────────────────────────
 
+def _wait_peer_connected(http, peer_id, timeout=15):
+    """Poll /peers until peer_id appears as connected (BUG-057 fix)."""
+    if not peer_id:
+        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"http://127.0.0.1:{http}/peers", timeout=3).json()
+            for p in r.get("peers", []):
+                if p.get("id") == peer_id and p.get("connected"):
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.4)
+    return False
+
+
 @pytest.fixture(scope="module")
 def two_peers_bc():
-    """Connect B and C to A for BH5-BH10."""
+    """Connect B and C to A for BH5-BH10. (BUG-057: poll for actual connection)"""
     _wait_link(HTTP_B)
     _wait_link(HTTP_C)
     lb = _link(HTTP_B)
@@ -195,11 +212,30 @@ def two_peers_bc():
     assert lc, "C link unavailable"
     rb = requests.post(f"http://127.0.0.1:{HTTP_A}/peers/connect",
                        json={"link": lb}, timeout=10).json()
-    time.sleep(2)
+    b_id = rb.get("peer_id")
+    # If already_connected, peer is already registered as connected
+    if not rb.get("already_connected"):
+        _wait_peer_connected(HTTP_A, b_id, timeout=20)
+
     rc = requests.post(f"http://127.0.0.1:{HTTP_A}/peers/connect",
                        json={"link": lc}, timeout=10).json()
-    time.sleep(2)
-    return rb.get("peer_id"), rc.get("peer_id")
+    c_id = rc.get("peer_id")
+    if not rc.get("already_connected"):
+        _wait_peer_connected(HTTP_A, c_id, timeout=20)
+
+    # Final check: verify at least one peer is connected before proceeding
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"http://127.0.0.1:{HTTP_A}/peers", timeout=3).json()
+            active = [p for p in r.get("peers", []) if p.get("connected")]
+            if active:
+                break
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    return b_id, c_id
 
 
 def test_BH5_broadcast_populates_history(two_peers_bc):
