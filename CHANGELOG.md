@@ -7,6 +7,10 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.86.1] - 2026-04-09
+### Fixed
+- **BUG-058**: `test_capability_token.py::test_ct_1_to_12` CT-1 — v2.85 Ed25519 default-on causes "no identity → 403" assertion to fail (same class as BUG-031); fixed by adding `no_identity=True` parameter to `_start_relay()` (adds `--no-identity` flag), and extending relay startup wait from 12s → 30s; test now 1/1 PASS
+
 ## [v2.86.0] - 2026-04-08
 ### Changed
 - `docs/show-hn-draft.md`: full rewrite for v2.86 — Ed25519 default-on as lead pitch angle, A2A #1672 updated to 403 comments, stale v3.0.0 references removed, test count updated to 1092

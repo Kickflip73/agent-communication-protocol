@@ -1621,3 +1621,15 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 
 **우선순위**: P1 (테스트 신뢰성 훼손)
 **상태**: ✅ 수정됨 (commit 다음 push에서 확인)
+
+---
+
+### BUG-058 🟢 P2 (发现中) — test_capability_token.py CT-1：v2.85 Ed25519 default-on 导致"无 identity → 403"测试失效
+
+**发现日期**: 2026-04-09  
+**场景**: `tests/test_capability_token.py::test_ct_1_to_12` CT-1  
+**描述**: v2.85 将 Ed25519 身份认证改为默认开启后，CT-1 测试假设"不带 `--identity` 标志启动 relay → `_ed25519_private` 为 None → 返回 403 ERR_IDENTITY_REQUIRED"。但 v2.85 后，不带任何标志的 relay 也会自动生成 Ed25519 keypair，`_ed25519_private` 不再为 None。因此 identity check 被跳过，走到 skill lookup，因为 relay 无 skills 配置，`read_balance` 不存在，返回 404 ERR_SKILL_NOT_FOUND。  
+**根因**: 与 BUG-031 完全同类 — 测试假设旧行为（无 `--identity` = 无身份）；v2.85 行为改变（无标志 = 默认开启身份）  
+**修复**: CT-1 的 `_start_relay(52800)` 改为 `_start_relay(52800, no_identity=True)`，并在 `_start_relay` 函数中增加 `--no-identity` 参数支持；同时将 relay 启动等待从 12s 延长至 30s（`--local-only` 模式下初始化仍需约 15s）  
+**影响**: 仅测试文件；relay 实现正确；与 BUG-031 同类  
+**状态**: ✅ 已修复（2026-04-09）  

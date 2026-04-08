@@ -46,7 +46,7 @@ def _gen_identity_file():
     return tf.name
 
 
-def _start_relay(ws_port: int, skills_json: str = None, identity_file: str = None):
+def _start_relay(ws_port: int, skills_json: str = None, identity_file: str = None, no_identity: bool = False):
     http_port = ws_port + 100
     cmd = [sys.executable, _RELAY, "--port", str(ws_port), "--name", "CTTestAgent",
            "--local-only", "--test-mode"]
@@ -54,8 +54,10 @@ def _start_relay(ws_port: int, skills_json: str = None, identity_file: str = Non
         cmd += ["--skills", skills_json]   # --skills accepts JSON array string
     if identity_file:
         cmd += ["--identity", identity_file]
+    elif no_identity:
+        cmd += ["--no-identity"]  # v2.85 escape hatch: disable Ed25519 default-on
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    deadline = time.time() + 12
+    deadline = time.time() + 30
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{http_port}/status", timeout=1) as r:
@@ -99,7 +101,7 @@ SKILLS_WITH_CT = json.dumps([
 
 def test_ct_1_to_12():
     # CT-1..2: relay WITHOUT identity (no --identity flag)
-    proc_noid, hp_noid = _start_relay(52800)
+    proc_noid, hp_noid = _start_relay(52800, no_identity=True)
     try:
         # CT-1: no identity → 403
         s, b = _post(hp_noid, "/skills/read_balance/capability-token",

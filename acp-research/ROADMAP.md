@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-03-31 13:30（文档轮；v2.22 /peers/broadcast 完成；当前版本 v2.22.0 commit d396969）
+> 最后更新：2026-04-09 04:30（文档轮；v2.86 Show HN 冲刺完成；当前版本 v2.86.0 commit abfc94a）
 
 ---
 
@@ -402,7 +402,7 @@ Key commit: TBD（本轮）
 
 ---
 
-## ✅ 已完成里程碑摘要（v2.19–v2.73）
+## ✅ 已完成里程碑摘要（v2.19–v2.86）
 
 | 版本 | 特性 | Commit | 日期 |
 |------|------|--------|------|
@@ -419,6 +419,15 @@ Key commit: TBD（本轮）
 | v2.71.0 | security_posture 第 13 种 trust signal + `GET /trust/signals/security-posture` | 8278ef1 | 2026-04-07 |
 | v2.72.0 | `GET /trust/bilateral-ir/log` — 可查询双边 IR 记录日志 (A2A #1718 @viftode4) | cb35cfe | 2026-04-07 |
 | v2.73.0 | `GET /agent-limitations/schema` — typed JSON Schema (A2A #1694 aligned) | ad15e74 | 2026-04-07 |
+| v2.74.0 | `GET /trust/signals/capability-token` — detailed capability token declaration (A2A #1716) | — | 2026-04-07 |
+| v2.75.0 | `GET /trust/signals/capability-token/fixtures` — canonical SINT auth vectors (A2A #1716 @pshkv) | — | 2026-04-07 |
+| v2.77.0 | `POST /trust/signals/capability-token/fixtures/validate` — dynamic SINT validation 5-check | — | 2026-04-08 |
+| v2.78.0 | `POST /trust/signals/capability-token/revoke` + `GET /revocations` — SINT lifecycle complete | — | 2026-04-08 |
+| v2.82.0 | `evidence_stream` — SSE lifecycle subscription (`GET /evidence/stream`) | — | 2026-04-08 |
+| v2.83.0 | `protocol_binding` v2 — CPB URI in AgentCard `extensions[]` + `protocol_bindings[]` plural | — | 2026-04-08 |
+| v2.84.0 | `client_msg_id` idempotency alias + `protocol_bindings[]` array (A2A §5.8 aligned) | d3f41e9 | 2026-04-08 |
+| v2.85.0 | **Ed25519 identity default-on** + `--no-identity` escape hatch + `/protocol-binding/compatibility` | 397823e | 2026-04-08 |
+| v2.86.0 | Show HN 发布冲刺：README polish + A2A diff update + BUG-031 test fix | abfc94a | 2026-04-08 |
 
 ---
 
