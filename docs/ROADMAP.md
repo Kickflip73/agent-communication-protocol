@@ -737,6 +737,37 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
+### 🔮 v2.85（候选，目标：2026-04-10）
+**主题：Ed25519 Identity 默认化 + 协议兼容性矩阵**
+
+> 来源：研究轮 scan#21（2026-04-08）— A2A #1672 Ed25519 互操作性 PR 持续活跃，Show HN 窗口期收窄，需要巩固差异化优势
+
+| 候选特性 | 来源 | 优先级 | 说明 |
+|---------|------|--------|------|
+| Ed25519 keypair 默认生成（移除 `--identity` 手动开启限制） | ACP 核心 | P0 | 零配置 P2P + 默认 Ed25519 是 Show HN 强差异化 pitch |
+| `/.well-known/did.json` 默认暴露 | ACP 核心 | P0 | 无需 `--identity` flag，开箱即用 |
+| `/.well-known/jwks.json` 默认暴露 | ACP 核心 | P0 | JWKS 公钥发现默认可用 |
+| `GET /protocol-binding/compatibility` 多协议兼容矩阵 | A2A #1723 延伸 | P1 | 声明 ACP 与 REST/WS/gRPC 协议的兼容级别 |
+| `GET /peers/{id}/latency` 实时延迟测量 | ACP 内生 | P2 | 调试体验 + P2P 链路质量监控 |
+
+**战略价值**：
+- 对标 A2A #1672（Ed25519 互操作性，持续活跃）先发制人
+- Show HN: "零配置 P2P Agent 通信，默认 Ed25519 身份验证" > "需要手动开启"
+- 保持 ACP 在身份/信任层的 6-8 周领先优势
+
+---
+
+### 🔮 v2.86（候选，目标：2026-04-12）
+**主题：Show HN 发布冲刺**
+
+| 候选特性 | 优先级 | 说明 |
+|---------|--------|------|
+| Show HN README final polish | P0 | 差异化 pitch 最终版，与 A2A 对比表格 |
+| 2-Agent demo 截图/录屏 | P0 | 真实场景演示（Alpha↔Beta curl 2步接入） |
+| Hacker News 发布 | P0 | 最佳时间：周一/周二早 9-10 AM ET |
+
+---
+
 ### 🔮 v0.9（规划中，目标：2026-06）
 **主题：协议健壮性 + 开发者体验**
 
