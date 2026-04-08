@@ -1580,7 +1580,7 @@
   <a href="#v2842026-04-08" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔮 v2.84（候选，2026-04-08 提案）
+        ✅ v2.84（2026-04-08 完成）
       
     </span>
   </a>
@@ -3404,38 +3404,46 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </tbody>
 </table>
 <hr />
-<h3 id="v2842026-04-08">🔮 v2.84（候选，2026-04-08 提案）<a class="headerlink" href="#v2842026-04-08" title="Permanent link">&para;</a></h3>
-<p><strong>候选特性（来源：NAT 穿透完成后的后续方向 + A2A/ANP 竞品研究）</strong>：</p>
+<h3 id="v2842026-04-08">✅ v2.84（2026-04-08 完成）<a class="headerlink" href="#v2842026-04-08" title="Permanent link">&para;</a></h3>
+<p><strong>来源：NAT 穿透完成后的后续方向 + A2A/ANP 竞品研究</strong></p>
 <table>
 <thead>
 <tr>
-<th>候选</th>
+<th>特性</th>
 <th>来源</th>
 <th>优先级</th>
-<th>说明</th>
+<th>状态</th>
+<th>Commit</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Show HN 发布准备</td>
+<td>Show HN 发布准备（README polish + ROADMAP 更新）</td>
 <td>内生</td>
 <td>P0</td>
-<td>README 发布版精简（Show HN 格式）、demo 录制（NAT 穿透动态 gif/视频）、发布节点确认</td>
+<td>✅ 已完成</td>
+<td>本轮</td>
 </tr>
 <tr>
-<td>AgentCard <code>protocol_bindings</code> URI 声明字段</td>
-<td>A2A §5.8 (Issue #1619)</td>
+<td>AgentCard <code>protocol_bindings[]</code> 数组字段（A2A §5.8 对齐）</td>
+<td>A2A §5.8 §1619</td>
 <td>P1</td>
-<td>对齐 <code>GET /protocol-binding</code> 已实现的 CPB URI 声明（<code>urn:acp:binding:p2p-relay/v1</code>），将 <code>protocol_binding</code> 作为 AgentCard 顶层字段正式写入规范 §5.8</td>
+<td>✅ 已完成</td>
+<td><code>2f42022</code></td>
 </tr>
 <tr>
-<td>消息层 <code>client_msg_id</code> 幂等性增强</td>
+<td><code>client_msg_id</code> 幂等性增强（ANP §3.2 借鉴）</td>
 <td>ANP 借鉴</td>
 <td>P2</td>
-<td>客户端生成 <code>client_msg_id</code>，服务端幂等去重（防重放/断线重连场景），补全 v0.5 message_id 机制的客户端侧幂等保障</td>
+<td>✅ 已完成</td>
+<td><code>2f42022</code></td>
 </tr>
 </tbody>
 </table>
+<p><strong>实现说明：</strong>
+- <code>protocol_bindings[]</code>：AgentCard 顶层新增数组字段，单元素 <code>urn:acp:binding:p2p-relay/v1</code>；保留单数 <code>protocol_binding</code> 向后兼容；新 capability flag <code>protocol_bindings_array=true</code>
+- <code>client_msg_id</code>：<code>/message:send</code> 接受 <code>client_msg_id</code> 作为 <code>message_id</code> 别名（优先级：<code>message_id</code> &gt; <code>client_msg_id</code> &gt; 自动生成）；所有发送响应回显 <code>client_msg_id</code>；dedup 缓存覆盖两种形式
+- README version badge 更新 v2.82.0 → v2.84.0</p>
 <hr />
 <h3 id="v092026-06">🔮 v0.9（规划中，目标：2026-06）<a class="headerlink" href="#v092026-06" title="Permanent link">&para;</a></h3>
 <p><strong>主题：协议健壮性 + 开发者体验</strong></p>
