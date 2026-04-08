@@ -319,6 +319,25 @@ class RelayClient {
   }
 
   /**
+   * Send a message with a client-supplied idempotency key (v2.84+ ANP-style).
+   * The relay echoes `client_msg_id` in the response for correlation.
+   * Re-sending the same `clientMsgId` within 30s returns the cached response (deduplicated).
+   *
+   * @param {string} text      - Plain text content.
+   * @param {string} clientMsgId - Client-generated idempotency key.
+   * @param {object} [extra]   - Additional fields merged into the request body.
+   */
+  sendWithClientMsgId(text, clientMsgId, extra = {}) {
+    return this._post('/message:send', {
+      type: 'acp.message',
+      parts: [{ type: 'text', content: text }],
+      client_msg_id: clientMsgId,
+      message_id: clientMsgId,  // also set message_id for older relay versions
+      ...extra,
+    });
+  }
+
+  /**
    * Send a message with custom parts.
    * @param {Array<{type: string, content?: string, url?: string, data?: any}>} parts
    * @param {object} [extra]

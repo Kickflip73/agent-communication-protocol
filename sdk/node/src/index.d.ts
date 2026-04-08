@@ -172,9 +172,11 @@ export declare class RelayClient {
   wellKnownHeaders(): Promise<Record<string, string>>;
 
   // Messaging
-  send(text: string, extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string }>;
-  sendParts(parts: AcpPart[], extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string }>;
-  sendToPeer(peerId: string, text: string, extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string }>;
+  send(text: string, extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string; client_msg_id?: string }>;
+  /** v2.84: send with client-supplied idempotency key (ANP §3.2 style). Re-sending same key within 30s returns cached response. */
+  sendWithClientMsgId(text: string, clientMsgId: string, extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string; client_msg_id: string; deduplicated?: boolean }>;
+  sendParts(parts: AcpPart[], extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string; client_msg_id?: string }>;
+  sendToPeer(peerId: string, text: string, extra?: Record<string, unknown>): Promise<{ ok: boolean; message_id: string; client_msg_id?: string }>;
   recv(options?: RecvOptions): Promise<AcpMessage[]>;
 
   // Peer management

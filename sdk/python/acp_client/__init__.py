@@ -42,7 +42,7 @@ from .exceptions import (
     AuthError,
 )
 
-__version__ = "1.9.0"
+__version__ = "2.84.0"
 
 # ── Optional integrations (lazy import; framework not required) ───────────────
 # LangChain integration is available when langchain is installed:

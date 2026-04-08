@@ -203,26 +203,34 @@ class RelayClient:
         parts: List[dict] = None,
         role: str = "user",
         message_id: str = None,
+        client_msg_id: str = None,
     ) -> dict:
         """
         Send a message to the primary connected peer.
 
         Args:
-            text:       Plain text content.
-            parts:      Structured Part list (overrides ``text``).
-            role:       Message role ("user" | "assistant"). Default "user".
-            message_id: Client-assigned idempotency key.
+            text:           Plain text content.
+            parts:          Structured Part list (overrides ``text``).
+            role:           Message role ("user" | "assistant"). Default "user".
+            message_id:     Client-assigned idempotency key (v0.5+).
+            client_msg_id:  Alias for ``message_id`` (v2.84+ ANP-style).
+                            If both are set, ``message_id`` takes priority.
 
         Returns:
-            {"ok": True, "message_id": "msg_..."} on success.
+            {"ok": True, "message_id": "msg_...", "client_msg_id": "..."} on success.
+            The relay echoes ``client_msg_id`` so callers can correlate requests.
 
         Raises:
             SendError: If the relay rejects the message.
             ValueError: If neither ``text`` nor ``parts`` is provided.
         """
         body: Dict[str, Any] = {"role": role}
-        if message_id:
-            body["message_id"] = message_id
+        # v2.84: accept client_msg_id as idempotency key alias (ANP §3.2 borrow).
+        # message_id takes priority if both supplied.
+        effective_id = message_id or client_msg_id
+        if effective_id:
+            body["message_id"] = effective_id
+            body["client_msg_id"] = effective_id
         if parts:
             body["parts"] = parts
         elif text is not None:
@@ -254,8 +262,10 @@ class RelayClient:
             role:    Message role.
         """
         body: Dict[str, Any] = {"role": role}
-        if message_id:
-            body["message_id"] = message_id
+        effective_id = message_id or client_msg_id
+        if effective_id:
+            body["message_id"] = effective_id
+            body["client_msg_id"] = effective_id
         if parts:
             body["parts"] = parts
         elif text is not None:
