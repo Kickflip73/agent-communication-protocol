@@ -1,17 +1,17 @@
 # Show HN Draft — ACP (Agent Communication Protocol)
 
-> **Status**: Draft, pending Stark 先生 review before posting  
+> **Status**: Draft v2.86 — pending Stark 先生 review before posting  
 > **Target**: Hacker News — Show HN  
-> **Date**: 2026-03-24 (last updated: **2026-03-28**)
-> **Timing note**: A2A v1.0 released 2026-03-12. We've shipped 6 major versions since then. Window is still open.
+> **Last updated**: 2026-04-08 (v2.85 features incorporated)  
+> **Timing note**: A2A v1.0.1 just dropped (bugfix only). Identity issue #1672 still has 403 comments, no implementation. Our window is wide open.
 
 ---
 
 ## Title Options
 
 1. `Show HN: ACP – P2P Agent Communication Protocol (like WhatsApp for AI agents)`
-2. `Show HN: ACP – Open protocol for agent-to-agent messaging, no central server required`
-3. `Show HN: I built an open agent communication protocol because A2A felt too enterprise`
+2. `Show HN: ACP – Open protocol for agent-to-agent messaging, zero central server`
+3. `Show HN: I built a P2P agent comm protocol because A2A felt too enterprise`
 
 **Recommended**: Option 1 (clearest analogy)
 
@@ -19,168 +19,133 @@
 
 ## Post Body
 
+---
+
 **Show HN: ACP – P2P Agent Communication Protocol (like WhatsApp for AI agents)**
+
+Over the past month I built ACP — an open protocol for AI agents to talk to each other directly, without a central server or cloud dependency.
+
+**The problem**: MCP standardized Agent↔Tool. Nobody standardized Agent↔Agent. Google's A2A exists but it's enterprise-grade: OAuth 2.0, multi-tenant infra, 8 task states, central registry. Great for Google's use case. Overkill for individuals and small teams.
+
+**What ACP does in two steps**:
+
+```bash
+# Agent A — start, get a shareable link
+$ python3 acp_relay.py --name AgentA
+✅ Ed25519 identity loaded  did:acp:z6Mkv...
+✅ Ready.  Your link: acp://1.2.3.4:7801/tok_xxxxx
+           Send this link to any other Agent to connect.
+
+# Agent B — connect with one HTTP call
+$ curl -X POST http://localhost:7901/peers/connect \
+       -d '{"link":"acp://1.2.3.4:7801/tok_xxxxx"}'
+{"ok":true,"peer_id":"peer_001"}
+
+# Send a message — any HTTP client works
+$ curl -X POST http://localhost:7901/message:send \
+       -d '{"role":"agent","parts":[{"type":"text","content":"Hello AgentA!"}]}'
+{"ok":true,"message_id":"msg_abc123"}
+
+# Receive in real-time
+$ curl http://localhost:7901/stream
+event: acp.message
+data: {"from":"AgentB","parts":[{"type":"text","content":"Hello AgentA!"}]}
+```
+
+That's the whole API surface for a working chat. Three endpoints. No auth server. No registration.
 
 ---
 
-Over the past month I built ACP — an open protocol for AI agents to talk to each other
-directly, without a central server or a cloud dependency.
+**What's shipping (v2.85.0, 1092 tests passing)**:
 
-**The problem**: Every AI framework has tools (MCP standardized Agent↔Tool). But there's
-no lightweight standard for Agent↔Agent communication. Google's A2A protocol exists but
-it's enterprise-grade: OAuth 2.0, multi-tenant infrastructure, 8 task states, gRPC
-bindings, central registry. Great for Google's use case. Overkill for individuals and
-small teams.
+- **Ed25519 identity — default on**: Every agent gets a self-sovereign `did:acp:` keypair on first run. No flag needed. `--no-identity` is the escape hatch for testing.
+- **AgentCard self-signatures + mutual verification**: Agents sign their own cards at connect-time. `POST /verify/card` gives cryptographic proof of card authenticity — no CA, works offline.
+- **Automatic NAT traversal** — 3 levels: P2P direct → UDP hole-punch → Relay fallback. Zero user config.
+- **Task state machine**: 5 states (submitted/working/completed/failed/input_required), SSE events for each transition.
+- **Multi-peer routing** (`/peers/broadcast`, `/peer/{id}/send`) for orchestrator patterns.
+- **Offline delivery queue**: messages buffered when peer is offline, auto-flushed on reconnect.
+- **AgentCard `limitations` field**: machine-readable capability constraints (rate limits, unsupported inputs). Filterable at discovery time.
+- **LAN peer discovery**: `GET /peers/discover` — 64-thread TCP subnet scan, no mDNS required.
+- **`GET /protocol-binding/compatibility`**: structured JSON declaring protocol support levels (websocket=native, http/sse=native, a2a=partial, anp=partial).
+- **Persistent message history**: `GET /messages` + `GET /peers/{id}/messages` with cursor pagination.
+- Zero heavy dependencies — stdlib only (`websockets` is the only install).
 
-**What ACP does**:
-
-- Any agent sends `POST /message:send`. Any other agent polls `GET /recv`. That's it.
-- Two agents connect by sharing an `acp://` link. No registration. No cloud account.
-- Transport: P2P WebSocket → UDP hole-punching → HTTP relay fallback (automatic)
-- AgentCard discovery at `GET /.well-known/acp.json` (similar to DNS for agents)
-- Works with curl. Works with any HTTP client. Language-agnostic.
-
-**Under the hood**:
-
-```bash
-# Start a relay (you get a shareable link)
-python3 acp_relay.py --name Alice
-
-# Output:
-# acp://1.2.3.4:7801/tok_abc123
-# POST http://localhost:7901/message:send
-# GET  http://localhost:7901/recv
-
-# The other agent connects by pasting the link
-python3 acp_relay.py --connect acp://1.2.3.4:7801/tok_abc123 --name Bob
-```
-
-From there, any code that can make HTTP requests can participate:
-
-```bash
-curl -X POST http://localhost:7901/message:send \
-  -d '{"role":"agent","parts":[{"type":"text","content":"Hello Bob"}]}'
-```
-
-**What's shipping (v3.0.0)**:
-
-- Core protocol v1.3 with task state machine, structured messages, idempotency
-- **Automatic NAT traversal** — 3-level: P2P direct → DCUtR hole-punch → Relay fallback. Zero user config.
-- Multi-peer routing (`/peer/{id}/send`) for orchestrator patterns
-- Identity: `did:acp:<base58(pubkey)>` — self-sovereign DID, zero external resolver
-- HMAC-SHA256 message signing + Ed25519 AgentCard self-signatures (`POST /verify/card`)
-- LAN peer discovery: mDNS + `GET /peers/discover` TCP subnet scan (no mDNS required)
-- Offline delivery queue: messages buffered when peer is offline, auto-flushed on reconnect
-- **Extension mechanism**: URI-identified AgentCard extensions (e.g. `acp:ext:did_identity`)
-- Availability metadata for heartbeat/cron agents (A2A is still discussing this in issue #1667)
-- `GET /messages`: history message list with filtering + pagination
-- SDKs: Python (`acp-client` pip), Node.js (npm `acp-relay-client`), Go, Rust — **all four available now**
-- LangChain adapter: `ACPTool` + `ACPCallbackHandler`
-- Cloudflare Worker as automatic Level-3 relay fallback
-- Compatibility certification test suite (Level 1: 24/24 ✅)
+---
 
 **Why not just use A2A?**
 
 A2A is great if you're building enterprise agent infrastructure. ACP is for:
-- Personal AI assistants talking to each other
-- Small team agent pipelines (3-10 agents)
+- Personal AI assistants that need to coordinate
+- Small team agent pipelines (2–10 agents)
 - Experiments where you don't want to run an auth server
-- Any scenario where `curl` should be enough
+- Any scenario where `curl` should be enough to participate
 
-A few things I've noticed while tracking A2A closely:
+Here's where I think ACP makes different choices worth discussing:
 
-**Identity & Verification**: A2A's Working Group is converging on `getagentid.dev` as a reference identity CA (issue #1672, 47 comments). That's a central registration service — an external dependency. ACP ships `did:acp:` today: self-generated from your Ed25519 pubkey, zero external resolver, zero registration, works offline. One flag: `--identity ~/.acp/identity.json`.
+**Identity**: A2A's Working Group has been converging on `getagentid.dev` as a reference identity CA (issue #1672, **403 comments**, still open). That's an external CA — registration required, potential downtime. ACP ships `did:acp:` today: derived from your Ed25519 pubkey, zero external resolver, zero registration, works offline. As of v2.85, it's **default-on** — you don't opt in, you opt out. Two agents connecting automatically exchange and verify each other's identities at handshake.
 
-And as of v1.8 (today): ACP agents **sign their own AgentCard** with their Ed25519 key. Any peer can call `POST /verify/card` to cryptographically verify "this card was signed by the owner of this `did:acp:`" — no CA, no internet required. A2A issue #1672 has 62 comments and counting, with three competing implementations (AgentID, APS, qntm) proving interoperability in the issue thread — but nothing merged into spec yet.
+**Simplicity**: ACP's entire protocol surface is: connect (one POST) + send (one POST) + receive (one GET stream). The `acp://` link is like a Tailscale invite link — opaque, self-contained, works across NAT. You paste it, you're connected.
 
-Meanwhile, A2A PR#1079 proposes adding a random UUID as the agent's unique identifier. ACP uses `did:acp:<base58url(pubkey)>` — not a name tag, but a cryptographic fingerprint. You can't claim someone else's `did:acp:` without their private key.
+**Zero-server P2P**: The Cloudflare Worker relay is a Level-3 fallback, not required. Same-LAN agents connect in 0.6ms (measured). The relay is just for when both sides are behind strict NAT.
 
-And v1.9 (also today) closes the loop: **mutual identity verification at handshake**. When two ACP agents connect, each side automatically verifies the other's AgentCard signature. `GET /peer/verify` gives you the result — `verified: true/false`, the peer's `did:acp:`, and whether the DID is consistent with the public key. Zero extra API calls. The whole identity story is: connect → verify → done.
+**Discovery**: A2A has no spec-level LAN discovery. ACP `GET /peers/discover` scans your /24 in 1–3s, returns ready-to-use `acp://` links for every ACP-speaking host on the network.
 
-**Discovery**: How do two agents find each other on a LAN? A2A has no spec-level answer. ACP v2.1-alpha ships `GET /peers/discover`: hit that endpoint and it scans your entire /24 subnet in 1–3 seconds using a 64-thread TCP probe. Any host with an open ACP port gets a `GET /.well-known/acp.json` fingerprint check. You get back a list of `acp://` links ready to paste into `/peers/connect`. No mDNS setup on the other side. No configuration. Just: find → connect.
+**`curl` is a first-class citizen**: Every endpoint in ACP is plain HTTP. No SDK required. A bash script is a valid ACP agent.
 
-**Reliability**: What happens if you send a message while the peer agent is restarting? In A2A, it's just gone — there's no offline delivery in the spec. ACP v2.0-alpha adds an **offline delivery queue**: when your peer is offline, the message is buffered locally (up to 100 per peer). The moment they reconnect, the queue auto-flushes in FIFO order. The API is unchanged — you still get `503 ERR_NOT_CONNECTED` (so existing callers aren't surprised), but your message is queued, not dropped. `GET /offline-queue` lets you see what's waiting. Short disconnects become invisible to the application layer.
-
-**Security**: A2A's `GetTaskPushNotificationConfig` API returns full credentials in the
-response by default — a security vulnerability filed as issue #1681 (still open). ACP has no
-Push Notification mechanism at all. Fewer features = smaller attack surface.
-
-**Simplicity**: ACP's cancel is synchronous and unambiguous: call `:cancel`, get back
-`{"status": "canceled"}`, done. A2A has had this open since issue #1680 (March 2026) —
-and as of today, issue #1684 reveals they still haven't agreed on what `CancelTaskRequest`
-even *looks like*. ACP spec §10 has had a complete, tested cancel contract for two weeks.
-
-**Agent Limitations Metadata**: On 2026-03-27, A2A opened issue #1694 proposing to add a
-`limitations` field to AgentCard — to let agents declare what they *can't* do (rate limits,
-unsupported input types, capability constraints). As of this writing, it's still just an
-open proposal, no implementation. ACP shipped `limitations` as part of AgentCard in
-**v2.7** (2026-03-28) — same day the A2A issue was filed. Format: a structured `limitations`
-block in `/.well-known/acp.json`, machine-readable, filterable at discovery time. If you
-want to build a router that skips overloaded agents, ACP lets you do that today.
-
-**Spec consistency**: A2A issue #1683 (March 2026): their spec says `contextId` is *mandatory* in SSE events (§4.2.2), but the SSE streaming example in §6.2 omits it entirely — the spec contradicts itself. ACP v1.7 explicitly propagates `context_id` through every SSE event; doc and code are identical.
+---
 
 **What I want feedback on**:
 
-1. Is the `acp://` link-sharing UX intuitive? (inspired by how you share a Tailscale node)
-2. Should I add a hosted public relay (like ngrok for agents)? Or does that defeat the P2P ethos?
-3. Is there an existing standard I missed that already solves this well?
+1. Is the `acp://` link-sharing UX intuitive? (inspired by how you share a Tailscale invite)
+2. Should there be a hosted public relay? Or does that defeat the P2P ethos?
+3. Is there an existing standard I missed that solves this well?
+4. The identity story — self-sovereign Ed25519 vs CA-based. Is the tradeoff right?
 
 **Links**:
 - GitHub: https://github.com/Kickflip73/agent-communication-protocol
-- Spec: `/spec/core-v1.3.md`
-- Quickstart: `/README.md`
+- Spec: `spec/core-v1.3.md`
+- Quickstart: `README.md`
+- Protocol compatibility: `GET /protocol-binding/compatibility`
 
 ---
 
 ## Key Talking Points (for comments)
 
 - **vs MCP**: MCP = Agent↔Tool. ACP = Agent↔Agent. Different layers, complementary.
-- **vs A2A**: A2A is enterprise. ACP is personal/small team. Like nginx vs Apache — both valid.
-- **on identity**: A2A is heading toward `getagentid.dev` (external CA). ACP uses `did:acp:` (self-sovereign, zero external service). If A2A's CA goes down, their identity story breaks. ACP works offline. And v1.8 adds AgentCard self-signatures: `POST /verify/card` gives cryptographic proof of card authenticity — no CA involved.
-- **on discovery**: A2A has no LAN discovery mechanism. ACP `GET /peers/discover` scans your /24 in 1–3s — TCP probe + AgentCard fingerprint, no mDNS opt-in required from the target.
-- **on reliability**: A2A drops messages silently when peer is offline — no spec-level buffering. ACP v2.0-alpha offline queue: message survives the disconnect, auto-delivered on reconnect, zero caller changes required.
-- **on security**: A2A issue #1681 (open): `PushNotificationConfig` leaks credentials by default. ACP doesn't have Push Notifications — that's a feature, not a limitation.
-- **on cancel semantics**: A2A issue #1680 (open, no resolution): async cancel is complex. ACP cancel is synchronous and unambiguous.
-- **on limitations metadata**: A2A issue #1694 (2026-03-27, open): proposes `limitations` field in AgentCard, still no implementation. ACP v2.7 shipped `limitations` on 2026-03-28 — same day the proposal was filed. Machine-readable, filterable at discovery time.
-- **vs MQTT/WebSockets**: Those are transports. ACP is a semantic protocol (tasks, agent cards, identity).
-- **vs HTTP APIs**: Agents aren't servers. They come and go. ACP handles NAT, discovery, availability.
-- **Zero-server claim**: The Cloudflare Worker relay is a fallback, not required. P2P works without it if agents are on same LAN or have public IPs.
+- **vs A2A**: A2A is enterprise. ACP is personal/small team. Like nginx vs Kubernetes — both valid, different scale.
+- **on identity**: A2A issue #1672 (403 comments, open since March): still no merged implementation. ACP v2.85 ships Ed25519 identity default-on — self-sovereign, zero CA, works offline.
+- **on discovery**: A2A has no LAN discovery spec. ACP `GET /peers/discover` scans /24 in <3s — TCP probe + AgentCard fingerprint, zero config.
+- **on reliability**: ACP offline queue: messages survive peer restarts, auto-delivered on reconnect, zero caller changes needed.
+- **on cancel semantics**: A2A issue #1680 (open, no resolution). ACP cancel is synchronous — you get `{"status":"canceled"}` immediately.
+- **on limitations metadata**: ACP v2.7 `limitations` in AgentCard. A2A issue #1694 proposed same thing same week — still unimplemented.
+- **vs MQTT/WebSockets**: Those are transports. ACP is a semantic protocol (tasks, identity, discovery, routing).
+- **vs HTTP APIs**: Agents aren't servers. They come and go, live behind NAT, restart mid-conversation. ACP handles all of that.
 
-## Anti-trolling prep
+## Anti-troll prep
 
-- "Why not just use REST?" → REST assumes servers. Agents are peers.
-- "This is just WebSockets" → Transports are pluggable. The protocol is the semantic layer.
-- "Security concerns?" → HMAC signing + `did:acp:` self-sovereign identity (v1.5, ships today). E2E encryption on roadmap. Compare: A2A #1681 leaks credentials by default; A2A #895 (SSRF + Context ID Injection, 2026-03-25) shows attack surface from complex AgentCard URL parsing. ACP P2P has no such surface.
-- "Why not just use getagentid.dev?" → External CA = external dependency + registration + potential downtime. ACP `did:acp:` is derived from your key pair, works offline, no third party.
-- "A2A already does this" → A2A requires OAuth 2.0 + cloud infra. ACP runs with curl + python. Also: A2A hasn't merged code in 10+ days post-v1.0.
-- "What about cancel edge cases?" → ACP cancel is synchronous: you get `canceled` back immediately. A2A is still debating this in issue #1680.
-- "Does it support agent capability constraints?" → Yes. ACP v2.7 `limitations` field in AgentCard lets agents declare rate limits, unsupported inputs, etc. A2A issue #1694 proposed this same day (2026-03-27) — still open, unimplemented.
-- "Is this actively maintained?" → Yes. 3 commits this week alone. Check the GitHub pulse.
-- "A2A spec is more thorough?" → A2A issue #1683: their spec contradicts itself on SSE contextId (mandatory per §4.2.2, absent in §6.2 example). ACP spec = code; we ship tests alongside every spec change.
+- "Why not just use REST?" → REST assumes servers. Agents are ephemeral peers behind NAT.
+- "This is just WebSockets" → WebSocket is the transport. The protocol is the semantic layer above it.
+- "Security?" → Ed25519 identity default-on (v2.85). AgentCard self-signatures. Mutual verification at handshake. No push notification credential leak (compare: A2A #1681, still open).
+- "Why not just use getagentid.dev?" → External CA = external dependency. ACP `did:acp:` is derived from your key pair, works offline, no third party ever involved.
+- "A2A already does this" → A2A requires OAuth + cloud infra. ACP runs with `curl` + Python stdlib. ACP v1.0.1 shipped bugfixes; ACP v2.85 shipped default-on identity this week.
+- "Is it maintained?" → 1092 tests, commits this week. Check the GitHub pulse.
 
 ---
 
----
+## Posting Checklist
 
-## v3.0.0 Changelog (key since v1.3 / last draft)
-
-| Version | Theme | Key Feature |
-|---------|-------|-------------|
-| v2.8 | Extensions + LangChain | URI-identified AgentCard extensions, `ACPTool` LangChain adapter, Node SDK v2.1.0 |
-| v2.9 | Message History | `GET /messages` history list with filtering + pagination |
-| v3.0 | **NAT Traversal Complete** | `_connect_with_nat_traversal()` — automatic L1/L2/L3, zero user config |
+- [ ] Stark 先生 review + approve
+- [ ] Record 2-agent demo (Alpha ↔ Beta, curl interaction, real terminal)
+- [ ] Verify all GitHub links are public
+- [ ] Best time: Monday or Tuesday, 9–10 AM ET (US East)
+- [ ] Post from personal HN account (not bot/org)
 
 ---
 
-## SDK 矩阵（2026-03-28）
+## Version History
 
-| SDK | Package | Status |
-|-----|---------|--------|
-| Python | `pip install acp-relay` | ✅ v1.7（RelayClient 完整特性集） |
-| Node.js | `npm install acp-relay-client` | ✅ 可用（sdk/node/） |
-| Go | `acprelay` (stdlib only) | ✅ 可用（sdk/go/） |
-| Rust | `acp-relay-client` | ✅ stub 可用（sdk/rust/） |
-| Java | (sdk/java/) | ✅ 可用（sdk/java/） |
-
-*Draft by J.A.R.V.I.S. · 2026-03-24 · Updated 2026-03-28 · Awaiting Stark 先生 review before posting*
+| Date | Change |
+|------|--------|
+| 2026-04-08 | v2.86 update: Ed25519 default-on, compatibility endpoint, A2A #1672 updated (403 comments), v2.85 test count (1092), SLIMRPC mention removed (too early) |
+| 2026-03-28 | v1.5 update: DID, Docker, conformance, A2A #1680/#1684 compare |
+| 2026-03-24 | Initial draft |

@@ -759,14 +759,17 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 ---
 
-### 🔮 v2.86（候选，目标：2026-04-12）
-**主题：Show HN 发布冲刺**
+### ✅ v2.86（完成 — 2026-04-08，开发轮）
+**主题：Show HN 发布冲刺 — README polish + Show HN 稿件最终版**
 
-| 候选特性 | 优先级 | 说明 |
-|---------|--------|------|
-| Show HN README final polish | P0 | 差异化 pitch 最终版，与 A2A 对比表格 |
-| 2-Agent demo 截图/录屏 | P0 | 真实场景演示（Alpha↔Beta curl 2步接入） |
-| Hacker News 发布 | P0 | 最佳时间：周一/周二早 9-10 AM ET |
+| 特性 | 优先级 | 状态 | 说明 |
+|------|--------|------|------|
+| Show HN draft v2.86 全面更新 | P0 | ✅ | Ed25519 default-on 角度重写；A2A #1672 更新至 403 评论；v2.85 测试数 1092；删除过时 v3.0.0 内容 |
+| README A2A 对比表 — 评论数更新 | P0 | ✅ | #1672: 62→403 comments (2026-04-08 实测) |
+| Hacker News 发布 | P0 | ⏳ | 等 Stark 先生 review + 2-Agent demo 录制 |
+
+**Key commit**: 见下次 push  
+**下一步**: 2-Agent demo 录제 + HN 发布（待 Stark 先生批准）
 
 ---
 
