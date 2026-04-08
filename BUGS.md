@@ -1535,3 +1535,32 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 - 修復：改用 `(_status.get("agent_card") or {}).get("skills", [])` + `isinstance(s, dict)` 型別保護
 - 影響範圍：帶 `--identity` 的所有測試（test_ir_1_to_12、test_etv6..16、test_cs_*、test_wa_* 等）
 - 狀態：✅ 已修復（本次心跳）
+
+---
+
+## BUG-055 [P1] `_status["relay_token"]` 在 host_mode 完成前为 None，导致场景 B 测试失败
+- 发现时间：2026-04-08（测试轮）
+- 症状：`test_scenario_b_team_round23.py` B-02~B-06 失败，`Worker1 acp link is empty`
+- 根因（双重）：
+  1. 主入口 else 分支 `token = _make_token()` 后未预写入 `_status["relay_token"]`，HTTP server 已就绪（0.2s）但 `host_mode()` 内的 `get_public_ip(4s) + curl(8s)` 还未完成，`_status["relay_token"]` 尚为 None
+  2. `host_mode()` 内 `_status["relay_token"] = relay_token if relay_link else None`，若 Cloudflare 注册失败则 token 被置 None
+- 修复：
+  1. 主入口预写 `_status["relay_token"] = token`（line ~12207，commit d90b328 系列）
+  2. `host_mode()` 内改为 `_status["relay_token"] = relay_token`（always set）
+- 额外修复：`test_scenario_b_team_round23.py` B-05 增加 `_wait_peer_connected()` 避免 ERR_PEER_CONNECTING
+- 残余问题：module fixture 跨测试 peer 连接断开（B-05 单独运行时 peers=0）→ P1，待修复
+
+
+### BUG-055 完整修复清单（2026-04-08）
+
+**根因链（三层）：**
+1. `_register_peer(ws=None)` 默认 `connected=True` → 误导调用方认为 peer 已连接
+2. `/peers/connect` 的 `asyncio.run_coroutine_threadsafe` future 未持有引用 → 可能被 GC 取消
+3. WS server 在 `host_mode` 里等 `get_public_ip`(4s) + Cloudflare curl(8s) 后才启动 → 测试的 Level-1 直连在 WS 就绪前触发 ConnectionRefused
+
+**已修复（三处）：**
+1. `relay/acp_relay.py:_register_peer()` — `connected = ws_val is not None`（不再默认 True）
+2. `relay/acp_relay.py:/peers/connect` — `fut.result(timeout=30)` 持有 future 引用
+3. `tests/test_scenario_b_team_round23.py` — 加 `--local-only` 跳过外网操作；`wait_ready` 同时等 WS port；`_wait_peer_ws_ready()` 在发消息前等 ws_ready=True
+
+**状态：✅ 已修复，7/7 PASS，7.24s**

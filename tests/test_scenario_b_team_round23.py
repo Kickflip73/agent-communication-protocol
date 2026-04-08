@@ -60,22 +60,49 @@ class RelayHandle:
         self.ws_port = ws_port
         self.http_port = ws_port + 100
         self.base = f"http://127.0.0.1:{self.http_port}"
+        # BUG-055 fix (2026-04-08): use --local-only to skip public-IP detection
+        # and Cloudflare relay pre-registration (~12s).  Without this, the WS server
+        # starts only after those async operations complete, causing Level-1 direct
+        # connect to fail with ConnectionRefused and fall back to the external relay.
         self.proc = subprocess.Popen(
             [sys.executable, RELAY, "--port", str(ws_port), "--name", name,
-             "--http-host", "127.0.0.1"],
+             "--http-host", "127.0.0.1", "--local-only"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
-    def wait_ready(self, timeout: float = 15.0) -> bool:
+    def wait_ready(self, timeout: float = 30.0) -> bool:
+        """Wait until both the HTTP API and the WebSocket port are accepting connections.
+
+        BUG-055 fix (2026-04-08): host_mode() starts the WS server only after
+        get_public_ip() + Cloudflare pre-registration (up to ~12s), while the HTTP
+        server starts immediately.  We must wait for the WS port to be open before
+        attempting to connect, otherwise Level-1 gets ConnectionRefused and falls
+        through to L3 (Cloudflare relay), making the test indirectly depend on the
+        external relay and fail when it is unreachable.
+        """
+        http_ready = False
+        ws_ready = False
         deadline = time.time() + timeout
         while time.time() < deadline:
-            try:
-                r = requests.get(f"{self.base}/status", timeout=1)
-                if r.status_code == 200:
-                    return True
-            except Exception:
-                pass
+            if not http_ready:
+                try:
+                    r = requests.get(f"{self.base}/status", timeout=1)
+                    if r.status_code == 200:
+                        http_ready = True
+                except Exception:
+                    pass
+            if http_ready and not ws_ready:
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(1)
+                    s.connect(("127.0.0.1", self.ws_port))
+                    s.close()
+                    ws_ready = True
+                except Exception:
+                    pass
+            if http_ready and ws_ready:
+                return True
             time.sleep(0.2)
         return False
 
@@ -217,6 +244,22 @@ def test_b05_b06_b07_b08_task_dispatch_and_recv(three_agents):
     p1_id = peers[0].get("peer_id", peers[0].get("id"))
     p2_id = peers[1].get("peer_id", peers[1].get("id"))
 
+    # BUG-055 fix: wait for peers to be fully WS-ready before sending.
+    # connected=True means the peer entry exists; ws_ready=True means the WS
+    # channel is established and can accept messages (ERR_PEER_CONNECTING guard).
+    def _wait_peer_ws_ready(agent: RelayHandle, peer_id: str, timeout: float = 15.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for p in agent.peers():
+                pid = p.get("peer_id", p.get("id", ""))
+                if pid == peer_id and p.get("connected") and p.get("ws_ready") is True:
+                    return True
+            time.sleep(0.3)
+        return False
+
+    assert _wait_peer_ws_ready(orch, p1_id), f"B-05: peer {p1_id} ws_ready not True within 15s"
+    assert _wait_peer_ws_ready(orch, p2_id), f"B-06: peer {p2_id} ws_ready not True within 15s"
+
     # B-05: send TASK to peer0
     r1 = orch.send_to_peer(p1_id, "TASK: analyze data chunk_A")
     assert r1.get("ok"), f"B-05 send to peer0 failed: {r1}"
@@ -269,11 +312,24 @@ def test_b11_b12_b13_b14_b15_workers_reply(three_agents):
                 return pid
         return None
 
+    # BUG-055 fix: wait for ws_ready before sending replies
+    def _wait_ws_ready(worker: RelayHandle, peer_id: str, timeout: float = 15.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for p in worker.peers():
+                if p.get("peer_id", p.get("id", "")) == peer_id and p.get("ws_ready") is True:
+                    return True
+            time.sleep(0.3)
+        return False
+
     orch_from_w1 = get_orch_peer_id(w1)
     orch_from_w2 = get_orch_peer_id(w2)
 
     assert orch_from_w1, "B-11: Worker1 cannot find Orchestrator in peer list"
     assert orch_from_w2, "B-12: Worker2 cannot find Orchestrator in peer list"
+
+    assert _wait_ws_ready(w1, orch_from_w1), f"B-11: W1→Orch ws_ready not True within 15s"
+    assert _wait_ws_ready(w2, orch_from_w2), f"B-12: W2→Orch ws_ready not True within 15s"
 
     # B-11: Worker1 sends result
     r1 = w1.send_to_peer(orch_from_w1, "RESULT_W1: chunk_A done, score=0.92")

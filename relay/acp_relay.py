@@ -694,17 +694,23 @@ def _make_peer_id():
     return f"peer_{_peer_id_counter:03d}"
 
 def _register_peer(peer_id=None, link=None, ws=None, link_token=None, remote_address=None):
-    """Register or update a peer connection. Returns peer_id."""
+    """Register or update a peer connection. Returns peer_id.
+
+    BUG-055 fix (2026-04-08): connected is derived from whether ws is non-None,
+    not hardcoded to True. Registering a peer before the WS handshake completes
+    (e.g. from /peers/connect) must not set connected=True prematurely.
+    """
     pid = peer_id or _make_peer_id()
     existing = _peers.get(pid, {})
+    ws_val = ws or existing.get("ws")
     _peers[pid] = {
         "id":               pid,
         "name":             existing.get("name", pid),
         "link":             link or existing.get("link"),
         "link_token":       link_token or existing.get("link_token"),
-        "ws":               ws or existing.get("ws"),
-        "connected":        True,
-        "connected_at":     existing.get("connected_at") or _now(),
+        "ws":               ws_val,
+        "connected":        ws_val is not None,  # True only when WS is established
+        "connected_at":     existing.get("connected_at") or (_now() if ws_val else None),
         "messages_sent":      existing.get("messages_sent", 0),
         "messages_received":  existing.get("messages_received", 0),
         "messages_delivered": existing.get("messages_delivered", 0),  # v2.35: ack count
@@ -5203,7 +5209,11 @@ async def host_mode(token, ws_port, http_port):
     # 链接格式：acp://IP:PORT/TOKEN（应用层标识，不含传输层细节）
     link = p2p_link
     _status["link"] = link
-    _status["relay_token"] = relay_token if relay_link else None
+    # BUG-055 fix (2026-04-08): relay_token should always expose the P2P session token so
+    # tests and callers can build acp:// links regardless of whether Cloudflare relay
+    # pre-registration succeeded. relay_link failure (network timeout in sandbox) must
+    # not silently zero out the token.
+    _status["relay_token"] = relay_token  # always set; None only if token itself is None
 
     # 同时在后台持续监听 relay（对方走中继时能收到消息）
     if relay_link:
@@ -9663,7 +9673,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         if peer_id in _peers:
                             _peers[peer_id]["transport_level"] = transport_level
                         log.info(f"[NAT] peer {peer_id} connected via transport_level={transport_level}")
-                    asyncio.run_coroutine_threadsafe(_run(), _loop)
+                    # BUG-055 fix (2026-04-08): hold a reference to the future so it is not
+                    # garbage-collected before _run() completes.  Without this, the coroutine
+                    # may be silently cancelled before guest_mode() sets connected=True/ws.
+                    fut = asyncio.run_coroutine_threadsafe(_run(), _loop)
+                    try:
+                        fut.result(timeout=30)  # wait up to 30s (L1 3s + L2 12s + L3 buffer)
+                    except Exception as e:
+                        log.warning(f"[NAT] peer {peer_id} connect failed: {e}")
                 threading.Thread(target=_do_connect_nat, daemon=True).start()
                 self._json({"ok": True, "peer_id": peer_id,
                             "connecting_to": peer_link, "name": peer_name or peer_id})
@@ -12202,6 +12219,10 @@ Examples:
         else:
             # ── 默认：P2P 模式，监听并等待对方连接 ────────────────────────
             token = _make_token()
+            # BUG-055 fix (2026-04-08): pre-populate relay_token immediately after token
+            # generation so callers polling /status can build acp:// links without waiting
+            # for host_mode()'s async get_public_ip + Cloudflare pre-registration (up to 12s).
+            _status["relay_token"] = token
             # Update mDNS with real token now that we have it
             if args.advertise_mdns and _mdns_running:
                 _mdns_send_announce(args.name, token, ws_port, http_port)
