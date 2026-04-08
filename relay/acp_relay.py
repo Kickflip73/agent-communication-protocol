@@ -120,6 +120,7 @@ import hmac
 import hashlib
 import struct
 import select
+import queue as _queue_module
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -161,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.81.0"  # v2.81: task_evidence — lifecycle evidence anchoring (A2A Issue #1721)
+VERSION = "2.82.0"  # v2.82: evidence_stream — SSE lifecycle evidence subscription
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -455,6 +456,7 @@ _interaction_records: list = []  # v2.59: bilateral interaction records [{id, ta
 _ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
 _imported_evidence: list = []    # v2.65: externally-imported bilateral IR evidence [{import_id, source_ir, reputation_update, ...}]
 _task_evidence: dict = {}        # v2.81: task lifecycle evidence {task_id: [evidence_entry, ...]}
+_evidence_subscribers: dict = {}  # v2.82: SSE subscribers per task_id {task_id: [queue.Queue, ...]}
 _governance_metadata: dict = {}  # v2.60: governance metadata (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
 
 
@@ -2089,6 +2091,7 @@ def _make_agent_card(name, skills):
             "direct_message":              True,                               # v2.67: POST /message/send — Direct Message mode; returns Message (not Task); A2A SendMessageResponse.oneof{Task,Message} alignment
             "runtime_limitations":         True,                               # v2.69: GET /limitations/runtime — dynamic runtime metrics
             "task_evidence":               True,                               # v2.81: POST/GET /tasks/{id}/evidence — lifecycle evidence anchoring (A2A Issue #1721)
+            "evidence_stream":             True,                               # v2.82: GET /tasks/{id}/evidence-stream — SSE real-time evidence subscription
         },
 
         "identity": ({
@@ -8120,6 +8123,44 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "audit_log": audit,
                         "total":     len(task.get("audit_log", [])),
                     })
+            elif rest.endswith("/evidence-stream"):
+                # v2.82: GET /tasks/{id}/evidence-stream — SSE real-time subscription
+                task_id = rest[:-len("/evidence-stream")]
+                self.close_connection = False
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                # Replay existing evidence entries
+                existing = list(_task_evidence.get(task_id, []))
+                for ev_entry in existing:
+                    line = f"event: evidence\ndata: {json.dumps(ev_entry)}\n\n"
+                    try:
+                        self.wfile.write(line.encode("utf-8"))
+                        self.wfile.flush()
+                    except Exception:
+                        return
+                # Register subscriber queue
+                sub_q = _queue_module.Queue(maxsize=100)
+                _evidence_subscribers.setdefault(task_id, []).append(sub_q)
+                try:
+                    while True:
+                        try:
+                            ev_entry = sub_q.get(timeout=5)  # 5s keepalive interval
+                            line = f"event: evidence\ndata: {json.dumps(ev_entry)}\n\n"
+                            self.wfile.write(line.encode("utf-8"))
+                            self.wfile.flush()
+                        except _queue_module.Empty:
+                            self.wfile.write(b": keepalive\n\n")
+                            self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                finally:
+                    subs = _evidence_subscribers.get(task_id, [])
+                    if sub_q in subs:
+                        subs.remove(sub_q)
             elif rest.endswith("/evidence/latest"):
                 # v2.81: GET /tasks/{id}/evidence/latest — get most recent evidence entry
                 task_id = rest[:-len("/evidence/latest")]
@@ -10121,6 +10162,12 @@ class LocalHTTP(BaseHTTPRequestHandler):
             if "timestamp" in body:
                 entry["timestamp"] = body["timestamp"]
             entries.append(entry)
+            # v2.82: notify SSE evidence-stream subscribers
+            for sub_q in list(_evidence_subscribers.get(task_id, [])):
+                try:
+                    sub_q.put_nowait(entry)
+                except Exception:
+                    pass  # queue full or subscriber gone — skip silently
             self._json({"status": "recorded", "task_id": task_id, "seq": seq, "recorded_at": recorded_at})
 
         # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
