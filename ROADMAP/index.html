@@ -1588,10 +1588,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#v2852026-04-10" class="md-nav__link">
+  <a href="#v285-2026-04-08" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔮 v2.85（候选，目标：2026-04-10）
+        ✅ v2.85（完成 — 2026-04-08，开发轮）
       
     </span>
   </a>
@@ -3467,18 +3467,16 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 - <code>client_msg_id</code>：<code>/message:send</code> 接受 <code>client_msg_id</code> 作为 <code>message_id</code> 别名（优先级：<code>message_id</code> &gt; <code>client_msg_id</code> &gt; 自动生成）；所有发送响应回显 <code>client_msg_id</code>；dedup 缓存覆盖两种形式
 - README version badge 更新 v2.82.0 → v2.84.0</p>
 <hr />
-<h3 id="v2852026-04-10">🔮 v2.85（候选，目标：2026-04-10）<a class="headerlink" href="#v2852026-04-10" title="Permanent link">&para;</a></h3>
+<h3 id="v285-2026-04-08">✅ v2.85（完成 — 2026-04-08，开发轮）<a class="headerlink" href="#v285-2026-04-08" title="Permanent link">&para;</a></h3>
 <p><strong>主题：Ed25519 Identity 默认化 + 协议兼容性矩阵</strong></p>
-<blockquote>
-<p>来源：研究轮 scan#21（2026-04-08）— A2A #1672 Ed25519 互操作性 PR 持续活跃，Show HN 窗口期收窄，需要巩固差异化优势</p>
-</blockquote>
 <table>
 <thead>
 <tr>
-<th>候选特性</th>
+<th>特性</th>
 <th>来源</th>
 <th>优先级</th>
-<th>说明</th>
+<th>状态</th>
+<th>Commit</th>
 </tr>
 </thead>
 <tbody>
@@ -3486,38 +3484,46 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td>Ed25519 keypair 默认生成（移除 <code>--identity</code> 手动开启限制）</td>
 <td>ACP 核心</td>
 <td>P0</td>
-<td>零配置 P2P + 默认 Ed25519 是 Show HN 强差异化 pitch</td>
+<td>✅ 已完成</td>
+<td><code>397823e</code></td>
 </tr>
 <tr>
-<td><code>/.well-known/did.json</code> 默认暴露</td>
+<td><code>--no-identity</code> 新 flag（测试/嵌入场景禁用）</td>
 <td>ACP 核心</td>
 <td>P0</td>
-<td>无需 <code>--identity</code> flag，开箱即用</td>
+<td>✅ 已完成</td>
+<td><code>397823e</code></td>
 </tr>
 <tr>
-<td><code>/.well-known/jwks.json</code> 默认暴露</td>
+<td><code>capabilities.identity_default=True</code></td>
 <td>ACP 核心</td>
 <td>P0</td>
-<td>JWKS 公钥发现默认可用</td>
+<td>✅ 已完成</td>
+<td><code>397823e</code></td>
 </tr>
 <tr>
 <td><code>GET /protocol-binding/compatibility</code> 多协议兼容矩阵</td>
 <td>A2A #1723 延伸</td>
 <td>P1</td>
-<td>声明 ACP 与 REST/WS/gRPC 协议的兼容级别</td>
+<td>✅ 已完成</td>
+<td><code>397823e</code></td>
 </tr>
 <tr>
-<td><code>GET /peers/{id}/latency</code> 实时延迟测量</td>
-<td>ACP 内生</td>
-<td>P2</td>
-<td>调试体验 + P2P 链路质量监控</td>
+<td>ID-01..ID-10 + PBC-01..PBC-10 测试</td>
+<td>测试轮</td>
+<td>—</td>
+<td>✅ 20/20 PASS</td>
+<td><code>397823e</code></td>
 </tr>
 </tbody>
 </table>
-<p><strong>战略价值</strong>：
-- 对标 A2A #1672（Ed25519 互操作性，持续活跃）先发制人
-- Show HN: "零配置 P2P Agent 通信，默认 Ed25519 身份验证" &gt; "需要手动开启"
-- 保持 ACP 在身份/信任层的 6-8 周领先优势</p>
+<p><strong>实现说明：</strong>
+- <code>~/.acp/identity.json</code> 首次运行自动生成，跨重启持久化；<code>--identity &lt;path&gt;</code> 向后兼容
+- <code>/protocol-binding/compatibility</code>：6 协议兼容矩阵（websocket/http-sse: native, a2a/anp: partial, mcp/grpc: none）；<code>aligned_sections[]</code> 声明对齐章节
+- README badge 更新: v2.84.0 → v2.85.0，1072/1072 → 1092/1092</p>
+<p><strong>战略意义</strong>：
+- 对标 A2A #1672（Ed25519 互操作性 PR 持续活跃）先发制人
+- Show HN pitch：「零配置 P2P Agent 通信，默认 Ed25519 身份验证，一行启动」</p>
 <hr />
 <h3 id="v2862026-04-12">🔮 v2.86（候选，目标：2026-04-12）<a class="headerlink" href="#v2862026-04-12" title="Permanent link">&para;</a></h3>
 <p><strong>主题：Show HN 发布冲刺</strong></p>
