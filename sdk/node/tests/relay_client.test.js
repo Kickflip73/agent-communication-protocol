@@ -826,3 +826,54 @@ describe('wellKnownHeaders() — v2.47+', () => {
     assert.deepStrictEqual(headers, {});
   });
 });
+
+// ─────────────────────────────────────────────
+// sendWithClientMsgId (v2.84)
+// ─────────────────────────────────────────────
+describe('sendWithClientMsgId() — v2.84 idempotency', () => {
+  test('sends client_msg_id + message_id in request body', async () => {
+    let captured;
+    setHandler('POST', '/message:send', (req, res, body) => {
+      captured = body;
+      jsonResponse(res, 200, { ok: true, message_id: 'msg_001', client_msg_id: body.client_msg_id });
+    });
+    const client = makeClient();
+    const resp = await client.sendWithClientMsgId('hello idempotent', 'my-key-abc');
+    assert.strictEqual(resp.ok, true);
+    assert.strictEqual(captured.client_msg_id, 'my-key-abc');
+    assert.strictEqual(captured.message_id, 'my-key-abc');
+    assert.strictEqual(captured.parts[0].content, 'hello idempotent');
+  });
+
+  test('echoes client_msg_id in response', async () => {
+    setHandler('POST', '/message:send', (req, res, body) => {
+      jsonResponse(res, 200, { ok: true, message_id: 'msg_002', client_msg_id: body.client_msg_id, deduplicated: false });
+    });
+    const client = makeClient();
+    const resp = await client.sendWithClientMsgId('dedup test', 'key-xyz');
+    assert.strictEqual(resp.client_msg_id, 'key-xyz');
+    assert.strictEqual(resp.deduplicated, false);
+  });
+
+  test('relay deduplication: same key returns deduplicated=true', async () => {
+    setHandler('POST', '/message:send', (req, res, body) => {
+      jsonResponse(res, 200, { ok: true, message_id: 'msg_003', client_msg_id: body.client_msg_id, deduplicated: true });
+    });
+    const client = makeClient();
+    const resp = await client.sendWithClientMsgId('repeat', 'dup-key');
+    assert.strictEqual(resp.deduplicated, true);
+  });
+
+  test('merges extra fields into request body', async () => {
+    let captured;
+    setHandler('POST', '/message:send', (req, res, body) => {
+      captured = body;
+      jsonResponse(res, 200, { ok: true, message_id: 'msg_004' });
+    });
+    const client = makeClient();
+    await client.sendWithClientMsgId('extra test', 'key-extra', { role: 'assistant', priority: 'high' });
+    assert.strictEqual(captured.role, 'assistant');
+    assert.strictEqual(captured.priority, 'high');
+    assert.strictEqual(captured.client_msg_id, 'key-extra');
+  });
+});
