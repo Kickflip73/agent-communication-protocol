@@ -43,7 +43,8 @@ def _start(ws_port, name, wait=20):
     time.sleep(0.3)  # brief wait for kernel to release
 
     proc = subprocess.Popen(
-        [sys.executable, RELAY, "--port", str(ws_port), "--name", name],
+        [sys.executable, RELAY, "--port", str(ws_port), "--name", name,
+         "--local-only"],   # skip Cloudflare/IP lookup so WS starts immediately (test reliability)
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     deadline = time.time() + wait
@@ -207,6 +208,22 @@ def test_BC5_broadcast_missing_text_returns_400():
 
 # ── BC6–BC10: actual broadcast with peers ─────────────────────────────────────
 
+def _wait_peer_connected(http, expected_count=1, timeout=15):
+    """Wait until the relay at http_port has at least `expected_count` connected peers."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            d = requests.get(f"http://127.0.0.1:{http}/peers", timeout=3).json()
+            peers = d if isinstance(d, list) else d.get("peers", [])
+            connected = [p for p in peers if p.get("connected")]
+            if len(connected) >= expected_count:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return False
+
+
 @pytest.fixture(scope="module")
 def two_peers_connected():
     """Connect B and C to A, return (peer_b_id, peer_c_id)."""
@@ -219,10 +236,14 @@ def two_peers_connected():
     assert lc, f"C link is None after wait (status: {requests.get(f'http://127.0.0.1:{HTTP_C}/status',timeout=3).json()})"
     rb = requests.post(f"http://127.0.0.1:{HTTP_A}/peers/connect",
                        json={"link": lb}, timeout=10).json()
-    time.sleep(2)
     rc = requests.post(f"http://127.0.0.1:{HTTP_A}/peers/connect",
                        json={"link": lc}, timeout=10).json()
-    time.sleep(2)
+    # Wait for both WS handshakes to complete (replaces static sleep)
+    ok = _wait_peer_connected(HTTP_A, expected_count=2, timeout=20)
+    assert ok, (
+        f"A did not get 2 connected peers within 20s — "
+        f"peers: {requests.get(f'http://127.0.0.1:{HTTP_A}/peers', timeout=3).json()}"
+    )
     return rb.get("peer_id"), rc.get("peer_id")
 
 
