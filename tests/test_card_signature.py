@@ -228,8 +228,12 @@ def test_cs9_did_consistent():
 
 
 def test_cs10_no_card_sig_without_identity():
-    """CS10: card_sig absent when agent started WITHOUT --identity."""
-    # Start a second relay on a different port WITHOUT --identity
+    """CS10: card_sig absent when agent started WITH --no-identity.
+
+    v2.85+: Ed25519 identity is default-on. To test the no-identity path,
+    we must explicitly pass --no-identity (the escape hatch flag).
+    """
+    # Start a second relay on a different port WITH --no-identity
     port2 = RELAY_WS_PORT + 2  # ws port; HTTP will be port2+100
     relay_path = os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py")
     env = os.environ.copy()
@@ -238,9 +242,9 @@ def test_cs10_no_card_sig_without_identity():
     env.pop("https_proxy", None)
     env.pop("HTTPS_PROXY", None)
 
-    # No --identity flag → identity disabled
+    # --no-identity flag → identity disabled (v2.85 escape hatch)
     proc2 = subprocess.Popen(
-        [sys.executable, relay_path, "--port", str(port2), "--name", "NoIdentityAgent"],
+        [sys.executable, relay_path, "--port", str(port2), "--name", "NoIdentityAgent", "--no-identity"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
     )
 

@@ -5,6 +5,18 @@
 
 ---
 
+### BUG-031 🟢 P2 (已修复) — test_cs10: v2.85 Ed25519 default-on 导致测试预期过时
+
+**发现日期**: 2026-04-08  
+**场景**: `tests/test_card_signature.py::test_cs10_no_card_sig_without_identity`  
+**描述**: v2.85 将 Ed25519 身份认证改为默认开启后，`test_cs10` 仍用"无 `--identity` 标志 → 无 card_sig"逻辑，但现在不带任何标志启动也会生成 card_sig。测试断言失败。  
+**根因**: 测试假设旧行为（无 `--identity` = 无身份）；v2.85 行为改变（无标志 = 默认开启身份）  
+**修复**: 将测试改为使用 `--no-identity` 逃生舱标志来模拟"无身份"场景（2026-04-08，commit 见下）  
+**影响**: 仅测试文件；relay 实现正确  
+**状态**: ✅ 已修复
+
+---
+
 ### BUG-030 🟡 P2 — 场景 C SC10：多消息+多 peer 场景下 relay HTTP server 偶发崩溃（RemoteDisconnected）
 
 **发现日期**: 2026-03-31

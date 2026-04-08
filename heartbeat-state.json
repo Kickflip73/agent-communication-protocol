@@ -1,5 +1,5 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-08 21:05 — 测试轮完成. BUG-057발견/수정(test_broadcast_v23 --local-only누락+피어폴링). 46/46 PASS. commit c620a80. 下轮: 研究轮.",
-  "next_round": "research"
+  "notes": "2026-04-08 21:45 — 开发轮完成. v2.86: Show HN draft 전면 재작성(Ed25519 default-on 각도, A2A #1672 403코멘트 업데이트, v2.85 1092테스트). README A2A 비교표 갱신. commit 4bd71d3. 待 Stark先生 승인 후 HN 게시 + 2-Agent demo 녹화. 下轮: 测试轮.",
+  "next_round": "test"
 }
