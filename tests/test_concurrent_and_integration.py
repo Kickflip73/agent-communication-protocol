@@ -32,7 +32,15 @@ def wait_http_ready(http_port, timeout=12):
     return False
 
 
+def _free_port():
+    import socket as _s
+    with _s.socket() as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
 def _start_relay(ws_port, skills, extra_flags=None):
+    if ws_port is None:
+        ws_port = _free_port()
     http_port = ws_port + 100
     env = os.environ.copy()
     for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
@@ -370,7 +378,7 @@ def test_int3_param_blocks_before_confirmation():
         },
         "human_confirmation_required": True,
     }]
-    proc, hp = _start_relay(48012, skills)
+    proc, hp = _start_relay(None, skills)
     try:
         pid = _inject(hp, "t3_peer_bad_param", T3_TRUST)
         s, b = _http("POST", hp, "/tasks", {
@@ -408,7 +416,7 @@ def test_int4_full_rejection_path():
         },
         "human_confirmation_required": True,
     }]
-    proc, hp = _start_relay(48013, skills)
+    proc, hp = _start_relay(None, skills)
     try:
         pid = _inject(hp, "nuke_agent", T3_TRUST)
         s, b = _http("POST", hp, "/tasks", {
@@ -445,7 +453,7 @@ def test_int5_auto_confirm_bypasses_full_chain():
         },
         "human_confirmation_required": True,
     }]
-    proc, hp = _start_relay(48014, skills, extra_flags=["--auto-confirm-t3"])
+    proc, hp = _start_relay(None, skills, extra_flags=["--auto-confirm-t3"])
     try:
         pid = _inject(hp, "ci_bot", T3_TRUST)
         s, b = _http("POST", hp, "/tasks", {

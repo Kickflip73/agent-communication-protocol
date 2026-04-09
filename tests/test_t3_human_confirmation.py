@@ -196,11 +196,14 @@ def test_t3c2_no_confirmation_flag_submitted():
 
 # ── T3C3: T2 skill with human_confirmation_required=true → submitted (ignored) ─
 def test_t3c3_t2_skill_confirmation_ignored():
-    """T3C3: human_confirmation_required=true on T2 skill → submitted (only T3 gated)."""
+    """T3C3: human_confirmation_required=true on T2 skill → submitted (only T3 gated).
+    Uses T3_TRUST_OVERRIDE to ensure reputation_adj=-1 counters bilateral_ir_adj=+1,
+    keeping effective_tier at T2 (trust score 0.90, verified_identity=True, msgs=150).
+    """
     ws, hp = 47002, 47102
     proc = _start_relay(ws, [T2_SKILL])
     try:
-        peer_id = _inject_peer_with_trust(hp, "peer3", T2_TRUST_OVERRIDE)
+        peer_id = _inject_peer_with_trust(hp, "peer3", T3_TRUST_OVERRIDE)
         s, b = _http("POST", hp, "/tasks", {
             "role": "agent", "text": "send it",
             "skill_id": "send_msg", "peer_id": peer_id,

@@ -221,13 +221,41 @@ def test_ts13_unknown_type_filter(relay_url):
     assert d["total"] == 13  # v2.71: total is always all 13
 
 
-def test_ts14_no_identity_bilateral_ir_enabled(relay_url):
-    """TS-14: Without --identity, bilateral_ir is enabled=True (always available)."""
-    # bilateral_ir doesn't require Ed25519 identity to be enabled
-    d = get_signals(relay_url, type="bilateral_ir")
-    sig = d["signals"][0]
-    assert sig["enabled"] is True, "bilateral_ir should always be enabled (no identity required)"
-    # ed25519_identity should be disabled (no --identity in test fixture)
-    d2 = get_signals(relay_url, type="ed25519_identity")
-    sig2 = d2["signals"][0]
-    assert sig2["enabled"] is False, "ed25519_identity should be disabled without --identity"
+def test_ts14_no_identity_bilateral_ir_enabled():
+    """TS-14: Without --identity (--no-identity), bilateral_ir is enabled=True (always available)."""
+    # Needs its own relay with --no-identity (v2.85+: Ed25519 is default-on)
+    import socket as _sock
+    with _sock.socket() as _s:
+        _s.bind(("", 0)); _ws = _s.getsockname()[1]
+    _hp = _ws + 100
+    _proc = subprocess.Popen(
+        [sys.executable, RELAY, "--port", str(_ws), "--name", "TS14NoIdRelay", "--no-identity"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            try:
+                if requests.get(f"http://localhost:{_hp}/status", timeout=1).status_code == 200:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.3)
+        else:
+            _proc.terminate()
+            pytest.fail("TS14 relay did not start in time")
+        _url = f"http://localhost:{_hp}"
+        # bilateral_ir doesn't require Ed25519 identity to be enabled
+        d = get_signals(_url, type="bilateral_ir")
+        sig = d["signals"][0]
+        assert sig["enabled"] is True, "bilateral_ir should always be enabled (no identity required)"
+        # ed25519_identity should be disabled (--no-identity)
+        d2 = get_signals(_url, type="ed25519_identity")
+        sig2 = d2["signals"][0]
+        assert sig2["enabled"] is False, "ed25519_identity should be disabled without --identity"
+    finally:
+        _proc.terminate()
+        try:
+            _proc.wait(timeout=10)
+        except Exception:
+            _proc.kill()

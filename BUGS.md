@@ -1633,3 +1633,16 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **修复**: CT-1 的 `_start_relay(52800)` 改为 `_start_relay(52800, no_identity=True)`，并在 `_start_relay` 函数中增加 `--no-identity` 参数支持；同时将 relay 启动等待从 12s 延长至 30s（`--local-only` 模式下初始化仍需约 15s）  
 **影响**: 仅测试文件；relay 实现正确；与 BUG-031 同类  
 **状态**: ✅ 已修复（2026-04-09）  
+
+---
+
+### BUG-059 🟡 P2 (flaky) — test_peer_card.py PC6/PC7：peer card exchange 在测试环境未完成
+
+**发现日期**: 2026-04-09  
+**场景**: `tests/test_peer_card.py::test_PC6_agent_card_not_none`, `test_PC7_agent_card_has_acp_fields`  
+**描述**: A 连接 B 后，`/peers/peer_001/card` 持续返回 `connected=False, agent_card=None, card_available=False`，card exchange 在 12 秒内未完成。  
+**根因**: 测试环境 loopback 下两个 relay 实例之间的 WebSocket 握手 + `acp.agent_card` 消息交换时序不稳定；`connected_peer_b` fixture 等待时间不足，或 relay 对 loopback 连接的 card 发送存在 race condition。  
+**影响**: PC6, PC7 失败（非确定性）；relay 功能本身可通过手动测试验证  
+**修复方向**: 检查 relay `acp.agent_card` 握手触发逻辑，确保连接建立后主动推送 card；或在 fixture 中延长等待至 20s  
+**优先级**: P2 (flaky，不阻断功能)  
+**状态**: ⬜ 待修复

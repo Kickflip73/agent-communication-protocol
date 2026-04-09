@@ -152,8 +152,15 @@ def connected_peer_b():
     assert lb, f"B link unavailable"
     r = requests.post(f"http://127.0.0.1:{HTTP_A}/peers/connect",
                       json={"link": lb}, timeout=10).json()
-    time.sleep(3)  # wait for agent_card handshake exchange
-    return r.get("peer_id")
+    peer_id = r.get("peer_id")
+    # Wait for agent_card handshake to complete (poll up to 12s)
+    deadline = time.time() + 12
+    while time.time() < deadline:
+        status = requests.get(f"http://127.0.0.1:{HTTP_A}/peers/{peer_id}/card", timeout=5).json()
+        if status.get("connected") or status.get("card_available"):
+            break
+        time.sleep(0.5)
+    return peer_id
 
 
 def test_PC4_card_200_after_connect(connected_peer_b):

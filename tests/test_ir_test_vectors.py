@@ -127,7 +127,7 @@ def relay_no_identity():
     http = _http_port(ws_port)
     cmd = [sys.executable, RELAY_PATH,
            "--port", str(ws_port),
-           "--test-mode"]
+           "--test-mode", "--no-identity"]  # v2.85+: Ed25519 on by default; opt out explicitly
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if not _wait_ready(http):
         proc.terminate()

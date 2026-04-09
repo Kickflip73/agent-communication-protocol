@@ -102,10 +102,10 @@ def _get_agent_card(http_port: int) -> dict:
 
 @pytest.fixture(scope="module")
 def relay_no_identity():
-    """Relay without --identity (no Ed25519 keypair)."""
+    """Relay without --identity (no Ed25519 keypair). v2.85+: must pass --no-identity explicitly."""
     ws = _free_port()
     http = ws + 100
-    proc = _start_relay(ws, "JWKSNoId")
+    proc = _start_relay(ws, "JWKSNoId", extra=["--no-identity"])
     assert _wait_ready(http), f"relay (no identity) failed to start on http_port={http}"
     yield http
     proc.terminate()

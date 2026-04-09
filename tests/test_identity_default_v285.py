@@ -133,15 +133,17 @@ class TestIdentityDefault:
     """ID-01..ID-10: relay auto-generates Ed25519 identity without --identity flag."""
 
     def test_id01_version_v285(self, tmp_path):
-        """ID-01: VERSION is 2.85.0 (in self.acp_version or /status)."""
+        """ID-01: VERSION is 2.85.0+ (in self.acp_version or /status)."""
         with _Relay() as port:
             status, body = _get(port, "/.well-known/acp.json")
             assert status == 200
             # version may be in body["self"]["acp_version"] or body["version"]
             ver = (body.get("version") or
                    body.get("self", {}).get("acp_version") or "")
-            assert ver.startswith("2.85"), \
-                f"Expected v2.85.x, got '{ver}'. Full body keys: {list(body.keys())}"
+            # Accept any 2.85+ version (protocol introduced in v2.85, bumped in subsequent releases)
+            major_minor = tuple(int(x) for x in ver.split(".")[:2]) if ver else (0, 0)
+            assert major_minor >= (2, 85), \
+                f"Expected v2.85+, got '{ver}'. Full body keys: {list(body.keys())}"
 
     def test_id02_agentcard_identity_default_capability(self, tmp_path):
         """ID-02: AgentCard capabilities.identity_default=True when identity auto-loaded."""
@@ -259,7 +261,9 @@ class TestProtocolBindingCompatibility:
         with _Relay() as port:
             _, body = _get(port, "/protocol-binding/compatibility")
             assert "version" in body
-            assert body["version"].startswith("2.85")
+            ver = body["version"]
+            major_minor = tuple(int(x) for x in ver.split(".")[:2]) if ver else (0, 0)
+            assert major_minor >= (2, 85), f"Expected v2.85+, got '{ver}'"
 
     def test_pbc04_compatibility_is_list(self, tmp_path):
         """PBC-04: compatibility field is a non-empty list."""

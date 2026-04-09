@@ -33,7 +33,7 @@ def relay_proc():
     http_port = ws_port + 100
     proc = subprocess.Popen(
         [sys.executable, RELAY, "--local", "--port", str(ws_port),
-         "--name", "TestRelayV274"],
+         "--name", "TestRelayV274", "--no-identity"],  # v2.85+: Ed25519 on by default; opt out explicitly
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     time.sleep(1.5)

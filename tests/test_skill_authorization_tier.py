@@ -65,7 +65,7 @@ def _start_relay(ws_port: int, http_port: int, skills: list[dict]) -> subprocess
     )
     for s in (proc.stdout, proc.stderr):
         threading.Thread(target=lambda x=s: x.read(), daemon=True).start()
-    assert wait_http_ready(http_port, timeout=12), f"relay on :{http_port} did not start"
+    assert wait_http_ready(http_port, timeout=25), f"relay on :{http_port} did not start"
     return proc
 
 
@@ -289,7 +289,12 @@ def test_sat11_capability_declared():
     Capabilities are at body["self"]["capabilities"].
     """
     skills = [{"id": "write_data", "name": "WriteData", "authorization_tier": "T2"}]
-    f = RelayFixture(43510, 43610, skills)
+    # Use dynamic ports to avoid conflicts with lingering relay processes
+    import socket as _sock
+    with _sock.socket() as _s:
+        _s.bind(("", 0))
+        _ws = _s.getsockname()[1]
+    f = RelayFixture(_ws, _ws + 100, skills)
     try:
         # Try /.well-known/acp.json first (self.capabilities)
         status, body = _http("GET", f.http_port, "/.well-known/acp.json")
