@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-05（v2.48.0：GET /peers/<id>/messages — per-peer 消息历史查询 + --test-mode 调试注入端点）
+> 最后更新：2026-04-10（v2.94.0：principal_diversity_defense — GET /trust/bilateral-ir/diversity 共谋对惩罚；当前版本 2.94.0，commit b9f638e）
 
 ---
 
@@ -772,14 +772,36 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 **测试结果**：场景 A+B+F+G+H 全部 PASS；card_signature 11/11；identity 全套通过
 
-### 🔮 v2.87（候选，目标：2026-04-13）
-**主题：Show HN 正式发布 + 2-Agent demo**
+### ✅ v2.87–v2.94（完成 — 2026-04-08 至 2026-04-10）
+**主题：信任基础设施深化 — 身份、治理、反操控**
+
+> 最后更新：2026-04-10（v2.94 principal_diversity_defense 完成）
+
+| 版本 | 主题 | 关键交付 | Commit |
+|------|------|---------|--------|
+| v2.87 | 协议绑定兼容性 | `GET /protocol-binding/compatibility` — A2A/ANP/MCP 兼容性声明；JSON-RPC 2.0 子集支持 | — |
+| v2.88 | 身份跨协议 | `GET /identity/cross-protocol` — multi-DID 跨协议身份声明；OpenID Connect 桥接评估 | — |
+| v2.89 | WTRMRK 证明 | `POST /wtrmrk/attest` — WTRMRK 证明提交；A2A #1716 @64R3N 对齐 | — |
+| v2.90 | 卡片验证 | `POST /identity/verify-card` — 离线跨实例 AgentCard 验证（无 CA，无网络）| — |
+| v2.91 | 对抗性夹具 | `GET /ir/adversarial-fixtures` — 5 个对抗场景 fixture（AF-001~005）；A2A #1718 aeoess 提案对齐 | — |
+| v2.92 | RFC-003 治理元数据 | `GET /governance-metadata` — `derivation_rights` + `credential_lifecycle`；A2A #1717 + aeoess SDK v1.37.0 对齐；16测试GM01-16全通 | — |
+| v2.93 | RFC-004 无CA身份 | `docs/rfc/identity-without-ca.md` — Ed25519 自签名，三层信任模型，9维 vs CA 对比，multi-provider DID；A2A #1712 社区草稿 | `f384752` |
+| v2.94 | 主体多样性防御 | `GET /trust/bilateral-ir/diversity` — 共谋对惩罚（concentration>60%→0.10x权重）；`principal_diversity_defense: true`；16测试PD01-16全通 | `b9f638e` |
+
+**当前版本**: `2.94.0` | **最新 commit**: `b9f638e`
+
+---
+
+### 🔮 v2.95（候选，目标：2026-04-15）
+**主题：Show HN 发布 + 2-Agent demo + QuerySkill() 正式实现**
 
 | 候选特性 | 优先级 | 说明 |
 |---------|--------|------|
 | 2-Agent demo 终端录屏 | P0 | Alpha↔Beta curl 双向通信真实演示（asciinema 或 gif） |
 | Hacker News 发布 | P0 | 最佳时间：周一/周二早 9-10 AM ET；需 Stark 先生最终批准 |
 | README demo gif 嵌入 | P1 | 让首屏更直观，降低新访客摩擦 |
+| A2A #1712 评论发布 | P1 | `docs/community/a2a-1712-comment.md` → 发布到 GitHub（时机成熟：#1672 CA作者转向 hybrid） |
+| QuerySkill() 正式实现 | P2 | A2A #1655（9 comments）仍 open；ACP 已有草案，完善实现 |
 
 ---
 

@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.88.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.94.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -553,6 +553,7 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v2.85** | ✅ | **Ed25519 身份认证默认开启** — 首次运行自动生成密钥对，零配置；`capabilities.identity_default: true`；`--no-identity` 逃生出口；`GET /protocol-binding/compatibility` — 6 协议支持矩阵（websocket/http-sse=native，a2a/anp=partial，mcp/grpc=none）；领先 A2A #1672（408 comments，无定论）|
 | **v2.86** | ✅ | **BUG-058 修复** — v2.85 Ed25519 默认开启导致 capability_token 测试预期不匹配；`--no-identity` 修复测试夹具；BUG 类型：v2.85 引入的测试适配欠债，同类 BUG-031 |
 | **v2.87** | ✅ | **`policy_compliance[]` — 治理合规标准字段** — AgentCard 顶层 `policy_compliance: string[]`；`PATCH /policy-compliance` 替换模式 + 增量模式（add/remove）；`capabilities.policy_compliance: bool`；领先 A2A #1717（Microsoft governance-toolkit 团队提案，proposal 阶段）|
+| **v2.94** | ✅ | **Principal Diversity Defense — 主体多样性防御** — `GET /trust/bilateral-ir/diversity`：共谋对充通膨胀攻击防御；concentration>60%时 top counterparty 超额互动计 0.10x 权重；`effective_bilateral_count` 替代原始计数用于 tier 阈值；`capabilities.principal_diversity_defense: true`；`POST /trust/bilateral-ir/inject` 测试辅助端点；16测试PD01-16全通；对齐 aeoess adversarial-trust-fixture.json (A2A #1718)|
 | **v2.93** | ✅ | **ACP-RFC-004 — 无 CA 去中心化 Agent 身份** — `docs/rfc/identity-without-ca.md`：Ed25519 自签名身份完整规范；三层信任模型（身份→委托→执行证明）；与 A2A #1672 中心 CA 方案 9 维对比；`credential_lifecycle`（RFC-003）替代 CRL/OCSP；多 provider DID 兼容（did:key/did:web/did:acp）；Python ~50行参考实现；A2A #1712 社区参与草稿（`docs/community/a2a-1712-comment.md`）|
 | **v2.92** | ✅ | **ACP-RFC-003 — 治理元数据规范** — `docs/rfc/governance-metadata.md`：`derivation_rights`（GDPR 派生数据保留/导出控制）+ `credential_lifecycle`（会话 TTL + 吊销策略）；直接响应 aeoess SDK v1.37.0「派生数据泄漏」缺口 + A2A #1717；`capabilities.derivation_rights: true` + `capabilities.credential_lifecycle: true`；16 测试（GM01-GM16）全通|
 | **v2.91** | ✅ | **GET /ir/adversarial-fixtures — 对抗性 IR 测试夹具** — 5 个自包含 JSON fixture（AF-001 合法密集交互基线、AF-002 共谋双方互刷、AF-003 Sybil 环形循环刷分、AF-004 孤立突发spike、AF-005 篡改哈希链）；每个 fixture 包含签名 IR 记录 + expected_flags + detection_hint；直接响应 A2A #1718 aeoess 对抗性 fixture 提案；13 个测试全通（IAF1-IAF13）|
