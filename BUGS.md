@@ -1560,7 +1560,7 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
   1. 主入口预写 `_status["relay_token"] = token`（line ~12207，commit d90b328 系列）
   2. `host_mode()` 内改为 `_status["relay_token"] = relay_token`（always set）
 - 额外修复：`test_scenario_b_team_round23.py` B-05 增加 `_wait_peer_connected()` 避免 ERR_PEER_CONNECTING
-- 残余问题：module fixture 跨测试 peer 连接断开（B-05 单独运行时 peers=0）→ P1，待修复
+- 残余问题：module fixture 跨测试 peer 连接断开（B-05 单独运行时 peers=0）→ ✅ 已验证修复（2026-04-09，7 passed）
 
 
 ### BUG-055 完整修复清单（2026-04-08）
@@ -1620,7 +1620,7 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **수정 방향**: `two_peers_bc` fixture에서 `sleep(2)` 대신 `/peers` 엔드포인트 폴링으로 피어 연결 확인 후 진행
 
 **우선순위**: P1 (테스트 신뢰성 훼손)
-**상태**: ✅ 수정됨 (commit 다음 push에서 확인)
+**상태**: ✅ 수정됨 — BH5/BH6/BH7/BH10 4 passed 검증 완료 (2026-04-09)
 
 ---
 
