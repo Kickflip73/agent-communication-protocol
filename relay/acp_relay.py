@@ -2074,6 +2074,7 @@ def _make_agent_card(name, skills):
             "error_failed_msg_id":      True,                                  # v2.30: failed_message_id in error response (ref ANP failed_msg_id)
             "message_dedup":            True,                                  # v2.32: 30s TTL dedup window on /message:send and /peer/<id>/send
             "pubkey_discovery":         True,                                  # v2.33: GET|POST /identity/pubkey-discovery — resolve did:acp:/did:key: → Ed25519 pubkey (offline, no HTTP to peer)
+            "offline_card_verify":      True,                                  # v2.90: POST /identity/verify-card — offline AgentCard Ed25519 sig verification (no live connection needed)
             "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
             "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
             "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
@@ -2164,7 +2165,8 @@ def _make_agent_card(name, skills):
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":        "/identity/delegation",          # v2.16: GET — query delegation chain
             "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
-            "pubkey_discovery":  "/identity/pubkey-discovery",   # v2.33: GET|POST — resolve DID → Ed25519 pubkey (offline)
+            "pubkey_discovery":        "/identity/pubkey-discovery",   # v2.33: GET|POST — resolve DID → Ed25519 pubkey (offline)
+            "offline_card_verify":     "/identity/verify-card",         # v2.90: POST — offline AgentCard sig verification
             "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
             "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
             "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
@@ -8677,6 +8679,37 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)}, 500)
             return
+
+        elif p == "/identity/verify-card":
+            # POST /identity/verify-card — offline AgentCard signature verification (v2.90)
+            # Verifies an arbitrary AgentCard's Ed25519 self-signature without requiring
+            # a live connection to the card's owner.  Useful for cross-instance trust
+            # propagation: Agent B can prove to Agent C that "I received a card from A
+            # and it verifies cryptographically."
+            #
+            # Body: {"card": {...}}
+            # Response (200): {"verified": bool, "did": str|null, "public_key": str|null,
+            #                   "did_consistent": bool|null, "scheme": str, "error": str|null}
+            # Response (400): {"error": "..."}  — missing/invalid body
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+            card = body.get("card")
+            if not card or not isinstance(card, dict):
+                self._json({"error": "'card' field required (object)"}, 400)
+                return
+            vr = _verify_agent_card(card)
+            self._json({
+                "verified":      vr.get("valid") is True,
+                "valid":         vr.get("valid"),
+                "did":           vr.get("did"),
+                "public_key":    vr.get("public_key"),
+                "did_consistent": vr.get("did_consistent"),
+                "scheme":        vr.get("scheme"),
+                "error":         vr.get("error"),
+            })
 
         elif p == "/identity/pubkey-discovery":
             # POST /identity/pubkey-discovery — resolve DID → pubkey (v2.33)

@@ -553,6 +553,7 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v2.85** | ✅ | **Ed25519 身份认证默认开启** — 首次运行自动生成密钥对，零配置；`capabilities.identity_default: true`；`--no-identity` 逃生出口；`GET /protocol-binding/compatibility` — 6 协议支持矩阵（websocket/http-sse=native，a2a/anp=partial，mcp/grpc=none）；领先 A2A #1672（408 comments，无定论）|
 | **v2.86** | ✅ | **BUG-058 修复** — v2.85 Ed25519 默认开启导致 capability_token 测试预期不匹配；`--no-identity` 修复测试夹具；BUG 类型：v2.85 引入的测试适配欠债，同类 BUG-031 |
 | **v2.87** | ✅ | **`policy_compliance[]` — 治理合规标准字段** — AgentCard 顶层 `policy_compliance: string[]`；`PATCH /policy-compliance` 替换模式 + 增量模式（add/remove）；`capabilities.policy_compliance: bool`；领先 A2A #1717（Microsoft governance-toolkit 团队提案，proposal 阶段）|
+| **v2.90** | ✅ | **POST /identity/verify-card — 离线 AgentCard 验签** — 无需与 card 所有者建立连接，直接提交任意 AgentCard JSON 进行 Ed25519 自签名验证；`verified`/`did`/`public_key`/`did_consistent` 响应字段；`capabilities.offline_card_verify: true`；`endpoints.offline_card_verify: /identity/verify-card`；9 个测试全通（IVC1-IVC9）|
 | **v2.89** | ✅ | **ACP-RFC-002 — 双边签名交互记录** — 新增 `docs/rfc/bilateral-interaction-records.md`，完整记录 ACP v2.59–v2.76 bilateral IR 设计：双方共签规范载荷、SHA-256 哈希链、Merkle root 证明、与 effective_tier 集成（bilateral_ir_adj 第5因子）、跨实现测试向量；README 新增 #1718 对比行 + blockquote 注释；对标 A2A Issue #1718（viftode4，提案阶段）|
 | **v2.88** | ✅ | **BUG-059 修复 — peer card exchange 竞态条件** — `guest_mode` 中 peer 注册提前至 `_send_agent_card()` 之前，消除 host 回送 card 时 `card_available=False` 的竞态；`test_peer_card.py` 加 `--local-only` 修复 flaky；PC1-9 = 9/9（3s）|
 
