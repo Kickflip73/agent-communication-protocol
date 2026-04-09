@@ -7,6 +7,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.90.0] - 2026-04-09
+### Added
+- **POST /identity/verify-card — 离线 AgentCard 验签端点**
+  - 接受任意 AgentCard JSON，无需与 card 所有者建立连接，直接在本地验证 Ed25519 自签名
+  - Request: `POST /identity/verify-card` body `{"card": {...}}`
+  - Response: `{"verified": bool, "did": str|null, "public_key": str|null, "did_consistent": bool|null, "scheme": str, "error": str|null}`
+  - `capabilities.offline_card_verify: true`
+  - `endpoints.offline_card_verify: "/identity/verify-card"`
+  - 错误处理：缺少 `card` 字段 → 400；无 identity block → `verified=false`；card_sig 缺失 → `verified=false + error`；签名验证失败 → `verified=false + error`
+  - **用途**：跨实例信任传递——Agent B 向 Agent C 证明"我持有 Agent A 的合法签名卡片"，C 无需连接 A 即可验证
+  - 9 个测试（IVC1-IVC9）全通：valid sig / tampered sig / unsigned / no identity / missing field / empty body / did_consistent / capability flag / endpoint entry
+- Bump VERSION: `2.89.0` → `2.90.0`
+
+---
+
+## [v2.89.0] - 2026-04-09
+### Added
+- **ACP-RFC-002: 双边签名交互记录** (`docs/rfc/bilateral-interaction-records.md`) — 完整记录 ACP v2.59–v2.76 bilateral IR 设计：双方共签规范载荷、SHA-256 哈希链、Merkle root 证明、与 effective_tier 集成（bilateral_ir_adj 第5因子）、跨实现测试向量；README 新增 A2A #1718 对比行；对标 A2A Issue #1718（viftode4，提案阶段，ACP 领先约3周）
+- README 新增竞品对比行：A2A #1718 bilateral IR — ACP v2.61 implemented 3 weeks prior
+
+---
+
 ## [v2.88.0] - 2026-04-09
 ### Added
 - **ACP-RFC-001: Skill-Level Authorization Tiers** (`docs/rfc/skill-authorization.md`) — 302-line RFC documenting ACP's implemented authorization model: T0–T3 tier model, five-factor `effective_tier` computation, capability token specification, full API reference, design principles, and comparison with A2A Issue #1716. Suitable for cross-posting to A2A community as a reference implementation.

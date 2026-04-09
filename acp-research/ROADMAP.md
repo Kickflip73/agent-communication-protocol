@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 14:10（文档轮；ACP-RFC-002 bilateral-interaction-records.md 发布；v2.89 全部候选完成；规划 v2.90；当前版本 v2.89.0 commit 6279df3）
+> 最后更新：2026-04-09 16:00（文档轮；v2.90 开发轮完成：POST /identity/verify-card 离线验签端点上线，9测试全通；规划 v2.91；当前版本 v2.90.0 commit 51ba43d）
 
 ---
 
@@ -539,9 +539,9 @@ Key commit: TBD（本轮）
 - blockquote 详细说明 ACP v2.61 如何解决 #1718 提出的单方伪造问题
 - #1672 评论数更新至 414
 
-### ⏳ P2 — `GET /peers/{id}/card/verify` 跨实例验签 — 延至 v2.90
+### ✅ P2 — `POST /identity/verify-card` 跨实例验签 — **已完成 v2.90**
 - 外部 card JSON 输入，无需预先连接即可验签
-- 端点：`POST /identity/verify-card`
+- 端点：`POST /identity/verify-card`；9 测试（IVC1-IVC9）全通；commit 51ba43d
 
 ### ⏳ P2 — RFC-003: 治理元数据规范
 - 将 `governance_metadata` + `policy_compliance[]` 整理为独立 RFC
@@ -553,23 +553,34 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.90 候选特性（规划中）
+## ✅ v2.90 候选特性（已完成 2026-04-09）
 
-> 基于当前版本 v2.89.0，下一轮开发优先级：
+> 版本 v2.90.0，commit 51ba43d
 
-### [ ] P1 — `POST /identity/verify-card` 跨实例验签
+### ✅ P1 — `POST /identity/verify-card` 跨实例验签
 - 外部 card JSON 作为 body 输入，无需预先连接即可验签
 - 用途：Agent B 向 Agent C 证明"我是 A 认证过的"（跨实例信任传递）
-- 端点：`POST /identity/verify-card` — body: `{"card": {...}}` → `{"verified": bool, "did": "...", "pubkey": "..."}`
+- 端点：`POST /identity/verify-card` — body: `{"card": {...}}` → `{"verified": bool, "did": "...", "public_key": "...", "did_consistent": bool}`
+- 9 测试（IVC1-IVC9）全通
 
-### [ ] P2 — RFC-003: 治理元数据规范
+---
+
+## 🔭 v2.91 候选特性（规划中）
+
+> 基于当前版本 v2.90.0，下一轮开发优先级：
+
+### [ ] P1 — RFC-003: 治理元数据规范
 - 将 `governance_metadata` + `policy_compliance[]` 整理为独立 RFC
 - 对应 A2A #1717，提供可引用的完整规范文档
 - 输出路径：`docs/rfc/governance-metadata.md`
 
-### [ ] P3 — `data_handling_policy`（GDPR Extension）
+### [ ] P2 — `data_handling_policy`（GDPR Extension）
 - 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
 - 轻量实现：AgentCard `extensions[]` 中声明数据处理策略
+
+### [ ] P3 — `POST /identity/verify-card/batch` 批量验签
+- 一次请求验证多张 AgentCard
+- body: `{"cards": [...]}` → `{"results": [{"verified": bool, ...}, ...]}`
 
 ---
 

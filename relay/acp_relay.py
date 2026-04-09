@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.88.0"  # v2.88: BUG-059 fix — peer card exchange race condition (guest_mode peer reg before _send_agent_card)
+VERSION = "2.90.0"  # v2.90: POST /identity/verify-card — offline AgentCard Ed25519 sig verification (no live connection needed)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
