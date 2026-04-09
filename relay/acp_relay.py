@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.90.0"  # v2.90: POST /identity/verify-card — offline AgentCard Ed25519 sig verification (no live connection needed)
+VERSION = "2.91.0"  # v2.91: GET /ir/adversarial-fixtures — collusion/inflation adversarial test fixtures (AF-001..AF-005)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2103,6 +2103,7 @@ def _make_agent_card(name, skills):
             "external_token_verify":       bool(_ed25519_private),             # v2.63: POST /verify/external-token — SINT-format Ed25519 cap token cross-protocol verification (APS/SINT compatible)
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
             "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
+            "ir_adversarial_fixtures":     _ED25519_AVAILABLE,                 # v2.91: GET /ir/adversarial-fixtures — collusion/inflation adversarial test fixtures (scan24 / A2A #1718)
             "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
             "rejected_state":              True,                               # v2.66: TASK_REJECTED terminal state (A2A v1.0.0 alignment); :reject → rejected; POST /tasks/{id}:agent-reject
             "direct_message":              True,                               # v2.67: POST /message/send — Direct Message mode; returns Message (not Task); A2A SendMessageResponse.oneof{Task,Message} alignment
@@ -2170,6 +2171,7 @@ def _make_agent_card(name, skills):
             "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
             "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
             "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
+            "ir_adversarial_fixtures": "/ir/adversarial-fixtures",  # v2.91: GET — adversarial collusion/inflation detection fixtures (A2A #1718)
             "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
             "agent_reject":          "/tasks/{id}:agent-reject",# v2.66: POST — agent-initiated task rejection → rejected terminal state
             "message_send":          "/message/send",           # v2.67: POST — Direct Message (no Task); A2A SendMessageResponse.oneof{Task,Message}
@@ -2735,6 +2737,294 @@ _SECURITY_POSTURE = {
     "posture_score":   "clean",   # clean | advisory | vulnerable
     "note":            "Self-declared; consumer agents should independently verify via /trust/signals/security-posture",
 }
+
+
+def _generate_ir_adversarial_fixtures() -> dict:
+    """
+    v2.91: Generate adversarial bilateral IR fixtures for collusion/inflation detection testing.
+
+    Requested by scan24 analysis of A2A #1718 (aeoess adversarial fixture proposal, 2026-04-08).
+    Enables APS/SINT implementations to test trust score manipulation resistance.
+
+    Fixture categories:
+      AF-001: Legitimate dense interaction (baseline — 50 diverse interactions, high trust)
+      AF-002: Colluding pair — mutual inflation (20 reciprocal interactions, same two agents only)
+      AF-003: Sybil ring — 3 agents, circular inflation (A→B→C→A, no external interactions)
+      AF-004: Isolated burst — sudden spike after long silence (5 old + 15 recent same-pair)
+      AF-005: Tampered hash chain — sha256_chain_root mismatch
+
+    Each fixture is self-contained JSON: scenario / agents / interactions / expected_flags.
+    """
+    if not _ED25519_AVAILABLE:
+        return {"error": "Ed25519 not available — install cryptography package"}
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        def _mk_key(label: str):
+            seed = hashlib.sha256(f"ACP-AF-KEY-{label}-v2.91".encode()).digest()
+            priv = Ed25519PrivateKey.from_private_bytes(seed)
+            pub  = priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            b64  = _base64.urlsafe_b64encode(pub).rstrip(b"=").decode()
+            return priv, "did:acp:" + b64, b64
+
+        def _sign_ir(priv, payload: dict) -> str:
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            return _base64.urlsafe_b64encode(priv.sign(canonical)).rstrip(b"=").decode()
+
+        def _chain_hash(prev_hash: str, record_id: str) -> str:
+            return hashlib.sha256(f"{prev_hash}:{record_id}".encode()).hexdigest()
+
+        def _build_interaction(seq: int, caller_priv, relay_priv,
+                               caller_did: str, relay_did: str,
+                               task_id: str, skill_id: str,
+                               timestamp: str, prev_hash: str,
+                               tamper: bool = False) -> dict:
+            payload = {
+                "id":            f"ir-{task_id}-{seq:03d}",
+                "type":          "interaction",
+                "relay_did":     relay_did,
+                "caller_did":    caller_did,
+                "task_id":       task_id,
+                "skill_id":      skill_id,
+                "sequence_a":    seq,
+                "previous_hash": prev_hash,
+                "timestamp":     timestamp,
+            }
+            relay_sig  = _sign_ir(relay_priv, payload)
+            caller_sig = _sign_ir(caller_priv, payload)
+            if tamper:
+                caller_sig = caller_sig[:-4] + "XXXX"  # corrupt last 3 bytes
+            return {
+                "id":                   payload["id"],
+                "caller_did":           caller_did,
+                "relay_did":            relay_did,
+                "task_id":              task_id,
+                "skill_id":             skill_id,
+                "sequence_a":           seq,
+                "previous_hash":        prev_hash,
+                "timestamp":            timestamp,
+                "relay_signature":      relay_sig,
+                "caller_signature":     caller_sig,
+                "bilateral":            not tamper,
+                "caller_sig_valid":     not tamper,
+            }
+
+        # ── Keys ────────────────────────────────────────────────────────────
+        alice_priv, alice_did, alice_pub = _mk_key("alice")
+        bob_priv,   bob_did,   bob_pub   = _mk_key("bob")
+        carol_priv, carol_did, carol_pub = _mk_key("carol")
+        dave_priv,  dave_did,  dave_pub  = _mk_key("dave")   # external party
+        eve_priv,   eve_did,   eve_pub   = _mk_key("eve")    # external party 2
+
+        # ── AF-001: Legitimate dense interaction (baseline) ─────────────────
+        # Alice interacts with 5 diverse counterparties → no manipulation signal
+        skills_pool  = ["code_review", "summarize", "translate", "analyze", "plan"]
+        parties_pool = [
+            (dave_priv, dave_did),
+            (eve_priv,  eve_did),
+            (bob_priv,  bob_did),
+            (carol_priv, carol_did),
+        ]
+        af001_interactions = []
+        prev = "genesis"
+        for i in range(1, 51):
+            party_priv, party_did = parties_pool[i % len(parties_pool)]
+            skill = skills_pool[i % len(skills_pool)]
+            ts = f"2026-03-{((i-1)//5)+1:02d}T{(i%24):02d}:00:00Z"
+            rec = _build_interaction(i, alice_priv, party_priv,
+                                     alice_did, party_did,
+                                     f"task-af001-{i:03d}", skill, ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af001_interactions.append(rec)
+
+        af001 = {
+            "id":          "AF-001",
+            "scenario":    "legitimate_dense",
+            "description": "Baseline: 50 interactions across 4 diverse counterparties. "
+                           "No manipulation signal expected.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "dave":  {"did": dave_did,  "public_key": dave_pub},
+                "eve":   {"did": eve_did,   "public_key": eve_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+                "carol": {"did": carol_did, "public_key": carol_pub},
+            },
+            "interaction_count": len(af001_interactions),
+            "interactions": af001_interactions,
+            "expected_flags": [],
+            "expected_trust_signal": "high",
+            "notes": "Diverse counterparties + varied skills + spread timestamps → clean profile",
+        }
+
+        # ── AF-002: Colluding pair — mutual inflation ───────────────────────
+        # Alice ↔ Bob exchange 20 reciprocal interactions; no other parties
+        af002_interactions = []
+        prev = "genesis"
+        for i in range(1, 21):
+            # Alternate direction: odd = alice→bob, even = bob→alice
+            if i % 2 == 1:
+                c_priv, c_did, r_priv, r_did = alice_priv, alice_did, bob_priv, bob_did
+            else:
+                c_priv, c_did, r_priv, r_did = bob_priv, bob_did, alice_priv, alice_did
+            ts = f"2026-04-{((i-1)//4)+1:02d}T{(i*2%24):02d}:00:00Z"
+            rec = _build_interaction(i, c_priv, r_priv, c_did, r_did,
+                                     f"task-af002-{i:03d}", "mutual_boost", ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af002_interactions.append(rec)
+
+        af002 = {
+            "id":          "AF-002",
+            "scenario":    "colluding_pair_inflation",
+            "description": "Mutual inflation: Alice and Bob exchange 20 reciprocal "
+                           "interactions with no external parties. Classic colluding-pair "
+                           "trust inflation pattern.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+            },
+            "interaction_count": len(af002_interactions),
+            "interactions": af002_interactions,
+            "expected_flags": ["low_counterparty_diversity", "mutual_inflation_risk"],
+            "expected_trust_signal": "suspicious",
+            "detection_hint": "counterparty_diversity_ratio < 0.1 (1 unique / 20 total); "
+                              "mutual_pair_ratio > 0.9",
+            "notes": "APS should penalise via bilateral_ir_adj when diversity < threshold",
+        }
+
+        # ── AF-003: Sybil ring — 3 agents, circular inflation ───────────────
+        # A→B, B→C, C→A — closed loop, no external counterparties
+        ring_agents = [
+            (alice_priv, alice_did, alice_pub, "alice"),
+            (bob_priv,   bob_did,   bob_pub,   "bob"),
+            (carol_priv, carol_did, carol_pub, "carol"),
+        ]
+        af003_interactions = []
+        prev = "genesis"
+        seq = 1
+        for round_n in range(7):  # 7 rounds × 3 pairs = 21 interactions
+            for i in range(3):
+                caller_p, caller_d, _, c_name = ring_agents[i]
+                relay_p,  relay_d,  _, r_name = ring_agents[(i+1) % 3]
+                ts = f"2026-04-{(round_n+1):02d}T{(seq%24):02d}:00:00Z"
+                rec = _build_interaction(seq, caller_p, relay_p, caller_d, relay_d,
+                                         f"task-af003-{seq:03d}", "ring_task", ts, prev)
+                prev = _chain_hash(prev, rec["id"])
+                af003_interactions.append(rec)
+                seq += 1
+
+        af003 = {
+            "id":          "AF-003",
+            "scenario":    "sybil_ring_circular",
+            "description": "Sybil ring: Alice→Bob, Bob→Carol, Carol→Alice — "
+                           "21 interactions in a closed 3-agent loop. No external parties.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+                "carol": {"did": carol_did, "public_key": carol_pub},
+            },
+            "interaction_count": len(af003_interactions),
+            "interactions": af003_interactions,
+            "expected_flags": ["sybil_ring_pattern", "zero_external_interactions",
+                               "low_counterparty_diversity"],
+            "expected_trust_signal": "untrusted",
+            "detection_hint": "graph_clustering_coefficient = 1.0 (fully closed); "
+                              "all interactions within 3-clique",
+            "notes": "Requires graph-level analysis; per-pair diversity check alone "
+                     "is insufficient for ring detection",
+        }
+
+        # ── AF-004: Isolated burst — sudden spike after silence ─────────────
+        # 5 old interactions (March), then 15 rapid-fire in same day (April 9)
+        af004_interactions = []
+        prev = "genesis"
+        for i in range(1, 6):  # sparse old interactions
+            ts = f"2026-03-{i:02d}T10:00:00Z"
+            rec = _build_interaction(i, alice_priv, dave_priv, alice_did, dave_did,
+                                     f"task-af004-{i:03d}", "slow_task", ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af004_interactions.append(rec)
+        for i in range(6, 21):  # sudden burst on same day
+            ts = f"2026-04-09T{(i-6):02d}:{((i*3)%60):02d}:00Z"
+            rec = _build_interaction(i, alice_priv, bob_priv, alice_did, bob_did,
+                                     f"task-af004-{i:03d}", "burst_task", ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af004_interactions.append(rec)
+
+        af004 = {
+            "id":          "AF-004",
+            "scenario":    "isolated_burst_spike",
+            "description": "Burst spike: 5 sparse historical interactions followed by "
+                           "15 rapid interactions in a single day. Pattern consistent "
+                           "with coordinated trust inflation attempt.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "dave":  {"did": dave_did,  "public_key": dave_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+            },
+            "interaction_count": len(af004_interactions),
+            "interactions": af004_interactions,
+            "expected_flags": ["temporal_burst_anomaly", "velocity_spike"],
+            "expected_trust_signal": "suspicious",
+            "detection_hint": "interactions_per_day spike: 15 vs baseline 5/month; "
+                              "velocity_ratio > 10×",
+            "notes": "Temporal analysis required; raw count does not flag this",
+        }
+
+        # ── AF-005: Tampered hash chain ──────────────────────────────────────
+        af005_interactions = []
+        prev = "genesis"
+        for i in range(1, 6):
+            ts = f"2026-04-09T{i:02d}:00:00Z"
+            tamper = (i == 3)  # corrupt record 3 signature
+            rec = _build_interaction(i, alice_priv, bob_priv, alice_did, bob_did,
+                                     f"task-af005-{i:03d}", "chain_task", ts, prev,
+                                     tamper=tamper)
+            prev = _chain_hash(prev, rec["id"])
+            af005_interactions.append(rec)
+
+        af005 = {
+            "id":          "AF-005",
+            "scenario":    "tampered_hash_chain",
+            "description": "Tampered chain: record ir-task-af005-003 has a corrupted "
+                           "caller_signature. Hash chain is otherwise intact. "
+                           "Detectable via bilateral signature verification.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+            },
+            "interaction_count": len(af005_interactions),
+            "interactions": af005_interactions,
+            "expected_flags": ["signature_verification_failure"],
+            "tampered_record_id": "ir-task-af005-003-003",
+            "expected_trust_signal": "invalid",
+            "detection_hint": "verify caller_signature on each record; record 3 fails",
+            "notes": "bilateral=false on tampered record; consumer must reject chain",
+        }
+
+        return {
+            "schema_version": "1.0",
+            "generated_by":   f"ACP/{VERSION}",
+            "generated_at":   _now(),
+            "description":    "Adversarial bilateral IR fixtures for collusion/inflation "
+                              "detection testing. Proposed by scan24 in response to "
+                              "A2A #1718 (aeoess adversarial fixture proposal, 2026-04-08).",
+            "fixture_count":  5,
+            "fixtures":       [af001, af002, af003, af004, af005],
+            "detection_algorithms": {
+                "counterparty_diversity": "unique_counterparties / total_interactions",
+                "mutual_pair_ratio":      "mutual_pair_interactions / total_interactions",
+                "velocity_ratio":         "peak_day_count / (total / days)",
+                "ring_detection":         "graph clustering coefficient on interaction graph",
+                "chain_integrity":        "Ed25519 verify each record's caller_signature + relay_signature",
+            },
+            "reference": "A2A Issue #1718 (aeoess, 2026-04-08) adversarial fixture proposal; "
+                         "ACP reference implementation v2.91",
+        }
+
+    except Exception as exc:
+        return {"error": f"Fixture generation failed: {exc}"}
 
 
 def _init_security_posture():
@@ -6099,6 +6389,52 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": "No Ed25519 identity loaded — start relay with --identity"}, 503)
                 return
             result = _generate_ir_test_vectors()
+            if "error" in result:
+                self._json({"ok": False, **result}, 500)
+            else:
+                self._json({"ok": True, **result})
+
+        # ── GET /ir/adversarial-fixtures — adversarial collusion/inflation fixtures (v2.91) ──
+        elif p == "/ir/adversarial-fixtures":
+            """
+            GET /ir/adversarial-fixtures — Adversarial bilateral IR fixtures for collusion and
+            inflation detection testing (v2.91).
+
+            Inspired by A2A Issue #1718 (aeoess adversarial fixture proposal, 2026-04-08).
+            Provides self-contained JSON fixtures that APS/SINT implementations can use to
+            verify their manipulation-detection algorithms.
+
+            Fixtures:
+              AF-001: Legitimate dense interaction (50 interactions, 4 diverse counterparties)
+              AF-002: Colluding pair mutual inflation (20 reciprocal Alice↔Bob interactions)
+              AF-003: Sybil ring circular inflation (A→B→C→A, 21 interactions, closed loop)
+              AF-004: Isolated burst spike (5 historical + 15 rapid same-day interactions)
+              AF-005: Tampered hash chain (record 3 caller_signature corrupted)
+
+            Each fixture includes:
+              - scenario type identifier
+              - agent DIDs + public keys
+              - full signed interaction records
+              - expected_flags (manipulation signals to detect)
+              - expected_trust_signal (high | suspicious | untrusted | invalid)
+              - detection_hint (algorithm hints for implementors)
+
+            Requires Ed25519 support (cryptography package).
+
+            Response 200:
+              {
+                "ok": true,
+                "schema_version": "1.0",
+                "generated_by": "ACP/<version>",
+                "fixture_count": 5,
+                "fixtures": [ { "id": "AF-001", ... }, ... ],
+                "detection_algorithms": { ... }
+              }
+            """
+            if not _ED25519_AVAILABLE:
+                self._json({"ok": False, "error": "Ed25519 not available — install cryptography package"}, 503)
+                return
+            result = _generate_ir_adversarial_fixtures()
             if "error" in result:
                 self._json({"ok": False, **result}, 500)
             else:
