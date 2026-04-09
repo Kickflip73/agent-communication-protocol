@@ -1610,10 +1610,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#v2872026-04-13" class="md-nav__link">
+  <a href="#v287v294-2026-04-08-2026-04-10" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔮 v2.87（候选，目标：2026-04-13）
+        ✅ v2.87–v2.94（完成 — 2026-04-08 至 2026-04-10）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v2952026-04-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔮 v2.95（候选，目标：2026-04-15）
       
     </span>
   </a>
@@ -1823,7 +1834,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-05（v2.48.0：GET /peers/<id>/messages — per-peer 消息历史查询 + --test-mode 调试注入端点）</p>
+最后更新：2026-04-10（v2.94.0：principal_diversity_defense — GET /trust/bilateral-ir/diversity 共谋对惩罚；当前版本 2.94.0，commit b9f638e）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3587,8 +3598,75 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </tbody>
 </table>
 <p><strong>测试结果</strong>：场景 A+B+F+G+H 全部 PASS；card_signature 11/11；identity 全套通过</p>
-<h3 id="v2872026-04-13">🔮 v2.87（候选，目标：2026-04-13）<a class="headerlink" href="#v2872026-04-13" title="Permanent link">&para;</a></h3>
-<p><strong>主题：Show HN 正式发布 + 2-Agent demo</strong></p>
+<h3 id="v287v294-2026-04-08-2026-04-10">✅ v2.87–v2.94（完成 — 2026-04-08 至 2026-04-10）<a class="headerlink" href="#v287v294-2026-04-08-2026-04-10" title="Permanent link">&para;</a></h3>
+<p><strong>主题：信任基础设施深化 — 身份、治理、反操控</strong></p>
+<blockquote>
+<p>最后更新：2026-04-10（v2.94 principal_diversity_defense 完成）</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>主题</th>
+<th>关键交付</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v2.87</td>
+<td>协议绑定兼容性</td>
+<td><code>GET /protocol-binding/compatibility</code> — A2A/ANP/MCP 兼容性声明；JSON-RPC 2.0 子集支持</td>
+<td>—</td>
+</tr>
+<tr>
+<td>v2.88</td>
+<td>身份跨协议</td>
+<td><code>GET /identity/cross-protocol</code> — multi-DID 跨协议身份声明；OpenID Connect 桥接评估</td>
+<td>—</td>
+</tr>
+<tr>
+<td>v2.89</td>
+<td>WTRMRK 证明</td>
+<td><code>POST /wtrmrk/attest</code> — WTRMRK 证明提交；A2A #1716 @64R3N 对齐</td>
+<td>—</td>
+</tr>
+<tr>
+<td>v2.90</td>
+<td>卡片验证</td>
+<td><code>POST /identity/verify-card</code> — 离线跨实例 AgentCard 验证（无 CA，无网络）</td>
+<td>—</td>
+</tr>
+<tr>
+<td>v2.91</td>
+<td>对抗性夹具</td>
+<td><code>GET /ir/adversarial-fixtures</code> — 5 个对抗场景 fixture（AF-001~005）；A2A #1718 aeoess 提案对齐</td>
+<td>—</td>
+</tr>
+<tr>
+<td>v2.92</td>
+<td>RFC-003 治理元数据</td>
+<td><code>GET /governance-metadata</code> — <code>derivation_rights</code> + <code>credential_lifecycle</code>；A2A #1717 + aeoess SDK v1.37.0 对齐；16测试GM01-16全通</td>
+<td>—</td>
+</tr>
+<tr>
+<td>v2.93</td>
+<td>RFC-004 无CA身份</td>
+<td><code>docs/rfc/identity-without-ca.md</code> — Ed25519 自签名，三层信任模型，9维 vs CA 对比，multi-provider DID；A2A #1712 社区草稿</td>
+<td><code>f384752</code></td>
+</tr>
+<tr>
+<td>v2.94</td>
+<td>主体多样性防御</td>
+<td><code>GET /trust/bilateral-ir/diversity</code> — 共谋对惩罚（concentration&gt;60%→0.10x权重）；<code>principal_diversity_defense: true</code>；16测试PD01-16全通</td>
+<td><code>b9f638e</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>当前版本</strong>: <code>2.94.0</code> | <strong>最新 commit</strong>: <code>b9f638e</code></p>
+<hr />
+<h3 id="v2952026-04-15">🔮 v2.95（候选，目标：2026-04-15）<a class="headerlink" href="#v2952026-04-15" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Show HN 发布 + 2-Agent demo + QuerySkill() 正式实现</strong></p>
 <table>
 <thead>
 <tr>
@@ -3612,6 +3690,16 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td>README demo gif 嵌入</td>
 <td>P1</td>
 <td>让首屏更直观，降低新访客摩擦</td>
+</tr>
+<tr>
+<td>A2A #1712 评论发布</td>
+<td>P1</td>
+<td><code>docs/community/a2a-1712-comment.md</code> → 发布到 GitHub（时机成熟：#1672 CA作者转向 hybrid）</td>
+</tr>
+<tr>
+<td>QuerySkill() 正式实现</td>
+<td>P2</td>
+<td>A2A #1655（9 comments）仍 open；ACP 已有草案，完善实现</td>
 </tr>
 </tbody>
 </table>
