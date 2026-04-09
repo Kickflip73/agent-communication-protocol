@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 06:44（文档轮；v2.87 policy_compliance[] 完成；当前版本 v2.87.0 commit cdde26f）
+> 最后更新：2026-04-09 10:15（文档轮；scan22 竞品表同步；v2.88 候选特性规划；当前版本 v2.87.0 commit 694ab09）
 
 ---
 
@@ -24,12 +24,15 @@
 | 协议 | Stars | 活跃度 | 定位 | 身份认证 | 态度 |
 |------|-------|--------|------|----------|------|
 | **ACP** (本项目) | - | ✅ 活跃开发 | 轻量 P2P Agent 通信 | ✅ Ed25519+DID（v1.3） | - |
-| **A2A** (Google) | 22,643 | ⚡ 极高 | 企业级 Agent 总线 | ⏳ 讨论中（Issue #1672，71评论） | 借鉴概念，不复制复杂度 |
+| **A2A** (Google) | 22,643+ | ⚡ 极高 | 企业级 Agent 总线 | ⏳ 讨论中（Issue #1672，408评论，无实现）| 借鉴概念，不复制复杂度 |
 | **ANP** (社区) | 1,240 | 🔴 已归档 | 去中心化身份 | ✅ 理论设计（但停更） | 停更（最后活跃 2026-03-05），不再追踪 |
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
 | **MCP** (Anthropic) | - | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
 
-> 🏆 **ACP 差异化优势**：在 Agent 身份认证方向，ACP 已实现完整 Ed25519 自主权密钥 + `did:acp:` DID 体系（v1.3），领先 A2A 社区约 2-3 个月。
+> 🏆 **ACP 差异化优势（2026-04-09 更新）**：
+> - **身份认证**：ACP Ed25519+DID 默认开启（v2.85），A2A #1672 仍有 408 评论无实现 → 领先 **2-3 个月**
+> - **治理元数据**：ACP v2.85/v2.87 完整实现，A2A #1717 刚提案（Microsoft，14 评论）→ 领先 **3-4 个月**
+> - **技能授权分级**：ACP v2.50/v2.74 完整实现（T0-T3 + capability_token），A2A #1716 刚提 RFC（22 评论）→ 领先 **5+ 个月**
 
 ---
 
@@ -489,6 +492,31 @@ Key commit: TBD（本轮）
 - `{"text": "...", "role": "agent", "target_peers": ["peer_001", "peer_003"]}`
 
 ### [ ] P2 — data_handling_policy（GDPR 字段，轻量 Extension）
+- 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
+- 优先级低，中期跟进
+
+---
+
+## 🔭 v2.88 候选特性（2026-04-09 规划，基于 scan22）
+
+> 当前版本 v2.87.0。下一轮开发优先级（来源：scan22 竞品对比 + BUG-059 修复需求）：
+
+### [ ] P1 — peer card exchange 稳定性改进（BUG-059）
+- 修复 `test_peer_card.py` PC6/PC7 flaky：relay 连接建立后主动推送 `acp.agent_card`
+- 检查 relay WebSocket 握手后 card 发送逻辑，确保 loopback 连接也可靠触发
+- 补充测试：连接后 polling 确认 `card_available=True`
+
+### [ ] P2 — README "vs A2A" 对比章节
+- 基于 scan22 结论，在 README 中增加独立对比章节
+- 突出 ACP 在治理元数据、技能授权、身份认证三方向的具体领先
+- 提供 A2A Issue 链接作为佐证（#1717、#1716、#1672）
+
+### [ ] P2 — RFC 草稿：技能授权分级
+- 将 ACP `authorization_tier` + `capability_token` 实现整理为独立 RFC 文档
+- 可用于在 A2A #1716 下留言引用，扩大社区影响力
+- 输出路径：`docs/rfc/skill-authorization.md`
+
+### [ ] P3 — data_handling_policy（GDPR 字段，轻量 Extension）
 - 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
 - 优先级低，中期跟进
 
