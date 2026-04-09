@@ -7,6 +7,13 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.88.0] - 2026-04-09
+### Fixed
+- **BUG-059: peer card exchange race condition** — In guest_mode (POST /peers/connect), peer registry entry was updated AFTER `_send_agent_card()`. When the host sent its own card back immediately, `_on_message` could not find a `connected=True` peer to attach the received card, leaving `agent_card=None` / `card_available=False` indefinitely. Fix: move peer registration to BEFORE `_send_agent_card()` call so incoming card is correctly attributed.
+- **test_peer_card.py PC6/PC7 flaky** — Tests used relay without `--local-only`, so `link` was the public IP (33.229.x.x), causing connect to fail silently. Added `--local-only` to `_start()` fixture so both relay instances use `acp://127.0.0.1:PORT/token` links for direct loopback connection.
+
+---
+
 ## [v2.87.0] - 2026-04-09
 ### Added
 - **policy_compliance[] in AgentCard** — governance/compliance standards field (inspired by A2A #1717 Microsoft agent-governance-toolkit proposal)

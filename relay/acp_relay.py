@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.87.0"  # v2.87: policy_compliance[] in AgentCard + --policy-compliance CLI + GET/PATCH /policy-compliance (A2A #1717)
+VERSION = "2.88.0"  # v2.88: BUG-059 fix — peer card exchange race condition (guest_mode peer reg before _send_agent_card)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -5296,12 +5296,11 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None, _exis
                 _status["started_at"] = _status["started_at"] or time.time()
                 if retry > 0:
                     _status["reconnect_count"] += 1
-                await _send_agent_card(ws)
-                _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
 
-                # v0.6: register in multi-session peer registry
-                # BUG-003 fix: reuse the peer pre-registered by /peers/connect if link matches,
-                # instead of creating a duplicate entry.
+                # BUG-059 fix (v2.88): register peer in _peers BEFORE sending agent_card.
+                # Previously the peer registry was updated AFTER _send_agent_card, causing
+                # a race: when the host sent its card back, _on_message could not find a
+                # connected peer entry to attach the received card to (card_available=False).
                 peer_link = f"acp://{host}:{ws_port}/{token}"
                 existing_pid = next(
                     (pid for pid, info in _peers.items()
@@ -5316,6 +5315,9 @@ async def guest_mode(host, ws_port, token, http_port, embedded_relay=None, _exis
                 else:
                     peer_id = _register_peer(link=peer_link, ws=ws)
                 _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+
+                await _send_agent_card(ws)
+                _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
 
                 # v2.0: flush offline queue on (re)connect
                 flushed = await _offline_flush(ws, peer_id=peer_id)

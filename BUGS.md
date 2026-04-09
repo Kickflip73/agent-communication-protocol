@@ -1645,4 +1645,4 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **影响**: PC6, PC7 失败（非确定性）；relay 功能本身可通过手动测试验证  
 **修复方向**: 检查 relay `acp.agent_card` 握手触发逻辑，确保连接建立后主动推送 card；或在 fixture 中延长等待至 20s  
 **优先级**: P2 (flaky，不阻断功能)  
-**状态**: ⬜ 待修复
+**状态**: ✅ 已修复（2026-04-09，commit 待提交）

@@ -46,7 +46,7 @@ def _start(ws_port, name, wait=22):
     _free_port(http)
     time.sleep(0.3)
     proc = subprocess.Popen(
-        [sys.executable, RELAY, "--port", str(ws_port), "--name", name],
+        [sys.executable, RELAY, "--port", str(ws_port), "--name", name, "--local-only"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     deadline = time.time() + wait
