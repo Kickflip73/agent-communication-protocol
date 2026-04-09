@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.93.0"  # v2.93: RFC-004 decentralized identity without CA (Ed25519 self-signed, multi-provider DID, vs A2A #1672); A2A #1712 community engagement
+VERSION = "2.94.0"  # v2.94: principal_diversity_defense — colluding-pair penalty in bilateral IR (aeoess A2A #1718); GET /trust/bilateral-ir/diversity; same_counterparty_penalty (concentration>60% → 0.10x weight)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2043,6 +2043,7 @@ def _make_agent_card(name, skills):
             "trust_signals_v270": True,                         # v2.70: severity+category metadata per signal; GET /trust/signals/schema; canonical type names finalized (A2A #1628 aligned)
             "trust_signals_v271": True,                         # v2.71: 13th trust signal security_posture; GET /trust/signals/security-posture; source-level CVE posture (A2A #1628 @douglasborthwick)
             "bilateral_ir_log":             True,               # v2.72: GET /trust/bilateral-ir/log — queryable IR record log (A2A #1718 @viftode4 bilateral_ir as trust primitive)
+            "principal_diversity_defense":  True,               # v2.94: GET /trust/bilateral-ir/diversity — colluding-pair penalty; same_counterparty_penalty (aeoess A2A #1718 gist)
             "agent_limitations_schema":     True,               # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict (A2A #1694 aligned)
             "capability_token_detail":      True,               # v2.74: GET /trust/signals/capability-token — detailed capability token declaration (A2A #1716 SINT PR#111 aligned)
             "capability_token_fixtures":    True,               # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow)
@@ -2181,6 +2182,7 @@ def _make_agent_card(name, skills):
             "trust_signals_schema":  "/trust/signals/schema",         # v2.70: GET — canonical schema for all 12 signal types (severity/category/description)
             "trust_signals_security_posture": "/trust/signals/security-posture",  # v2.71: GET — detailed security posture report (CVE scan, component versions)
             "bilateral_ir_log":          "/trust/bilateral-ir/log",        # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
+            "bilateral_ir_diversity":    "/trust/bilateral-ir/diversity",  # v2.94: GET — principal diversity analysis; colluding-pair penalty (aeoess A2A #1718)
             "agent_limitations_schema":  "/agent-limitations/schema",      # v2.73: GET — JSON Schema for agent_limitations typed constraint dict
             "capability_token_detail":   "/trust/signals/capability-token", # v2.74: GET — detailed capability token declaration & issuance config (A2A #1716 SINT aligned)
             "capability_token_fixtures":  "/trust/signals/capability-token/fixtures",          # v2.75: GET — canonical authorization fixture vectors (A2A #1716 @pshkv 4-deny+1-allow)
@@ -4329,21 +4331,145 @@ def _bilateral_ir_merkle_root(peer_id: str | None) -> str | None:
     return hashes[0].hex()
 
 
-def _bilateral_ir_adj(peer_id: str | None) -> tuple[int, int, str | None]:
-    """v2.76: Compute attestation_history_adjustment from local bilateral IR log.
+def _principal_diversity_score(peer_id: str) -> dict:
+    """v2.94: Compute principal diversity score for a peer's bilateral IR history.
 
-    Factor 5 in effective_tier (A2A #1716 @64R3N proposal):
+    Addresses the colluding-pair inflation attack identified by aeoess in A2A #1718:
+    two agents that exclusively interact with each other can inflate each other's
+    trust score by generating many high-quality bilateral records.
+
+    Defense: apply same_counterparty_penalty when >CONCENTRATION_THRESHOLD of a
+    peer's bilateral interactions are with the same single counterparty.
+
+    Parameters (aligned with aeoess adversarial-trust-fixture.json):
+      CONCENTRATION_THRESHOLD = 0.60  — same-counterparty ratio above which penalty triggers
+      PENALTY_WEIGHT           = 0.10  — interactions beyond threshold count at 10x reduced weight
+      MIN_RECORDS_FOR_ANALYSIS = 3     — need at least 3 records to assess diversity
+
+    Returns:
+      {
+        "peer_id":              str,
+        "total_bilateral":      int,    # total bilateral records involving this peer
+        "unique_counterparties": int,   # number of distinct counterparty peer_ids seen
+        "top_counterparty":     str | null,  # peer_id with most interactions
+        "top_counterparty_count": int,  # how many records involve top counterparty
+        "concentration_ratio":  float,  # top_counterparty_count / total_bilateral
+        "penalty_applied":      bool,   # True if concentration > threshold
+        "diversity_weight":     float,  # effective weight multiplier (1.0 if no penalty, else PENALTY_WEIGHT)
+        "effective_bilateral_count": float,  # weighted count after penalty
+        "note":                 str,
+      }
+    """
+    CONCENTRATION_THRESHOLD = 0.60
+    PENALTY_WEIGHT = 0.10
+    MIN_RECORDS = 3
+
+    peer_records = [
+        r for r in _interaction_records
+        if r.get("bilateral") is True and (
+            r.get("caller_did") == peer_id or
+            r.get("callee_did") == peer_id or
+            r.get("peer_id") == peer_id
+        )
+    ]
+    total = len(peer_records)
+
+    if total < MIN_RECORDS:
+        return {
+            "peer_id":               peer_id,
+            "total_bilateral":       total,
+            "unique_counterparties": 0,
+            "top_counterparty":      None,
+            "top_counterparty_count": 0,
+            "concentration_ratio":   0.0,
+            "penalty_applied":       False,
+            "diversity_weight":      1.0,
+            "effective_bilateral_count": float(total),
+            "note": f"Insufficient records for diversity analysis (min={MIN_RECORDS})",
+        }
+
+    # Collect counterparty peer_ids for each record
+    counterparty_counts: dict[str, int] = {}
+    for r in peer_records:
+        cps = set()
+        for field in ("caller_did", "callee_did", "peer_id"):
+            val = r.get(field)
+            if val and val != peer_id:
+                cps.add(val)
+        for cp in cps:
+            counterparty_counts[cp] = counterparty_counts.get(cp, 0) + 1
+
+    unique = len(counterparty_counts)
+
+    if not counterparty_counts:
+        # All records have no identified counterparty (edge case)
+        return {
+            "peer_id":               peer_id,
+            "total_bilateral":       total,
+            "unique_counterparties": 0,
+            "top_counterparty":      None,
+            "top_counterparty_count": 0,
+            "concentration_ratio":   0.0,
+            "penalty_applied":       False,
+            "diversity_weight":      1.0,
+            "effective_bilateral_count": float(total),
+            "note": "No counterparty identity found in records",
+        }
+
+    top_cp = max(counterparty_counts, key=lambda k: counterparty_counts[k])
+    top_count = counterparty_counts[top_cp]
+    concentration = top_count / total
+
+    penalty = concentration > CONCENTRATION_THRESHOLD
+    if penalty:
+        # Penalised records: those involving top_counterparty beyond threshold
+        normal_count = round(total * CONCENTRATION_THRESHOLD)
+        excess_count = total - normal_count
+        effective = float(normal_count + excess_count * PENALTY_WEIGHT)
+        weight = effective / total if total > 0 else 1.0
+    else:
+        effective = float(total)
+        weight = 1.0
+
+    return {
+        "peer_id":               peer_id,
+        "total_bilateral":       total,
+        "unique_counterparties": unique,
+        "top_counterparty":      top_cp,
+        "top_counterparty_count": top_count,
+        "concentration_ratio":   round(concentration, 4),
+        "penalty_applied":       penalty,
+        "diversity_weight":      round(weight, 4),
+        "effective_bilateral_count": round(effective, 2),
+        "note": (
+            f"Principal diversity penalty active: top counterparty {top_cp!r} "
+            f"accounts for {concentration:.0%} of bilateral records (threshold={CONCENTRATION_THRESHOLD:.0%})"
+        ) if penalty else (
+            f"Principal diversity OK: {unique} unique counterpart(ies), "
+            f"concentration={concentration:.0%} below threshold={CONCENTRATION_THRESHOLD:.0%}"
+        ),
+    }
+
+
+def _bilateral_ir_adj(peer_id: str | None) -> tuple[int, int, str | None, dict]:
+    """v2.94: Compute attestation_history_adjustment from local bilateral IR log.
+
+    v2.76 original factors:
       +1 → unknown peer (0 bilateral records) → raises tier floor
        0 → known peer with 1-4 bilateral records → neutral
       -1 → established peer (>=5 bilateral records) → may lower tier floor
 
-    The threshold of 5 records is conservative by design: a peer must demonstrate
-    sustained bilateral interactions before receiving any trust benefit.
+    v2.94 addition: principal_diversity_defense (aeoess A2A #1718 colluding-pair attack):
+      If principal_diversity_score.penalty_applied is True (concentration > 60%),
+      the effective_bilateral_count replaces raw count in the threshold calculation.
+      This means a peer with 20 bilateral records but all with the same counterparty
+      is treated as having ~8.4 effective records (= 20*0.60 + 20*0.40*0.10),
+      not 20 — preventing artificial trust inflation from colluding pairs.
 
-    Returns (adj: int, bilateral_count: int, merkle_root: str | None)
+    Returns (adj: int, bilateral_count: int, merkle_root: str | None, diversity: dict)
     """
     if peer_id is None:
-        return 1, 0, None  # no caller info → unknown → raise floor
+        return 1, 0, None, {}  # no caller info → unknown → raise floor
 
     count = sum(
         1 for r in _interaction_records
@@ -4355,15 +4481,22 @@ def _bilateral_ir_adj(peer_id: str | None) -> tuple[int, int, str | None]:
     )
 
     merkle_root = _bilateral_ir_merkle_root(peer_id) if count > 0 else None
+    diversity = _principal_diversity_score(peer_id) if count >= 3 else {
+        "peer_id": peer_id, "total_bilateral": count, "penalty_applied": False,
+        "effective_bilateral_count": float(count), "note": "Insufficient records",
+    }
+
+    # Use effective count (penalised if colluding-pair detected) for threshold logic
+    effective_count = diversity.get("effective_bilateral_count", float(count))
 
     if count == 0:
         adj = 1    # completely unknown → conservative floor raise
-    elif count >= 5:
-        adj = -1   # established bilateral history → allow floor reduction
+    elif effective_count >= 5:
+        adj = -1   # established bilateral history (diversity-adjusted) → allow floor reduction
     else:
-        adj = 0    # 1-4 records → neutral
+        adj = 0    # 1-4 effective records → neutral
 
-    return adj, count, merkle_root
+    return adj, count, merkle_root, diversity
 
 
 def _compute_effective_tier(
@@ -4449,7 +4582,7 @@ def _compute_effective_tier(
     # Factor 5: bilateral_ir_adj (v2.76) — local bilateral interaction record history
     # A2A #1716 @64R3N: attestation_history_adjustment from local bilateral IR log
     # +1 → 0 bilateral records (unknown) | 0 → 1-4 records | -1 → >=5 records (established)
-    bilateral_ir_adj, bilateral_ir_count, bilateral_ir_merkle = _bilateral_ir_adj(peer_id)
+    bilateral_ir_adj, bilateral_ir_count, bilateral_ir_merkle, bilateral_diversity = _bilateral_ir_adj(peer_id)
 
     # Combined adjustment: clamp to [-1, +1]
     # -1 only if ALL THREE signals (rep, wtrmrk, bilateral_ir) are ≤ 0 AND at least one is -1
@@ -4493,12 +4626,14 @@ def _compute_effective_tier(
         "wtrmrk_grade":                 wtrmrk_grade,
         "wtrmrk_adj":                   wtrmrk_adj if wtrmrk_queried else None,
         # v2.76: Factor 5 — bilateral IR attestation_history_adjustment (A2A #1716 @64R3N)
+        # v2.94: + principal_diversity_defense (aeoess A2A #1718 colluding-pair penalty)
         "bilateral_ir_adj":             bilateral_ir_adj,
         "bilateral_ir_count":           bilateral_ir_count,
         "bilateral_ir_merkle_root":     bilateral_ir_merkle,
+        "principal_diversity":          bilateral_diversity,
         "combined_adj":                 combined_adj,
         "effective_tier":               effective_tier,
-        "factor_count":                 5,  # v2.76: upgraded from 4 to 5 factors
+        "factor_count":                 5,  # 5 factors; principal_diversity is a sub-factor of bilateral_ir
     }
     return effective_tier, factors
 
@@ -6614,6 +6749,88 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "Use bilateral_count/total to assess trust depth. "
                     "A2A #1718 @viftode4: bilateral_ir as a unified trust primitive."
                 ),
+            })
+
+        # ── GET /trust/bilateral-ir/diversity — principal diversity analysis (v2.94) ──
+        elif p == "/trust/bilateral-ir/diversity":
+            """
+            GET /trust/bilateral-ir/diversity — Principal diversity analysis for bilateral IR (v2.94).
+
+            Implements the colluding-pair inflation defense from aeoess adversarial-trust-fixture
+            (A2A #1718). Detects when a peer's bilateral interaction history is over-concentrated
+            with a single counterparty and applies a same_counterparty_penalty.
+
+            Query params:
+              peer_id  — (required) DID or agent_name of the peer to analyze
+
+            Response 200:
+              {
+                "ok":                    true,
+                "peer_id":               str,
+                "total_bilateral":       int,
+                "unique_counterparties": int,
+                "top_counterparty":      str | null,
+                "top_counterparty_count": int,
+                "concentration_ratio":   float,  # 0.0–1.0
+                "penalty_applied":       bool,
+                "diversity_weight":      float,  # 1.0 = no penalty; 0.1x weight on excess interactions
+                "effective_bilateral_count": float,  # penalty-adjusted count used in tier calculation
+                "note":                  str,
+                "defense_params": {
+                  "concentration_threshold": 0.60,
+                  "penalty_weight":          0.10,
+                  "min_records_for_analysis": 3,
+                  "reference":               "aeoess adversarial-trust-fixture.json (A2A #1718)"
+                },
+                "version":               str,
+              }
+
+            Response 400: peer_id missing
+            Response 404: no bilateral records found for peer_id
+            """
+            qs_div = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            div_peer_id = qs_div.get("peer_id", "").strip()
+            if not div_peer_id:
+                self._json({"ok": False, "error": "peer_id query param required"}, code=400)
+                return
+
+            # Check that peer exists in records at all
+            any_records = any(
+                r.get("bilateral") is True and (
+                    r.get("caller_did") == div_peer_id or
+                    r.get("callee_did") == div_peer_id or
+                    r.get("peer_id") == div_peer_id
+                )
+                for r in _interaction_records
+            )
+            if not any_records:
+                self._json({
+                    "ok": False,
+                    "error": f"No bilateral records found for peer_id={div_peer_id!r}",
+                    "peer_id": div_peer_id,
+                }, code=404)
+                return
+
+            div_result = _principal_diversity_score(div_peer_id)
+            self._json({
+                "ok":                    True,
+                "peer_id":               div_result["peer_id"],
+                "total_bilateral":       div_result["total_bilateral"],
+                "unique_counterparties": div_result["unique_counterparties"],
+                "top_counterparty":      div_result["top_counterparty"],
+                "top_counterparty_count": div_result["top_counterparty_count"],
+                "concentration_ratio":   div_result["concentration_ratio"],
+                "penalty_applied":       div_result["penalty_applied"],
+                "diversity_weight":      div_result["diversity_weight"],
+                "effective_bilateral_count": div_result["effective_bilateral_count"],
+                "note":                  div_result["note"],
+                "defense_params": {
+                    "concentration_threshold": 0.60,
+                    "penalty_weight":          0.10,
+                    "min_records_for_analysis": 3,
+                    "reference": "aeoess adversarial-trust-fixture.json (A2A #1718 gist:bdcd1dd0512661138ff7a71bf1e946c7)",
+                },
+                "version": VERSION,
             })
 
         # ── GET /agent-limitations/schema — JSON Schema for agent_limitations dict (v2.73) ──
@@ -10046,6 +10263,56 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /trust/bilateral-ir/inject — test helper: inject bilateral IR record (v2.94) ─
+        elif p == "/trust/bilateral-ir/inject":
+            """
+            Test-only endpoint (--test-mode recommended but not strictly required).
+            Directly appends a bilateral interaction record to _interaction_records.
+            Used by tests/test_principal_diversity_v294.py (PD08–PD15) to seed IR data.
+
+            Body fields (all optional except task_id):
+              task_id     — unique task identifier (auto-generated if absent)
+              skill_id    — skill identifier
+              caller_did  — caller DID / peer_id
+              callee_did  — callee DID / peer_id
+              bilateral   — bool (default: True)
+              timestamp   — float epoch (default: now)
+
+            Response 201: {ok, record_id, bilateral_count}
+            """
+            import time as _time_ir
+            try:
+                raw_body = self._read_body()
+            except Exception:
+                raw_body = {}
+            import uuid as _uuid_ir
+            task_id = raw_body.get("task_id") or f"inject-{_uuid_ir.uuid4().hex[:12]}"
+            record = {
+                "id":               f"ir-{_uuid_ir.uuid4().hex[:16]}",
+                "type":             "bilateral_interaction_record",
+                "relay_did":        _did_key,
+                "caller_did":       raw_body.get("caller_did"),
+                "callee_did":       raw_body.get("callee_did"),
+                "peer_id":          raw_body.get("caller_did"),  # alias for diversity query
+                "task_id":          task_id,
+                "skill_id":         raw_body.get("skill_id", "test.injected"),
+                "sequence_a":       len(_interaction_records) + 1,
+                "previous_hash":    None,
+                "timestamp":        raw_body.get("timestamp", _time_ir.time()),
+                "relay_signature":  "test-injected",
+                "relay_public_key": None,
+                "caller_signature": "test-injected" if raw_body.get("bilateral", True) else None,
+                "caller_public_key": None,
+                "caller_signature_valid": None,
+                "bilateral":        bool(raw_body.get("bilateral", True)),
+            }
+            _interaction_records.append(record)
+            self._json({
+                "ok":              True,
+                "record_id":       record["id"],
+                "bilateral_count": sum(1 for r in _interaction_records if r.get("bilateral")),
+            }, code=201)
 
         # ── POST /debug/inject-peer-card — test helper: inject peer_card directly ─
         elif p == "/debug/inject-peer-card":

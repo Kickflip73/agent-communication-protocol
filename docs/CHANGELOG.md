@@ -7,6 +7,40 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.94.0 — Principal Diversity Defense for Bilateral IR (2026-04-10)
+
+### Added
+- **`_principal_diversity_score(peer_id)`** — new function implementing the colluding-pair inflation defense from aeoess adversarial-trust-fixture.json (A2A #1718 gist:bdcd1dd0512661138ff7a71bf1e946c7)
+  - Parameters aligned with aeoess model: `concentration_threshold=0.60`, `penalty_weight=0.10`, `min_records_for_analysis=3`
+  - Returns: `concentration_ratio`, `penalty_applied`, `diversity_weight`, `effective_bilateral_count`, `top_counterparty`, `unique_counterparties`
+  - Formula: `effective = normal_count + excess_count * 0.10` when `top_counterparty_ratio > 0.60`
+- **`GET /trust/bilateral-ir/diversity`** — new endpoint exposing principal diversity analysis per peer
+  - `?peer_id=<did>` — required query param
+  - 400 on missing peer_id, 404 on unknown peer
+  - Response includes full `defense_params` block with reference to aeoess gist
+- **`_bilateral_ir_adj()` enhanced** — now returns 4-tuple `(adj, count, merkle_root, diversity_dict)`; `effective_bilateral_count` (penalty-adjusted) used in threshold calculation instead of raw count
+- **`capabilities.principal_diversity_defense: true`** in AgentCard
+- **`endpoints.bilateral_ir_diversity: /trust/bilateral-ir/diversity`** in AgentCard
+- **`principal_diversity` sub-field** in `/trust/signals/capability-token` response factors
+- **`POST /trust/bilateral-ir/inject`** — test helper endpoint for seeding bilateral IR records in tests
+- **Tests PD01–PD16** (`tests/test_principal_diversity_v294.py`) — 16/16 PASS
+  - PD01–PD04: VERSION + capability/endpoint flags
+  - PD05–PD07: 400/404 error handling
+  - PD08–PD10: defense params values and response schema
+  - PD11–PD14: penalty logic (no-penalty below threshold, penalty above, effective count formula, insufficient records)
+  - PD15–PD16: version in response, backward compat
+
+### Changed
+- `_bilateral_ir_adj()` return type: 3-tuple → 4-tuple (backward compat: callers updated)
+- VERSION: 2.93.0 → 2.94.0
+
+### Security
+- **Colluding-pair inflation attack** (AF-002 adversarial scenario) now has a concrete defense
+- Peer concentrating >60% of bilateral interactions with a single counterparty receives `diversity_weight < 1.0`
+- `effective_bilateral_count` replaces raw count in tier threshold calculation — prevents artificial T3 inflation from exclusively mutual interactions
+
+---
+
 ## v2.93.0 — ACP-RFC-004: Decentralized Agent Identity Without CA (2026-04-09)
 
 ### Added
