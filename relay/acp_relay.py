@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.92.0"  # v2.92: RFC-003 governance-metadata spec; derivation_rights + credential_lifecycle fields (aeoess SDK v1.37.0 alignment)
+VERSION = "2.93.0"  # v2.93: RFC-004 decentralized identity without CA (Ed25519 self-signed, multi-provider DID, vs A2A #1672); A2A #1712 community engagement
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 

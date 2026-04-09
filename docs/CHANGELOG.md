@@ -7,6 +7,36 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.93.0 — ACP-RFC-004: Decentralized Agent Identity Without CA (2026-04-09)
+
+### Added
+- **ACP-RFC-004**: `docs/rfc/identity-without-ca.md` — Full specification for self-sovereign Ed25519 agent identity
+  - Problem analysis: 6 failure modes of the central CA approach (A2A #1672)
+  - Three-layer identity model: **who (Ed25519) → what they can do (capability_token) → what happened (bilateral IR)**
+  - Self-signed AgentCard: `card_signature` = Ed25519 over canonical card JSON
+  - `POST /identity/verify-card` cross-instance verification (no CA, no network lookup, no prior relationship)
+  - Multi-provider DID support: `did:key`, `did:web`, `did:acp` — independently verifiable
+  - Integration with `credential_lifecycle` (RFC-003) as CRL/OCSP replacement
+  - Security analysis: 5 threats + mitigations (spoofing/key compromise/replay/MITM/Sybil)
+  - Python reference implementation: ~50 lines for full key generation + sign + verify
+  - Comparison table: 9 dimensions vs A2A #1672 CA approach
+  - Relation to IETF RFC 8032/8785, W3C DID Core, draft-prakash-aip
+- **A2A community engagement**: `docs/community/a2a-1712-comment.md` — Ready-to-post comment for A2A #1712
+  - Addresses WTRMRK proposal by 64R3N
+  - Responds to aeoess's three-layer framework (who/what/what happened)
+  - Concrete ACP implementation references for all three layers
+  - CA vs self-signed comparison table
+
+### Changed
+- VERSION: 2.92.0 → 2.93.0
+
+### ACP vs A2A Competitive Position Update
+- ACP Ed25519 self-signed identity (v2.85, default-on) vs A2A #1672 central CA (still proposed, no implementation) — **3.5 month lead**
+- ACP three-layer model (identity + capability_token + bilateral IR) — **complete, no A2A equivalent**
+- RFC-004 published; A2A discussion in #1672 (414+ comments) and #1712 still open
+
+---
+
 ## v2.85.0 — Ed25519 Identity Default-On + `GET /protocol-binding/compatibility` (2026-04-08)
 
 ### Changed (Breaking-safe)
