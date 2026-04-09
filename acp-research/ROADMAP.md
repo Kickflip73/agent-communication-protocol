@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 11:30（文档轮；v2.88 BUG-059 peer card exchange 竞态修复；README 版本表补充 v2.84-v2.88；当前版本 v2.88.0 commit ffc6576）
+> 最后更新：2026-04-09 12:33（文档轮；ACP-RFC-001 skill-authorization.md 发布；v2.88 全部候选完成；规划 v2.89；当前版本 v2.88.0 commit 2ae2627）
 
 ---
 
@@ -434,6 +434,7 @@ Key commit: TBD（本轮）
 | v2.86.1 | BUG-058 fix: test_capability_token CT-1 Ed25519 default-on 兼容 | 6a160f1 | 2026-04-09 |
 | v2.87.0 | **policy_compliance[] governance standards** — AgentCard字段 + `--policy-compliance` CLI + `GET/PATCH /policy-compliance`（A2A #1717 inspired）; 10 tests PC-1..10 | cdde26f | 2026-04-09 |
 | v2.88.0 | **BUG-059 fix** — guest_mode peer注册提前至_send_agent_card()之前，消除card exchange竞态；test_peer_card.py加--local-only；PC1-9=9/9(3s) | ffc6576 | 2026-04-09 |
+| v2.88.0+ | **ACP-RFC-001** — `docs/rfc/skill-authorization.md` 发布：技能授权分级完整规范（T0-T3+5因子effective_tier+capability token），可引用至A2A #1716 | 2ae2627 | 2026-04-09 |
 
 ---
 
@@ -498,28 +499,49 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.88 候选特性（2026-04-09 规划，基于 scan22）
+## ✅ v2.88 候选特性（2026-04-09 全部完成）
 
-> 当前版本 v2.87.0。下一轮开发优先级（来源：scan22 竞品对比 + BUG-059 修复需求）：
+> 完成时间：2026-04-09。
 
-### [ ] P1 — peer card exchange 稳定性改进（BUG-059）
-- 修复 `test_peer_card.py` PC6/PC7 flaky：relay 连接建立后主动推送 `acp.agent_card`
-- 检查 relay WebSocket 握手后 card 发送逻辑，确保 loopback 连接也可靠触发
-- 补充测试：连接后 polling 确认 `card_available=True`
+### ✅ P1 — peer card exchange 稳定性改进（BUG-059）— commit ffc6576
+- guest_mode: peer 注册移至 `_send_agent_card()` 之前，消除 card exchange 竞态
+- `test_peer_card.py` 加 `--local-only`，避免走公网 IP 导致连接超时
+- PC1-9 全部通过（9/9，3s）
 
-### [ ] P2 — README "vs A2A" 对比章节
-- 基于 scan22 结论，在 README 中增加独立对比章节
-- 突出 ACP 在治理元数据、技能授权、身份认证三方向的具体领先
-- 提供 A2A Issue 链接作为佐证（#1717、#1716、#1672）
+### ✅ P2 — README "vs A2A" 对比章节 — 已在表格中体现
+- #1717（治理元数据）、#1716（技能授权）、#1672（身份认证）对比行已更新
+- 含 A2A Issue 直接链接和 ACP 实现版本
 
-### [ ] P2 — RFC 草稿：技能授权分级
-- 将 ACP `authorization_tier` + `capability_token` 实现整理为独立 RFC 文档
-- 可用于在 A2A #1716 下留言引用，扩大社区影响力
-- 输出路径：`docs/rfc/skill-authorization.md`
+### ✅ P2 — RFC 草稿：技能授权分级 — commit 2ae2627
+- `docs/rfc/skill-authorization.md`（ACP-RFC-001）：302 行完整 RFC
+- 涵盖 T0-T3 模型、5 因子 effective_tier、capability token、API 参考、设计原则
+- 可引用至 A2A #1716 扩大社区影响
 
-### [ ] P3 — data_handling_policy（GDPR 字段，轻量 Extension）
+### ⏳ P3 — data_handling_policy（GDPR 字段，轻量 Extension）
 - 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
-- 优先级低，中期跟进
+- 优先级低，延至 v2.89 或更后
+
+---
+
+## 🔭 v2.89 候选特性（规划中）
+
+> 基于当前版本 v2.88.0，下一轮开发优先级：
+
+### [ ] P1 — `GET /peers/{id}/card/verify` 跨实例验签
+- 当前 `/peer/verify` 只验本 relay 已知 peer 的签名
+- v2.89 新增：外部 card JSON 作为 body 输入，无需预先连接即可验签
+- 用途：Agent B 向 Agent C 证明"我是 A 认证过的"（跨实例信任传递）
+- 端点：`POST /identity/verify-card` — body: `{"card": {...}}` → `{"verified": bool, "did": "...", "pubkey": "..."}`
+
+### [ ] P2 — RFC-002: 治理元数据规范（ACP-RFC-002）
+- 将 `governance_metadata` + `policy_compliance[]` 整理为独立 RFC
+- 对应 A2A #1717，提供可引用的完整规范文档
+- 输出路径：`docs/rfc/governance-metadata.md`
+
+### [ ] P2 — `data_handling_policy`（GDPR Extension）
+- 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
+- 轻量实现：AgentCard `extensions[]` 中声明数据处理策略
+- `GET /data-handling-policy` 返回当前策略摘要
 
 ---
 
