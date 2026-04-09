@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 12:33（文档轮；ACP-RFC-001 skill-authorization.md 发布；v2.88 全部候选完成；规划 v2.89；当前版本 v2.88.0 commit 2ae2627）
+> 最后更新：2026-04-09 14:10（文档轮；ACP-RFC-002 bilateral-interaction-records.md 发布；v2.89 全部候选完成；规划 v2.90；当前版本 v2.89.0 commit 6279df3）
 
 ---
 
@@ -523,25 +523,53 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.89 候选特性（规划中）
+## ✅ v2.89 候选特性（2026-04-09 完成）
 
-> 基于当前版本 v2.88.0，下一轮开发优先级：
+> 完成时间：2026-04-09。当前版本 v2.89.0，commit 6279df3。
 
-### [ ] P1 — `GET /peers/{id}/card/verify` 跨实例验签
-- 当前 `/peer/verify` 只验本 relay 已知 peer 的签名
-- v2.89 新增：外部 card JSON 作为 body 输入，无需预先连接即可验签
+### ✅ P1 — ACP-RFC-002: 双边签名交互记录规范 — commit 6279df3
+- `docs/rfc/bilateral-interaction-records.md`：303 行完整 RFC
+- 涵盖：双方共签规范载荷（非单方可伪造）、SHA-256 哈希链、Merkle root 证明、
+  trust signal 集成（v2.68）、bilateral_ir_adj 第5因子（v2.76）、跨实现测试向量
+- README 新增 #1718 对比行 + blockquote 说明
+- 对标 A2A Issue #1718（viftode4，2026-04-05，提案阶段）— ACP 实现领先约 3 周
+
+### ✅ P2 — README #1718 对比行 + blockquote — commit 6279df3
+- Why ACP 表格新增「Bilateral signed interaction records」行
+- blockquote 详细说明 ACP v2.61 如何解决 #1718 提出的单方伪造问题
+- #1672 评论数更新至 414
+
+### ⏳ P2 — `GET /peers/{id}/card/verify` 跨实例验签 — 延至 v2.90
+- 外部 card JSON 输入，无需预先连接即可验签
+- 端点：`POST /identity/verify-card`
+
+### ⏳ P2 — RFC-003: 治理元数据规范
+- 将 `governance_metadata` + `policy_compliance[]` 整理为独立 RFC
+- 对应 A2A #1717，输出路径：`docs/rfc/governance-metadata.md`
+
+### ⏳ P3 — `data_handling_policy`（GDPR Extension）
+- 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
+- 优先级低，延至 v2.91 或更后
+
+---
+
+## 🔭 v2.90 候选特性（规划中）
+
+> 基于当前版本 v2.89.0，下一轮开发优先级：
+
+### [ ] P1 — `POST /identity/verify-card` 跨实例验签
+- 外部 card JSON 作为 body 输入，无需预先连接即可验签
 - 用途：Agent B 向 Agent C 证明"我是 A 认证过的"（跨实例信任传递）
 - 端点：`POST /identity/verify-card` — body: `{"card": {...}}` → `{"verified": bool, "did": "...", "pubkey": "..."}`
 
-### [ ] P2 — RFC-002: 治理元数据规范（ACP-RFC-002）
+### [ ] P2 — RFC-003: 治理元数据规范
 - 将 `governance_metadata` + `policy_compliance[]` 整理为独立 RFC
 - 对应 A2A #1717，提供可引用的完整规范文档
 - 输出路径：`docs/rfc/governance-metadata.md`
 
-### [ ] P2 — `data_handling_policy`（GDPR Extension）
+### [ ] P3 — `data_handling_policy`（GDPR Extension）
 - 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
 - 轻量实现：AgentCard `extensions[]` 中声明数据处理策略
-- `GET /data-handling-policy` 返回当前策略摘要
 
 ---
 
