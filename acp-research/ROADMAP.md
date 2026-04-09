@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 19:00（文档轮；v2.91 开发轮完成：GET /ir/adversarial-fixtures 5个对抗性fixture上线，13测试全通；规划 v2.92；当前版本 v2.91.0 commit 5d3ee27）
+> 最后更新：2026-04-09 21:50（文档轮；v2.92 开发轮完成：RFC-003 governance-metadata规范+derivation_rights+credential_lifecycle，16测试全通；规划 v2.93；当前版本 v2.92.0 commit a639845）
 
 ---
 
@@ -436,6 +436,10 @@ Key commit: TBD（本轮）
 | v2.87.0 | **policy_compliance[] governance standards** — AgentCard字段 + `--policy-compliance` CLI + `GET/PATCH /policy-compliance`（A2A #1717 inspired）; 10 tests PC-1..10 | cdde26f | 2026-04-09 |
 | v2.88.0 | **BUG-059 fix** — guest_mode peer注册提前至_send_agent_card()之前，消除card exchange竞态；test_peer_card.py加--local-only；PC1-9=9/9(3s) | ffc6576 | 2026-04-09 |
 | v2.88.0+ | **ACP-RFC-001** — `docs/rfc/skill-authorization.md` 发布：技能授权分级完整规范（T0-T3+5因子effective_tier+capability token），可引用至A2A #1716 | 2ae2627 | 2026-04-09 |
+| v2.89.0 | **ACP-RFC-002** — `docs/rfc/bilateral-interaction-records.md`：双边签名IR完整规范（共签载荷+SHA-256哈希链+Merkle root+trust signal集成），对标 A2A #1718 | 6279df3 | 2026-04-09 |
+| v2.90.0 | `POST /identity/verify-card` 跨实例验签（外部card无需预连接），9测试 IVC1-IVC9 全通 | 51ba43d | 2026-04-09 |
+| v2.91.0 | `GET /ir/adversarial-fixtures` — 5种对抗fixture（AF-001基线/AF-002共谋/AF-003Sybil/AF-004spike/AF-005篡改），13测试全通，抢先 A2A #1718 aeoess 提案 | 5d3ee27 | 2026-04-09 |
+| v2.92.0 | **ACP-RFC-003** — `docs/rfc/governance-metadata.md`：治理元数据规范；derivation_rights（GDPR retention/export）+credential_lifecycle（TTL+revocation）；16测试GM01-GM16全通 | a639845 | 2026-04-09 |
 
 ---
 
@@ -578,18 +582,48 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.92 候选特性（规划中）
+## ✅ v2.92 候选特性（已完成 2026-04-09）
 
-> 基于当前版本 v2.91.0，下一轮开发优先级（scan24 行动项 + 剩余 v2.91 候选）：
+> 版本 v2.92.0，commit a639845
 
-### [ ] P1 — RFC-003: 治理元数据规范
-- 将 `governance_metadata` + `policy_compliance[]` 整理为独立 RFC
-- 对应 A2A #1717（Microsoft 提案，2026-04-09，14 评论），输出路径：`docs/rfc/governance-metadata.md`
-- ACP 实现领先 A2A 约 3-4 个月
+### ✅ P1 — RFC-003: 治理元数据规范 — commit a639845
+- `docs/rfc/governance-metadata.md`（ACP-RFC-003）：完整 RFC 规范
+  - 正式化 governance_metadata 生产实现（v2.60–v2.87）
+  - 新字段 **`derivation_rights`**：任务派生数据的保留/导出控制（GDPR对齐）
+    - `retention_permitted`、`retention_ttl`、`derivation_classes`、`export_permitted`、`export_requires_consent`、`derivation_audit_required`
+    - 直接响应 aeoess SDK v1.37.0 "派生数据泄漏"缺口 / A2A #1717
+  - 新字段 **`credential_lifecycle`**：会话 TTL 和吊销策略
+    - `max_session_duration`、`credential_ttl`、`revocation_endpoint`、`revocation_check_frequency`
+    - 修复 TLA+ 反例："会话关闭但凭证继续有效"
+  - `capabilities.derivation_rights: true` + `capabilities.credential_lifecycle: true`
+  - 与 A2A #1717 / aeoess SDK v1.37.0 对比表
 
-### [ ] P1 — A2A #1672 参与：发布 ACP 无 CA 自签名方案说明
+- **16 测试（GM01-GM16）全通**：
+  - derivation_rights 必填字段 + 可选字段
+  - credential_lifecycle 结构 + 吊销端点 + 数值字段
+  - AgentCard 中 capabilities 标志（从 .well-known/acp.json → self 中查，非 /status）
+  - AgentCard 包含 governance_metadata + 两个新字段
+  - 无 governance 时：flags=false + 块缺失
+
+- **修复两个 Bug**（开发过程中发现）：
+  - `NameError: _identity_key` → 应为 `_ed25519_private`（`_build_governance_metadata()` 中）
+  - 测试 fixture 模式错误：须用 `--local-only --test-mode`，HTTP 端口 = ws+100，urllib 取 `.well-known` → `d.get("self")`
+
+### ⏳ P1 — A2A #1672 参与：发布 ACP 无 CA 自签名方案说明
 - A2A #1672 提案依赖中心 CA（getagentid.dev），ACP 方案（Ed25519 自签名 + `POST /identity/verify-card`）提供无 CA 替代
 - 建议：在 #1672 评论中提出 ACP 方案；撰写对比说明文档
+- 延至 v2.93
+
+---
+
+## 🔭 v2.93 候选特性（规划中）
+
+> 基于当前版本 v2.92.0，下一轮开发优先级：
+
+### [ ] P1 — A2A #1672 参与：无 CA 自签名方案说明文档
+- A2A #1672（414 评论，中心 CA getagentid.dev 方案）vs ACP（Ed25519 自签名 + verify-card）
+- 输出：`docs/rfc/identity-without-ca.md` 对比说明 + GitHub comment 草稿
+- 体现 ACP 无单点故障优势
 
 ### [ ] P2 — `action_sequence_root`（Merkle commitment for task actions）
 - 来源：A2A #1716 `wtrmrk_sequence_root` 讨论（64R3N, 2026-04-05）
@@ -599,6 +633,7 @@ Key commit: TBD（本轮）
 ### [ ] P2 — `data_handling_policy`（GDPR Extension）
 - 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
 - 轻量实现：AgentCard `extensions[]` 中声明数据处理策略
+- 与 v2.92 derivation_rights 形成 GDPR 完整闭环
 
 ### [ ] P3 — `POST /identity/verify-card/batch` 批量验签
 - 一次请求验证多张 AgentCard
