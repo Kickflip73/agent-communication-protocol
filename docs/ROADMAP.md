@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-10（v2.94.0：principal_diversity_defense — GET /trust/bilateral-ir/diversity 共谋对惩罚；当前版本 2.94.0，commit b9f638e）
+> 最后更新：2026-04-10（v2.95.0：skill-scoped trust scores — governance_metadata.trust_scores dict + QuerySkill skill_trust_score；当前版本 2.95.0，commit 070e0d3）
 
 ---
 
@@ -772,10 +772,10 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 
 **测试结果**：场景 A+B+F+G+H 全部 PASS；card_signature 11/11；identity 全套通过
 
-### ✅ v2.87–v2.94（完成 — 2026-04-08 至 2026-04-10）
+### ✅ v2.87–v2.95（完成 — 2026-04-08 至 2026-04-10）
 **主题：信任基础设施深化 — 身份、治理、反操控**
 
-> 最后更新：2026-04-10（v2.94 principal_diversity_defense 完成）
+> 最后更新：2026-04-10（v2.95 skill-scoped trust scores 完成）
 
 | 版本 | 主题 | 关键交付 | Commit |
 |------|------|---------|--------|
@@ -787,13 +787,14 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | v2.92 | RFC-003 治理元数据 | `GET /governance-metadata` — `derivation_rights` + `credential_lifecycle`；A2A #1717 + aeoess SDK v1.37.0 对齐；16测试GM01-16全通 | — |
 | v2.93 | RFC-004 无CA身份 | `docs/rfc/identity-without-ca.md` — Ed25519 自签名，三层信任模型，9维 vs CA 对比，multi-provider DID；A2A #1712 社区草稿 | `f384752` |
 | v2.94 | 主体多样性防御 | `GET /trust/bilateral-ir/diversity` — 共谋对惩罚（concentration>60%→0.10x权重）；`principal_diversity_defense: true`；16测试PD01-16全通 | `b9f638e` |
+| v2.95 | Skill 信任评分 | `_compute_skill_trust_scores()` + `GET /trust/skill-scores` + QuerySkill `skill_trust_score` + `governance_metadata.trust_scores` dict；`skill_scoped_v1` 算法；16测试SS01-16全通 | `070e0d3` |
 
-**当前版本**: `2.94.0` | **最新 commit**: `b9f638e`
+**当前版本**: `2.95.0` | **最新 commit**: `070e0d3`
 
 ---
 
-### 🔮 v2.95（候选，目标：2026-04-15）
-**主题：Show HN 发布 + 2-Agent demo + QuerySkill() 正式实现**
+### 🔮 v2.96（候选，目标：2026-04-15）
+**主题：Show HN 发布 + 2-Agent demo**
 
 | 候选特性 | 优先级 | 说明 |
 |---------|--------|------|
@@ -801,7 +802,7 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | Hacker News 发布 | P0 | 最佳时间：周一/周二早 9-10 AM ET；需 Stark 先生最终批准 |
 | README demo gif 嵌入 | P1 | 让首屏更直观，降低新访客摩擦 |
 | A2A #1712 评论发布 | P1 | `docs/community/a2a-1712-comment.md` → 发布到 GitHub（时机成熟：#1672 CA作者转向 hybrid） |
-| QuerySkill() 正式实现 | P2 | A2A #1655（9 comments）仍 open；ACP 已有草案，完善实现 |
+| BUG-007/BUG-009/BUG-003b 修复 | P1 | 三个 P1 bug 积压，需在 Show HN 前清理 |
 
 ---
 

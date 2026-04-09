@@ -306,4 +306,110 @@ All 10 tests pass as of v2.34.0.
 
 ---
 
+---
+
+## 11. Skill-Scoped Trust Scores (v2.95)
+
+> **A2A reference**: Issue #1717 — governance_metadata skill-scoped trust (community convergence 2026-04-09)
+
+The global `trust_score` in §4 measures overall peer trustworthiness. As of v2.95, ACP introduces
+**per-skill trust scores** derived from bilateral IR evidence, enabling callers to assess how trustworthy
+a specific skill invocation is rather than relying solely on the aggregate peer score.
+
+### 11.1 Data Model
+
+`governance_metadata.trust_scores`:
+
+```json
+{
+  "trust_scores": {
+    "text.summarize": 0.525,
+    "code.review":    0.435
+  },
+  "trust_score_method": "skill_scoped_v1",
+  "trust_score": 0.75
+}
+```
+
+- `trust_scores` — dict of `skill_id → float [0.0, 1.0]`; empty `{}` = no bilateral IR evidence yet
+- `trust_score_method` — always `"skill_scoped_v1"` as of v2.95
+- `trust_score` — global scalar retained for backward compatibility (A2A #1717 v1 spec)
+
+### 11.2 Score Algorithm (`skill_scoped_v1`)
+
+```
+score(skill_id) =
+  clamp(
+    0.3
+    + min(unique_callers(skill_id), 10) * 0.04
+    + min(bilateral_count(skill_id), 50) * 0.005,
+    0.0, 1.0
+  )
+```
+
+Where:
+- `unique_callers` — number of distinct `caller_did` values in bilateral IR records for this skill
+- `bilateral_count` — number of bilateral IR records (`bilateral: true`) for this skill
+- Base score `0.3` = minimum for any skill with IR evidence
+- Caller diversity (max `+0.40`) rewards broad adoption over narrow usage
+- Volume (max `+0.25`) rewards sustained usage
+
+### 11.3 API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/trust/skill-scores` | GET | All per-skill scores from bilateral IR evidence |
+| `/skills/query` | POST | Returns `skill_trust_score` field per queried skill |
+
+`GET /trust/skill-scores` response:
+
+```json
+{
+  "ok": true,
+  "trust_scores": { "text.summarize": 0.525 },
+  "method": "skill_scoped_v1",
+  "algorithm": {
+    "base": 0.3,
+    "caller_diversity": "min(unique_callers, 10) * 0.04",
+    "volume": "min(bilateral_count, 50) * 0.005",
+    "max": 1.0
+  },
+  "skill_count": 1,
+  "ir_count": 5,
+  "version": "2.95.0"
+}
+```
+
+### 11.4 Backward Compatibility
+
+- Global `trust_score` scalar is preserved in `governance_metadata`
+- When bilateral IR evidence exists, `trust_score` is updated to the average of per-skill scores
+- When no IR evidence, `trust_score` retains the configured/startup value
+- Clients that only read `trust_score` continue to work without modification
+
+### 11.5 Test Coverage
+
+| Test ID | Description |
+|---------|-------------|
+| SS01 | VERSION == 2.95.0 |
+| SS02 | `capabilities.skill_scoped_trust_scores: true` declared |
+| SS03 | `endpoints.skill_trust_scores` declared in AgentCard |
+| SS04 | Existing endpoints (bilateral_ir_log/diversity) still declared |
+| SS05 | `/trust/skill-scores` returns `{}` when no IR records |
+| SS06 | Response schema contains all required fields |
+| SS07 | `algorithm` block contains base/caller_diversity/volume/max |
+| SS08 | Single skill score computed correctly from IR evidence |
+| SS09 | Two skills produce separate independent scores |
+| SS10 | All scores clamped to [0.0, 1.0] |
+| SS11 | `skill_count` matches unique skill_ids in IR records |
+| SS12 | QuerySkill response contains `skill_trust_score` field |
+| SS13 | `skill_trust_score == null` when no IR evidence |
+| SS14 | `skill_trust_score` populated after bilateral IR for that skill |
+| SS15 | `/governance-metadata` includes `trust_scores` dict + `trust_score_method` |
+| SS16 | Global `trust_score` backward compat — configured value retained when no IR |
+
+All 16 tests pass as of v2.95.0 (`tests/test_skill_scoped_trust_v295.py`).
+
+---
+
 *ACP is built by Kickflip73 + J.A.R.V.I.S. · [GitHub](https://github.com/Kickflip73/agent-communication-protocol)*

@@ -1,11 +1,65 @@
 # What's New in ACP — Last 7 Days
 
-> Last updated: 2026-04-07
+> Last updated: 2026-04-10
 > For the full history see [CHANGELOG.md](../CHANGELOG.md)
 
 ---
 
+### v2.95.0 — Skill-Scoped Trust Scores (2026-04-10)
+
+ACP v2.95 introduces **per-skill trust scores** derived from bilateral interaction record evidence — enabling callers to evaluate trust at the skill level rather than relying solely on aggregate peer scores. Aligned with A2A Issue #1717 community convergence.
+
+**New endpoint: `GET /trust/skill-scores`**
+
+```bash
+curl http://localhost:18900/trust/skill-scores
+```
+```json
+{
+  "ok": true,
+  "trust_scores": {
+    "text.summarize": 0.525,
+    "code.review":    0.435
+  },
+  "method": "skill_scoped_v1",
+  "algorithm": {
+    "base": 0.3,
+    "caller_diversity": "min(unique_callers, 10) * 0.04",
+    "volume": "min(bilateral_count, 50) * 0.005",
+    "max": 1.0
+  },
+  "skill_count": 2,
+  "ir_count": 8,
+  "version": "2.95.0"
+}
+```
+
+**QuerySkill now returns `skill_trust_score`:**
+
+```bash
+curl -X POST http://localhost:18900/skills/query \
+  -H "Content-Type: application/json" \
+  -d '{"skill_id": "text.summarize"}'
+# → {"skill_trust_score": 0.525, "support_level": "supported", ...}
+```
+
+**`governance_metadata` updated:**
+
+```json
+{
+  "trust_scores": {"text.summarize": 0.525},
+  "trust_score_method": "skill_scoped_v1",
+  "trust_score": 0.75
+}
+```
+
+Global `trust_score` retained for full backward compatibility. When bilateral IR evidence exists, it is updated to the per-skill average. Empty `{}` = no evidence yet (not an error).
+
+Test coverage: **SS01–SS16 = 16/16 PASS** | [See CHANGELOG](../CHANGELOG.md)
+
 ---
+
+### v2.94.0 — Principal Diversity Defense (2026-04-10)
 
 ---
 
