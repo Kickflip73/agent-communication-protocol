@@ -94,7 +94,7 @@ def _inject(hp, name, trust=None):
 # ═══════════════════════════════════════════════════════════════
 def test_conc1_concurrent_task_creation():
     """CONC1: 50 goroutines fire POST /tasks simultaneously — all 201, unique IDs."""
-    proc, hp = _start_relay(48000, [{"id": "s1", "name": "S1"}])
+    proc, hp = _start_relay(None, [{"id": "s1", "name": "S1"}])
     try:
         N = 50
         results = [None] * N
@@ -122,7 +122,7 @@ def test_conc1_concurrent_task_creation():
 # ═══════════════════════════════════════════════════════════════
 def test_conc2_concurrent_confirm_race():
     """CONC2: two threads race to :confirm the same task — exactly one 200, one 409."""
-    proc, hp = _start_relay(48001, [
+    proc, hp = _start_relay(None, [
         {"id": "dep", "name": "Dep", "authorization_tier": "T3", "human_confirmation_required": True}
     ])
     try:
@@ -162,7 +162,7 @@ def test_conc3_confirm_reject_race():
     """CONC3: one thread confirms, one rejects simultaneously — task ends in submitted/failed/rejected (not hanging).
     v2.66: :reject now yields 'rejected' terminal state instead of 'failed'.
     """
-    proc, hp = _start_relay(48002, [
+    proc, hp = _start_relay(None, [
         {"id": "dep", "name": "Dep", "authorization_tier": "T3", "human_confirmation_required": True}
     ])
     try:
@@ -204,7 +204,7 @@ def test_conc3_confirm_reject_race():
 # ═══════════════════════════════════════════════════════════════
 def test_conc4_parallel_peers_submit():
     """CONC4: 10 different peers submit tasks in parallel — all 201, no cross-contamination."""
-    proc, hp = _start_relay(48003, [{"id": "work", "name": "Work"}])
+    proc, hp = _start_relay(None, [{"id": "work", "name": "Work"}])
     try:
         results = {}
         lock = threading.Lock()
@@ -235,7 +235,7 @@ def test_conc4_parallel_peers_submit():
 # ═══════════════════════════════════════════════════════════════
 def test_conc5_100_tasks_throughput():
     """CONC5: 100 sequential POST /tasks in tight loop — all 201, relay stays stable."""
-    proc, hp = _start_relay(48004, [{"id": "rapid", "name": "Rapid"}])
+    proc, hp = _start_relay(None, [{"id": "rapid", "name": "Rapid"}])
     try:
         failures = []
         for i in range(100):
@@ -263,7 +263,7 @@ def test_conc5_100_tasks_throughput():
 # ═══════════════════════════════════════════════════════════════
 def test_conc6_concurrent_peer_inject():
     """CONC6: 20 concurrent /debug/inject calls with trust_override — all succeed, distinct peer_ids."""
-    proc, hp = _start_relay(48005, [{"id": "sk", "name": "SK"}])
+    proc, hp = _start_relay(None, [{"id": "sk", "name": "SK"}])
     try:
         peer_ids = [None] * 20
         errors = []
@@ -306,7 +306,7 @@ def test_int1_full_three_layer_happy_path():
         },
         "human_confirmation_required": True,
     }]
-    proc, hp = _start_relay(48010, skills)
+    proc, hp = _start_relay(None, skills)
     try:
         pid = _inject(hp, "bank_agent", T3_TRUST)
 
@@ -347,7 +347,7 @@ def test_int2_tier_blocks_before_param_check():
         },
         "human_confirmation_required": True,
     }]
-    proc, hp = _start_relay(48011, skills)
+    proc, hp = _start_relay(None, skills)
     try:
         # No trust_override → score ~0, fails T3
         pid = _inject(hp, "low_trust")
