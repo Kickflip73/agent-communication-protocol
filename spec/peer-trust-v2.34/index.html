@@ -1638,6 +1638,167 @@
 </table>
 <p>All 10 tests pass as of v2.34.0.</p>
 <hr />
+<hr />
+<h2 id="11-skill-scoped-trust-scores-v295">11. Skill-Scoped Trust Scores (v2.95)<a class="headerlink" href="#11-skill-scoped-trust-scores-v295" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>A2A reference</strong>: Issue #1717 — governance_metadata skill-scoped trust (community convergence 2026-04-09)</p>
+</blockquote>
+<p>The global <code>trust_score</code> in §4 measures overall peer trustworthiness. As of v2.95, ACP introduces
+<strong>per-skill trust scores</strong> derived from bilateral IR evidence, enabling callers to assess how trustworthy
+a specific skill invocation is rather than relying solely on the aggregate peer score.</p>
+<h3 id="111-data-model">11.1 Data Model<a class="headerlink" href="#111-data-model" title="Permanent link">&para;</a></h3>
+<p><code>governance_metadata.trust_scores</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;trust_scores&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">&quot;text.summarize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.525</span><span class="p">,</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nt">&quot;code.review&quot;</span><span class="p">:</span><span class="w">    </span><span class="mf">0.435</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;trust_score_method&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;skill_scoped_v1&quot;</span><span class="p">,</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;trust_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.75</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<ul>
+<li><code>trust_scores</code> — dict of <code>skill_id → float [0.0, 1.0]</code>; empty <code>{}</code> = no bilateral IR evidence yet</li>
+<li><code>trust_score_method</code> — always <code>"skill_scoped_v1"</code> as of v2.95</li>
+<li><code>trust_score</code> — global scalar retained for backward compatibility (A2A #1717 v1 spec)</li>
+</ul>
+<h3 id="112-score-algorithm-skill_scoped_v1">11.2 Score Algorithm (<code>skill_scoped_v1</code>)<a class="headerlink" href="#112-score-algorithm-skill_scoped_v1" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>score(skill_id) =
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  clamp(
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    0.3
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    + min(unique_callers(skill_id), 10) * 0.04
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    + min(bilateral_count(skill_id), 50) * 0.005,
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>    0.0, 1.0
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>  )
+</span></code></pre></div>
+<p>Where:
+- <code>unique_callers</code> — number of distinct <code>caller_did</code> values in bilateral IR records for this skill
+- <code>bilateral_count</code> — number of bilateral IR records (<code>bilateral: true</code>) for this skill
+- Base score <code>0.3</code> = minimum for any skill with IR evidence
+- Caller diversity (max <code>+0.40</code>) rewards broad adoption over narrow usage
+- Volume (max <code>+0.25</code>) rewards sustained usage</p>
+<h3 id="113-api">11.3 API<a class="headerlink" href="#113-api" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/trust/skill-scores</code></td>
+<td>GET</td>
+<td>All per-skill scores from bilateral IR evidence</td>
+</tr>
+<tr>
+<td><code>/skills/query</code></td>
+<td>POST</td>
+<td>Returns <code>skill_trust_score</code> field per queried skill</td>
+</tr>
+</tbody>
+</table>
+<p><code>GET /trust/skill-scores</code> response:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">&quot;ok&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">&quot;trust_scores&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;text.summarize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.525</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">&quot;method&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;skill_scoped_v1&quot;</span><span class="p">,</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">&quot;algorithm&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">    </span><span class="nt">&quot;base&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.3</span><span class="p">,</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">    </span><span class="nt">&quot;caller_diversity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;min(unique_callers, 10) * 0.04&quot;</span><span class="p">,</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">    </span><span class="nt">&quot;volume&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;min(bilateral_count, 50) * 0.005&quot;</span><span class="p">,</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">    </span><span class="nt">&quot;max&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">  </span><span class="nt">&quot;skill_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">  </span><span class="nt">&quot;ir_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2.95.0&quot;</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="114-backward-compatibility">11.4 Backward Compatibility<a class="headerlink" href="#114-backward-compatibility" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Global <code>trust_score</code> scalar is preserved in <code>governance_metadata</code></li>
+<li>When bilateral IR evidence exists, <code>trust_score</code> is updated to the average of per-skill scores</li>
+<li>When no IR evidence, <code>trust_score</code> retains the configured/startup value</li>
+<li>Clients that only read <code>trust_score</code> continue to work without modification</li>
+</ul>
+<h3 id="115-test-coverage">11.5 Test Coverage<a class="headerlink" href="#115-test-coverage" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Test ID</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SS01</td>
+<td>VERSION == 2.95.0</td>
+</tr>
+<tr>
+<td>SS02</td>
+<td><code>capabilities.skill_scoped_trust_scores: true</code> declared</td>
+</tr>
+<tr>
+<td>SS03</td>
+<td><code>endpoints.skill_trust_scores</code> declared in AgentCard</td>
+</tr>
+<tr>
+<td>SS04</td>
+<td>Existing endpoints (bilateral_ir_log/diversity) still declared</td>
+</tr>
+<tr>
+<td>SS05</td>
+<td><code>/trust/skill-scores</code> returns <code>{}</code> when no IR records</td>
+</tr>
+<tr>
+<td>SS06</td>
+<td>Response schema contains all required fields</td>
+</tr>
+<tr>
+<td>SS07</td>
+<td><code>algorithm</code> block contains base/caller_diversity/volume/max</td>
+</tr>
+<tr>
+<td>SS08</td>
+<td>Single skill score computed correctly from IR evidence</td>
+</tr>
+<tr>
+<td>SS09</td>
+<td>Two skills produce separate independent scores</td>
+</tr>
+<tr>
+<td>SS10</td>
+<td>All scores clamped to [0.0, 1.0]</td>
+</tr>
+<tr>
+<td>SS11</td>
+<td><code>skill_count</code> matches unique skill_ids in IR records</td>
+</tr>
+<tr>
+<td>SS12</td>
+<td>QuerySkill response contains <code>skill_trust_score</code> field</td>
+</tr>
+<tr>
+<td>SS13</td>
+<td><code>skill_trust_score == null</code> when no IR evidence</td>
+</tr>
+<tr>
+<td>SS14</td>
+<td><code>skill_trust_score</code> populated after bilateral IR for that skill</td>
+</tr>
+<tr>
+<td>SS15</td>
+<td><code>/governance-metadata</code> includes <code>trust_scores</code> dict + <code>trust_score_method</code></td>
+</tr>
+<tr>
+<td>SS16</td>
+<td>Global <code>trust_score</code> backward compat — configured value retained when no IR</td>
+</tr>
+</tbody>
+</table>
+<p>All 16 tests pass as of v2.95.0 (<code>tests/test_skill_scoped_trust_v295.py</code>).</p>
+<hr />
 <p><em>ACP is built by Kickflip73 + J.A.R.V.I.S. · <a href="https://github.com/Kickflip73/agent-communication-protocol">GitHub</a></em></p>
 
 

@@ -1610,10 +1610,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#v287v294-2026-04-08-2026-04-10" class="md-nav__link">
+  <a href="#v287v295-2026-04-08-2026-04-10" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ✅ v2.87–v2.94（完成 — 2026-04-08 至 2026-04-10）
+        ✅ v2.87–v2.95（完成 — 2026-04-08 至 2026-04-10）
       
     </span>
   </a>
@@ -1621,10 +1621,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#v2952026-04-15" class="md-nav__link">
+  <a href="#v2962026-04-15" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔮 v2.95（候选，目标：2026-04-15）
+        🔮 v2.96（候选，目标：2026-04-15）
       
     </span>
   </a>
@@ -1834,7 +1834,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-10（v2.94.0：principal_diversity_defense — GET /trust/bilateral-ir/diversity 共谋对惩罚；当前版本 2.94.0，commit b9f638e）</p>
+最后更新：2026-04-10（v2.95.0：skill-scoped trust scores — governance_metadata.trust_scores dict + QuerySkill skill_trust_score；当前版本 2.95.0，commit 070e0d3）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3598,10 +3598,10 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </tbody>
 </table>
 <p><strong>测试结果</strong>：场景 A+B+F+G+H 全部 PASS；card_signature 11/11；identity 全套通过</p>
-<h3 id="v287v294-2026-04-08-2026-04-10">✅ v2.87–v2.94（完成 — 2026-04-08 至 2026-04-10）<a class="headerlink" href="#v287v294-2026-04-08-2026-04-10" title="Permanent link">&para;</a></h3>
+<h3 id="v287v295-2026-04-08-2026-04-10">✅ v2.87–v2.95（完成 — 2026-04-08 至 2026-04-10）<a class="headerlink" href="#v287v295-2026-04-08-2026-04-10" title="Permanent link">&para;</a></h3>
 <p><strong>主题：信任基础设施深化 — 身份、治理、反操控</strong></p>
 <blockquote>
-<p>最后更新：2026-04-10（v2.94 principal_diversity_defense 完成）</p>
+<p>最后更新：2026-04-10（v2.95 skill-scoped trust scores 完成）</p>
 </blockquote>
 <table>
 <thead>
@@ -3661,12 +3661,18 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td><code>GET /trust/bilateral-ir/diversity</code> — 共谋对惩罚（concentration&gt;60%→0.10x权重）；<code>principal_diversity_defense: true</code>；16测试PD01-16全通</td>
 <td><code>b9f638e</code></td>
 </tr>
+<tr>
+<td>v2.95</td>
+<td>Skill 信任评分</td>
+<td><code>_compute_skill_trust_scores()</code> + <code>GET /trust/skill-scores</code> + QuerySkill <code>skill_trust_score</code> + <code>governance_metadata.trust_scores</code> dict；<code>skill_scoped_v1</code> 算法；16测试SS01-16全通</td>
+<td><code>070e0d3</code></td>
+</tr>
 </tbody>
 </table>
-<p><strong>当前版本</strong>: <code>2.94.0</code> | <strong>最新 commit</strong>: <code>b9f638e</code></p>
+<p><strong>当前版本</strong>: <code>2.95.0</code> | <strong>最新 commit</strong>: <code>070e0d3</code></p>
 <hr />
-<h3 id="v2952026-04-15">🔮 v2.95（候选，目标：2026-04-15）<a class="headerlink" href="#v2952026-04-15" title="Permanent link">&para;</a></h3>
-<p><strong>主题：Show HN 发布 + 2-Agent demo + QuerySkill() 正式实现</strong></p>
+<h3 id="v2962026-04-15">🔮 v2.96（候选，目标：2026-04-15）<a class="headerlink" href="#v2962026-04-15" title="Permanent link">&para;</a></h3>
+<p><strong>主题：Show HN 发布 + 2-Agent demo</strong></p>
 <table>
 <thead>
 <tr>
@@ -3697,9 +3703,9 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <td><code>docs/community/a2a-1712-comment.md</code> → 发布到 GitHub（时机成熟：#1672 CA作者转向 hybrid）</td>
 </tr>
 <tr>
-<td>QuerySkill() 正式实现</td>
-<td>P2</td>
-<td>A2A #1655（9 comments）仍 open；ACP 已有草案，完善实现</td>
+<td>BUG-007/BUG-009/BUG-003b 修复</td>
+<td>P1</td>
+<td>三个 P1 bug 积压，需在 Show HN 前清理</td>
 </tr>
 </tbody>
 </table>
