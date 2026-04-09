@@ -251,15 +251,19 @@ class RelayClient:
         parts: List[dict] = None,
         role: str = "user",
         message_id: str = None,
+        client_msg_id: str = None,
     ) -> dict:
         """
         Send a message to a specific peer (multi-session, v0.6).
 
         Args:
-            peer_id: Session-id of the target peer (from peers()).
-            text:    Plain text content.
-            parts:   Structured Part list.
-            role:    Message role.
+            peer_id:        Session-id of the target peer (from peers()).
+            text:           Plain text content.
+            parts:          Structured Part list.
+            role:           Message role.
+            message_id:     Client-assigned idempotency key (v0.5+).
+            client_msg_id:  Alias for ``message_id`` (v2.84+ ANP-style).
+                            If both are set, ``message_id`` takes priority.
         """
         body: Dict[str, Any] = {"role": role}
         effective_id = message_id or client_msg_id

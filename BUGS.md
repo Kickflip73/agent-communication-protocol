@@ -1646,3 +1646,27 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **修复方向**: 检查 relay `acp.agent_card` 握手触发逻辑，确保连接建立后主动推送 card；或在 fixture 中延长等待至 20s  
 **优先级**: P2 (flaky，不阻断功能)  
 **状态**: ✅ 已修复（2026-04-09，commit 待提交）
+
+---
+
+### BUG-060 ✅ P2 — `acp_client.send_to_peer()` 缺少 `client_msg_id` 参数（NameError）
+
+**发现日期**: 2026-04-10
+**场景**: `sdk/python/tests/test_sdk_package.py::test_client_send_to_peer`
+**描述**: `acp_client.client.send_to_peer()` 函数签名中缺少 `client_msg_id` 参数，
+  函数体中使用了 `client_msg_id` 变量（line 265），但参数列表未声明，导致 `NameError`。
+**根因**: v2.84 为 `send()` 方法添加 `client_msg_id` 参数时，`send_to_peer()` 遗漏同步更新。
+**影响**: 调用 `send_to_peer()` 时若触发 `effective_id` 行即崩溃；所有调用方均受影响。
+**修复**: 在 `send_to_peer()` 参数列表中添加 `client_msg_id: str = None`，同步补充 docstring。
+**状态**: ✅ 已修复（2026-04-10）
+
+---
+
+### BUG-061 ✅ P3 — `test_sdk_package.py::test_version` 版本断言过期（`1.9.0` vs 实际 `2.84.0`）
+
+**发现日期**: 2026-04-10
+**场景**: `sdk/python/tests/test_sdk_package.py::test_version`
+**描述**: 测试断言 `acp_client.__version__ == "1.9.0"`，但 SDK 已升级至 `2.84.0`，断言必然失败。
+**根因**: 版本升级时测试未同步更新（与 BUG-029/031 同类）。
+**修复**: 改为 `>= "2.84.0"` 宽松断言，兼容后续版本。
+**状态**: ✅ 已修复（2026-04-10）
