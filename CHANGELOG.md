@@ -7,6 +7,22 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.92.0] - 2026-04-09
+### Added
+- **RFC-003: Governance Metadata specification** (`docs/rfc/governance-metadata.md`)
+  - Formalizes `governance_metadata` block schema (v2.60–v2.87 production implementation → spec)
+  - New field **`derivation_rights`**: controls data retention/export for task-derived data (GDPR alignment)
+    - `retention_permitted`, `retention_ttl`, `derivation_classes`, `export_permitted`, `export_requires_consent`, `derivation_audit_required`
+    - Directly addresses "derived data leakage" gap from aeoess SDK v1.37.0 / A2A #1717
+  - New field **`credential_lifecycle`**: session TTL and revocation policy
+    - `max_session_duration`, `credential_ttl`, `revocation_endpoint`, `revocation_check_frequency`
+    - Closes "session closed but credentials survive" TLA+ counterexample (aeoess)
+  - `capabilities.derivation_rights: true` and `capabilities.credential_lifecycle: true` when governance configured
+  - 16 tests (GM01–GM16) all passing: derivation_rights structure / credential_lifecycle structure / capability flags / AgentCard inclusion / no-governance assertions
+  - Comparison table vs A2A #1717 and aeoess SDK v1.37.0 included in RFC
+
+---
+
 ## [v2.91.0] - 2026-04-09
 ### Added
 - **GET /ir/adversarial-fixtures — 对抗性 IR 测试夹具端点**

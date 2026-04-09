@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.91.0"  # v2.91: GET /ir/adversarial-fixtures — collusion/inflation adversarial test fixtures (AF-001..AF-005)
+VERSION = "2.92.0"  # v2.92: RFC-003 governance-metadata spec; derivation_rights + credential_lifecycle fields (aeoess SDK v1.37.0 alignment)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2102,6 +2102,8 @@ def _make_agent_card(name, skills):
             "wtrmrk_attestation":          True,                               # v2.62: wtrmrk_sequence_root Factor 4 in effective_tier — attestation_history_adjustment from WTRMRK registry
             "external_token_verify":       bool(_ed25519_private),             # v2.63: POST /verify/external-token — SINT-format Ed25519 cap token cross-protocol verification (APS/SINT compatible)
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
+            "derivation_rights":           bool(_governance_metadata),         # v2.92: derivation_rights in governance_metadata (GDPR retention/export control, aeoess SDK v1.37.0)
+            "credential_lifecycle":        bool(_governance_metadata),         # v2.92: credential_lifecycle in governance_metadata (session TTL + revocation, aeoess SDK v1.37.0)
             "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
             "ir_adversarial_fixtures":     _ED25519_AVAILABLE,                 # v2.91: GET /ir/adversarial-fixtures — collusion/inflation adversarial test fixtures (scan24 / A2A #1718)
             "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
@@ -2415,6 +2417,29 @@ def _build_governance_metadata() -> dict:
     # Compatible with: passportToAgentCard() serviceEndpoint in APS v1.32.0+
     if "live_endpoint" not in gm:
         gm["live_endpoint"] = "/governance-metadata"
+
+    # v2.92: derivation_rights — data retention/export policy for task-derived data
+    # Directly addresses GDPR "derived data leakage" gap (aeoess SDK v1.37.0 / A2A #1717)
+    if "derivation_rights" not in gm:
+        # Default: retention allowed, no export, no TTL restriction
+        gm["derivation_rights"] = {
+            "retention_permitted":      True,
+            "retention_ttl":            None,
+            "derivation_classes":       [],       # empty = all classes permitted
+            "export_permitted":         False,
+            "export_requires_consent":  True,
+            "derivation_audit_required": False,
+        }
+
+    # v2.92: credential_lifecycle — session TTL and revocation policy
+    # Closes "session closed but credentials survive" TLA+ counterexample (aeoess SDK v1.37.0)
+    if "credential_lifecycle" not in gm:
+        gm["credential_lifecycle"] = {
+            "max_session_duration":       None,    # None = no limit
+            "credential_ttl":             None,    # None = no limit
+            "revocation_endpoint":        "/identity/revoke" if _ed25519_private else None,
+            "revocation_check_frequency": None,    # None = not specified
+        }
 
     # Live counters (always override)
     gm["interaction_record_count"] = len(_interaction_records)
