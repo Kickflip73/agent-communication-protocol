@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 10:15（文档轮；scan22 竞品表同步；v2.88 候选特性规划；当前版本 v2.87.0 commit 694ab09）
+> 最后更新：2026-04-09 11:30（文档轮；v2.88 BUG-059 peer card exchange 竞态修复；README 版本表补充 v2.84-v2.88；当前版本 v2.88.0 commit ffc6576）
 
 ---
 
@@ -433,6 +433,7 @@ Key commit: TBD（本轮）
 | v2.86.0 | Show HN 发布冲刺：README polish + A2A diff update + BUG-031 test fix | abfc94a | 2026-04-08 |
 | v2.86.1 | BUG-058 fix: test_capability_token CT-1 Ed25519 default-on 兼容 | 6a160f1 | 2026-04-09 |
 | v2.87.0 | **policy_compliance[] governance standards** — AgentCard字段 + `--policy-compliance` CLI + `GET/PATCH /policy-compliance`（A2A #1717 inspired）; 10 tests PC-1..10 | cdde26f | 2026-04-09 |
+| v2.88.0 | **BUG-059 fix** — guest_mode peer注册提前至_send_agent_card()之前，消除card exchange竞态；test_peer_card.py加--local-only；PC1-9=9/9(3s) | ffc6576 | 2026-04-09 |
 
 ---
 

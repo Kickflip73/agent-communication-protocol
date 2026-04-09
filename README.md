@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.87.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v2.88.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -546,6 +546,11 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v2.45** | ✅ | **`GET /tasks` A2A v1.0 对齐分页** — `page_size`（默认20，最大100，自动 clamp）、`after`（keyset 游标，`task_id` exclusive）、`status` 多值逗号分隔过滤；响应新增 `total`/`has_more`/`next_cursor`；`capabilities.tasks_pagination: true`；向后兼容（无参数行为不变）；TP1-8 = 8/8 |
 | **v2.80** | ✅ | **`heartbeat_period_ms` — AgentCard 心跳周期声明** — AgentCard 顶层字段声明心跳间隔（ms）；`--heartbeat-period-ms` CLI flag；`capabilities.heartbeat_period_declared: true`；`GET /availability` + `POST /availability/heartbeat` 响应同步；HP1-10 = 10/10；领先 A2A #1667 |
 | **v2.81** | ✅ | **`task_evidence` — 任务生命周期证据锚点** — `POST /tasks/{id}/evidence` 提交证据；`GET /tasks/{id}/evidence` 列表查询；`GET /tasks/{id}/evidence/latest` 最新证据；顺序 `seq` 编号；`capabilities.task_evidence: true`；TE1-12 = 12/12；领先 A2A #1721 |
+| **v2.84** | ✅ | **`protocol_bindings[]` 数组字段** — AgentCard 顶层 CPB URI 对象数组（A2A §5.8 对齐）；向后兼容保留单数 `protocol_binding`；`capabilities.protocol_bindings_array: true` |
+| **v2.85** | ✅ | **Ed25519 身份认证默认开启** — 首次运行自动生成密钥对，零配置；`capabilities.identity_default: true`；`--no-identity` 逃生出口；`GET /protocol-binding/compatibility` — 6 协议支持矩阵（websocket/http-sse=native，a2a/anp=partial，mcp/grpc=none）；领先 A2A #1672（408 comments，无定论）|
+| **v2.86** | ✅ | **BUG-058 修复** — v2.85 Ed25519 默认开启导致 capability_token 测试预期不匹配；`--no-identity` 修复测试夹具；BUG 类型：v2.85 引入的测试适配欠债，同类 BUG-031 |
+| **v2.87** | ✅ | **`policy_compliance[]` — 治理合规标准字段** — AgentCard 顶层 `policy_compliance: string[]`；`PATCH /policy-compliance` 替换模式 + 增量模式（add/remove）；`capabilities.policy_compliance: bool`；领先 A2A #1717（Microsoft governance-toolkit 团队提案，proposal 阶段）|
+| **v2.88** | ✅ | **BUG-059 修复 — peer card exchange 竞态条件** — `guest_mode` 中 peer 注册提前至 `_send_agent_card()` 之前，消除 host 回送 card 时 `card_available=False` 的竞态；`test_peer_card.py` 加 `--local-only` 修复 flaky；PC1-9 = 9/9（3s）|
 
 ---
 
