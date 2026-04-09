@@ -1541,6 +1541,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#offline-agentcard-verification-v290" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offline AgentCard verification (v2.90)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2830,16 +2841,112 @@ changes to the core SDK</strong> (LangChain remains an optional dependency).</p>
 <li><strong>Combination with HMAC</strong>: <code>--identity</code> and <code>--hmac-secret</code> can be used simultaneously — HMAC covers transport-level authentication, Ed25519/DID covers message-level identity.</li>
 <li><strong>Cross-protocol</strong>: The <code>did:acp:</code> URI format uses the same <code>did:&lt;method&gt;:&lt;identifier&gt;</code> structure as W3C DID Core, making it readable to any W3C-compatible DID resolver (though resolution would require understanding the <code>acp</code> method).</li>
 </ul>
+<h3 id="offline-agentcard-verification-v290">Offline AgentCard verification (v2.90)<a class="headerlink" href="#offline-agentcard-verification-v290" title="Permanent link">&para;</a></h3>
+<p><code>POST /identity/verify-card</code> verifies the Ed25519 self-signature on any AgentCard <strong>without connecting to the card's owner</strong>. This is useful when:</p>
+<ul>
+<li>Agent B received a card from Agent A and wants to prove its authenticity to Agent C</li>
+<li>You have a cached card and want to confirm it hasn't been tampered with</li>
+<li>You're doing batch pre-verification of cards from a registry or directory</li>
+</ul>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">requests</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span>
+</span><span id="__span-56-2"><a id="__codelineno-56-2" name="__codelineno-56-2" href="#__codelineno-56-2"></a>
+</span><span id="__span-56-3"><a id="__codelineno-56-3" name="__codelineno-56-3" href="#__codelineno-56-3"></a><span class="c1"># Card obtained from any source (live fetch, cache, forwarded by peer, etc.)</span>
+</span><span id="__span-56-4"><a id="__codelineno-56-4" name="__codelineno-56-4" href="#__codelineno-56-4"></a><span class="n">card</span> <span class="o">=</span> <span class="p">{</span>
+</span><span id="__span-56-5"><a id="__codelineno-56-5" name="__codelineno-56-5" href="#__codelineno-56-5"></a>    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;AgentA&quot;</span><span class="p">,</span>
+</span><span id="__span-56-6"><a id="__codelineno-56-6" name="__codelineno-56-6" href="#__codelineno-56-6"></a>    <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="s2">&quot;2.90.0&quot;</span><span class="p">,</span>
+</span><span id="__span-56-7"><a id="__codelineno-56-7" name="__codelineno-56-7" href="#__codelineno-56-7"></a>    <span class="s2">&quot;skills&quot;</span><span class="p">:</span> <span class="p">[],</span>
+</span><span id="__span-56-8"><a id="__codelineno-56-8" name="__codelineno-56-8" href="#__codelineno-56-8"></a>    <span class="s2">&quot;identity&quot;</span><span class="p">:</span> <span class="p">{</span>
+</span><span id="__span-56-9"><a id="__codelineno-56-9" name="__codelineno-56-9" href="#__codelineno-56-9"></a>        <span class="s2">&quot;scheme&quot;</span><span class="p">:</span> <span class="s2">&quot;ed25519&quot;</span><span class="p">,</span>
+</span><span id="__span-56-10"><a id="__codelineno-56-10" name="__codelineno-56-10" href="#__codelineno-56-10"></a>        <span class="s2">&quot;public_key&quot;</span><span class="p">:</span> <span class="s2">&quot;&lt;base64url&gt;&quot;</span><span class="p">,</span>
+</span><span id="__span-56-11"><a id="__codelineno-56-11" name="__codelineno-56-11" href="#__codelineno-56-11"></a>        <span class="s2">&quot;did&quot;</span><span class="p">:</span> <span class="s2">&quot;did:acp:&lt;base64url&gt;&quot;</span><span class="p">,</span>
+</span><span id="__span-56-12"><a id="__codelineno-56-12" name="__codelineno-56-12" href="#__codelineno-56-12"></a>        <span class="s2">&quot;card_sig&quot;</span><span class="p">:</span> <span class="s2">&quot;&lt;base64url-signature&gt;&quot;</span>
+</span><span id="__span-56-13"><a id="__codelineno-56-13" name="__codelineno-56-13" href="#__codelineno-56-13"></a>    <span class="p">}</span>
+</span><span id="__span-56-14"><a id="__codelineno-56-14" name="__codelineno-56-14" href="#__codelineno-56-14"></a><span class="p">}</span>
+</span><span id="__span-56-15"><a id="__codelineno-56-15" name="__codelineno-56-15" href="#__codelineno-56-15"></a>
+</span><span id="__span-56-16"><a id="__codelineno-56-16" name="__codelineno-56-16" href="#__codelineno-56-16"></a><span class="n">resp</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span>
+</span><span id="__span-56-17"><a id="__codelineno-56-17" name="__codelineno-56-17" href="#__codelineno-56-17"></a>    <span class="s2">&quot;http://localhost:8100/identity/verify-card&quot;</span><span class="p">,</span>
+</span><span id="__span-56-18"><a id="__codelineno-56-18" name="__codelineno-56-18" href="#__codelineno-56-18"></a>    <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;card&quot;</span><span class="p">:</span> <span class="n">card</span><span class="p">}</span>
+</span><span id="__span-56-19"><a id="__codelineno-56-19" name="__codelineno-56-19" href="#__codelineno-56-19"></a><span class="p">)</span>
+</span><span id="__span-56-20"><a id="__codelineno-56-20" name="__codelineno-56-20" href="#__codelineno-56-20"></a><span class="n">result</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</span><span id="__span-56-21"><a id="__codelineno-56-21" name="__codelineno-56-21" href="#__codelineno-56-21"></a><span class="c1"># {</span>
+</span><span id="__span-56-22"><a id="__codelineno-56-22" name="__codelineno-56-22" href="#__codelineno-56-22"></a><span class="c1">#   &quot;verified&quot;: true,</span>
+</span><span id="__span-56-23"><a id="__codelineno-56-23" name="__codelineno-56-23" href="#__codelineno-56-23"></a><span class="c1">#   &quot;did&quot;: &quot;did:acp:...&quot;,</span>
+</span><span id="__span-56-24"><a id="__codelineno-56-24" name="__codelineno-56-24" href="#__codelineno-56-24"></a><span class="c1">#   &quot;public_key&quot;: &quot;...&quot;,</span>
+</span><span id="__span-56-25"><a id="__codelineno-56-25" name="__codelineno-56-25" href="#__codelineno-56-25"></a><span class="c1">#   &quot;did_consistent&quot;: true,   # did:acp: matches public_key</span>
+</span><span id="__span-56-26"><a id="__codelineno-56-26" name="__codelineno-56-26" href="#__codelineno-56-26"></a><span class="c1">#   &quot;scheme&quot;: &quot;ed25519&quot;,</span>
+</span><span id="__span-56-27"><a id="__codelineno-56-27" name="__codelineno-56-27" href="#__codelineno-56-27"></a><span class="c1">#   &quot;error&quot;: null</span>
+</span><span id="__span-56-28"><a id="__codelineno-56-28" name="__codelineno-56-28" href="#__codelineno-56-28"></a><span class="c1"># }</span>
+</span><span id="__span-56-29"><a id="__codelineno-56-29" name="__codelineno-56-29" href="#__codelineno-56-29"></a>
+</span><span id="__span-56-30"><a id="__codelineno-56-30" name="__codelineno-56-30" href="#__codelineno-56-30"></a><span class="k">if</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;verified&quot;</span><span class="p">]</span> <span class="ow">and</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;did_consistent&quot;</span><span class="p">]:</span>
+</span><span id="__span-56-31"><a id="__codelineno-56-31" name="__codelineno-56-31" href="#__codelineno-56-31"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Card is authentic: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;did&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-56-32"><a id="__codelineno-56-32" name="__codelineno-56-32" href="#__codelineno-56-32"></a><span class="k">else</span><span class="p">:</span>
+</span><span id="__span-56-33"><a id="__codelineno-56-33" name="__codelineno-56-33" href="#__codelineno-56-33"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Card rejected: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;error&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Response fields:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>verified</code></td>
+<td>bool</td>
+<td>Ed25519 signature is cryptographically valid</td>
+</tr>
+<tr>
+<td><code>did</code></td>
+<td>str | null</td>
+<td><code>did:acp:</code> identifier extracted from identity block</td>
+</tr>
+<tr>
+<td><code>public_key</code></td>
+<td>str | null</td>
+<td>Base64url Ed25519 public key</td>
+</tr>
+<tr>
+<td><code>did_consistent</code></td>
+<td>bool | null</td>
+<td><code>did:acp:&lt;pubkey&gt;</code> matches <code>public_key</code> (anti-spoofing)</td>
+</tr>
+<tr>
+<td><code>scheme</code></td>
+<td>str</td>
+<td>Always <code>"ed25519"</code> for signed cards</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>str | null</td>
+<td>Reason for rejection (e.g. <code>"missing card_sig"</code>, <code>"signature verification failed"</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Error cases:</strong></p>
+<ul>
+<li><code>400</code> — request body missing or <code>card</code> field not present</li>
+<li><code>200</code> + <code>verified: false</code> — card present but signature invalid/missing</li>
+</ul>
+<p><strong>Capability advertisement:</strong> Relays that support this endpoint advertise it in <code>/.well-known/acp.json</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="p">{</span>
+</span><span id="__span-57-2"><a id="__codelineno-57-2" name="__codelineno-57-2" href="#__codelineno-57-2"></a><span class="w">  </span><span class="nt">&quot;self&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-57-3"><a id="__codelineno-57-3" name="__codelineno-57-3" href="#__codelineno-57-3"></a><span class="w">    </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;offline_card_verify&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-57-4"><a id="__codelineno-57-4" name="__codelineno-57-4" href="#__codelineno-57-4"></a><span class="w">    </span><span class="nt">&quot;endpoints&quot;</span><span class="p">:</span><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;offline_card_verify&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/identity/verify-card&quot;</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-57-5"><a id="__codelineno-57-5" name="__codelineno-57-5" href="#__codelineno-57-5"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-57-6"><a id="__codelineno-57-6" name="__codelineno-57-6" href="#__codelineno-57-6"></a><span class="p">}</span>
+</span></code></pre></div>
 <hr />
 <h2 id="integration-checklist">Integration Checklist<a class="headerlink" href="#integration-checklist" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a>□ Start acp_relay.py (get your acp:// link)
-</span><span id="__span-56-2"><a id="__codelineno-56-2" name="__codelineno-56-2" href="#__codelineno-56-2"></a>□ Share link with peer agent (they run --join)
-</span><span id="__span-56-3"><a id="__codelineno-56-3" name="__codelineno-56-3" href="#__codelineno-56-3"></a>□ POST /message:send to send (include role + text/parts)
-</span><span id="__span-56-4"><a id="__codelineno-56-4" name="__codelineno-56-4" href="#__codelineno-56-4"></a>□ GET /stream (SSE) to receive
-</span><span id="__span-56-5"><a id="__codelineno-56-5" name="__codelineno-56-5" href="#__codelineno-56-5"></a>□ Optional: --secret for HMAC signing
-</span><span id="__span-56-6"><a id="__codelineno-56-6" name="__codelineno-56-6" href="#__codelineno-56-6"></a>□ Optional: --identity for Ed25519 self-sovereign identity
-</span><span id="__span-56-7"><a id="__codelineno-56-7" name="__codelineno-56-7" href="#__codelineno-56-7"></a>□ Optional: --advertise-mdns for LAN discovery
-</span><span id="__span-56-8"><a id="__codelineno-56-8" name="__codelineno-56-8" href="#__codelineno-56-8"></a>□ Optional: --config for persistent settings
+<div class="language-text highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a>□ Start acp_relay.py (get your acp:// link)
+</span><span id="__span-58-2"><a id="__codelineno-58-2" name="__codelineno-58-2" href="#__codelineno-58-2"></a>□ Share link with peer agent (they run --join)
+</span><span id="__span-58-3"><a id="__codelineno-58-3" name="__codelineno-58-3" href="#__codelineno-58-3"></a>□ POST /message:send to send (include role + text/parts)
+</span><span id="__span-58-4"><a id="__codelineno-58-4" name="__codelineno-58-4" href="#__codelineno-58-4"></a>□ GET /stream (SSE) to receive
+</span><span id="__span-58-5"><a id="__codelineno-58-5" name="__codelineno-58-5" href="#__codelineno-58-5"></a>□ Optional: --secret for HMAC signing
+</span><span id="__span-58-6"><a id="__codelineno-58-6" name="__codelineno-58-6" href="#__codelineno-58-6"></a>□ Optional: --identity for Ed25519 self-sovereign identity
+</span><span id="__span-58-7"><a id="__codelineno-58-7" name="__codelineno-58-7" href="#__codelineno-58-7"></a>□ Optional: --advertise-mdns for LAN discovery
+</span><span id="__span-58-8"><a id="__codelineno-58-8" name="__codelineno-58-8" href="#__codelineno-58-8"></a>□ Optional: --config for persistent settings
 </span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
