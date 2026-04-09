@@ -96,11 +96,13 @@ def _card(hp):
 class TestVersionAndFlags:
 
     def test_pd01_version(self):
-        """PD01: VERSION == 2.94.0"""
+        """PD01: VERSION >= 2.94.0 (principal_diversity_defense introduced)"""
         proc, hp = _start_relay(_free_port())
         try:
             card = _card(hp)
-            assert card.get("acp_version") == "2.94.0"
+            ver = card.get("acp_version", "")
+            major, minor, patch = (int(x) for x in ver.split("."))
+            assert (major, minor) >= (2, 94), f"Expected >= 2.94.0, got {ver}"
         finally:
             _stop(proc)
 
@@ -380,7 +382,7 @@ class TestPenaltyLogic:
 class TestVersionAndCompat:
 
     def test_pd15_version_in_diversity_response(self):
-        """PD15: /trust/bilateral-ir/diversity response version == 2.94.0"""
+        """PD15: /trust/bilateral-ir/diversity response version >= 2.94.0"""
         proc, hp = _start_relay(_free_port())
         try:
             # Inject 3 records to get past the 404 guard
@@ -403,7 +405,9 @@ class TestVersionAndCompat:
             status, body = _get(hp, "/trust/bilateral-ir/diversity?peer_id=did:key:z6MkPD15a")
             if status == 404:
                 pytest.skip("IR injection not supported")
-            assert body.get("version") == "2.94.0"
+            ver = body.get("version", "")
+            major, minor, _patch = (int(x) for x in ver.split("."))
+            assert (major, minor) >= (2, 94), f"Expected >= 2.94.0, got {ver}"
         finally:
             _stop(proc)
 

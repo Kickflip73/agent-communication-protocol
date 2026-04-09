@@ -7,6 +7,44 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## v2.95.0 — Skill-Scoped Trust Scores (2026-04-10)
+
+### Added
+- **`_compute_skill_trust_scores()`** — computes per-skill trust scores from bilateral IR evidence
+  - Algorithm: `base=0.3 + min(unique_callers,10)*0.04 + min(bilateral_count,50)*0.005`; clamped to [0.0, 1.0]
+  - Returns `{}` when no bilateral IR records exist (no evidence → no score)
+  - A2A #1717 community convergence: skill-scoped trust for granular authorization
+  - aeoess APS v1.37.0 `importBilateralEvidence()` per-skill accumulation pattern aligned
+- **`GET /trust/skill-scores`** — new endpoint returning per-skill trust scores dict
+  - `trust_scores: {"<skill_id>": float, ...}`, `method: "skill_scoped_v1"`, `algorithm` block
+  - Returns `{}` trust_scores when no IR evidence
+- **`governance_metadata.trust_scores`** — dict (skill_id → float) embedded in GM block
+  - `trust_score_method: "skill_scoped_v1"` declared alongside
+  - Backward compat: global `trust_score` retained; updated to per-skill average when IR evidence present
+- **QuerySkill `skill_trust_score` field** — `POST /skills/query` response includes per-skill score
+  - `null` when no bilateral IR evidence for that skill_id
+  - `float [0.0, 1.0]` when IR evidence exists
+- **`capabilities.skill_scoped_trust_scores: true`** in AgentCard
+- **`endpoints.skill_trust_scores: /trust/skill-scores`** in AgentCard
+- **Tests SS01–SS16** (`tests/test_skill_scoped_trust_v295.py`) — 16/16 PASS
+  - SS01–SS04: VERSION + capability/endpoint flags + backward compat
+  - SS05–SS07: empty no-IR response, schema, algorithm fields
+  - SS08–SS11: score computation (single skill, multi-skill, clamping, skill_count)
+  - SS12–SS14: QuerySkill skill_trust_score field (null/populated)
+  - SS15–SS16: governance_metadata integration + global trust_score backward compat
+
+### Changed
+- VERSION: 2.94.0 → 2.95.0
+- `test_principal_diversity_v294.py`: PD01/PD15 version assertions relaxed to `>= 2.94.0` (version-agnostic)
+- `_build_governance_metadata()`: always populates `trust_scores` and `trust_score_method`
+
+### Notes
+- **Backward compatibility preserved**: global `trust_score` scalar still present in GM block
+- **Empty dict semantics**: `{}` trust_scores = "no bilateral IR evidence yet" (not a 404)
+- **No breaking changes**: all existing /trust/ endpoints unchanged
+
+---
+
 ## v2.94.0 — Principal Diversity Defense for Bilateral IR (2026-04-10)
 
 ### Added

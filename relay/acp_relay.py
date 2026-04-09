@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.94.0"  # v2.94: principal_diversity_defense — colluding-pair penalty in bilateral IR (aeoess A2A #1718); GET /trust/bilateral-ir/diversity; same_counterparty_penalty (concentration>60% → 0.10x weight)
+VERSION = "2.95.0"  # v2.95: skill-scoped trust scores — governance_metadata.trust_scores dict (skill_id→float); QuerySkill returns skill_trust_score; backward-compat global trust_score retained (A2A #1717 community convergence)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2105,6 +2105,7 @@ def _make_agent_card(name, skills):
             "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
             "derivation_rights":           bool(_governance_metadata),         # v2.92: derivation_rights in governance_metadata (GDPR retention/export control, aeoess SDK v1.37.0)
             "credential_lifecycle":        bool(_governance_metadata),         # v2.92: credential_lifecycle in governance_metadata (session TTL + revocation, aeoess SDK v1.37.0)
+            "skill_scoped_trust_scores":   True,                               # v2.95: governance_metadata.trust_scores dict (skill_id→float); QuerySkill returns skill_trust_score (A2A #1717)
             "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
             "ir_adversarial_fixtures":     _ED25519_AVAILABLE,                 # v2.91: GET /ir/adversarial-fixtures — collusion/inflation adversarial test fixtures (scan24 / A2A #1718)
             "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
@@ -2183,6 +2184,7 @@ def _make_agent_card(name, skills):
             "trust_signals_security_posture": "/trust/signals/security-posture",  # v2.71: GET — detailed security posture report (CVE scan, component versions)
             "bilateral_ir_log":          "/trust/bilateral-ir/log",        # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
             "bilateral_ir_diversity":    "/trust/bilateral-ir/diversity",  # v2.94: GET — principal diversity analysis; colluding-pair penalty (aeoess A2A #1718)
+            "skill_trust_scores":        "/trust/skill-scores",            # v2.95: GET — per-skill trust scores from bilateral IR evidence (A2A #1717)
             "agent_limitations_schema":  "/agent-limitations/schema",      # v2.73: GET — JSON Schema for agent_limitations typed constraint dict
             "capability_token_detail":   "/trust/signals/capability-token", # v2.74: GET — detailed capability token declaration & issuance config (A2A #1716 SINT aligned)
             "capability_token_fixtures":  "/trust/signals/capability-token/fixtures",          # v2.75: GET — canonical authorization fixture vectors (A2A #1716 @pshkv 4-deny+1-allow)
@@ -2443,12 +2445,74 @@ def _build_governance_metadata() -> dict:
             "revocation_check_frequency": None,    # None = not specified
         }
 
+    # v2.95: skill-scoped trust scores — per-skill IR evidence → per-skill score
+    # Format: {"trust_scores": {"<skill_id>": <float 0.0-1.0>, ...}, "trust_score_method": "skill_scoped_v1"}
+    # Backward compat: global trust_score retained as computed average
+    # Community convergence: A2A #1717 discussion thread (2026-04-09), @kevinkaylie proposal
+    if "trust_scores" not in gm:
+        trust_scores = _compute_skill_trust_scores()
+        gm["trust_scores"]        = trust_scores        # {} = no IR evidence yet
+        gm["trust_score_method"]  = "skill_scoped_v1"
+        # Update global trust_score to be the average of skill-scoped scores (if any);
+        # if no per-skill evidence yet, retain the configured/computed scalar trust_score
+        if trust_scores:
+            gm["trust_score"] = round(
+                sum(trust_scores.values()) / len(trust_scores), 3
+            )
+
     # Live counters (always override)
     gm["interaction_record_count"] = len(_interaction_records)
     gm["peer_count"]               = len(_peers)
     gm["task_count"]               = len(_tasks)
 
     return gm
+
+
+def _compute_skill_trust_scores() -> dict:
+    """
+    v2.95: Compute per-skill trust scores from bilateral interaction record evidence.
+
+    Algorithm:
+      For each skill_id seen in _interaction_records:
+        - bilateral_count = number of bilateral records for this skill
+        - unique_callers  = number of unique caller_dids for this skill
+        - base_score      = 0.3 + (min(unique_callers,10) * 0.04) + (min(bilateral_count,50) * 0.005)
+        - score           = clamp(base_score, 0.0, 1.0)
+
+      Result: {"<skill_id>": <float>, ...}
+
+    If no interaction records exist, returns {} (empty dict = no per-skill evidence yet).
+
+    References:
+      - A2A #1717: governance_metadata skill-scoped trust proposal (2026-04-09)
+      - aeoess APS v1.37.0 SDK: importBilateralEvidence() per-skill accumulation
+      - ACP v2.64: bilateral IR records carry skill_id field
+    """
+    if not _interaction_records:
+        return {}
+
+    from collections import defaultdict
+    skill_bilateral: dict = defaultdict(int)      # skill_id → bilateral count
+    skill_callers: dict   = defaultdict(set)       # skill_id → set of caller_dids
+
+    for rec in _interaction_records:
+        sid = rec.get("skill_id")
+        if not sid:
+            continue
+        if rec.get("bilateral") is True:
+            skill_bilateral[sid] += 1
+        caller = rec.get("caller_did")
+        if caller:
+            skill_callers[sid].add(caller)
+
+    trust_scores = {}
+    for sid in set(skill_bilateral.keys()) | set(skill_callers.keys()):
+        bilateral_n   = skill_bilateral.get(sid, 0)
+        unique_callers = len(skill_callers.get(sid, set()))
+        base = 0.3 + (min(unique_callers, 10) * 0.04) + (min(bilateral_n, 50) * 0.005)
+        trust_scores[sid] = round(min(1.0, max(0.0, base)), 3)
+
+    return trust_scores
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -6831,6 +6895,54 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "reference": "aeoess adversarial-trust-fixture.json (A2A #1718 gist:bdcd1dd0512661138ff7a71bf1e946c7)",
                 },
                 "version": VERSION,
+            })
+
+        # ── GET /trust/skill-scores — per-skill trust scores from bilateral IR (v2.95) ──
+        elif p == "/trust/skill-scores":
+            """
+            GET /trust/skill-scores — Per-skill trust scores from bilateral IR evidence (v2.95).
+
+            Returns a trust score for each skill_id that appears in bilateral interaction records.
+            Score is computed from: unique_callers (diversity) + bilateral_count (volume).
+
+            Response 200:
+              {
+                "ok":           true,
+                "trust_scores": { "<skill_id>": <float 0.0-1.0>, ... },
+                "method":       "skill_scoped_v1",
+                "algorithm": {
+                  "base":             0.3,
+                  "caller_diversity": "min(unique_callers, 10) * 0.04",
+                  "volume":           "min(bilateral_count, 50) * 0.005",
+                  "max":              1.0
+                },
+                "skill_count":  int,
+                "ir_count":     int,
+                "note":         str,
+                "version":      str,
+              }
+
+            References:
+              - A2A #1717: governance_metadata skill-scoped trust proposal (2026-04-09)
+              - aeoess APS v1.37.0 SDK: importBilateralEvidence() per-skill accumulation
+            """
+            ss_scores = _compute_skill_trust_scores()
+            self._json({
+                "ok":           True,
+                "trust_scores": ss_scores,
+                "method":       "skill_scoped_v1",
+                "algorithm": {
+                    "base":             0.3,
+                    "caller_diversity": "min(unique_callers, 10) * 0.04",
+                    "volume":           "min(bilateral_count, 50) * 0.005",
+                    "max":              1.0,
+                },
+                "skill_count":  len(ss_scores),
+                "ir_count":     len(_interaction_records),
+                "note":         "Per-skill trust scores derived from bilateral IR evidence. "
+                                "Empty dict = no bilateral IR records yet. "
+                                "A2A #1717 community convergence: skill-scoped trust for granular authorization.",
+                "version":      VERSION,
             })
 
         # ── GET /agent-limitations/schema — JSON Schema for agent_limitations dict (v2.73) ──
@@ -11240,6 +11352,11 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     queried_skill_obj.get("limitations") if queried_skill_obj else None
                 ) or []   # v2.28: per-skill limitations[] in QuerySkill response
 
+                # v2.95: attach per-skill trust score from bilateral IR evidence
+                # Returns null if no IR evidence for this skill yet
+                _skill_trust_scores = _compute_skill_trust_scores()
+                skill_trust_score_val = _skill_trust_scores.get(skill_id)  # None if no evidence
+
                 self._json({
                     "skill_id":                   skill_id,
                     "support_level":              support_level,
@@ -11247,6 +11364,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "constraints_applied":        constraints_applied,
                     "skill_constraints_declared": skill_constraints_declared,   # v2.26
                     "skill_limitations_declared": skill_limitations_declared,   # v2.28
+                    "skill_trust_score":          skill_trust_score_val,        # v2.95: per-skill IR evidence trust score (null = no evidence yet)
                     "known_skills":               known_skills_str,
                     "agent": {
                         "name":        agent_card.get("name"),
