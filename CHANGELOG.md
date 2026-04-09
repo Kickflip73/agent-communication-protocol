@@ -7,6 +7,24 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.91.0] - 2026-04-09
+### Added
+- **GET /ir/adversarial-fixtures — 对抗性 IR 测试夹具端点**
+  - 5 个自包含 JSON fixture，用于验证 APS/SINT 实现的信任操纵检测算法
+  - **AF-001** (`legitimate_dense`): 50 条交互，4 个多样对手方 → `expected_flags=[], trust=high`（基线参照）
+  - **AF-002** (`colluding_pair_inflation`): Alice↔Bob 20 条互刷，无外部对手方 → `mutual_inflation_risk, low_counterparty_diversity, trust=suspicious`
+  - **AF-003** (`sybil_ring_circular`): A→B→C→A 闭环 21 条 → `sybil_ring_pattern, zero_external_interactions, trust=untrusted`
+  - **AF-004** (`isolated_burst_spike`): 5 条历史 + 15 条同日突发 → `temporal_burst_anomaly, velocity_spike, trust=suspicious`
+  - **AF-005** (`tampered_hash_chain`): 第 3 条 `caller_signature` 被破坏 → `signature_verification_failure, trust=invalid; bilateral=false`
+  - 每个 fixture 包含：完整签名 IR 记录、`expected_flags`、`expected_trust_signal`、`detection_hint`（算法提示）
+  - `detection_algorithms` 字段：提供 counterparty_diversity / mutual_pair_ratio / velocity_ratio / ring_detection / chain_integrity 算法说明
+  - `capabilities.ir_adversarial_fixtures: true`; `endpoints.ir_adversarial_fixtures: "/ir/adversarial-fixtures"`
+  - 直接响应 A2A #1718 (aeoess, 2026-04-08) 对抗性 fixture 提案，ACP 抢先实现
+  - 13 个测试（IAF1-IAF13）全通：200 OK / fixture_count / required fields / 各场景 flag / bilateral=false / capability / endpoint / detection_algorithms
+  - commit: `5d3ee27`
+
+---
+
 ## [v2.90.0] - 2026-04-09
 ### Added
 - **POST /identity/verify-card — 离线 AgentCard 验签端点**

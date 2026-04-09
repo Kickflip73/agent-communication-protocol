@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 16:00（文档轮；v2.90 开发轮完成：POST /identity/verify-card 离线验签端点上线，9测试全通；规划 v2.91；当前版本 v2.90.0 commit 51ba43d）
+> 最后更新：2026-04-09 19:00（文档轮；v2.91 开发轮完成：GET /ir/adversarial-fixtures 5个对抗性fixture上线，13测试全通；规划 v2.92；当前版本 v2.91.0 commit 5d3ee27）
 
 ---
 
@@ -29,8 +29,9 @@
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
 | **MCP** (Anthropic) | - | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
 
-> 🏆 **ACP 差异化优势（2026-04-09 更新）**：
-> - **身份认证**：ACP Ed25519+DID 默认开启（v2.85），A2A #1672 仍有 408 评论无实现 → 领先 **2-3 个月**
+> 🏆 **ACP 差异化优势（2026-04-09 v2.91 更新）**：
+> - **身份认证（无 CA 自签名）**：ACP Ed25519+DID 默认开启（v2.85）+ 离线验签（v2.90），A2A #1672 仍提案中心 CA 方案（无实现）→ 领先 **3.5 个月**，且方案更优（无单点故障）
+> - **对抗性 IR 测试夹具**：ACP v2.91 完整实现 5 种攻击场景，A2A #1718 aeoess 刚提 fixture 格式提案（2026-04-08）→ **ACP 抢先实现**
 > - **治理元数据**：ACP v2.85/v2.87 完整实现，A2A #1717 刚提案（Microsoft，14 评论）→ 领先 **3-4 个月**
 > - **技能授权分级**：ACP v2.50/v2.74 完整实现（T0-T3 + capability_token），A2A #1716 刚提 RFC（22 评论）→ 领先 **5+ 个月**
 
@@ -565,14 +566,35 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.91 候选特性（规划中）
+## ✅ v2.91 候选特性（已完成 2026-04-09）
 
-> 基于当前版本 v2.90.0，下一轮开发优先级：
+> 版本 v2.91.0，commit 5d3ee27
+
+### ✅ P1 — `GET /ir/adversarial-fixtures` 对抗性 IR 测试夹具
+- 5 个自包含 JSON fixture：AF-001（基线）/ AF-002（共谋对）/ AF-003（Sybil环）/ AF-004（突发spike）/ AF-005（篡改链）
+- 每个 fixture 含签名 IR 记录 + expected_flags + detection_hint
+- 直接响应 A2A #1718 aeoess 对抗性 fixture 提案，ACP 抢先实现
+- 13 测试（IAF1-IAF13）全通；capabilities + endpoints 已注册
+
+---
+
+## 🔭 v2.92 候选特性（规划中）
+
+> 基于当前版本 v2.91.0，下一轮开发优先级（scan24 行动项 + 剩余 v2.91 候选）：
 
 ### [ ] P1 — RFC-003: 治理元数据规范
 - 将 `governance_metadata` + `policy_compliance[]` 整理为独立 RFC
-- 对应 A2A #1717，提供可引用的完整规范文档
-- 输出路径：`docs/rfc/governance-metadata.md`
+- 对应 A2A #1717（Microsoft 提案，2026-04-09，14 评论），输出路径：`docs/rfc/governance-metadata.md`
+- ACP 实现领先 A2A 约 3-4 个月
+
+### [ ] P1 — A2A #1672 参与：发布 ACP 无 CA 自签名方案说明
+- A2A #1672 提案依赖中心 CA（getagentid.dev），ACP 方案（Ed25519 自签名 + `POST /identity/verify-card`）提供无 CA 替代
+- 建议：在 #1672 评论中提出 ACP 方案；撰写对比说明文档
+
+### [ ] P2 — `action_sequence_root`（Merkle commitment for task actions）
+- 来源：A2A #1716 `wtrmrk_sequence_root` 讨论（64R3N, 2026-04-05）
+- 在 capability token 或 interaction record 中添加 task 级别 Merkle root
+- 低优先级，评估后决定是否实现
 
 ### [ ] P2 — `data_handling_policy`（GDPR Extension）
 - 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
