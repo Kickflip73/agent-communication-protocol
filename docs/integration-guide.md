@@ -950,6 +950,77 @@ if "identity" in msg:
 - **Combination with HMAC**: `--identity` and `--hmac-secret` can be used simultaneously — HMAC covers transport-level authentication, Ed25519/DID covers message-level identity.
 - **Cross-protocol**: The `did:acp:` URI format uses the same `did:<method>:<identifier>` structure as W3C DID Core, making it readable to any W3C-compatible DID resolver (though resolution would require understanding the `acp` method).
 
+### Offline AgentCard verification (v2.90)
+
+`POST /identity/verify-card` verifies the Ed25519 self-signature on any AgentCard **without connecting to the card's owner**. This is useful when:
+
+- Agent B received a card from Agent A and wants to prove its authenticity to Agent C
+- You have a cached card and want to confirm it hasn't been tampered with
+- You're doing batch pre-verification of cards from a registry or directory
+
+```python
+import requests, json
+
+# Card obtained from any source (live fetch, cache, forwarded by peer, etc.)
+card = {
+    "name": "AgentA",
+    "version": "2.90.0",
+    "skills": [],
+    "identity": {
+        "scheme": "ed25519",
+        "public_key": "<base64url>",
+        "did": "did:acp:<base64url>",
+        "card_sig": "<base64url-signature>"
+    }
+}
+
+resp = requests.post(
+    "http://localhost:8100/identity/verify-card",
+    json={"card": card}
+)
+result = resp.json()
+# {
+#   "verified": true,
+#   "did": "did:acp:...",
+#   "public_key": "...",
+#   "did_consistent": true,   # did:acp: matches public_key
+#   "scheme": "ed25519",
+#   "error": null
+# }
+
+if result["verified"] and result["did_consistent"]:
+    print(f"Card is authentic: {result['did']}")
+else:
+    print(f"Card rejected: {result['error']}")
+```
+
+**Response fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `verified` | bool | Ed25519 signature is cryptographically valid |
+| `did` | str \| null | `did:acp:` identifier extracted from identity block |
+| `public_key` | str \| null | Base64url Ed25519 public key |
+| `did_consistent` | bool \| null | `did:acp:<pubkey>` matches `public_key` (anti-spoofing) |
+| `scheme` | str | Always `"ed25519"` for signed cards |
+| `error` | str \| null | Reason for rejection (e.g. `"missing card_sig"`, `"signature verification failed"`) |
+
+**Error cases:**
+
+- `400` — request body missing or `card` field not present
+- `200` + `verified: false` — card present but signature invalid/missing
+
+**Capability advertisement:** Relays that support this endpoint advertise it in `/.well-known/acp.json`:
+
+```json
+{
+  "self": {
+    "capabilities": { "offline_card_verify": true },
+    "endpoints":    { "offline_card_verify": "/identity/verify-card" }
+  }
+}
+```
+
 ---
 
 ## Integration Checklist
