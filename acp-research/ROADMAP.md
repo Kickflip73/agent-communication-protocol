@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-10 14:05（文档轮；v2.98 开发轮完成：POST/GET /tasks/queue 异步任务入队，TQ1-TQ9全通；当前版本 v2.98.0 commit e419115）
+> 最后更新：2026-04-10 22:37（开发轮；v2.99 完成：--max-offline-ttl 过期策略 + /offline-queue/sweep，OT1-OT9全通；当前版本 v2.99.0 commit 8464ed4）
 
 ---
 
@@ -669,34 +669,45 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.99 候选特性（规划中）
+## ✅ v2.99（完成，2026-04-10）
+**主题：--max-offline-ttl 离线消息过期策略（A2A IS#1667 credentialCheckPolicy 响应）**
+- ✅ `--max-offline-ttl <SECONDS>` CLI flag：离线队列消息最大存活时间；None = 永不过期
+- ✅ `--offline-ttl-policy drop|notify`：过期策略（drop 静默删除 / notify 记录审计日志）
+- ✅ `_ttl_sweep()`：惰性扫描（每次 enqueue 触发）+ 按需扫描（/offline-queue/sweep）
+- ✅ `_pq_delete_expired()`：同步清理 SQLite 过期行（与 --persist-queue 联动）
+- ✅ `GET /offline-queue/sweep`：按需触发 TTL 扫描；TTL 未配置返回 400
+- ✅ `GET /offline-queue`：当 TTL 启用时附带 `ttl_config{max_seconds, policy}`
+- ✅ `capabilities.offline_ttl: bool` in AgentCard
+- ✅ `offline_queue_sweep: /offline-queue/sweep` in API map
+- ✅ 修复 `_json(status=400)` 拼写错误（应为 `code=400`）→ 消除 RemoteDisconnected
+- ✅ `tests/test_offline_ttl_v299.py` OT1–OT9：**9/9 PASS**
+- Key commit: 8464ed4
 
-> 基于当前版本 v2.98.0，下一轮开发优先级：
+---
+
+## 🔭 v3.0 候选特性（规划中）
+
+> 基于当前版本 v2.99.0，下一轮开发优先级：
 
 ### [ ] P1 — `--heartbeat-agent` 模式（heartbeat-agent 完整方案）
-- 来源：A2A #1667，配合 --persist-queue + /tasks/queue 实现完整 wake-up-receive-sleep 循环
+- 来源：A2A #1667，配合 --persist-queue + /tasks/queue + --max-offline-ttl 完成三件套闭环
 - `GET /offline-queue/summary` — 轻量 polling 端点，Agent 唤醒后先 poll 是否有消息
-- `--max-offline-ttl <seconds>` — 超时自动丢弃过期离线消息（防止 DB 无限膨胀）
-- 优先级：高（--persist-queue + tasks/queue 已发布，此为配套增强，完成 #1667 三件套）
+- `POST /heartbeat` — Agent 主动发送心跳，relay 更新 availability 状态
+- 优先级：高（三件套配套最后一块拼图）
 
 ### [ ] P1 — A2A #1718 community comment（bilateral IR 领先曝光）
-- ACP `bilateral_ir` 已实现（v2.84+），A2A #1718 刚提 bilateral signed records 提案
+- ACP `bilateral_ir` 已实现（v2.84+），A2A #1718 仍在讨论 fixture 格式
 - 输出：`docs/community/a2a-1718-comment.md` + 实际发帖
 - ⚠️ 需 Stark 先生确认是否发布
 
 ### [ ] P2 — `POST /tasks/queue/worker` 注册异步处理器
 - v2.98 tasks/queue 任务处于 submitted 后由 caller 轮询；此特性允许注册 worker callback
 - Worker 注册后 relay 自动推送 submitted 任务到 worker endpoint
-- 完成异步任务队列的完整生命周期闭环
 
-### [ ] P2 — `data_handling_policy`（GDPR Extension）
-- 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
-- 轻量实现：AgentCard `extensions[]` 中声明数据处理策略
-- 与 v2.92 derivation_rights 形成 GDPR 完整闭环
-
-### [ ] P3 — `POST /identity/verify-card/batch` 批量验签
-- 一次请求验证多张 AgentCard
-- body: `{"cards": [...]}` → `{"results": [{"verified": bool, ...}, ...]}`
+### [ ] P2 — `signal_depth` + `risk_intensity` 双轴信任指标
+- 来源：A2A #1628 douglasborthwick-crypto（2026-04-10 consumer report）
+- `signal_depth`（行为可观测性）+ `risk_intensity`（sybil/fraud 风险）作为独立轴
+- 加入 trust.signals 结构化输出
 
 ---
 
