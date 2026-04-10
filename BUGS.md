@@ -1673,10 +1673,10 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 
 ---
 
-### BUG-062 ✅ P2 — `test_skill_scoped_trust_v295.py` SS01/SS06 版本断言陈旧（v2.95.0 → v2.97.0）
+### BUG-062 ✅ P2 — 版本断言随 v3.0.0 升级再次陈旧（startsWith("2.") → 通用检查）
 
-**Status:** ✅ 已修复 (commit: TBD)
+**Status:** ✅ 已修复 (commit: a309318)
 **Priority:** P2
-**Discovered:** 2026-04-10 测试轮 scan31
-**Root Cause:** SS01 (`test_ss01_version`) 和 SS06 (`test_ss06_response_schema`) 硬编码版本字符串 `"2.95.0"`；版本升至 v2.97 后断言失败。与 BUG-060/061 同类「stale version assertion」问题。
-**Fix:** 将硬编码版本断言改为 `assert ... is not None` + `startswith("2.")`；解耦测试与具体版本号，防止未来升版重复触发。
+**Discovered:** 2026-04-10 测试轮 scan31；2026-04-11 心跳复现（v3.0.0 升级后）
+**Root Cause:** SS01 (`test_ss01_version`) 和 `test_ts1_basic_response` 将 `startswith("2.")` 作为版本断言；版本升至 v3.0.0 后断言失败（同 BUG-029/031/061 stale version assertion 类）。
+**Fix:** 将 `startswith("2.")` 改为 `"." in version`（major-version agnostic），不再与具体大版本号耦合。
