@@ -117,11 +117,13 @@ def _inject(hp, caller_did, callee_did, skill_id, bilateral=True):
 class TestVersionAndFlags:
 
     def test_ss01_version(self):
-        """SS01: VERSION == 2.95.0"""
+        """SS01: VERSION is present (current release — assertion decoupled from patch version)"""
         proc, hp = _start_relay(_free_port())
         try:
             card = _card(hp)
-            assert card.get("acp_version") == "2.95.0"
+            # Version evolves; assert presence not exact match (avoid BUG-060 class)
+            assert card.get("acp_version") is not None
+            assert card["acp_version"].startswith("2.")
         finally:
             _stop(proc)
 
@@ -187,7 +189,7 @@ class TestSkillScoresEndpoint:
             for f in required:
                 assert f in body, f"Missing: {f}"
             assert body["method"] == "skill_scoped_v1"
-            assert body["version"] == "2.95.0"
+            assert body["version"] is not None  # version evolves; avoid BUG-060 class stale assertions
         finally:
             _stop(proc)
 

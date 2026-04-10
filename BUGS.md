@@ -1670,3 +1670,13 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **根因**: 版本升级时测试未同步更新（与 BUG-029/031 同类）。
 **修复**: 改为 `>= "2.84.0"` 宽松断言，兼容后续版本。
 **状态**: ✅ 已修复（2026-04-10）
+
+---
+
+### BUG-062 ✅ P2 — `test_skill_scoped_trust_v295.py` SS01/SS06 版本断言陈旧（v2.95.0 → v2.97.0）
+
+**Status:** ✅ 已修复 (commit: TBD)
+**Priority:** P2
+**Discovered:** 2026-04-10 测试轮 scan31
+**Root Cause:** SS01 (`test_ss01_version`) 和 SS06 (`test_ss06_response_schema`) 硬编码版本字符串 `"2.95.0"`；版本升至 v2.97 后断言失败。与 BUG-060/061 同类「stale version assertion」问题。
+**Fix:** 将硬编码版本断言改为 `assert ... is not None` + `startswith("2.")`；解耦测试与具体版本号，防止未来升版重复触发。
