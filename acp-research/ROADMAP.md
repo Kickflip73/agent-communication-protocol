@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-09 21:50（文档轮；v2.92 开发轮完成：RFC-003 governance-metadata规范+derivation_rights+credential_lifecycle，16测试全通；规划 v2.93；当前版本 v2.92.0 commit a639845）
+> 最后更新：2026-04-10 11:59（文档轮；v2.97 开发轮完成：--persist-queue SQLite持久化离线队列，PQ1-PQ8全通；当前版本 v2.97.0 commit f4a6771）
 
 ---
 
@@ -29,11 +29,12 @@
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
 | **MCP** (Anthropic) | - | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
 
-> 🏆 **ACP 差异化优势（2026-04-09 v2.91 更新）**：
+> 🏆 **ACP 差异化优势（2026-04-10 v2.97 更新）**：
 > - **身份认证（无 CA 自签名）**：ACP Ed25519+DID 默认开启（v2.85）+ 离线验签（v2.90），A2A #1672 仍提案中心 CA 方案（无实现）→ 领先 **3.5 个月**，且方案更优（无单点故障）
 > - **对抗性 IR 测试夹具**：ACP v2.91 完整实现 5 种攻击场景，A2A #1718 aeoess 刚提 fixture 格式提案（2026-04-08）→ **ACP 抢先实现**
 > - **治理元数据**：ACP v2.85/v2.87 完整实现，A2A #1717 刚提案（Microsoft，14 评论）→ 领先 **3-4 个月**
 > - **技能授权分级**：ACP v2.50/v2.74 完整实现（T0-T3 + capability_token），A2A #1716 刚提 RFC（22 评论）→ 领先 **5+ 个月**
+> - **持久化离线队列**：ACP v2.97 `--persist-queue` SQLite 实现，A2A #1667 heartbeat-agent 仍在讨论中 → **ACP 率先实现**
 
 ---
 
@@ -616,14 +617,58 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.93 候选特性（规划中）
+## ✅ v2.93（完成，2026-04-09）
+**主题：去中心化身份 RFC**
+- ✅ RFC-004: `docs/rfc/identity-without-ca.md` — Ed25519 自签名 vs CA 方案 9 维对比
+- ✅ A2A #1712 community comment 草稿：`docs/community/a2a-1712-comment.md`
+- Key commit: `a639845` → (v2.93 range)
 
-> 基于当前版本 v2.92.0，下一轮开发优先级：
+## ✅ v2.94（完成，2026-04-09）
+**主题：principal_diversity_defense（共谋对抗）**
+- ✅ 双向 IR 中检测共谋对（Alice↔Bob 互刷），`diversity_penalty_applied: bool`
+- ✅ `capabilities.principal_diversity_defense: true`
+- Key commit: v2.94 range
 
-### [ ] P1 — A2A #1672 参与：无 CA 自签名方案说明文档
-- A2A #1672（414 评论，中心 CA getagentid.dev 方案）vs ACP（Ed25519 自签名 + verify-card）
-- 输出：`docs/rfc/identity-without-ca.md` 对比说明 + GitHub comment 草稿
-- 体现 ACP 无单点故障优势
+## ✅ v2.95（完成，2026-04-10）
+**主题：Skill 级信任分（scan28/29 A2A #1717 响应）**
+- ✅ per-skill trust score：`GET /trust/skills/{skill_id}/score`
+- ✅ IR 记录按 skill_id 隔离贡献
+- ✅ `capabilities.skill_scoped_trust: true`
+- ✅ BUG-060/061 修复（send_to_peer missing client_msg_id + stale version assertion）
+- Key commit: 64b7106 range
+
+## ✅ v2.96（完成，2026-04-10）
+**主题：2-Agent 双向演示 + README Demo**
+- ✅ `demos/two_agent_demo.sh` + `.cast` + `.gif` + `.svg`
+- ✅ README 嵌入 demo gif，测试数量 badge 更新 1092→1637
+- Key commit: f01d88a
+
+## ✅ v2.97（完成，2026-04-10）
+**主题：--persist-queue SQLite 持久化离线队列（A2A #1667 heartbeat-agent 响应）**
+- ✅ `--persist-queue <DB_PATH>` CLI flag：SQLite 离线消息持久化
+- ✅ relay 重启后消息存活，peer 重连后自动 flush
+- ✅ `_pq_init / _pq_insert / _pq_delete_peer / _pq_stats` 完整实现
+- ✅ `capabilities.persist_queue: true` in AgentCard
+- ✅ `/status` 包含 `persist_queue` 统计信息
+- ✅ `tests/test_persist_queue.py` PQ1–PQ8：**8/8 PASS**
+- Key commit: f4a6771
+
+---
+
+## 🔭 v2.98 候选特性（规划中）
+
+> 基于当前版本 v2.97.0，下一轮开发优先级：
+
+### [ ] P1 — `--heartbeat-agent` 模式（heartbeat-agent 完整方案）
+- 来源：A2A #1667，配合 --persist-queue 实现完整的 wake-up-receive-sleep 循环
+- `GET /offline-queue/summary` — 轻量 polling 端点，Agent 唤醒后先 poll 是否有消息
+- `--max-offline-ttl <seconds>` — 超时自动丢弃过期离线消息（防止 DB 无限膨胀）
+- 优先级：中（--persist-queue 已发布，此特性为配套增强）
+
+### [ ] P1 — A2A #1718 community comment（bilateral IR 领先曝光）
+- ACP `bilateral_ir` 已实现（v2.84+），A2A #1718 刚提 bilateral signed records 提案
+- 输出：`docs/community/a2a-1718-comment.md` + 实际发帖
+- 需 Stark 先生确认是否发布
 
 ### [ ] P2 — `action_sequence_root`（Merkle commitment for task actions）
 - 来源：A2A #1716 `wtrmrk_sequence_root` 讨论（64R3N, 2026-04-05）
