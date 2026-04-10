@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-10 11:59（文档轮；v2.97 开发轮完成：--persist-queue SQLite持久化离线队列，PQ1-PQ8全通；当前版本 v2.97.0 commit f4a6771）
+> 最后更新：2026-04-10 14:05（文档轮；v2.98 开发轮完成：POST/GET /tasks/queue 异步任务入队，TQ1-TQ9全通；当前版本 v2.98.0 commit e419115）
 
 ---
 
@@ -29,12 +29,13 @@
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
 | **MCP** (Anthropic) | - | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
 
-> 🏆 **ACP 差异化优势（2026-04-10 v2.97 更新）**：
+> 🏆 **ACP 差异化优势（2026-04-10 v2.98 更新）**：
 > - **身份认证（无 CA 自签名）**：ACP Ed25519+DID 默认开启（v2.85）+ 离线验签（v2.90），A2A #1672 仍提案中心 CA 方案（无实现）→ 领先 **3.5 个月**，且方案更优（无单点故障）
-> - **对抗性 IR 测试夹具**：ACP v2.91 完整实现 5 种攻击场景，A2A #1718 aeoess 刚提 fixture 格式提案（2026-04-08）→ **ACP 抢先实现**
-> - **治理元数据**：ACP v2.85/v2.87 完整实现，A2A #1717 刚提案（Microsoft，14 评论）→ 领先 **3-4 个月**
-> - **技能授权分级**：ACP v2.50/v2.74 完整实现（T0-T3 + capability_token），A2A #1716 刚提 RFC（22 评论）→ 领先 **5+ 个月**
-> - **持久化离线队列**：ACP v2.97 `--persist-queue` SQLite 实现，A2A #1667 heartbeat-agent 仍在讨论中 → **ACP 率先实现**
+> - **对抗性 IR 测试夹具**：ACP v2.91 完整实现 5 种攻击场景，A2A #1718 刚提 bilateral records 提案（2026-04-08）→ **ACP 抢先实现**
+> - **治理元数据**：ACP v2.85/v2.87/v2.92 完整实现，A2A #1717 刚提案（Microsoft）→ 领先 **3-4 个月**
+> - **技能授权分级**：ACP v2.50/v2.74/v2.95 完整实现（T0-T3 + capability_token + skill_scoped_trust），A2A #1716 仍提 RFC → 领先 **5+ 个月**
+> - **持久化离线队列**：ACP v2.97 `--persist-queue` SQLite，A2A #1667 heartbeat-agent 仍讨论中 → **ACP 率先实现**
+> - **异步任务入队**：ACP v2.98 `POST /tasks/queue` 202 Accepted，A2A #1667 offline-first 核心需求 → **ACP 率先实现**
 
 ---
 
@@ -655,25 +656,38 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v2.98 候选特性（规划中）
+## ✅ v2.98（完成，2026-04-10）
+**主题：POST /tasks/queue 异步任务入队（A2A #1667 offline-first 核心响应）**
+- ✅ `POST /tasks/queue` — 202 Accepted，立即返回 `task_id / poll_url / sse_url / queued_at`
+- ✅ `GET /tasks/queue` — 队列状态（depth、active tasks、`queue_originated` flag）
+- ✅ `capabilities.async_task_queue: true` in AgentCard
+- ✅ `task_queue: /tasks/queue` 加入 API map
+- ✅ `queue_enqueued / queue_enqueued_at` 字段 + 审计日志 (`queue_enqueued` event)
+- ✅ `tests/test_task_queue_v298.py` TQ1–TQ9：**9/9 PASS**
+- ✅ research scan31：#1721 Assay external evidence consumer / #1723 SLIM transport / #1667 DID interop
+- Key commit: e419115
 
-> 基于当前版本 v2.97.0，下一轮开发优先级：
+---
+
+## 🔭 v2.99 候选特性（规划中）
+
+> 基于当前版本 v2.98.0，下一轮开发优先级：
 
 ### [ ] P1 — `--heartbeat-agent` 模式（heartbeat-agent 完整方案）
-- 来源：A2A #1667，配合 --persist-queue 实现完整的 wake-up-receive-sleep 循环
+- 来源：A2A #1667，配合 --persist-queue + /tasks/queue 实现完整 wake-up-receive-sleep 循环
 - `GET /offline-queue/summary` — 轻量 polling 端点，Agent 唤醒后先 poll 是否有消息
 - `--max-offline-ttl <seconds>` — 超时自动丢弃过期离线消息（防止 DB 无限膨胀）
-- 优先级：中（--persist-queue 已发布，此特性为配套增强）
+- 优先级：高（--persist-queue + tasks/queue 已发布，此为配套增强，完成 #1667 三件套）
 
 ### [ ] P1 — A2A #1718 community comment（bilateral IR 领先曝光）
 - ACP `bilateral_ir` 已实现（v2.84+），A2A #1718 刚提 bilateral signed records 提案
 - 输出：`docs/community/a2a-1718-comment.md` + 实际发帖
-- 需 Stark 先生确认是否发布
+- ⚠️ 需 Stark 先生确认是否发布
 
-### [ ] P2 — `action_sequence_root`（Merkle commitment for task actions）
-- 来源：A2A #1716 `wtrmrk_sequence_root` 讨论（64R3N, 2026-04-05）
-- 在 capability token 或 interaction record 中添加 task 级别 Merkle root
-- 低优先级，评估后决定是否实现
+### [ ] P2 — `POST /tasks/queue/worker` 注册异步处理器
+- v2.98 tasks/queue 任务处于 submitted 后由 caller 轮询；此特性允许注册 worker callback
+- Worker 注册后 relay 自动推送 submitted 任务到 worker endpoint
+- 完成异步任务队列的完整生命周期闭环
 
 ### [ ] P2 — `data_handling_policy`（GDPR Extension）
 - 来源：A2A IS#1606，`urn:acp:ext:data-handling/v1`
