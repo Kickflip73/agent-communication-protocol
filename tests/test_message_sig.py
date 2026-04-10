@@ -178,8 +178,50 @@ def test_ms06_sign_is_deterministic(sign_fn_with_key):
 
 @pytest.fixture(scope="module")
 def relay_url():
-    """Use the relay_url from conftest or default to localhost."""
-    return os.environ.get("ACP_RELAY_URL", "http://localhost:51511")
+    """Start a dedicated relay instance for integration tests; yield its HTTP URL, then stop."""
+    import subprocess, socket, time, signal
+
+    # Pick a free port pair (ws_port, http_port = ws_port + 100)
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        ws_port = s.getsockname()[1]
+    http_port = ws_port + 100
+
+    relay_dir = os.path.join(os.path.dirname(__file__), "..", "relay")
+    relay_script = os.path.join(relay_dir, "acp_relay.py")
+    identity_file = os.path.expanduser("~/.acp/identity.json")
+    cmd = [
+        "python3", relay_script,
+        "--port", str(ws_port),
+        "--identity", identity_file,
+        "--local-only",
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{http_port}"
+
+    # Wait up to 10s for relay to be ready
+    deadline = time.time() + 10
+    ready = False
+    while time.time() < deadline:
+        try:
+            import urllib.request
+            urllib.request.urlopen(f"{url}/status", timeout=2)
+            ready = True
+            break
+        except Exception:
+            time.sleep(0.3)
+
+    if not ready:
+        proc.terminate()
+        pytest.skip(f"relay failed to start on port {http_port}")
+
+    yield url
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 def _status(relay_url):
