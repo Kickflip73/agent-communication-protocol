@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.95.0"  # v2.95: skill-scoped trust scores — governance_metadata.trust_scores dict (skill_id→float); QuerySkill returns skill_trust_score; backward-compat global trust_score retained (A2A #1717 community convergence)
+VERSION = "2.97.0"  # v2.97: --persist-queue SQLite offline message persistence (heartbeat-agent support, A2A #1667); _pq_init/_pq_insert/_pq_delete_peer/_pq_stats helpers; offline flush purges SQLite on delivery
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -323,9 +323,12 @@ _inbox_path = None
 
 # v2.0: Offline delivery queue — buffers messages when peer is disconnected,
 #        auto-flushes on reconnect.
+# v2.97: --persist-queue SQLite backend — survives relay restart (heartbeat-agent scenario)
 OFFLINE_QUEUE_MAXLEN = 100          # per-peer max buffered messages
 _offline_queue: dict  = {}          # { peer_id|"default": deque([msg, ...]) }
 _offline_lock         = threading.Lock()
+_persist_queue_path: str | None = None  # v2.97: SQLite DB path when --persist-queue enabled
+_persist_queue_conn  = None             # v2.97: sqlite3 connection (thread-local writes via lock)
 
 _tasks: dict         = {}
 _sync_pending: dict  = {}
@@ -2030,6 +2033,7 @@ def _make_agent_card(name, skills):
             "card_sig":           bool(_ed25519_private),      # v1.8: AgentCard self-signature
             "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
             "offline_queue":      True,                        # v2.0: buffer messages when peer offline, flush on reconnect
+            "persist_queue":      _persist_queue_conn is not None,  # v2.97: SQLite-backed persistent offline queue
             "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
             "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
@@ -5492,22 +5496,99 @@ def _attach_sig(msg: dict) -> dict:
     return msg
 
 
+# ── v2.97: SQLite-backed persistent offline queue ─────────────────────────────
+
+def _pq_init(db_path: str) -> None:
+    """Initialise SQLite persistent queue and load surviving messages into memory. (v2.97)"""
+    global _persist_queue_path, _persist_queue_conn
+    import sqlite3 as _sqlite3
+    _persist_queue_path = db_path
+    _persist_queue_conn = _sqlite3.connect(db_path, check_same_thread=False)
+    _persist_queue_conn.execute(
+        """CREATE TABLE IF NOT EXISTS offline_queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            peer_id    TEXT    NOT NULL,
+            queued_at  TEXT    NOT NULL,
+            payload    TEXT    NOT NULL
+        )"""
+    )
+    _persist_queue_conn.commit()
+    # Load surviving messages back into memory deques
+    with _offline_lock:
+        for row in _persist_queue_conn.execute(
+            "SELECT peer_id, queued_at, payload FROM offline_queue ORDER BY id"
+        ):
+            pid, qat, payload_json = row
+            msg = json.loads(payload_json)
+            msg["_queued_at"] = qat
+            msg["_offline_for_peer"] = pid
+            if pid not in _offline_queue:
+                _offline_queue[pid] = deque(maxlen=OFFLINE_QUEUE_MAXLEN)
+            _offline_queue[pid].append(msg)
+    total = sum(len(q) for q in _offline_queue.values())
+    log.info(f"💾 persist-queue loaded: {total} message(s) from {db_path}")
+
+
+def _pq_insert(peer_id: str, queued_at: str, msg: dict) -> None:
+    """Persist one message to SQLite. No-op if persistence not enabled. (v2.97)"""
+    if _persist_queue_conn is None:
+        return
+    clean = {k: v for k, v in msg.items() if not k.startswith("_")}
+    with _offline_lock:
+        _persist_queue_conn.execute(
+            "INSERT INTO offline_queue (peer_id, queued_at, payload) VALUES (?,?,?)",
+            (peer_id, queued_at, json.dumps(clean, ensure_ascii=False)),
+        )
+        _persist_queue_conn.commit()
+
+
+def _pq_delete_peer(peer_id: str) -> None:
+    """Remove all persisted messages for a peer after successful flush. (v2.97)"""
+    if _persist_queue_conn is None:
+        return
+    with _offline_lock:
+        _persist_queue_conn.execute(
+            "DELETE FROM offline_queue WHERE peer_id=?", (peer_id,)
+        )
+        _persist_queue_conn.commit()
+
+
+def _pq_stats() -> dict:
+    """Return persistence backend stats for /status. (v2.97)"""
+    if _persist_queue_conn is None:
+        return {"enabled": False}
+    try:
+        row = _persist_queue_conn.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT peer_id) FROM offline_queue"
+        ).fetchone()
+        return {"enabled": True, "db": _persist_queue_path,
+                "total_rows": row[0], "distinct_peers": row[1]}
+    except Exception:
+        return {"enabled": True, "db": _persist_queue_path, "error": "query_failed"}
+
+
+# ── Offline queue (in-memory + optional SQLite) ────────────────────────────────
+
 def _offline_enqueue(msg: dict, peer_id: str = "default") -> None:
-    """Buffer a message for offline delivery. Called when peer is disconnected. (v2.0)"""
+    """Buffer a message for offline delivery. Called when peer is disconnected. (v2.0)
+    v2.97: persists to SQLite when --persist-queue is enabled."""
+    queued_at = _now()
     with _offline_lock:
         if peer_id not in _offline_queue:
             _offline_queue[peer_id] = deque(maxlen=OFFLINE_QUEUE_MAXLEN)
         _offline_queue[peer_id].append({
             **msg,
-            "_queued_at": _now(),
+            "_queued_at": queued_at,
             "_offline_for_peer": peer_id,
         })
+    _pq_insert(peer_id, queued_at, msg)
     log.debug(f"📥 offline_queue[{peer_id}] depth={len(_offline_queue[peer_id])}")
 
 
 async def _offline_flush(ws, peer_id: str = "default") -> int:
     """
     Flush buffered offline messages to a newly (re)connected peer WebSocket. (v2.0)
+    v2.97: also removes flushed messages from SQLite when --persist-queue is enabled.
     Returns the number of messages delivered.
     """
     with _offline_lock:
@@ -5528,6 +5609,9 @@ async def _offline_flush(ws, peer_id: str = "default") -> int:
             log.warning(f"offline_flush error on msg {msg.get('id','?')}: {e}")
             break
     log.info(f"📤 offline_flush: delivered {count} queued message(s) to peer '{peer_id}'")
+    # v2.97: purge from SQLite after successful flush
+    if count > 0:
+        _pq_delete_peer(peer_id)
     return count
 
 
@@ -12808,6 +12892,13 @@ Examples:
                              "         --principal did:key:z6Mk...,role=owner. "
                              "Runtime management: GET/POST/DELETE /principal-chain. "
                              "Inspired by A2A IS#1713 cross-org OBO accountability.")
+    parser.add_argument("--persist-queue", default=None, metavar="DB_PATH",
+                        help="(v2.97) Enable SQLite-backed persistent offline queue. "
+                             "Offline messages survive relay restarts and are re-delivered when the peer "
+                             "reconnects — enabling heartbeat-agent (cron-scheduled) workflows. "
+                             "DB_PATH: path to SQLite file (e.g. ~/.acp/queue.db). "
+                             "Created automatically if it does not exist. "
+                             "Addresses the offline-first gap discussed in A2A IS#1667.")
 
     args = parser.parse_args()
 
@@ -12892,6 +12983,15 @@ Examples:
     _no_identity = _get_bool(getattr(args, "no_identity", False), "no-identity")
     if not _no_identity:
         _ed25519_load_or_create(identity_path if identity_path else None)
+
+    # v2.97: SQLite persistent offline queue
+    persist_queue_path = _get(getattr(args, "persist_queue", None), "persist-queue", None)
+    if persist_queue_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(_os.path.abspath(persist_queue_path)), exist_ok=True)
+        _pq_init(persist_queue_path)
+        _status["persist_queue"] = _pq_stats()
+        log.info(f"💾 Persistent offline queue enabled: {persist_queue_path}")
 
     # v1.5: CA-signed certificate — hybrid identity model (self-sovereign + CA)
     global _ca_cert_pem

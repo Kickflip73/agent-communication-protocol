@@ -3401,3 +3401,21 @@ Six bugs discovered during first live AlphaAgent↔BetaAgent P2P communication s
 | 0.3.0 | 2026-03-18 | Modes | 4 communication modes, explicit lifecycle |
 | 0.2.0 | 2026-03-05 | P2P | True P2P relay, Skill guide, zero-code-change |
 | 0.1.0 | 2026-03-05 | Foundation | Initial spec, Python SDK, design principles |
+
+---
+
+## [v2.97.0] - 2026-04-10
+### Added
+- **`--persist-queue <DB_PATH>` — SQLite-backed persistent offline queue** (A2A #1667 inspired)
+  - Offline messages now survive relay restarts and are re-delivered when the peer reconnects
+  - Enables heartbeat-agent (cron-scheduled) workflows: Agent wakes up, receives buffered messages, sleeps again
+  - `_pq_init()`: creates SQLite schema, loads surviving messages into memory on startup
+  - `_pq_insert()`: persists each enqueued message atomically
+  - `_pq_delete_peer()`: purges delivered rows after successful `_offline_flush()`
+  - `_pq_stats()`: exposes `{"enabled", "db", "total_rows", "distinct_peers"}` in `/status`
+  - `capabilities.persist_queue: true` in AgentCard when enabled
+  - Backward-compatible: default behavior (in-memory only) unchanged
+  - **Tests**: `tests/test_persist_queue.py` — PQ1–PQ8, **8/8 PASS**
+### Research
+- scan30: A2A #1667 heartbeat-agents (ACP relay architecture natural fit); #1718 bilateral records
+  (ACP bilateral_ir leads by 2-3 months); A2A official Rust SDK merged
