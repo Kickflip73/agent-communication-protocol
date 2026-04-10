@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.98.0"  # v2.98: POST /tasks/queue async task enqueue (202 Accepted, A2A #1667 offline-first); GET /tasks/queue queue status; capabilities.async_task_queue; task_queue in API map
+VERSION = "2.99.0"  # v2.99: --max-offline-ttl expiry policy (drop/notify); _ttl_sweep(); /offline-queue/sweep endpoint; credentialCheckPolicy-inspired offline TTL (A2A IS#1667)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -324,11 +324,14 @@ _inbox_path = None
 # v2.0: Offline delivery queue — buffers messages when peer is disconnected,
 #        auto-flushes on reconnect.
 # v2.97: --persist-queue SQLite backend — survives relay restart (heartbeat-agent scenario)
+# v2.99: --max-offline-ttl expiry policy — drop / extend / notify
 OFFLINE_QUEUE_MAXLEN = 100          # per-peer max buffered messages
 _offline_queue: dict  = {}          # { peer_id|"default": deque([msg, ...]) }
 _offline_lock         = threading.Lock()
 _persist_queue_path: str | None = None  # v2.97: SQLite DB path when --persist-queue enabled
 _persist_queue_conn  = None             # v2.97: sqlite3 connection (thread-local writes via lock)
+_max_offline_ttl_sec: int | None = None  # v2.99: max TTL in seconds; None = no expiry
+_offline_ttl_policy: str = "drop"        # v2.99: "drop" | "notify" (send expiry notice to sender)
 
 _tasks: dict         = {}
 _sync_pending: dict  = {}
@@ -2034,7 +2037,8 @@ def _make_agent_card(name, skills):
             "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
             "offline_queue":      True,                        # v2.0: buffer messages when peer offline, flush on reconnect
             "persist_queue":      _persist_queue_conn is not None,  # v2.97: SQLite-backed persistent offline queue
-            "async_task_queue":   True,                              # v2.97: POST /tasks/queue async enqueue (A2A #1667)
+            "async_task_queue":   True,                              # v2.98: POST /tasks/queue async enqueue (A2A #1667)
+            "offline_ttl":        _max_offline_ttl_sec is not None, # v2.99: --max-offline-ttl expiry policy enabled
             "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
             "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
@@ -2163,6 +2167,7 @@ def _make_agent_card(name, skills):
             "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
+            "offline_queue_sweep": "/offline-queue/sweep",  # v2.99: on-demand TTL sweep
             "task_queue":    "/tasks/queue",           # v2.97: async task enqueue (POST) + queue status (GET)
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
@@ -5569,11 +5574,84 @@ def _pq_stats() -> dict:
         return {"enabled": True, "db": _persist_queue_path, "error": "query_failed"}
 
 
+def _pq_delete_expired(cutoff_iso: str) -> int:
+    """Delete persisted messages older than cutoff_iso. Returns number deleted. (v2.99)"""
+    if _persist_queue_conn is None:
+        return 0
+    with _offline_lock:
+        cur = _persist_queue_conn.execute(
+            "DELETE FROM offline_queue WHERE queued_at < ?", (cutoff_iso,)
+        )
+        _persist_queue_conn.commit()
+        return cur.rowcount
+
+
+def _ttl_sweep() -> dict:
+    """
+    Sweep offline queues and evict messages older than _max_offline_ttl_sec. (v2.99)
+    Policy:
+      "drop"   — silently remove expired messages
+      "notify" — remove expired messages AND record expiry events in audit log
+    Returns stats dict: {evicted_count, peers_affected, policy}.
+    """
+    if _max_offline_ttl_sec is None:
+        return {"evicted_count": 0, "peers_affected": 0, "policy": "none"}
+
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    cutoff = _dt.now(_tz.utc) - _td(seconds=_max_offline_ttl_sec)
+    cutoff_iso = cutoff.isoformat()
+    evicted = 0
+    peers_affected = set()
+
+    with _offline_lock:
+        for peer_id, q in list(_offline_queue.items()):
+            expired = []
+            keep = deque(maxlen=OFFLINE_QUEUE_MAXLEN)
+            for msg in q:
+                qat_str = msg.get("_queued_at", "")
+                try:
+                    qat = _dt.fromisoformat(qat_str.replace("Z", "+00:00"))
+                    if qat < cutoff:
+                        expired.append(msg)
+                    else:
+                        keep.append(msg)
+                except Exception:
+                    keep.append(msg)  # can't parse — keep to be safe
+            if expired:
+                _offline_queue[peer_id] = keep
+                evicted += len(expired)
+                peers_affected.add(peer_id)
+                if _offline_ttl_policy == "notify":
+                    for emsg in expired:
+                        log.info(
+                            f"⏰ TTL expired: peer={peer_id} "
+                            f"msg_id={emsg.get('message_id','?')} "
+                            f"queued_at={emsg.get('_queued_at','?')}"
+                        )
+
+    # Also sweep SQLite
+    db_evicted = _pq_delete_expired(cutoff_iso)
+    if db_evicted and db_evicted > evicted:
+        # DB had more entries (e.g., loaded from previous session)
+        evicted = max(evicted, db_evicted)
+
+    if evicted:
+        log.info(
+            f"⏰ TTL sweep: evicted={evicted} peers={len(peers_affected)} "
+            f"policy={_offline_ttl_policy} ttl={_max_offline_ttl_sec}s"
+        )
+    return {"evicted_count": evicted, "peers_affected": len(peers_affected), "policy": _offline_ttl_policy}
+
+
 # ── Offline queue (in-memory + optional SQLite) ────────────────────────────────
 
 def _offline_enqueue(msg: dict, peer_id: str = "default") -> None:
     """Buffer a message for offline delivery. Called when peer is disconnected. (v2.0)
-    v2.97: persists to SQLite when --persist-queue is enabled."""
+    v2.97: persists to SQLite when --persist-queue is enabled.
+    v2.99: lazy TTL sweep on enqueue — expired messages evicted before new one is added."""
+    # v2.99: lazy TTL sweep before enqueue
+    if _max_offline_ttl_sec is not None:
+        _ttl_sweep()
     queued_at = _now()
     with _offline_lock:
         if peer_id not in _offline_queue:
@@ -7806,14 +7884,47 @@ class LocalHTTP(BaseHTTPRequestHandler):
               - total_queued (int): total messages across all peer buckets
               - queue (dict): {peer_id: {depth, messages: [{id, type, queued_at}]}}
               - max_per_peer (int): per-peer queue capacity (OFFLINE_QUEUE_MAXLEN)
+              - ttl_config (dict|None): v2.99 TTL config if --max-offline-ttl is set
             """
             snap = _offline_queue_snapshot()
             total = sum(v["depth"] for v in snap.values())
-            self._json({
+            resp = {
                 "total_queued": total,
                 "max_per_peer": OFFLINE_QUEUE_MAXLEN,
                 "queue": snap,
-            })
+            }
+            if _max_offline_ttl_sec is not None:
+                resp["ttl_config"] = {
+                    "max_seconds": _max_offline_ttl_sec,
+                    "policy": _offline_ttl_policy,
+                }
+            self._json(resp)
+
+        elif p == "/offline-queue/sweep":
+            # ── GET /offline-queue/sweep — on-demand TTL sweep (v2.99) ──────
+            """
+            Trigger an on-demand TTL sweep of the offline queue.
+
+            Evicts messages older than --max-offline-ttl seconds according to
+            the configured --offline-ttl-policy (drop|notify).
+
+            Returns 200 with sweep stats, or 400 if TTL is not configured.
+
+            Response fields (v2.99):
+              - evicted_count (int): messages removed this sweep
+              - peers_affected (int): number of peer queues touched
+              - policy (str): active eviction policy (drop|notify)
+              - max_offline_ttl_sec (int|None): configured TTL
+            """
+            if _max_offline_ttl_sec is None:
+                self._json({"error": "TTL not configured",
+                            "hint": "Start relay with --max-offline-ttl <seconds>"}, code=400)
+            else:
+                stats = _ttl_sweep()
+                self._json({
+                    **stats,
+                    "max_offline_ttl_sec": _max_offline_ttl_sec,
+                })
 
         # ── GET /peer/verify — peer AgentCard auto-verification result (v1.9) ──
         elif p == "/peer/verify":
@@ -12963,6 +13074,20 @@ Examples:
                              "DB_PATH: path to SQLite file (e.g. ~/.acp/queue.db). "
                              "Created automatically if it does not exist. "
                              "Addresses the offline-first gap discussed in A2A IS#1667.")
+    parser.add_argument("--max-offline-ttl", type=int, default=None, metavar="SECONDS",
+                        help="(v2.99) Maximum TTL in seconds for offline-queued messages. "
+                             "Messages older than this are evicted on next enqueue (lazy sweep) "
+                             "or at /offline-queue/sweep (on-demand). "
+                             "None (default) = no expiry. "
+                             "Example: --max-offline-ttl 86400 to drop messages older than 24h. "
+                             "Use --offline-ttl-policy to control eviction behavior. "
+                             "Responds to credentialCheckPolicy discussion in A2A IS#1667.")
+    parser.add_argument("--offline-ttl-policy", default="drop",
+                        choices=["drop", "notify"],
+                        help="(v2.99) Policy when --max-offline-ttl expires a message. "
+                             "'drop' (default): silently remove expired messages. "
+                             "'notify': log expiry event per message (audit trail). "
+                             "Future: 'extend' (renew TTL if sender is still active).")
 
     args = parser.parse_args()
 
@@ -13056,6 +13181,14 @@ Examples:
         _pq_init(persist_queue_path)
         _status["persist_queue"] = _pq_stats()
         log.info(f"💾 Persistent offline queue enabled: {persist_queue_path}")
+
+    # v2.99: --max-offline-ttl expiry policy
+    global _max_offline_ttl_sec, _offline_ttl_policy
+    _max_offline_ttl_sec = _get(getattr(args, "max_offline_ttl", None), "max-offline-ttl", None)
+    _offline_ttl_policy  = _get(getattr(args, "offline_ttl_policy", "drop"), "offline-ttl-policy", "drop")
+    if _max_offline_ttl_sec is not None:
+        _status["offline_ttl"] = {"max_seconds": _max_offline_ttl_sec, "policy": _offline_ttl_policy}
+        log.info(f"⏰ Offline TTL enabled: max={_max_offline_ttl_sec}s policy={_offline_ttl_policy}")
 
     # v1.5: CA-signed certificate — hybrid identity model (self-sovereign + CA)
     global _ca_cert_pem
