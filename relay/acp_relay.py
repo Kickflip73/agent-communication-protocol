@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.99.0"  # v2.99: --max-offline-ttl expiry policy (drop/notify); _ttl_sweep(); /offline-queue/sweep endpoint; credentialCheckPolicy-inspired offline TTL (A2A IS#1667)
+VERSION = "3.0.0"   # v3.0: message-level Ed25519 signature (msg_sig); POST /verify/message; capabilities.msg_sig; §14 message-level signing spec
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -678,6 +678,81 @@ def _ed25519_verify_msg(msg: dict, public_key_b64: str, sig_b64: str) -> bool:
         canonical = {k: v for k, v in msg.items() if k != "identity"}
         payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
         pub_key.verify(sig_bytes, payload)
+        return True
+    except (_Ed25519InvalidSignature, Exception):
+        return False
+
+
+# ── v3.0: Message-level Ed25519 signature (msg_sig) ───────────────────────
+# Provides per-message cryptographic proof of origin, aligned with ANP's
+# DataIntegrityProof / origin_proof design pattern.
+#
+# Canonical payload for signing:
+#   JSON.stringify({message_id, from, content, ts}, sort_keys=True)
+# where `content` = JSON-encoded parts array (stringified).
+#
+# The resulting base64url string is stored in msg["msg_sig"].
+# Verifiers reconstruct the same canonical payload and check the signature
+# against the signer's Ed25519 public key.
+
+def _sign_message(msg_payload: dict) -> str:
+    """Sign a message envelope and return a base64url Ed25519 signature (v3.0).
+
+    Canonical form: {"content": <JSON string of parts>, "from": <str>,
+                      "message_id": <str>, "ts": <str/int>}
+    All keys are sorted; separators are (",", ":") (no spaces).
+
+    Requires _ed25519_private to be loaded (via --identity).
+    Raises RuntimeError if identity key is unavailable.
+    """
+    if _ed25519_private is None:
+        raise RuntimeError("msg_sig requires --identity (Ed25519 private key not loaded)")
+    # Build canonical dict — only the four attested fields
+    canonical = {
+        "content":    json.dumps(msg_payload.get("parts", []), sort_keys=True,
+                                 ensure_ascii=False, separators=(",", ":")),
+        "from":       str(msg_payload.get("from", "")),
+        "message_id": str(msg_payload.get("message_id", "")),
+        "ts":         str(msg_payload.get("ts", "")),
+    }
+    payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
+                               separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload_bytes)
+    return _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+
+def _verify_message_sig(msg: dict, public_key_b64: str) -> bool:
+    """Verify a msg_sig on an inbound (or stored) message (v3.0).
+
+    Args:
+        msg:            the full message dict (must include message_id, from, parts, ts, msg_sig)
+        public_key_b64: base64url-encoded Ed25519 public key of the claimed sender
+
+    Returns:
+        True  — signature is cryptographically valid
+        False — signature is invalid or malformed
+        True  — if Ed25519 library is unavailable (fail-open for compatibility)
+    """
+    if not _ED25519_AVAILABLE:
+        return True  # can't verify — accept (backward compat)
+    sig_b64 = msg.get("msg_sig")
+    if not sig_b64:
+        return False  # no signature present
+    try:
+        pub_raw = _base64.urlsafe_b64decode(public_key_b64 + "==")
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        sig_bytes = _base64.urlsafe_b64decode(sig_b64 + "==")
+        # Reconstruct the exact canonical form used during signing
+        canonical = {
+            "content":    json.dumps(msg.get("parts", []), sort_keys=True,
+                                     ensure_ascii=False, separators=(",", ":")),
+            "from":       str(msg.get("from", "")),
+            "message_id": str(msg.get("message_id", "")),
+            "ts":         str(msg.get("ts", "")),
+        }
+        payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
+                                   separators=(",", ":")).encode()
+        pub_key.verify(sig_bytes, payload_bytes)
         return True
     except (_Ed25519InvalidSignature, Exception):
         return False
@@ -2123,6 +2198,7 @@ def _make_agent_card(name, skills):
             "runtime_limitations":         True,                               # v2.69: GET /limitations/runtime — dynamic runtime metrics
             "task_evidence":               True,                               # v2.81: POST/GET /tasks/{id}/evidence — lifecycle evidence anchoring (A2A Issue #1721)
             "evidence_stream":             True,                               # v2.82: GET /tasks/{id}/evidence-stream — SSE real-time evidence subscription
+            "msg_sig":                     bool(_ed25519_private),             # v3.0: per-message Ed25519 signature (msg_sig field); POST /verify/message; ANP DataIntegrityProof-aligned
         },
 
         "identity": ({
@@ -2185,6 +2261,7 @@ def _make_agent_card(name, skills):
             "offline_card_verify":     "/identity/verify-card",         # v2.90: POST — offline AgentCard sig verification
             "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
             "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
+            "verify_message":        "/verify/message",         # v3.0: POST — verify message-level Ed25519 signature (msg_sig); ANP DataIntegrityProof-aligned
             "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
             "ir_adversarial_fixtures": "/ir/adversarial-fixtures",  # v2.91: GET — adversarial collusion/inflation detection fixtures (A2A #1718)
             "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
@@ -5488,7 +5565,7 @@ def _on_message(raw):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _attach_sig(msg: dict) -> dict:
-    """Attach HMAC sig (v0.7) and/or Ed25519 identity block (v0.8) to outbound message."""
+    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), and msg_sig (v3.0) to outbound message."""
     if _hmac_secret and "message_id" in msg and "ts" in msg:
         msg["sig"] = _hmac_sign(str(msg["message_id"]), str(msg["ts"]))
     if _ed25519_private is not None and "message_id" in msg:
@@ -5500,6 +5577,12 @@ def _attach_sig(msg: dict) -> dict:
         }
         # Sig is computed last (excludes identity.sig from canonical form)
         msg["identity"]["sig"] = _ed25519_sign_msg(msg)
+        # v3.0: message-level signature — per-message cryptographic proof of origin
+        # Covers {message_id, from, content(parts), ts}; aligned with ANP origin_proof.
+        try:
+            msg["msg_sig"] = _sign_message(msg)
+        except Exception as _ms_err:
+            log.debug(f"[msg_sig] Could not attach msg_sig: {_ms_err}")
     return msg
 
 
@@ -9724,6 +9807,98 @@ class LocalHTTP(BaseHTTPRequestHandler):
             result["relay_did_key"] = _did_key
             status_code = 200 if result.get("ok") else (400 if not result.get("valid") else 200)
             self._json(result, status_code)
+
+        # ── v3.0: POST /verify/message — verify message-level Ed25519 signature (msg_sig) ─────────────────
+        elif p == "/verify/message":
+            """
+            POST /verify/message — Verify the msg_sig field of an ACP message (v3.0).
+
+            Validates that a message's msg_sig was produced by the Ed25519 private key
+            corresponding to the supplied public key. The canonical signed payload is:
+
+              JSON.stringify({content, from, message_id, ts}, sort_keys=True)
+
+            where `content` = JSON-serialised parts array.
+
+            This endpoint is analogous to ANP's DataIntegrityProof / origin_proof
+            verification, providing cryptographic proof of message origin.
+
+            Request body:
+            {
+              "message": {               -- required: the full ACP message object
+                "message_id": "...",
+                "from": "...",
+                "parts": [...],
+                "ts": "...",
+                "msg_sig": "<base64url Ed25519 signature>"
+              },
+              "public_key": "<base64url Ed25519 public key>"   -- optional; if omitted, use this relay's key
+            }
+
+            Response (valid):
+            {
+              "ok":         true,
+              "valid":      true,
+              "message_id": "...",
+              "from":       "...",
+              "signer_key": "<base64url public key used for verification>",
+              "error":      null
+            }
+
+            Response (invalid):
+            {
+              "ok":    false,
+              "valid": false,
+              "error": "<reason>"
+            }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "valid": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            msg_to_verify = body.get("message")
+            if not isinstance(msg_to_verify, dict):
+                self._json({"ok": False, "valid": False,
+                            "error": "'message' field required (object)"}, 400)
+                return
+
+            # Public key: caller-supplied or fall back to this relay's own public key
+            pub_key_b64 = body.get("public_key") or _ed25519_public_b64
+            if not pub_key_b64:
+                self._json({"ok": False, "valid": False,
+                            "error": "no public_key supplied and relay has no identity key loaded"}, 400)
+                return
+
+            if not msg_to_verify.get("msg_sig"):
+                self._json({"ok": False, "valid": False,
+                            "error": "message.msg_sig is absent"}, 400)
+                return
+
+            if not _ED25519_AVAILABLE:
+                self._json({
+                    "ok":         True,
+                    "valid":      None,
+                    "message_id": msg_to_verify.get("message_id"),
+                    "from":       msg_to_verify.get("from"),
+                    "signer_key": pub_key_b64,
+                    "error":      "Ed25519 library unavailable — cannot verify (fail-open)",
+                })
+                return
+
+            try:
+                valid = _verify_message_sig(msg_to_verify, pub_key_b64)
+                self._json({
+                    "ok":         valid,
+                    "valid":      valid,
+                    "message_id": msg_to_verify.get("message_id"),
+                    "from":       msg_to_verify.get("from"),
+                    "signer_key": pub_key_b64,
+                    "error":      (None if valid else "Ed25519 signature verification failed"),
+                })
+            except Exception as e:
+                self._json({"ok": False, "valid": False, "error": str(e)}, 500)
 
         # ── v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS reputation update ──
         elif p == "/ir/import-evidence":
