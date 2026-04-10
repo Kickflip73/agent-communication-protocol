@@ -5,6 +5,25 @@ All notable changes to ACP (Agent Communication Protocol) are documented here.
 Format: [Semantic Versioning](https://semver.org) — `MAJOR.MINOR.PATCH-status`
 Dates: Asia/Shanghai (UTC+8)
 
+
+---
+
+## [v2.98.0] - 2026-04-10
+### Added
+- **`POST /tasks/queue` — async task enqueue (202 Accepted)** (A2A #1667 offline-first)
+  - Accepts same body as `POST /tasks`; returns 202 immediately with `task_id`, `poll_url`, `sse_url`, `queued_at`
+  - Task created in `submitted` state; caller polls `GET /tasks/{id}` or subscribes via SSE
+  - `queue_enqueued: true` + `queue_enqueued_at` fields tag queue-originated tasks for observability
+  - Audit log entry: `queue_enqueued` via `POST /tasks/queue`
+- **`GET /tasks/queue` — queue status**
+  - Returns `queue_depth`, active tasks list (submitted + working), `queue_originated` flag per task
+- **`capabilities.async_task_queue: true`** in AgentCard when supported
+- **`task_queue: /tasks/queue`** in API map
+- **Tests**: `tests/test_task_queue_v298.py` — TQ1–TQ9, **9/9 PASS**
+### Research
+- scan31: #1721 Assay external evidence consumer (ACP /ir/log already covers); #1723 SLIM non-URL transport experiment (ACP relay architecture similar); #1667 DID interop active discussion, original availability gap still open
+
+
 ---
 
 ## [v2.96.0-dev] - 2026-04-10

@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "2.97.0"  # v2.97: --persist-queue SQLite offline message persistence (heartbeat-agent support, A2A #1667); _pq_init/_pq_insert/_pq_delete_peer/_pq_stats helpers; offline flush purges SQLite on delivery
+VERSION = "2.98.0"  # v2.98: POST /tasks/queue async task enqueue (202 Accepted, A2A #1667 offline-first); GET /tasks/queue queue status; capabilities.async_task_queue; task_queue in API map
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2034,6 +2034,7 @@ def _make_agent_card(name, skills):
             "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
             "offline_queue":      True,                        # v2.0: buffer messages when peer offline, flush on reconnect
             "persist_queue":      _persist_queue_conn is not None,  # v2.97: SQLite-backed persistent offline queue
+            "async_task_queue":   True,                              # v2.97: POST /tasks/queue async enqueue (A2A #1667)
             "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
             "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
@@ -2162,6 +2163,7 @@ def _make_agent_card(name, skills):
             "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
+            "task_queue":    "/tasks/queue",           # v2.97: async task enqueue (POST) + queue status (GET)
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
             "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
@@ -8846,6 +8848,26 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         "has_more":   len(matched) > _ctx_lim,
                     })
 
+        elif p == "/tasks/queue":  # v2.98: async task queue status
+            queued = [
+                {
+                    "task_id":    t["id"],
+                    "status":     t["status"],
+                    "queued_at":  t.get("queue_enqueued_at") or t.get("created_at"),
+                    "skill_id":   (t.get("payload") or {}).get("skill_id"),
+                    "peer_id":    (t.get("payload") or {}).get("peer_id"),
+                    "queue_originated": t.get("queue_enqueued", False),
+                }
+                for t in _tasks.values()
+                if t.get("status") in (TASK_SUBMITTED, TASK_WORKING)
+            ]
+            self._json({
+                "ok":          True,
+                "queue_depth": len(queued),
+                "tasks":       queued,
+                "note":        "v2.98 async task queue — POST /tasks/queue to enqueue, poll GET /tasks/{id} or SSE /tasks/{id}/subscribe",
+            }, 200)
+
         elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2/v0.9)
             # Query params:
             #   status=<status>        filter by status; comma-separated multi-value (v0.9)
@@ -10865,6 +10887,48 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 }, 200)
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+
+        # /tasks/queue POST — async task enqueue (v2.98)
+        elif p == "/tasks/queue":
+            # v2.98: Async task enqueue — accepts same body as POST /tasks, returns 202 immediately.
+            # Motivation: A2A #1667 async / heartbeat-agent task handling (offline-first).
+            # The task is created in 'submitted' state; execution is caller-driven (no auto-worker
+            # in this release). Future: POST /tasks/queue/worker to register an async processor.
+            try:
+                body = self._read_body()
+                payload = body.get("payload", body)
+                role = body.get("role") or (payload.get("role") if isinstance(payload, dict) else None)
+                if not role:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be: agent, user, or system)")
+                    self._json(e_body, e_code)
+                    return
+                task_id   = body.get("task_id") or body.get("id") or _make_id("task")
+                msg_id    = body.get("message_id")
+                ctx_id    = body.get("context_id")
+                task      = _create_task(
+                    payload=payload,
+                    task_id=task_id,
+                    message_id=msg_id,
+                    context_id=ctx_id,
+                    initial_state=TASK_SUBMITTED,
+                )
+                # Tag the task as queue-originated for observability
+                task["queue_enqueued"] = True
+                task["queue_enqueued_at"] = _now()
+                _append_audit(task, "queue_enqueued", {"via": "POST /tasks/queue"})
+                self._json({
+                    "ok":         True,
+                    "task_id":    task["id"],
+                    "status":     task["status"],
+                    "queued_at":  task["queue_enqueued_at"],
+                    "poll_url":   f"/tasks/{task['id']}",
+                    "sse_url":    f"/tasks/{task['id']}/subscribe",
+                    "note":       "Task accepted (202). Poll poll_url or subscribe to sse_url for status updates.",
+                }, 202)
+            except Exception as e:
+                log.exception("POST /tasks/queue error")
+                self._json(_err(ERR_INTERNAL, str(e))[0], 500)
 
         # /tasks/create — create a task (optionally delegate to peer)
         elif p == "/tasks/create" or p == "/tasks":
