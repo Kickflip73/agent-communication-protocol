@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.0.0"   # v3.0: message-level Ed25519 signature (msg_sig); POST /verify/message; capabilities.msg_sig; §14 message-level signing spec
+VERSION = "3.1.0"   # v3.1: origin_proof — bind msg_sig to recipient peer_id (to field in canonical); POST /verify/message accepts optional `to`; capabilities.origin_proof
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -695,11 +695,18 @@ def _ed25519_verify_msg(msg: dict, public_key_b64: str, sig_b64: str) -> bool:
 # Verifiers reconstruct the same canonical payload and check the signature
 # against the signer's Ed25519 public key.
 
-def _sign_message(msg_payload: dict) -> str:
-    """Sign a message envelope and return a base64url Ed25519 signature (v3.0).
+def _sign_message(msg_payload: dict, to: str = "") -> str:
+    """Sign a message envelope and return a base64url Ed25519 signature.
 
-    Canonical form: {"content": <JSON string of parts>, "from": <str>,
-                      "message_id": <str>, "ts": <str/int>}
+    v3.0 canonical form (backward-compat, when to=""):
+        {"content": <JSON string of parts>, "from": <str>, "message_id": <str>, "ts": <str>}
+
+    v3.1 canonical form (origin_proof, when to is non-empty):
+        {"content": <JSON string of parts>, "from": <str>, "message_id": <str>, "to": <str>, "ts": <str>}
+
+    When `to` is provided the signature is bound to the recipient peer_id,
+    preventing replay-to-wrong-recipient attacks (origin_proof / ANP DataIntegrityProof).
+
     All keys are sorted; separators are (",", ":") (no spaces).
 
     Requires _ed25519_private to be loaded (via --identity).
@@ -707,7 +714,7 @@ def _sign_message(msg_payload: dict) -> str:
     """
     if _ed25519_private is None:
         raise RuntimeError("msg_sig requires --identity (Ed25519 private key not loaded)")
-    # Build canonical dict — only the four attested fields
+    # Build canonical dict — four (v3.0) or five (v3.1) attested fields
     canonical = {
         "content":    json.dumps(msg_payload.get("parts", []), sort_keys=True,
                                  ensure_ascii=False, separators=(",", ":")),
@@ -715,18 +722,25 @@ def _sign_message(msg_payload: dict) -> str:
         "message_id": str(msg_payload.get("message_id", "")),
         "ts":         str(msg_payload.get("ts", "")),
     }
+    if to:  # v3.1: bind signature to recipient — origin_proof
+        canonical["to"] = str(to)
     payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
                                separators=(",", ":")).encode()
     sig_bytes = _ed25519_private.sign(payload_bytes)
     return _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
 
 
-def _verify_message_sig(msg: dict, public_key_b64: str) -> bool:
-    """Verify a msg_sig on an inbound (or stored) message (v3.0).
+def _verify_message_sig(msg: dict, public_key_b64: str, to: str = "") -> bool:
+    """Verify a msg_sig on an inbound (or stored) message.
+
+    v3.0 (backward-compat): verifies without `to` field when to="" or to not provided.
+    v3.1 (origin_proof):    verifies with `to` field included in canonical when to is non-empty.
 
     Args:
         msg:            the full message dict (must include message_id, from, parts, ts, msg_sig)
         public_key_b64: base64url-encoded Ed25519 public key of the claimed sender
+        to:             optional recipient peer_id (v3.1 origin_proof); if provided, the
+                        canonical payload will include the `to` field for signature verification.
 
     Returns:
         True  — signature is cryptographically valid
@@ -750,6 +764,8 @@ def _verify_message_sig(msg: dict, public_key_b64: str) -> bool:
             "message_id": str(msg.get("message_id", "")),
             "ts":         str(msg.get("ts", "")),
         }
+        if to:  # v3.1: verify with recipient binding (origin_proof)
+            canonical["to"] = str(to)
         payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
                                    separators=(",", ":")).encode()
         pub_key.verify(sig_bytes, payload_bytes)
@@ -2199,6 +2215,7 @@ def _make_agent_card(name, skills):
             "task_evidence":               True,                               # v2.81: POST/GET /tasks/{id}/evidence — lifecycle evidence anchoring (A2A Issue #1721)
             "evidence_stream":             True,                               # v2.82: GET /tasks/{id}/evidence-stream — SSE real-time evidence subscription
             "msg_sig":                     bool(_ed25519_private),             # v3.0: per-message Ed25519 signature (msg_sig field); POST /verify/message; ANP DataIntegrityProof-aligned
+            "origin_proof":                bool(_ed25519_private),             # v3.1: recipient-bound msg_sig (to field in canonical); prevents replay-to-wrong-recipient; ANP DataIntegrityProof origin_proof
         },
 
         "identity": ({
@@ -5564,8 +5581,12 @@ def _on_message(raw):
 # WebSocket helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _attach_sig(msg: dict) -> dict:
-    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), and msg_sig (v3.0) to outbound message."""
+def _attach_sig(msg: dict, to: str = "") -> dict:
+    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), and msg_sig (v3.0/v3.1) to outbound message.
+
+    v3.1: if `to` (recipient peer_id) is provided, the msg_sig canonical payload includes the
+    `to` field (origin_proof — binds signature to the intended recipient).
+    """
     if _hmac_secret and "message_id" in msg and "ts" in msg:
         msg["sig"] = _hmac_sign(str(msg["message_id"]), str(msg["ts"]))
     if _ed25519_private is not None and "message_id" in msg:
@@ -5577,10 +5598,10 @@ def _attach_sig(msg: dict) -> dict:
         }
         # Sig is computed last (excludes identity.sig from canonical form)
         msg["identity"]["sig"] = _ed25519_sign_msg(msg)
-        # v3.0: message-level signature — per-message cryptographic proof of origin
-        # Covers {message_id, from, content(parts), ts}; aligned with ANP origin_proof.
+        # v3.0/v3.1: message-level signature — per-message cryptographic proof of origin.
+        # v3.1: when `to` is supplied, binds sig to recipient (origin_proof).
         try:
-            msg["msg_sig"] = _sign_message(msg)
+            msg["msg_sig"] = _sign_message(msg, to=to)
         except Exception as _ms_err:
             log.debug(f"[msg_sig] Could not attach msg_sig: {_ms_err}")
     return msg
@@ -5823,7 +5844,7 @@ async def _ws_send(msg, peer_id=None):
         # v2.0: no peer at all — buffer under "default" key
         _offline_enqueue(msg, peer_id=peer_id or "default")
         raise ConnectionError("No P2P connection — message queued for delivery on reconnect")
-    payload = json.dumps(_attach_sig(msg), ensure_ascii=False)
+    payload = json.dumps(_attach_sig(msg, to=peer_id or ""), ensure_ascii=False)
     if send_lock:
         # Per-peer asyncio.Lock: all callers are in the same event loop thread, safe.
         async with send_lock:
@@ -9887,14 +9908,18 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 })
                 return
 
+            # v3.1: optional `to` field — if provided, verify with recipient-bound canonical (origin_proof)
+            to_peer = body.get("to", "")
+
             try:
-                valid = _verify_message_sig(msg_to_verify, pub_key_b64)
+                valid = _verify_message_sig(msg_to_verify, pub_key_b64, to=to_peer)
                 self._json({
                     "ok":         valid,
                     "valid":      valid,
                     "message_id": msg_to_verify.get("message_id"),
                     "from":       msg_to_verify.get("from"),
                     "signer_key": pub_key_b64,
+                    **({"to": to_peer} if to_peer else {}),
                     "error":      (None if valid else "Ed25519 signature verification failed"),
                 })
             except Exception as e:

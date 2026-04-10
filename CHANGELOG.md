@@ -8,6 +8,31 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v3.1.0] - 2026-04-11
+### Added
+- **`origin_proof` — recipient-bound msg_sig** (ANP DataIntegrityProof alignment, anti-replay)
+  - `_sign_message(msg, to="")`: optional `to` parameter adds recipient peer_id to the canonical
+    signing payload: `{content, from, message_id, to, ts}` (v3.1) vs `{content, from, message_id, ts}` (v3.0)
+  - Signature is now bound to the intended recipient; forwarding a signed message to a different
+    peer is cryptographically detectable ("replay-to-wrong-recipient" attack prevention)
+  - `_verify_message_sig(msg, public_key_b64, to="")`: optional `to` param; when non-empty,
+    reconstructs the v3.1 canonical payload (with `to` field) for verification
+  - `POST /verify/message` accepts optional `"to"` field in request body; response echoes `to`
+    when provided
+  - `_attach_sig(msg, to="")`: passes recipient peer_id through to `_sign_message`; `_ws_send`
+    supplies `peer_id` so all outbound messages are automatically origin_proof-signed
+  - `capabilities.origin_proof: bool(_ed25519_private)` in AgentCard — `true` when identity key
+    is loaded and `to` binding is active
+- **Backward compatibility**: messages without `to` field continue to verify with v3.0 canonical
+  (no breaking change); `to=""` (default) preserves existing behavior
+- **Tests**: `tests/test_origin_proof.py` — OP-01–OP-06, **5 passed, 1 skipped** (integration
+  test skipped when relay subprocess port unavailable, same as test_message_sig.py pattern)
+### Research
+- Background: ANP 2026-04-10 introduced W3C DataIntegrityProof + `origin_proof` field; ACP v3.1
+  aligns with this pattern by binding Ed25519 msg_sig to recipient peer_id
+
+---
+
 ## [v2.98.0] - 2026-04-10
 ### Added
 - **`POST /tasks/queue` — async task enqueue (202 Accepted)** (A2A #1667 offline-first)
