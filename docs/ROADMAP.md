@@ -796,13 +796,13 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 ### 🔮 v2.96（候选，目标：2026-04-15）
 **主题：Show HN 发布 + 2-Agent demo**
 
-| 候选特性 | 优先级 | 说明 |
-|---------|--------|------|
-| 2-Agent demo 终端录屏 | P0 | Alpha↔Beta curl 双向通信真实演示（asciinema 或 gif） |
-| Hacker News 发布 | P0 | 最佳时间：周一/周二早 9-10 AM ET；需 Stark 先生最终批准 |
-| README demo gif 嵌入 | P1 | 让首屏更直观，降低新访客摩擦 |
-| A2A #1712 评论发布 | P1 | `docs/community/a2a-1712-comment.md` → 发布到 GitHub（时机成熟：#1672 CA作者转向 hybrid） |
-| BUG-007/BUG-009/BUG-003b 修复 | P1 | 三个 P1 bug 积压，需在 Show HN 前清理 |
+| 候选特性 | 优先级 | 状态 | Commit | 说明 |
+|---------|--------|------|--------|------|
+| 2-Agent demo 终端录屏 | P0 | ✅ 已完成 | `f940cb9` / `64b7106` | `demos/two_agent_demo.sh` + `.cast` + `.gif` (98K) + `.svg` (34K) |
+| README demo gif 嵌入 | P1 | ✅ 已完成 | `64b7106` | 首屏 tagline 下方嵌入；版本徽章 v2.95；测试数 1637 |
+| Hacker News 发布 | P0 | ⏳ 待批准 | — | 最佳时间：周一/周二早 9-10 AM ET；需 Stark 先生最终批准 |
+| A2A #1712 评论发布 | P1 | ⏳ 待发布 | — | `docs/community/a2a-1712-comment.md` 草稿已就绪 |
+| BUG-007/BUG-009/BUG-003b 修复 | P1 | ⏳ 待处理 | — | 三个 P1 bug 积压，需在 Show HN 前清理 |
 
 ---
 

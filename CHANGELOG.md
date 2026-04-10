@@ -7,6 +7,54 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v2.96.0-dev] - 2026-04-10
+### Added
+- **2-Agent Bidirectional Demo** (`demos/two_agent_demo.sh`)
+  - Full Alpha↔Beta P2P demo script: auto-waits for link registration, bidirectional connect+send+recv
+  - `demos/two_agent_demo.cast` — asciinema v2 terminal recording (30 frames)
+  - `demos/two_agent_demo.gif` — 98K animated GIF via agg v1.7.0 (1.5x speed)
+  - `demos/two_agent_demo.svg` — 34K SVG animation via svg-term-cli
+- **README demo gif** embedded at top (below tagline, before quickstart)
+  - Version badge updated: v2.94 → v2.95
+  - Test count badge updated: 1092 → 1637
+
+---
+
+## [v2.95.0] - 2026-04-10
+### Added
+- **Skill-scoped trust scores** — per-skill IR evidence → per-skill score
+  - `GET /trust/skills/{skill_id}/score` — query trust score for a specific skill
+  - Evidence isolation: IR records tagged with `skill_id` contribute only to that skill's score
+  - `capabilities.skill_scoped_trust: true` in AgentCard when enabled
+- **BUG-060/061 fix** — `send_to_peer()` missing `client_msg_id` param + `test_version` stale assertion
+### Research
+- scan28: A2A #1717 skill-scoped trust gap identified; AgentNexus入场; Gemini SDK review
+- scan29: A2A #1716 AgentSkill capability token auth (23 comments, high ACP relevance); #1713 OBO cross-org first-contact; SINT×APS 互操作验证 (9/9 pass); a2a-python v0.3.26 released
+
+---
+
+## [v2.94.0] - 2026-04-09
+### Added
+- **`principal_diversity_defense`** — colluding-pair penalty in bilateral IR
+  - Detects when two agents exchange unusually high mutual ratings relative to diversity of their interaction graph
+  - New field `diversity_penalty_applied: bool` in IR response
+  - `capabilities.principal_diversity_defense: true` in AgentCard
+### Docs
+- README polish: v2.93 → v2.94 badge, Show HN pitch updated
+
+---
+
+## [v2.93.0] - 2026-04-09
+### Added
+- **RFC-004: Decentralized Agent Identity Without CA** (`docs/rfc/identity-without-ca.md`)
+  - Ed25519 self-signed identity (no central CA required)
+  - Three-layer trust model: identity → delegation scope → execution proof
+  - 9-dimension comparison vs CA-based approaches
+  - Multi-provider DID support
+  - Community comment draft: `docs/community/a2a-1712-comment.md`
+
+---
+
 ## [v2.92.0] - 2026-04-09
 ### Added
 - **RFC-003: Governance Metadata specification** (`docs/rfc/governance-metadata.md`)
