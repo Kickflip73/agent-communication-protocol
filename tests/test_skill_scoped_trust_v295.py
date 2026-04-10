@@ -121,9 +121,10 @@ class TestVersionAndFlags:
         proc, hp = _start_relay(_free_port())
         try:
             card = _card(hp)
-            # Version evolves; assert presence not exact match (avoid BUG-060 class)
+            # Version evolves; assert presence not exact match (avoid BUG-060/062 class)
             assert card.get("acp_version") is not None
-            assert card["acp_version"].startswith("2.")
+            # Accept any major version (2.x, 3.x, ...)
+            assert "." in card["acp_version"]
         finally:
             _stop(proc)
 

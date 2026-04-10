@@ -101,7 +101,7 @@ def test_ts1_basic_response(relay_url):
     assert "count" in d
     assert "total" in d
     assert "version" in d
-    assert d["version"].startswith("2.")
+    assert "." in d["version"]  # Accept any major version (2.x, 3.x, ...)
     assert isinstance(d["signals"], list)
     assert len(d["signals"]) == d["count"]
 
