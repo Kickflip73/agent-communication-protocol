@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.4.0"   # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy; capabilities.governance=True
+VERSION = "3.5.0"   # v3.5: governance.proof_suite (ANP eddsa-jcs-2022, A2A #1717); transport_bindings.experimental (pre-SlimRPC, #1723)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -470,6 +470,7 @@ _governance_ttl: int = 3600          # --governance-ttl (identity token TTL seco
 _governance_revocation_endpoint: str | None = None  # --revocation-endpoint
 _governance_audit_mode: str = "static"  # --audit-mode static|live
 _governance_policy_ref: str | None = None  # future: governance framework reference URL
+_experimental_transports: list = []  # v3.5: --experimental-transport names (SlimRPC etc.)
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -2297,6 +2298,7 @@ def _make_agent_card(name, skills):
             "data_integrity_proof":        bool(_ed25519_private),             # v3.2: W3C DataIntegrityProof compat layer — proof object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof
             "capability_token":            True,                               # v3.3: capability_token field passthrough in acp.message (A2A #1716 SINT interop); POST /capability/issue helper
             "governance":                  True,                               # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy
+            "transport_bindings":          True,                               # v3.5: AgentCard.transport_bindings (supported/experimental); --experimental-transport flag (pre-SlimRPC #1723)
         },
 
         "identity": ({
@@ -2444,6 +2446,9 @@ def _make_agent_card(name, skills):
 
     # v3.4: attach governance block (always present in v3.4+; A2A #1717 CredentialLifecyclePolicy)
     card["governance"] = _build_governance()
+
+    # v3.5: attach transport_bindings block (stable + experimental transports; pre-SlimRPC #1723)
+    card["transport_bindings"] = _build_transport_bindings()
 
     return card
 
@@ -3323,19 +3328,24 @@ def _init_security_posture():
 def _build_governance() -> dict:
     """
     v3.4: Build the AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy).
+    v3.5: Added proof_suite sub-object (ANP eddsa-jcs-2022 interop, A2A #1717).
 
     Returns a dict representing the governance declaration for this relay.
     The block is always present in v3.4+ AgentCards (not opt-in like governance_metadata).
 
     Fields:
       framework               — "ACP" (protocol identifier)
-      version                 — ACP version string (e.g. "3.4.0")
+      version                 — ACP version string (e.g. "3.5.0")
       credential_lifecycle    — CredentialLifecyclePolicy object:
           ttl_seconds           identity token TTL (default 3600)
           revocation_endpoint   optional revocation URL (null when not configured)
           credential_ttl_seconds  credential validity in seconds (default 86400 = 24h)
       audit_mode              — "static" | "live" (default "static")
       policy_ref              — optional governance framework reference URL (null)
+      proof_suite             — v3.5: supported cryptographic proof suites:
+          supported             list of suite names this node can produce/verify
+          default               currently active suite
+          interop_refs          W3C spec URLs (documentary only, not enforced)
     """
     return {
         "framework": "ACP",
@@ -3347,6 +3357,33 @@ def _build_governance() -> dict:
         },
         "audit_mode": _governance_audit_mode,
         "policy_ref": _governance_policy_ref,
+        "proof_suite": {
+            "supported": ["Ed25519Signature2020", "eddsa-jcs-2022"],
+            "default": "Ed25519Signature2020",
+            "interop_refs": [
+                "https://w3c.github.io/vc-data-integrity/",
+                "https://www.w3.org/TR/vc-di-eddsa/",
+            ],
+        },
+    }
+
+
+def _build_transport_bindings() -> dict:
+    """
+    v3.5: Build the transport_bindings block for AgentCard and /status.
+
+    Declares stable and experimental transport mechanisms supported by this node.
+    Experimental list is populated via --experimental-transport CLI flags
+    (repeatable), enabling pre-SlimRPC (#1723) and future binding declarations
+    without breaking existing consumers.
+
+    Fields:
+      supported      — stable transports this node offers ("http", "websocket")
+      experimental   — opt-in future transports (default empty; --experimental-transport appends)
+    """
+    return {
+        "supported": ["http", "websocket"],
+        "experimental": list(_experimental_transports),
     }
 
 
@@ -6730,8 +6767,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
         elif p == "/status":  # [stable] relay status
             # v3.4: merge governance block + capabilities shortcut into top-level /status response
+            # v3.5: also expose transport_bindings at top level
             status_resp = dict(_status)
             status_resp["governance"] = _build_governance()
+            status_resp["transport_bindings"] = _build_transport_bindings()
             # Expose capabilities at top level (shortcut to agent_card.capabilities)
             agent_card = _status.get("agent_card") or {}
             if "capabilities" in agent_card:
@@ -13736,6 +13775,12 @@ Examples:
                              "'static' (default): declarative governance metadata only. "
                              "'live': dynamic REST governance queries (future extension). "
                              "Aligns with A2A #1717 audit_mode field.")
+    parser.add_argument("--experimental-transport", action="append", dest="experimental_transports",
+                        metavar="NAME", default=[],
+                        help="(v3.5) Append a transport binding name to AgentCard.transport_bindings.experimental. "
+                             "Repeatable. Used to pre-declare future transport mechanisms (e.g. slim-rpc) "
+                             "without exposing them as stable. Aligns with A2A #1723 SlimRPC pre-registration. "
+                             "Example: --experimental-transport slim-rpc --experimental-transport grpc")
 
     args = parser.parse_args()
 
@@ -14121,6 +14166,13 @@ Examples:
     if raw_am in ("static", "live"):
         _governance_audit_mode = raw_am
         log.info(f"🏛️  Governance audit mode: {_governance_audit_mode}")
+
+    # v3.5: --experimental-transport → _experimental_transports global
+    global _experimental_transports
+    raw_et = getattr(args, "experimental_transports", []) or []
+    if raw_et:
+        _experimental_transports = list(raw_et)
+        log.info(f"🚌 Experimental transports declared: {_experimental_transports}")
 
     # v1.4: --relay flag now means "force Level 3" (skip L1+L2 NAT traversal)
     # Previously: "use relay instead of P2P"

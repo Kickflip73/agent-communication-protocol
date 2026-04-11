@@ -8,6 +8,37 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v3.5.0] - 2026-04-11
+### Added
+- **`governance.proof_suite`** sub-object in AgentCard.governance (P1: A2A #1717 + ANP eddsa-jcs-2022 interop)
+  - Declares supported cryptographic proof suites: `["Ed25519Signature2020", "eddsa-jcs-2022"]`
+  - `default`: currently active suite (`"Ed25519Signature2020"`)
+  - `interop_refs`: W3C spec URLs (documentary only — not enforced at runtime):
+    - `https://w3c.github.io/vc-data-integrity/`
+    - `https://www.w3.org/TR/vc-di-eddsa/`
+  - Backward-compatible: new sub-field in existing governance block, no existing fields changed
+- **`AgentCard.transport_bindings`** block (P2: pre-SlimRPC extension point, A2A #1723)
+  - `supported`: `["http", "websocket"]` — stable transports
+  - `experimental`: `[]` by default — pre-registration slot for future bindings (SlimRPC, gRPC, etc.)
+  - Exposed at top-level `/status` response (alongside `governance`)
+  - New CLI flag: `--experimental-transport <name>` (repeatable) — appends to `experimental` list
+- **`capabilities.transport_bindings: true`** — always advertised in v3.5+
+- **`_build_transport_bindings()`** helper function
+
+### Changed
+- `VERSION` bumped to `3.5.0`
+
+### Tests
+- `tests/test_v35_extensions.py`: 6 test cases (V35-01 ~ V35-06) — all passing
+  - V35-01: `governance.proof_suite` present with non-empty `supported` list
+  - V35-02: `proof_suite.default` is a string
+  - V35-03: `proof_suite.interop_refs` is a list
+  - V35-04: `/status` contains `transport_bindings`
+  - V35-05: `transport_bindings` has `supported` and `experimental` lists
+  - V35-06: `capabilities.transport_bindings` is bool
+
+---
+
 ## [v3.4.0] - 2026-04-11
 ### Added
 - **`AgentCard.governance` block** (A2A #1717 `CredentialLifecyclePolicy` alignment — scan35 P1)
