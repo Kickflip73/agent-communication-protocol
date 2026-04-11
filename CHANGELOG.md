@@ -8,6 +8,29 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v3.4.0] - 2026-04-11
+### Added
+- **`AgentCard.governance` block** (A2A #1717 `CredentialLifecyclePolicy` alignment — scan35 P1)
+  - `/status` response now includes top-level `governance` object:
+    `{framework, version, credential_lifecycle:{ttl_seconds, revocation_endpoint, credential_ttl_seconds}, audit_mode, policy_ref}`
+  - `credential_lifecycle.ttl_seconds` defaults to 3600 (1h); `credential_ttl_seconds` to 86400 (24h)
+  - `audit_mode` supports `"static"` (declarative; default) and `"live"` (future REST extension)
+  - `revocation_endpoint` and `policy_ref` are optional (null by default)
+  - Governance block is always present in v3.4+ (not opt-in); clients should default to `ttl_seconds=3600, audit_mode=static` when absent
+- **`POST /governance/policy`** — read-only endpoint returning the current `governance` object
+  - No body required; safe for polling by clients and orchestrators
+- **`capabilities.governance: true`** — always advertised in v3.4+
+- **New CLI flags:**
+  - `--governance-ttl <seconds>` — override identity token TTL (default: 3600)
+  - `--revocation-endpoint <url>` — set credential revocation endpoint
+  - `--audit-mode static|live` — set governance audit mode (default: `static`)
+- **`/status` top-level `capabilities`** shortcut — exposes `agent_card.capabilities` at status root for easier client polling
+
+### Changed
+- `VERSION` bumped to `3.4.0`
+
+---
+
 ## [v3.3.0] - 2026-04-11
 ### Added
 - **`capability_token` transparent passthrough in `acp.message`** (A2A #1716 SINT Protocol interop)

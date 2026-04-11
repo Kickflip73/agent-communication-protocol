@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.3.0"   # v3.3: capability_token passthrough in messages + origin_proof OBO fields (principal_id/operator_id/governance_framework_ref) + POST /capability/issue helper
+VERSION = "3.4.0"   # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy; capabilities.governance=True
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -464,6 +464,12 @@ _imported_evidence: list = []    # v2.65: externally-imported bilateral IR evide
 _task_evidence: dict = {}        # v2.81: task lifecycle evidence {task_id: [evidence_entry, ...]}
 _evidence_subscribers: dict = {}  # v2.82: SSE subscribers per task_id {task_id: [queue.Queue, ...]}
 _governance_metadata: dict = {}  # v2.60: governance metadata (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
+
+# v3.4: AgentCard.governance block — A2A #1717 CredentialLifecyclePolicy
+_governance_ttl: int = 3600          # --governance-ttl (identity token TTL seconds)
+_governance_revocation_endpoint: str | None = None  # --revocation-endpoint
+_governance_audit_mode: str = "static"  # --audit-mode static|live
+_governance_policy_ref: str | None = None  # future: governance framework reference URL
 
 
 def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
@@ -2290,6 +2296,7 @@ def _make_agent_card(name, skills):
             "origin_proof":                bool(_ed25519_private),             # v3.1: recipient-bound msg_sig (to field in canonical); prevents replay-to-wrong-recipient; ANP DataIntegrityProof origin_proof
             "data_integrity_proof":        bool(_ed25519_private),             # v3.2: W3C DataIntegrityProof compat layer — proof object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof
             "capability_token":            True,                               # v3.3: capability_token field passthrough in acp.message (A2A #1716 SINT interop); POST /capability/issue helper
+            "governance":                  True,                               # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy
         },
 
         "identity": ({
@@ -2374,6 +2381,7 @@ def _make_agent_card(name, skills):
             "protocol_binding":             "/protocol-binding",              # v2.79: GET — A2A §5.8 CPB declaration (binding_uri, transport, addressing, nat_traversal)
             "protocol_binding_compatibility": "/protocol-binding/compatibility",  # v2.85: GET — multi-protocol compatibility matrix
             "policy_compliance":     "/policy-compliance",      # v2.87: GET/PATCH — governance/compliance standards (A2A #1717 inspired)
+            "governance_policy":     "/governance/policy",     # v3.4: POST — query current governance policy (AgentCard.governance object)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -2433,6 +2441,9 @@ def _make_agent_card(name, skills):
     # v2.60: attach governance_metadata block when configured (opt-in)
     if _governance_metadata:
         card["governance_metadata"] = _build_governance_metadata()
+
+    # v3.4: attach governance block (always present in v3.4+; A2A #1717 CredentialLifecyclePolicy)
+    card["governance"] = _build_governance()
 
     return card
 
@@ -3308,6 +3319,36 @@ def _init_security_posture():
             comp["version"] = _ilm.version(comp["name"])
         except Exception:
             comp["version"] = "unknown"
+
+def _build_governance() -> dict:
+    """
+    v3.4: Build the AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy).
+
+    Returns a dict representing the governance declaration for this relay.
+    The block is always present in v3.4+ AgentCards (not opt-in like governance_metadata).
+
+    Fields:
+      framework               — "ACP" (protocol identifier)
+      version                 — ACP version string (e.g. "3.4.0")
+      credential_lifecycle    — CredentialLifecyclePolicy object:
+          ttl_seconds           identity token TTL (default 3600)
+          revocation_endpoint   optional revocation URL (null when not configured)
+          credential_ttl_seconds  credential validity in seconds (default 86400 = 24h)
+      audit_mode              — "static" | "live" (default "static")
+      policy_ref              — optional governance framework reference URL (null)
+    """
+    return {
+        "framework": "ACP",
+        "version": VERSION,
+        "credential_lifecycle": {
+            "ttl_seconds": _governance_ttl,
+            "revocation_endpoint": _governance_revocation_endpoint,
+            "credential_ttl_seconds": 86400,
+        },
+        "audit_mode": _governance_audit_mode,
+        "policy_ref": _governance_policy_ref,
+    }
+
 
 def _build_trust_signals() -> list:
     """
@@ -6688,7 +6729,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
             self._json_well_known(jwks)
 
         elif p == "/status":  # [stable] relay status
-            self._json(_status)
+            # v3.4: merge governance block + capabilities shortcut into top-level /status response
+            status_resp = dict(_status)
+            status_resp["governance"] = _build_governance()
+            # Expose capabilities at top level (shortcut to agent_card.capabilities)
+            agent_card = _status.get("agent_card") or {}
+            if "capabilities" in agent_card:
+                status_resp["capabilities"] = agent_card["capabilities"]
+            self._json(status_resp)
 
         elif p == "/link":
             self._json({"link": _status.get("link"), "session_id": _status.get("session_id")})
@@ -10029,6 +10077,32 @@ class LocalHTTP(BaseHTTPRequestHandler):
             result["relay_did_key"] = _did_key
             status_code = 200 if result.get("ok") else (400 if not result.get("valid") else 200)
             self._json(result, status_code)
+
+        # ── v3.4: POST /governance/policy — query current governance policy ──────────────────────────────
+        elif p == "/governance/policy":
+            """
+            POST /governance/policy — Return the current AgentCard.governance block (v3.4).
+
+            No body required. This is a read-only query endpoint; it does not modify
+            any configuration. Returns the same governance object that appears in
+            /status and /.well-known/acp.json.
+
+            Response 200:
+            {
+              "framework": "ACP",
+              "version": "3.4.0",
+              "credential_lifecycle": {
+                "ttl_seconds": 3600,
+                "revocation_endpoint": null,
+                "credential_ttl_seconds": 86400
+              },
+              "audit_mode": "static",
+              "policy_ref": null
+            }
+
+            Aligns with A2A #1717 CredentialLifecyclePolicy governance metadata.
+            """
+            self._json(_build_governance())
 
         # ── v3.0: POST /verify/message — verify message-level Ed25519 signature (msg_sig) ─────────────────
         elif p == "/verify/message":
@@ -13649,6 +13723,19 @@ Examples:
                              "'drop' (default): silently remove expired messages. "
                              "'notify': log expiry event per message (audit trail). "
                              "Future: 'extend' (renew TTL if sender is still active).")
+    parser.add_argument("--governance-ttl", type=int, default=None, metavar="SECONDS",
+                        help="(v3.4) Identity token TTL in seconds for AgentCard.governance.credential_lifecycle. "
+                             "Default: 3600 (1 hour). Aligns with A2A #1717 CredentialLifecyclePolicy.ttl_seconds. "
+                             "Example: --governance-ttl 7200")
+    parser.add_argument("--revocation-endpoint", default=None, metavar="URL",
+                        help="(v3.4) Credential revocation endpoint URL for AgentCard.governance.credential_lifecycle. "
+                             "Optional. When set, clients MAY check this endpoint to verify credential validity. "
+                             "Example: --revocation-endpoint https://example.com/revoke")
+    parser.add_argument("--audit-mode", default=None, choices=["static", "live"],
+                        help="(v3.4) Governance audit mode for AgentCard.governance. "
+                             "'static' (default): declarative governance metadata only. "
+                             "'live': dynamic REST governance queries (future extension). "
+                             "Aligns with A2A #1717 audit_mode field.")
 
     args = parser.parse_args()
 
@@ -14019,6 +14106,21 @@ Examples:
         elif isinstance(raw_gm, dict):
             _governance_metadata = raw_gm
             log.info(f"🏛️  Governance metadata loaded from config ({len(_governance_metadata)} keys)")
+
+    # v3.4: --governance-ttl / --revocation-endpoint / --audit-mode → _governance_* globals
+    global _governance_ttl, _governance_revocation_endpoint, _governance_audit_mode
+    raw_gtl = _get(getattr(args, "governance_ttl", None), "governance-ttl", None)
+    if raw_gtl is not None:
+        _governance_ttl = int(raw_gtl)
+        log.info(f"🏛️  Governance TTL set to {_governance_ttl}s")
+    raw_rev = _get(getattr(args, "revocation_endpoint", None), "revocation-endpoint", None)
+    if raw_rev is not None:
+        _governance_revocation_endpoint = raw_rev
+        log.info(f"🏛️  Governance revocation endpoint: {_governance_revocation_endpoint}")
+    raw_am = _get(getattr(args, "audit_mode", None), "audit-mode", None)
+    if raw_am in ("static", "live"):
+        _governance_audit_mode = raw_am
+        log.info(f"🏛️  Governance audit mode: {_governance_audit_mode}")
 
     # v1.4: --relay flag now means "force Level 3" (skip L1+L2 NAT traversal)
     # Previously: "use relay instead of P2P"
