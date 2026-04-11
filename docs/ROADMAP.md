@@ -900,8 +900,13 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - `capabilities.transport_bindings: true`；CLI `--experimental-transport` flag
 - 测试：V35-01–V35-06 = 6/6 PASS
 
-## v3.6.0 候选特性
-- BUG-030 修复：relay 高并发偶发崩溃（P2）
-- scenario_d 压测集成到 CI
-- SlimRPC 实验性绑定（待 A2A #1723 建仓确认）
-- ECDSA-SD 选择性披露评估（跟踪 ANP 进展）
+## v3.6.0 ✅ 已完成 — 2026-04-11
+- BUG-007 P1 修复：multi-peer 发送歧义
+- BUG-009 P1 修复：SSE 推送延迟 <50ms
+- BUG-003b P1 修复：重复连接幂等
+
+## v3.7.0 候选特性
+- scenario_d 压测集成到 CI（P2）
+- SlimRPC 实验性绑定（待 A2A #1723 建仓确认，P3）
+- Agent Identity/Trust 互操作文档（参考 A2A #1672，P3）
+- ECDSA-SD 选择性披露评估（跟踪 ANP 进展，P3）

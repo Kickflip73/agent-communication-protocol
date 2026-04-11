@@ -575,10 +575,17 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.3** | ✅ | **Capability Token 透传 & OBO Authorization** — `capability_token` 可选字段透传（A2A #1716 SINT Protocol Ed25519 格式）；`POST /capability/issue` 本地签发辅助端点；`origin_proof` OBO 扩展字段（`principal_id`/`operator_id`/`governance_framework_ref`，A2A #1713 对齐）；`capabilities.capability_token: true`；CT-01–CT-06 = 6/6；修复 origin_proof 构建时机 bug（CT-06 回归）|
 | **v3.4** | ✅ | **AgentCard `governance` block** — `/status` 新增顶层 `governance` 对象（`framework`/`version`/`credential_lifecycle`/`audit_mode`/`policy_ref`）；`credential_lifecycle.ttl_seconds` 默认 3600；`audit_mode` 支持 `static`/`live`；A2A #1717 `CredentialLifecyclePolicy` 对齐 |
 | **v3.5** | ✅ | **Governance Proof Suite & Transport Bindings** — `governance.proof_suite` 声明签名套件（`Ed25519Signature2020`/`eddsa-jcs-2022`），附 W3C 规范引用，与 ANP 互操作；`AgentCard.transport_bindings` 新增传输绑定声明（`supported`/`experimental` 扩展口，为 SlimRPC 预留）；`capabilities.transport_bindings: true`；CLI `--experimental-transport` flag；V35-01–V35-06 = 6/6 |
+| **v3.6** | ✅ | **P1 Bug Fixes（稳定版）** — BUG-007 multi-peer 发送（`peer_ids` 列表参数，多播 + 逐 peer 状态响应）；BUG-009 SSE 零延迟（`_sse_notify.wait/set` 立即 flush，<50ms）；BUG-003b 连接幂等（link token 去重 + `--join` 直连）；P0/P1 全部清零 |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.6 — P1 Bug Fixes（稳定版）
+- **multi-peer 发送**：`/message:send` 新增 `peer_ids` 列表参数，支持真正的多播；兼容逗号分隔 `peer_id` 自动拆分
+- **SSE 零延迟**：事件推送从 ~950ms 降至 <50ms，立即 flush
+- **连接幂等**：重复连接基于 link token 去重，行为一致可预期
+- P0/P1 bug 全部清零，v3.6.0 为当前稳定版
 
 ### v3.5.0 — Governance Proof Suite & Transport Bindings
 - **`governance.proof_suite`**：`/status` governance 对象新增签名套件声明，支持 `Ed25519Signature2020` 和 `eddsa-jcs-2022`，附 W3C 规范引用（`https://w3c.github.io/vc-data-integrity/`、`https://www.w3.org/TR/vc-di-eddsa/`），与 ANP 互操作
