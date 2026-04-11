@@ -767,10 +767,15 @@ Key commit: TBD
 - [ ] `_check_authorization()` 升级为真实 capability_token 验证逻辑
 - [ ] `POST /tasks/queue/worker` — 注册异步任务处理器（v3.3 候选遗留）
 - [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）
+- [ ] topic-based broadcast（Pub/Sub subset）— 对标 A2A #1196（scan33 新发现）
+  - `POST /peers/broadcast/{topic}` + `GET /peers/topics` + `POST /peers/subscribe/{topic}`
+- [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713 scan33 新发现，P3）
 ### 优先级
 - P1: scenario_e multi-relay federation（生态完整性）
 - P2: `POST /tasks/queue/worker` 异步 worker 注册
+- P2: topic-based broadcast（Pub/Sub subset，A2A #1196 对标）
 - P3: Authorization Layer 实现（等待上游 A2A #1716）
+- P3: SINT/APS cross-protocol compatibility 声明（声明性，无大实现工作量）
 
 ---
 
