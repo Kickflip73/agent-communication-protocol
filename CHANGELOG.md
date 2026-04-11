@@ -8,6 +8,31 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v3.2.0] - 2026-04-11
+### Added
+- **W3C DataIntegrityProof compat layer** (ANP 2026-04-10 interoperability, Ed25519Signature2020)
+  - `_build_proof_object(msg, to="")`: new function that constructs a W3C-format `proof` object:
+    `{"type": "Ed25519Signature2020", "verificationMethod": "did:acp:<pubkey_b64>#key-0",
+    "created": "<ISO-8601 UTC>", "proofPurpose": "assertionMethod", "proofValue": "<base64url sig>"}`
+    — `proofValue` reuses the identical Ed25519 canonical payload as `msg_sig` for full interop
+  - `_attach_sig(msg, to="")` now attaches `proof` object alongside `msg_sig` on all outbound
+    messages (only when `_ed25519_private` is loaded; fully backward-compatible addition)
+  - **`POST /verify/proof`** — new endpoint accepting W3C DataIntegrityProof format:
+    - Body: `{"message": {..., "proof": {"proofValue": "...", "verificationMethod": "did:acp:...", ...}}}`
+    - Extracts public key from `proof.verificationMethod` (`did:acp:<pubkey_b64>#key-0`)
+    - Verifies using the same canonical payload as `_verify_message_sig` (v3.0 form)
+    - Response: `{"valid": bool, "type": "Ed25519Signature2020", "verificationMethod": "...", "created": "..."}`
+  - `capabilities.data_integrity_proof: bool(_ed25519_private)` — `true` when identity key loaded
+  - `endpoints.verify_proof: "/verify/proof"` added to AgentCard endpoints map
+- **Backward compatibility**: `msg_sig` field preserved unchanged; `proof` is an additive field;
+  `POST /verify/message` endpoint unchanged; messages without `proof` processed normally
+- **Tests**: `tests/test_data_integrity_proof.py` — DIP-01–DIP-06, **6 passed** (unit + integration)
+### Research
+- ANP 2026-04-10 introduced W3C DataIntegrityProof as standard format; ACP v3.2 bridges
+  ACP's msg_sig pattern with the W3C `proof` object format for cross-protocol interoperability
+
+---
+
 ## [v3.1.0] - 2026-04-11
 ### Added
 - **`origin_proof` — recipient-bound msg_sig** (ANP DataIntegrityProof alignment, anti-replay)

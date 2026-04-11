@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.1.0"   # v3.1: origin_proof — bind msg_sig to recipient peer_id (to field in canonical); POST /verify/message accepts optional `to`; capabilities.origin_proof
+VERSION = "3.2.0"   # v3.2: W3C DataIntegrityProof compat layer — `proof` object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof; capabilities.data_integrity_proof
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -728,6 +728,44 @@ def _sign_message(msg_payload: dict, to: str = "") -> str:
                                separators=(",", ":")).encode()
     sig_bytes = _ed25519_private.sign(payload_bytes)
     return _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+
+def _build_proof_object(msg: dict, to: str = "") -> dict:
+    """Build a W3C DataIntegrityProof-format proof object (v3.2).
+
+    Constructs a proof object compatible with the W3C Data Integrity specification,
+    using the same Ed25519 canonical payload as msg_sig for interoperability.
+
+    The proof object format:
+    {
+        "type":               "Ed25519Signature2020",
+        "verificationMethod": "did:acp:<pubkey_b64>#key-0",
+        "created":            "<ISO-8601 UTC timestamp>",
+        "proofPurpose":       "assertionMethod",
+        "proofValue":         "<base64url Ed25519 signature>"
+    }
+
+    - `proofValue` uses the identical Ed25519 canonical payload as msg_sig
+      (v3.0 or v3.1/origin_proof depending on `to`), enabling cross-verification.
+    - `verificationMethod` embeds the relay's public key as a did:acp DID URL.
+    - `created` is the current UTC timestamp in ISO-8601 format.
+
+    Requires _ed25519_private to be loaded. Returns None if identity unavailable.
+    """
+    if _ed25519_private is None:
+        return None
+    import datetime as _dt
+    created = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # proofValue reuses the same canonical signing path as msg_sig — full interop
+    proof_value = _sign_message(msg, to=to)
+    verification_method = f"did:acp:{_ed25519_public_b64}#key-0"
+    return {
+        "type":               "Ed25519Signature2020",
+        "verificationMethod": verification_method,
+        "created":            created,
+        "proofPurpose":       "assertionMethod",
+        "proofValue":         proof_value,
+    }
 
 
 def _verify_message_sig(msg: dict, public_key_b64: str, to: str = "") -> bool:
@@ -2216,6 +2254,7 @@ def _make_agent_card(name, skills):
             "evidence_stream":             True,                               # v2.82: GET /tasks/{id}/evidence-stream — SSE real-time evidence subscription
             "msg_sig":                     bool(_ed25519_private),             # v3.0: per-message Ed25519 signature (msg_sig field); POST /verify/message; ANP DataIntegrityProof-aligned
             "origin_proof":                bool(_ed25519_private),             # v3.1: recipient-bound msg_sig (to field in canonical); prevents replay-to-wrong-recipient; ANP DataIntegrityProof origin_proof
+            "data_integrity_proof":        bool(_ed25519_private),             # v3.2: W3C DataIntegrityProof compat layer — proof object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof
         },
 
         "identity": ({
@@ -2279,6 +2318,7 @@ def _make_agent_card(name, skills):
             "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
             "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
             "verify_message":        "/verify/message",         # v3.0: POST — verify message-level Ed25519 signature (msg_sig); ANP DataIntegrityProof-aligned
+            "verify_proof":          "/verify/proof",           # v3.2: POST — verify W3C DataIntegrityProof (proof.proofValue + proof.verificationMethod)
             "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
             "ir_adversarial_fixtures": "/ir/adversarial-fixtures",  # v2.91: GET — adversarial collusion/inflation detection fixtures (A2A #1718)
             "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
@@ -5582,10 +5622,13 @@ def _on_message(raw):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _attach_sig(msg: dict, to: str = "") -> dict:
-    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), and msg_sig (v3.0/v3.1) to outbound message.
+    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), msg_sig (v3.0/v3.1), and proof (v3.2) to outbound message.
 
     v3.1: if `to` (recipient peer_id) is provided, the msg_sig canonical payload includes the
     `to` field (origin_proof — binds signature to the intended recipient).
+    v3.2: additionally attaches a W3C DataIntegrityProof-format `proof` object (Ed25519Signature2020)
+    alongside msg_sig for ANP interoperability. The `proof` field is backward-compatible — its
+    absence does not affect existing message processing.
     """
     if _hmac_secret and "message_id" in msg and "ts" in msg:
         msg["sig"] = _hmac_sign(str(msg["message_id"]), str(msg["ts"]))
@@ -5604,6 +5647,14 @@ def _attach_sig(msg: dict, to: str = "") -> dict:
             msg["msg_sig"] = _sign_message(msg, to=to)
         except Exception as _ms_err:
             log.debug(f"[msg_sig] Could not attach msg_sig: {_ms_err}")
+        # v3.2: W3C DataIntegrityProof compat layer — proof object alongside msg_sig.
+        # proofValue uses the same Ed25519 canonical payload as msg_sig (full interop).
+        try:
+            proof_obj = _build_proof_object(msg, to=to)
+            if proof_obj is not None:
+                msg["proof"] = proof_obj
+        except Exception as _proof_err:
+            log.debug(f"[proof] Could not attach DataIntegrityProof: {_proof_err}")
     return msg
 
 
@@ -9924,6 +9975,127 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self._json({"ok": False, "valid": False, "error": str(e)}, 500)
+
+        # ── v3.2: POST /verify/proof — verify W3C DataIntegrityProof (Ed25519Signature2020) ──────────────────
+        elif p == "/verify/proof":
+            """
+            POST /verify/proof — Verify a W3C DataIntegrityProof on an ACP message (v3.2).
+
+            Accepts a message containing a `proof` object (Ed25519Signature2020 format)
+            and verifies the `proof.proofValue` using the public key embedded in
+            `proof.verificationMethod` (did:acp:<pubkey_b64>#key-0 format).
+
+            The canonical signed payload is identical to msg_sig (v3.0/v3.1), ensuring
+            full interoperability between the two signature representations.
+
+            Request body:
+            {
+              "message": {               -- required: full ACP message with proof field
+                "message_id": "...",
+                "from": "...",
+                "parts": [...],
+                "ts": "...",
+                "proof": {
+                  "type": "Ed25519Signature2020",
+                  "verificationMethod": "did:acp:<pubkey_b64>#key-0",
+                  "created": "<ISO-8601>",
+                  "proofPurpose": "assertionMethod",
+                  "proofValue": "<base64url Ed25519 signature>"
+                }
+              }
+            }
+
+            Response (valid):
+            {
+              "valid":              true,
+              "type":               "Ed25519Signature2020",
+              "verificationMethod": "did:acp:<pubkey_b64>#key-0",
+              "created":            "<ISO-8601>",
+              "message_id":         "...",
+              "error":              null
+            }
+
+            Response (invalid):
+            {
+              "valid": false,
+              "error": "<reason>"
+            }
+            """
+            try:
+                body_vp = self._read_body()
+            except Exception as e:
+                self._json({"valid": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            msg_vp = body_vp.get("message")
+            if not isinstance(msg_vp, dict):
+                self._json({"valid": False,
+                            "error": "'message' field required (object)"}, 400)
+                return
+
+            proof_obj = msg_vp.get("proof")
+            if not isinstance(proof_obj, dict):
+                self._json({"valid": False,
+                            "error": "message.proof is absent or not an object"}, 400)
+                return
+
+            proof_value = proof_obj.get("proofValue")
+            if not proof_value:
+                self._json({"valid": False,
+                            "error": "proof.proofValue is absent"}, 400)
+                return
+
+            verification_method = proof_obj.get("verificationMethod", "")
+            if not verification_method:
+                self._json({"valid": False,
+                            "error": "proof.verificationMethod is absent"}, 400)
+                return
+
+            # Extract public key from verificationMethod: "did:acp:<pubkey_b64>#key-0"
+            # Also accept plain base64url pubkey for flexibility
+            pub_key_b64_vp = None
+            if verification_method.startswith("did:acp:"):
+                # Strip "did:acp:" prefix and "#key-0" fragment
+                stripped = verification_method[len("did:acp:"):]
+                if "#" in stripped:
+                    stripped = stripped.split("#")[0]
+                pub_key_b64_vp = stripped
+            else:
+                # Fallback: treat verificationMethod as a raw pubkey
+                pub_key_b64_vp = verification_method
+
+            if not pub_key_b64_vp:
+                self._json({"valid": False,
+                            "error": "could not extract public key from proof.verificationMethod"}, 400)
+                return
+
+            if not _ED25519_AVAILABLE:
+                self._json({
+                    "valid":              None,
+                    "type":               proof_obj.get("type"),
+                    "verificationMethod": verification_method,
+                    "created":            proof_obj.get("created"),
+                    "message_id":         msg_vp.get("message_id"),
+                    "error":              "Ed25519 library unavailable — cannot verify (fail-open)",
+                })
+                return
+
+            # Build a synthetic msg with msg_sig = proofValue, then use existing verifier
+            msg_for_verify = dict(msg_vp)
+            msg_for_verify["msg_sig"] = proof_value
+
+            try:
+                valid_vp = _verify_message_sig(msg_for_verify, pub_key_b64_vp, to="")
+                self._json({
+                    "valid":              valid_vp,
+                    "type":               proof_obj.get("type", "Ed25519Signature2020"),
+                    "verificationMethod": verification_method,
+                    "created":            proof_obj.get("created"),
+                    "message_id":         msg_vp.get("message_id"),
+                    "error":              (None if valid_vp else "Ed25519 signature verification failed"),
+                })
+            except Exception as e:
+                self._json({"valid": False, "error": str(e)}, 500)
 
         # ── v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS reputation update ──
         elif p == "/ir/import-evidence":
