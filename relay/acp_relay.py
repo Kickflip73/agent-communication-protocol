@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.7.0"   # v3.7: scenario_d CI stress test integration + Authorization hook stub (A2A #1716 watchlist)
+VERSION = "3.8.0"   # v3.8: GET /offline-queue/summary + --heartbeat-agent mode (heartbeat-agent three-piece closure, A2A #1667)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2209,6 +2209,7 @@ def _make_agent_card(name, skills):
             "persist_queue":      _persist_queue_conn is not None,  # v2.97: SQLite-backed persistent offline queue
             "async_task_queue":   True,                              # v2.98: POST /tasks/queue async enqueue (A2A #1667)
             "offline_ttl":        _max_offline_ttl_sec is not None, # v2.99: --max-offline-ttl expiry policy enabled
+            "heartbeat_agent":    bool(_availability and _availability.get("mode") in ("heartbeat", "cron")),  # v3.8: heartbeat/cron agent mode
             "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
             "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
@@ -2343,7 +2344,8 @@ def _make_agent_card(name, skills):
             "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
             "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
-            "offline_queue_sweep": "/offline-queue/sweep",  # v2.99: on-demand TTL sweep
+            "offline_queue_sweep":   "/offline-queue/sweep",    # v2.99: on-demand TTL sweep
+            "offline_queue_summary": "/offline-queue/summary",  # v3.8: lightweight heartbeat-agent poll
             "task_queue":    "/tasks/queue",           # v2.97: async task enqueue (POST) + queue status (GET)
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
@@ -8219,6 +8221,59 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 }
             self._json(resp)
 
+        elif p == "/offline-queue/summary":
+            # ── GET /offline-queue/summary — lightweight heartbeat-agent poll (v3.8) ──
+            """
+            Lightweight endpoint for heartbeat/cron-style agents that wake up
+            periodically and want to quickly check whether there are pending
+            offline messages before doing heavier work.
+
+            Unlike GET /offline-queue, this endpoint returns only a compact
+            summary — no message contents, minimal overhead.
+
+            Response fields:
+              - has_messages (bool): True if any offline messages are queued
+              - total_queued (int): total messages across all peer buckets
+              - peer_count (int): number of distinct peer buckets with messages
+              - persist_queue (bool): True if SQLite persistence is active
+              - oldest_queued_at (str|None): ISO-8601 timestamp of oldest queued msg
+              - hint (str): human-readable guidance on next step
+
+            Typical usage pattern (heartbeat-agent):
+              1. Agent wakes (cron / scheduled)
+              2. GET /offline-queue/summary  → has_messages=true
+              3. GET /offline-queue          → full queue contents
+              4. Process messages, send responses
+              5. POST /availability/heartbeat → stamp last_active_at
+              6. Agent sleeps until next scheduled wake
+            """
+            snap = _offline_queue_snapshot()
+            total = sum(v["depth"] for v in snap.values())
+            peer_count = sum(1 for v in snap.values() if v["depth"] > 0)
+
+            # Find oldest queued_at across all buckets
+            oldest: str | None = None
+            for bucket in snap.values():
+                for msg_meta in bucket.get("messages", []):
+                    ts = msg_meta.get("queued_at")
+                    if ts and (oldest is None or ts < oldest):
+                        oldest = ts
+
+            summary_resp = {
+                "has_messages":   total > 0,
+                "total_queued":   total,
+                "peer_count":     peer_count,
+                "persist_queue":  _persist_queue_conn is not None,
+                "oldest_queued_at": oldest,
+                "hint": (
+                    "Messages waiting — call GET /offline-queue for full details, "
+                    "then POST /availability/heartbeat when done."
+                    if total > 0
+                    else "Queue empty — no pending messages."
+                ),
+            }
+            self._json(summary_resp)
+
         elif p == "/offline-queue/sweep":
             # ── GET /offline-queue/sweep — on-demand TTL sweep (v2.99) ──────
             """
@@ -13737,6 +13792,19 @@ Examples:
                              "capabilities.heartbeat_period_declared=true. "
                              "Consumers may treat agents as offline after 2-3x this interval "
                              "without a heartbeat. Example: --heartbeat-period-ms 30000 (30s).")
+    parser.add_argument("--heartbeat-agent", action="store_true",
+                        help="(v3.8) Shortcut: configure relay as a heartbeat/cron-style agent. "
+                             "Implies --availability-mode heartbeat and --local-only. "
+                             "Enables the full heartbeat-agent workflow: "
+                             "  1) GET /offline-queue/summary  — check for pending messages "
+                             "  2) GET /offline-queue          — retrieve full queue "
+                             "  3) Process messages, send responses "
+                             "  4) POST /availability/heartbeat — stamp last_active_at "
+                             "  5) Agent sleeps until next scheduled wake. "
+                             "Use with --persist-queue to survive restarts and --availability-cron "
+                             "to declare the wake schedule. "
+                             "Example: acp-relay --heartbeat-agent --persist-queue ~/.acp/q.db "
+                             "         --availability-cron '0 * * * *'")
     parser.add_argument("--next-active-at", default=None, metavar="ISO8601",
                         help="(v1.2) ISO-8601 UTC timestamp of next scheduled wake "
                              "(e.g. 2026-03-22T07:00:00Z). Written into AgentCard availability block.")
@@ -13978,9 +14046,21 @@ Examples:
 
     # Availability metadata (v1.2) — opt-in AgentCard block for heartbeat/cron agents
     global _availability
+    # v3.8: --heartbeat-agent shortcut — implies availability-mode=heartbeat + local-only
+    _heartbeat_agent_mode = getattr(args, "heartbeat_agent", False)
+    if _heartbeat_agent_mode:
+        # Force local-only (skip slow public-IP detection, not needed for heartbeat agents)
+        args.local_only = True
+        log.info("🤖 --heartbeat-agent mode: availability=heartbeat, local-only enabled. "
+                 "Use GET /offline-queue/summary to poll for pending messages. "
+                 "Use POST /availability/heartbeat to stamp last_active_at after each wake.")
+
     avail_mode        = _get(getattr(args, "availability_mode",  None), "availability-mode",    None)
     hb_interval       = _get(getattr(args, "heartbeat_interval", None), "heartbeat-interval",   None)
     next_active_at    = _get(getattr(args, "next_active_at",     None), "next-active-at",       None)
+    # v3.8: --heartbeat-agent implies availability-mode=heartbeat (unless explicitly set)
+    if _heartbeat_agent_mode and not avail_mode:
+        avail_mode = "heartbeat"
     # v2.19: --availability-cron shorthand — sets scheduleType=cron + CRON expression + auto-computes nextActiveAt
     avail_cron_expr   = _get(getattr(args, "availability_cron",  None), "availability-cron",    None)
     if avail_cron_expr:

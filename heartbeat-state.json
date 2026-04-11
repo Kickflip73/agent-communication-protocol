@@ -1,5 +1,7 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-08 23:55 — 테스트 라운드 완료. 시나리오B(7/7)+3-agent(25/25)+round12_b(내포)+scenario_e+ab(8/8)+round12_c(16/16) 전부 PASS. 미해결 P0/P1 없음. 下轮: 개발 라운드(v2.87 2-Agent demo 스크립트 준비).",
-  "next_round": "dev"
+  "notes": "2026-04-12 04:30 — 开发轮完成。v3.8.0：GET /offline-queue/summary + --heartbeat-agent + HA1-HA8全PASS。heartbeat-agent三件套闭环。下轮: 测试轮（运行场景A+B验证v3.8.0基础功能）。",
+  "next_round": "test",
+  "last_dev_version": "3.8.0",
+  "last_dev_feature": "heartbeat-agent three-piece closure (v3.8.0)"
 }

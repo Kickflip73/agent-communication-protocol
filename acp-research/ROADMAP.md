@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-11 22:24（文档轮；v3.7.0 docs synced；当前版本 v3.7.0）
+> 最后更新：2026-04-12 04:30（开发轮；v3.8.0 heartbeat-agent 三件套闭环；当前版本 v3.8.0）
 
 ---
 
@@ -746,13 +746,30 @@ Key commit: `806d303`
 
 ---
 
-## 🔭 v3.8.0（候选，截止 2026-04-18）
+## ✅ v3.8.0（完成，2026-04-12）
+**主题：heartbeat-agent 三件套闭环（A2A IS#1667）**
+
+- ✅ `GET /offline-queue/summary` — 轻量 heartbeat-agent polling 端点（has_messages/total_queued/oldest_queued_at）
+- ✅ `--heartbeat-agent` CLI 标志 — 一键配置 heartbeat 模式（implies --local-only + availability.mode=heartbeat）
+- ✅ `capabilities.heartbeat_agent` — AgentCard 能力声明
+- ✅ `tests/test_heartbeat_agent.py` — 8 测试全部通过（HA1–HA8）
+
+**三件套完整闭环**：`--persist-queue`（v2.97）+ `POST /tasks/queue`（v2.98）+ `GET /offline-queue/summary`（v3.8）
+
+Key commit: TBD
+
+---
+
+## 🔭 v3.9.0（候选，截止 2026-04-25）
 ### 候选特性
-- [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定，当前 watchlist）
 - [ ] scenario_e: 跨 relay 实例消息路由（multi-relay federation）
+- [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定，当前 watchlist）
 - [ ] `_check_authorization()` 升级为真实 capability_token 验证逻辑
+- [ ] `POST /tasks/queue/worker` — 注册异步任务处理器（v3.3 候选遗留）
+- [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）
 ### 优先级
-- P2: scenario_e multi-relay federation
+- P1: scenario_e multi-relay federation（生态完整性）
+- P2: `POST /tasks/queue/worker` 异步 worker 注册
 - P3: Authorization Layer 实现（等待上游 A2A #1716）
 
 ---

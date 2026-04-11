@@ -8,6 +8,34 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.8.0] - 2026-04-12
+
+### Added
+- **`GET /offline-queue/summary`**: Lightweight heartbeat-agent poll endpoint (v3.8). Returns `has_messages`, `total_queued`, `peer_count`, `persist_queue`, `oldest_queued_at`, `hint` — minimal overhead, no message contents. Ideal for cron/heartbeat agents that wake periodically and need a fast pre-check before heavier processing.
+- **`--heartbeat-agent` CLI flag**: One-shot shortcut to configure the relay as a heartbeat/cron-style agent. Implies `--local-only` + `--availability-mode heartbeat`. Closes the heartbeat-agent three-piece closure: `--persist-queue` (v2.97) + `/tasks/queue` (v2.98) + `/offline-queue/summary` (v3.8).
+- **`capabilities.heartbeat_agent`** in AgentCard: `true` when `availability.mode` is `heartbeat` or `cron`.
+- **`endpoints.offline_queue_summary`** declared in AgentCard: `"/offline-queue/summary"`.
+- **`tests/test_heartbeat_agent.py`**: 8 new tests (HA1–HA8) covering summary structure, empty/non-empty queue states, `--heartbeat-agent` flag effects, AgentCard declarations, and full end-to-end workflow. **8/8 passed**.
+
+### Heartbeat-Agent Workflow (v3.8)
+```
+1. Agent wakes (cron / scheduled)
+2. GET /offline-queue/summary  → has_messages=true/false
+3. (if true) GET /offline-queue → full queue contents
+4. Process messages, send responses via POST /message:send
+5. POST /availability/heartbeat → stamp last_active_at + compute next_active_at
+6. Agent sleeps until next scheduled wake
+```
+**Addresses**: A2A IS#1667 (offline-first / heartbeat-agent discussion)
+
+### Changed
+- `VERSION` → `3.8.0`
+
+### Notes
+- The heartbeat-agent three-piece set is now complete: persistent queue (`--persist-queue`), async enqueue (`POST /tasks/queue`), and lightweight poll (`GET /offline-queue/summary`)
+
+---
+
 ## [3.7.0] - 2026-04-11
 ### Added
 - `test_scenario_d.py`: local-relay 20-msg burst stress test + P99 latency assertion, fully CI-safe (no external network)
