@@ -571,6 +571,7 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v2.99** | ✅ | **`--max-offline-ttl` 过期策略** — 离线队列消息超 TTL 自动清理（drop/notify 双策略）；`POST /offline-queue/sweep` 主动清扫端点 |
 | **v3.0** | ✅ | **消息级 Ed25519 签名（msg_sig）** — `_sign_message()` + `_verify_message_sig()`；出站消息自动签名；`POST /verify/message` 第三方验证端点；`capabilities.msg_sig: true`；对齐 ANP DataIntegrityProof 方向；MS-01–MS-10 = 8/10（2 skipped，预期） |
 | **v3.1** | ✅ | **origin_proof — 签名绑定接收方 peer_id** — canonical 加入 `to` 字段（`{content,from,message_id,to,ts}`），防 replay-to-wrong-recipient 攻击；`capabilities.origin_proof: true`；向后兼容（`to=""` 退回 v3.0 canonical）；OP-01–OP-06 = 5/6（1 skipped，预期）|
+| **v3.2** | ✅ | **W3C DataIntegrityProof 兼容层** — `_build_proof_object()` 输出标准 `Ed25519Signature2020` proof 对象；出站消息并存 `msg_sig`（ACP 原生）+ `proof`（W3C 格式）；`POST /verify/proof` 新验证端点；`capabilities.data_integrity_proof: true`；proofValue 与 msg_sig 互操作等价（同 canonical）；DIP-01–DIP-06 = 6/6；对标 ANP DataIntegrityProof（2026-04-10 落地）|
 
 ---
 

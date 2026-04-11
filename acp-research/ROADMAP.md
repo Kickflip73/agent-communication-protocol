@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-11 08:21（文档轮；v3.0 msg_sig + v3.1 origin_proof 完成记录；当前版本 v3.1.0 commits a7f0840/79a16c6）
+> 最后更新：2026-04-11 09:51（文档轮；v3.2 W3C DataIntegrityProof 完成记录；当前版本 v3.2.0 commit 806d303）
 
 ---
 
@@ -427,7 +427,24 @@ Key commit: `79a16c6`
 
 ---
 
-### 🔮 v3.2（规划中）
+### ✅ v3.2（完成，2026-04-11）
+**主题：W3C DataIntegrityProof 兼容层**
+
+- ✅ **`_build_proof_object(msg, to="")`** — 构建 W3C `Ed25519Signature2020` 格式 proof 对象
+  - `verificationMethod`: `did:acp:<pubkey_b64>#key-0`
+  - `proofValue` 复用与 `msg_sig` 完全相同的 canonical payload + Ed25519 签名（互操作等价）
+  - `proofPurpose`: `assertionMethod`，`created`: ISO-8601 时间戳
+- ✅ **出站消息双字段**：`msg_sig`（ACP 原生）+ `proof`（W3C 格式）并存，向后兼容
+- ✅ **`POST /verify/proof`** — 新端点，从 `proof.verificationMethod` 提取公钥，复用 `_verify_message_sig` 验证
+- ✅ **`capabilities.data_integrity_proof: bool(_ed25519_private)`**
+- ✅ **DIP-01~DIP-06 全通**（自启动 relay fixture，6/6 passed）
+- ✅ 互操作意义：ACP `msg_sig` ↔ ANP DataIntegrityProof 双向验证路径打通
+
+Key commit: `806d303`
+
+---
+
+### 🔮 v3.3（规划中）
 **主题：公开发布 + 联邦化**
 
 - [ ] 公开发布（博客文章 + GitHub README + Hacker News）
@@ -719,14 +736,13 @@ Key commit: `79a16c6`
 
 ---
 
-## 🔭 v3.2 候选特性（规划中）
+## 🔭 v3.3 候选特性（规划中）
 
-> 基于当前版本 v3.1.0，下一轮开发优先级：
+> 基于当前版本 v3.2.0，下一轮开发优先级：
 
-### [ ] P1 — W3C DataIntegrityProof 格式对齐（互操作兼容）
-- scan33 结论：ANP 引入 W3C DataIntegrityProof 标准，ACP msg_sig 方向一致但格式不同
-- 评估 ACP msg_sig / origin_proof 是否向 W3C 标准格式靠拢，提升与 ANP 互操作性
-- 输出：`spec/security-v3.2.md` §14 补充 W3C 格式映射说明
+### ✅ P1 — W3C DataIntegrityProof 格式对齐（已完成，v3.2，commit 806d303）
+- ACP `proof` 字段（`Ed25519Signature2020`）+ `POST /verify/proof` 端点
+- `proofValue` 与 `msg_sig` 互操作等价，ANP DataIntegrityProof 双向验证路径打通
 
 ### [ ] P1 — A2A #1716 Capability Token 兼容字段预留
 - A2A #1716 AgentSkill 级别 capability token RFC 活跃，ACP 已领先实现
