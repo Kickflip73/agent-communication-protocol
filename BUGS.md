@@ -138,7 +138,7 @@ P2: BUG-006 task_id 语义讨论
 ### BUG-007 🟡 P1 — `/message:send` ambiguous in multi-peer mode
 
 **发现时间**: 2026-03-23 场景B测试
-**状态**: ✅ 已修复 (commit `3a1c499` + `638f778`)
+**状态**: ✅ 已修复 (commit `3a1c499` + `638f778`); **v3.6.0 增强** — 新增 `peer_ids` 列表多播参数
 
 **现象**: Orchestrator 连接了 Worker1 (peer_001) 和 Worker2 (peer_002) 两个 peer。
 调用 `/message:send` 时，消息只发给 `_peer_ws`（模块级变量），
@@ -153,6 +153,12 @@ P2: BUG-006 task_id 语义讨论
 - **Part 2** (`638f778`): 当 `peer_id` 提供时真正路由到目标 peer；
   `_ws_send(msg, peer_id=None)` 查找 `_peers[peer_id]["ws"]` 定向发送，
   更新 per-peer `messages_sent` 计数器。场景C验证：8/8 ✅
+
+**v3.6.0 增强 (P1 集中清理轮)**:
+- 新增 `peer_ids: list` 参数支持真正的多播发送（一次请求发给多个 peer）
+- 兼容逗号分隔的 `peer_id: "a,b,c"` 自动拆分为列表
+- 响应返回每个 peer 的发送状态 `{peer_id, ok, message_id/error}`
+- `multi_cast: true, sent_to: N, total: N, results: [...]`
 
 ---
 

@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.5.0"   # v3.5: governance.proof_suite (ANP eddsa-jcs-2022, A2A #1717); transport_bindings.experimental (pre-SlimRPC, #1723)
+VERSION = "3.6.0"   # v3.6: P1 bug fixes — BUG-007 peer_ids multi-cast, BUG-009 SSE instant flush, BUG-003b idempotent reconnect
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -10506,18 +10506,79 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     self._json(e_body, e_code)
                     return
 
-                # ── BUG-007 fix: multi-peer ambiguity guard ────────────────────
-                # When >1 peers are connected and no peer_id is supplied,
-                # /message:send cannot unambiguously route the message.
-                # Return ERR_AMBIGUOUS_PEER and guide the caller to use
-                # POST /peer/{id}/send instead.
+                # ── BUG-007 fix (v3.6.0): multi-peer support via peer_ids list ──────────
+                # Supports three routing modes:
+                # 1. peer_ids: list  → multi-cast to specified peers (new in v3.6.0)
+                # 2. peer_id: str    → single-cast (unchanged behaviour)
+                # 3. peer_id: "a,b"  → comma-separated auto-split to list (convenience)
+                # When >1 peers connected and no routing hint → ERR_AMBIGUOUS_PEER (unchanged)
                 _req_peer_id = body.get("peer_id")
+                _req_peer_ids = body.get("peer_ids")  # v3.6.0: explicit list form
                 _connected_peers = [pid for pid, pinfo in _peers.items() if pinfo.get("connected")]
-                if len(_connected_peers) > 1 and not _req_peer_id:
+
+                # Normalise comma-separated peer_id → peer_ids list
+                if _req_peer_id and not _req_peer_ids and "," in str(_req_peer_id):
+                    _req_peer_ids = [p.strip() for p in str(_req_peer_id).split(",") if p.strip()]
+                    _req_peer_id = None  # consumed into list form
+
+                # If peer_ids list provided → multi-cast path (short-circuit below single-send)
+                if _req_peer_ids and isinstance(_req_peer_ids, list) and len(_req_peer_ids) > 1:
+                    # Build parts now (needed before multi-send)
+                    _mc_parts = body.get("parts")
+                    if _mc_parts:
+                        _mc_ok, _mc_err = _validate_parts(_mc_parts)
+                        if not _mc_ok:
+                            e_body, e_code = _err(ERR_INVALID_REQUEST, _mc_err,
+                                                  failed_message_id=_client_msg_id)
+                            self._json(e_body, e_code)
+                            return
+                    else:
+                        _mc_text = body.get("text") or body.get("content") or ""
+                        _mc_parts = [_make_text_part(str(_mc_text))] if _mc_text else []
+                        if not _mc_parts:
+                            e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                                  "missing required field: provide 'parts' (list) or 'text' (string)",
+                                                  failed_message_id=_client_msg_id)
+                            self._json(e_body, e_code)
+                            return
+
+                    _mc_results = []
+                    for _mc_pid in _req_peer_ids:
+                        _mc_msg_id = _make_id("msg")
+                        _mc_msg = {
+                            "id":         _mc_msg_id,
+                            "message_id": _mc_msg_id,
+                            "role":       role_raw,
+                            "parts":      _mc_parts,
+                            "task_id":    body.get("task_id"),
+                            "context_id": body.get("context_id"),
+                            "ts":         _now(),
+                            "from":       _status.get("agent_name", "local"),
+                            "server_seq": _next_seq(),
+                        }
+                        try:
+                            _ws_send_sync(_mc_msg, peer_id=_mc_pid)
+                            _mc_results.append({"peer_id": _mc_pid, "ok": True,
+                                                "message_id": _mc_msg_id})
+                        except Exception as _mc_e:
+                            _mc_results.append({"peer_id": _mc_pid, "ok": False,
+                                                "error": str(_mc_e)})
+                    _mc_ok_count = sum(1 for r in _mc_results if r["ok"])
+                    self._json({
+                        "ok":          _mc_ok_count > 0,
+                        "multi_cast":  True,
+                        "sent_to":     _mc_ok_count,
+                        "total":       len(_req_peer_ids),
+                        "results":     _mc_results,
+                    })
+                    return
+
+                # Single-send path: ambiguity guard (unchanged)
+                if len(_connected_peers) > 1 and not _req_peer_id and not _req_peer_ids:
                     e_body, e_code = _err(
                         "ERR_AMBIGUOUS_PEER",
                         f"multiple peers connected ({len(_connected_peers)}); "
-                        "specify 'peer_id' in the request body or use "
+                        "specify 'peer_id' or 'peer_ids' in the request body or use "
                         "POST /peer/{{id}}/send for directed delivery",
                         400,
                         failed_message_id=_client_msg_id,

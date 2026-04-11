@@ -8,6 +8,18 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.6.0] - 2026-04-11
+
+### Fixed
+- **BUG-007 P1**: `/message:send` multi-peer 歧义 — 新增 `peer_ids` 列表参数，支持一次请求多播发送多个 peer；兼容逗号分隔的 `peer_id: "a,b"` 自动拆分；响应返回每个 peer 的发送状态 `{peer_id, ok, message_id}`
+- **BUG-009 P1**: SSE 推送延迟 ~950ms — 已使用 `threading.Event` 立即 notify 模式（`_sse_notify.wait(30s)` + `_sse_notify.set()` on broadcast），消除 `time.sleep(1)` 轮询延迟，延迟降至 <50ms（commit 22aacd9 验证）
+- **BUG-003b P1**: 重复连接幂等问题 — 连接时基于 link token 检测已有活跃会话，幂等返回已有连接；`--join` 直连模式绕过竞态（commit 22aacd9 + 6831f76 验证）
+
+### Changed
+- `VERSION` 升至 `3.6.0`
+
+---
+
 ## [v3.5.0] - 2026-04-11
 ### Added
 - **`governance.proof_suite`** sub-object in AgentCard.governance (P1: A2A #1717 + ANP eddsa-jcs-2022 interop)
