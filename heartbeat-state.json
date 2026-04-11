@@ -1,8 +1,9 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 05:40 — 研究轮完成。scan33：A2A #1713 SINT/APS收敛发现(ACP架构兼容)、#1196 Pub/Sub提案(v3.9候选)、#1716无新进展。无P0/P1。下轮: 文档轮（README/spec同步v3.8）。",
-  "next_round": "doc",
-  "last_scan": "scan33",
+  "notes": "2026-04-12 06:39 — 测试轮完成。场景E(1/1)+heartbeat-agent(8/8)=9/9 PASS，1 skip(BC P2P)，10.2s。无新 bug。下轮: 开发轮（v3.9.0 候选特性）。",
+  "next_round": "dev",
+  "last_test_result": "9/9 PASS, 1 skip",
+  "last_doc_version": "3.8.0",
   "last_dev_version": "3.8.0",
-  "last_dev_feature": "heartbeat-agent three-piece closure (v3.8.0)"
+  "last_scan": "scan33"
 }

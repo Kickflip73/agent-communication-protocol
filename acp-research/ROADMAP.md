@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-12 04:30（开发轮；v3.8.0 heartbeat-agent 三件套闭环；当前版本 v3.8.0）
+> 最后更新：2026-04-12 07:15（开发轮；v3.9.0 topic-based Pub/Sub；当前版本 v3.9.0）
 
 ---
 
@@ -760,22 +760,31 @@ Key commit: TBD
 
 ---
 
-## 🔭 v3.9.0（候选，截止 2026-04-25）
+## ✅ v3.9.0（完成，2026-04-12）
+**主题：topic-based Pub/Sub subset（A2A #1196 aligned）**
+
+- ✅ `POST /peers/subscribe/{topic}` — 订阅 topic
+- ✅ `POST /peers/unsubscribe/{topic}` — 取消订阅（幂等）
+- ✅ `POST /peers/broadcast/{topic}` — 发布到 topic subscribers
+- ✅ `GET /peers/topics` — 列出活跃 topic + subscriber counts + publish history
+- ✅ `capabilities.topic_broadcast: true` 声明
+- ✅ `tests/test_topic_pubsub.py` — TP1–TP10，10/10 PASS
+
+**ACP 是 A2A #1196 的首个工作参考实现**（上游仅 proposal，3 comments）
+
+---
+
+## 🔭 v3.10.0（候选，截止 2026-05-05）
 ### 候选特性
-- [ ] scenario_e: 跨 relay 实例消息路由（multi-relay federation）
-- [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定，当前 watchlist）
-- [ ] `_check_authorization()` 升级为真实 capability_token 验证逻辑
-- [ ] `POST /tasks/queue/worker` — 注册异步任务处理器（v3.3 候选遗留）
-- [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）
-- [ ] topic-based broadcast（Pub/Sub subset）— 对标 A2A #1196（scan33 新发现）
-  - `POST /peers/broadcast/{topic}` + `GET /peers/topics` + `POST /peers/subscribe/{topic}`
-- [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713 scan33 新发现，P3）
+- [ ] scenario_e: 跨 relay 实例消息路由（multi-relay federation）— P1，生态完整性
+- [ ] `POST /tasks/queue/worker` — 注册异步任务处理器（v3.3 候选遗留）— P2
+- [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）— P2
+- [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713 scan33 新发现）— P3
+- [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定，当前 watchlist）— P3
 ### 优先级
 - P1: scenario_e multi-relay federation（生态完整性）
 - P2: `POST /tasks/queue/worker` 异步 worker 注册
-- P2: topic-based broadcast（Pub/Sub subset，A2A #1196 对标）
 - P3: Authorization Layer 实现（等待上游 A2A #1716）
-- P3: SINT/APS cross-protocol compatibility 声明（声明性，无大实现工作量）
 
 ---
 

@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.8.0"   # v3.8: GET /offline-queue/summary + --heartbeat-agent mode (heartbeat-agent three-piece closure, A2A #1667)
+VERSION = "3.9.0"   # v3.9: topic-based Pub/Sub subset (A2A #1196 aligned): subscribe/unsubscribe/publish/topics-list
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -861,6 +861,13 @@ _peers: dict = {}       # peer_id -> peer info dict
 _peer_id_counter = 0    # auto-increment for unnamed peers
 _broadcast_log: list = []                    # v2.23: broadcast history (ring buffer, max 200 entries)
 _BROADCAST_LOG_MAX = 200
+# v3.9: topic-based Pub/Sub (A2A #1196 aligned)
+# _topic_subscribers: {topic_name: {peer_id: subscribed_at_ISO}}
+# _topic_log: {topic_name: deque([{message_id, published_at, delivered, results}, ...])}
+_topic_subscribers: dict = {}   # topic -> {peer_id -> subscribed_at}
+_topic_log: dict = {}           # topic -> list of recent publishes (max 50 per topic)
+_TOPIC_LOG_MAX = 50
+_TOPIC_NAME_MAX_LEN = 128       # max topic name length
 _pending_pongs: dict = {}  # v2.25: nonce -> asyncio.Future; resolved when acp.pong arrives
 _vouch_chain: list  = []  # v2.27: list of vouch_chain entries [{voucher_did, vouched_did, vouched_at, sig, comment}]
 
@@ -2242,6 +2249,7 @@ def _make_agent_card(name, skills):
             "limitations_patch":       True,                                  # v2.21: PATCH /.well-known/acp.json supports 'limitations' key
             "limitations_filter":      True,                                  # v2.21: GET /.well-known/acp.json?filter_limitations=<value> supported
             "peers_broadcast":         True,                                  # v2.22: POST /peers/broadcast — fanout to all connected peers
+            "topic_broadcast":         True,                                  # v3.9: topic-based Pub/Sub subset (A2A #1196 aligned)
             "peers_broadcast_subset":  True,                                  # v2.23: target_peers[] subset broadcast
             "peers_broadcast_history": True,                                  # v2.23: GET /peers/broadcast/history
             "peer_card_query":         True,                                  # v2.24: GET /peers/<id>/card
@@ -2350,6 +2358,10 @@ def _make_agent_card(name, skills):
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
             "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
+            "topic_subscribe":   "/peers/subscribe/{topic}",    # v3.9: POST — subscribe a peer to a topic
+            "topic_unsubscribe": "/peers/unsubscribe/{topic}",  # v3.9: POST — unsubscribe a peer from a topic
+            "topic_publish":     "/peers/broadcast/{topic}",    # v3.9: POST — publish message to topic subscribers
+            "topics_list":       "/peers/topics",               # v3.9: GET — list active topics + subscriber counts
             "peer_card":               "/peers/{peer_id}/card",      # v2.24: GET cached AgentCard for peer
             "peer_ping":               "/peers/{peer_id}/ping",      # v2.25: POST liveness probe + RTT
             "peer_trust":              "/peers/{peer_id}/trust",     # v2.34: GET structured trust score for peer
@@ -6871,6 +6883,42 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/topics — list active topics (v3.9) ─────────────────────────
+        elif p == "/peers/topics":
+            """
+            GET /peers/topics — List all active topics with subscriber counts (v3.9).
+
+            A topic is 'active' if it has at least one subscriber OR has been
+            published to at least once (has history entries).
+
+            Response fields:
+              - ok (bool): true
+              - topics (list): [{
+                  name (str): topic name,
+                  subscribers (int): number of current subscribers,
+                  subscriber_ids (list[str]): peer_ids currently subscribed,
+                  published_count (int): number of publishes recorded,
+                  last_published_at (str|None): ISO-8601 of most recent publish,
+                }]
+              - total (int): total number of topics
+
+            Usage: GET /peers/topics
+            """
+            all_topics = set(_topic_subscribers.keys()) | set(_topic_log.keys())
+            topic_list = []
+            for name in sorted(all_topics):
+                subs = _topic_subscribers.get(name, {})
+                log_entries = _topic_log.get(name, [])
+                last_pub = log_entries[-1]["published_at"] if log_entries else None
+                topic_list.append({
+                    "name":              name,
+                    "subscribers":       len(subs),
+                    "subscriber_ids":    list(subs.keys()),
+                    "published_count":   len(log_entries),
+                    "last_published_at": last_pub,
+                })
+            self._json({"ok": True, "topics": topic_list, "total": len(topic_list)})
 
         # ── GET /peers/<peer_id>/card — fetch cached AgentCard for a peer (v2.24) ──
         elif p.startswith("/peers/") and p.endswith("/card") and p.count("/") == 3:
@@ -11800,6 +11848,249 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "total_peers": len(active_peers),
                     "results": results,
                     "broadcast_id": context_id,
+                }, 200)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── v3.9: topic-based Pub/Sub ────────────────────────────────────────────
+        # POST /peers/subscribe/{topic}  — subscribe a peer to a topic
+        # POST /peers/unsubscribe/{topic}— unsubscribe a peer from a topic
+        # POST /peers/broadcast/{topic}  — publish message to topic subscribers
+        # ─────────────────────────────────────────────────────────────────────────
+        elif p.startswith("/peers/subscribe/") and len(p) > len("/peers/subscribe/"):
+            """
+            POST /peers/subscribe/{topic} — Subscribe a peer to a named topic (v3.9).
+
+            A2A #1196 (Pub/Sub Primitives) aligned: topic-scoped message routing.
+
+            Body fields:
+              peer_id (str, required): ID of the peer to subscribe.
+                Use "self" or omit to subscribe the currently connected peer.
+
+            Response:
+              - ok (bool): true
+              - topic (str): topic name
+              - peer_id (str): subscribed peer id
+              - subscribed_at (str): ISO-8601 timestamp
+              - is_new (bool): true if this is a new subscription, false if already subscribed
+            """
+            try:
+                topic = p[len("/peers/subscribe/"):]
+                if not topic or len(topic) > _TOPIC_NAME_MAX_LEN:
+                    self._json({"ok": False, "error": f"invalid topic name (1-{_TOPIC_NAME_MAX_LEN} chars)"}, 400)
+                    return
+                body = {}
+                try:
+                    body = self._read_body()
+                except Exception:
+                    pass
+                # Resolve peer_id: "self" or missing → currently connected peer
+                peer_id_raw = body.get("peer_id") if body else None
+                if not peer_id_raw or peer_id_raw == "self":
+                    # Use connected peer
+                    connected_peers = [pid for pid, pi in _peers.items() if pi.get("connected")]
+                    if not connected_peers:
+                        self._json({"ok": False, "error": "no peer connected; provide peer_id explicitly"}, 400)
+                        return
+                    peer_id_sub = connected_peers[-1]
+                else:
+                    peer_id_sub = peer_id_raw
+                    if peer_id_sub not in _peers:
+                        self._json({"ok": False, "error": f"unknown peer_id: {peer_id_sub}"}, 404)
+                        return
+
+                if topic not in _topic_subscribers:
+                    _topic_subscribers[topic] = {}
+                is_new = peer_id_sub not in _topic_subscribers[topic]
+                subscribed_at = _now()
+                _topic_subscribers[topic][peer_id_sub] = subscribed_at
+                log.info(f"[v3.9] topic subscribe: peer={peer_id_sub} topic={topic!r} new={is_new}")
+                self._json({
+                    "ok":           True,
+                    "topic":        topic,
+                    "peer_id":      peer_id_sub,
+                    "subscribed_at": subscribed_at,
+                    "is_new":       is_new,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif p.startswith("/peers/unsubscribe/") and len(p) > len("/peers/unsubscribe/"):
+            """
+            POST /peers/unsubscribe/{topic} — Unsubscribe a peer from a topic (v3.9).
+
+            Body fields:
+              peer_id (str, optional): peer to unsubscribe. Defaults to connected peer.
+
+            Response:
+              - ok (bool): true
+              - topic (str): topic name
+              - peer_id (str): peer id unsubscribed
+              - was_subscribed (bool): false if peer was not subscribed (idempotent)
+            """
+            try:
+                topic = p[len("/peers/unsubscribe/"):]
+                if not topic:
+                    self._json({"ok": False, "error": "missing topic name"}, 400)
+                    return
+                body = {}
+                try:
+                    body = self._read_body()
+                except Exception:
+                    pass
+                peer_id_raw = body.get("peer_id") if body else None
+                if not peer_id_raw or peer_id_raw == "self":
+                    connected_peers = [pid for pid, pi in _peers.items() if pi.get("connected")]
+                    peer_id_unsub = connected_peers[-1] if connected_peers else None
+                else:
+                    peer_id_unsub = peer_id_raw
+
+                if not peer_id_unsub:
+                    self._json({"ok": False, "error": "cannot determine peer_id"}, 400)
+                    return
+
+                subs = _topic_subscribers.get(topic, {})
+                was_subscribed = peer_id_unsub in subs
+                if was_subscribed:
+                    del subs[peer_id_unsub]
+                    # Clean up empty topic entry
+                    if not subs and topic in _topic_subscribers:
+                        del _topic_subscribers[topic]
+                log.info(f"[v3.9] topic unsubscribe: peer={peer_id_unsub} topic={topic!r} was={was_subscribed}")
+                self._json({
+                    "ok":             True,
+                    "topic":          topic,
+                    "peer_id":        peer_id_unsub,
+                    "was_subscribed": was_subscribed,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif p.startswith("/peers/broadcast/") and len(p) > len("/peers/broadcast/"):
+            """
+            POST /peers/broadcast/{topic} — Publish a message to all topic subscribers (v3.9).
+
+            A2A #1196 aligned: topic-scoped fanout. Only peers subscribed to this topic
+            receive the message. If no peers are subscribed, returns ok=true with delivered=0.
+
+            Body fields (same structure as POST /peers/broadcast):
+              role (str, required): "user" | "agent"
+              text (str) OR parts (list): message content
+              message_id (str, optional): client-supplied idempotency key
+              context_id (str, optional): conversation context
+
+            Response:
+              - ok (bool): true
+              - topic (str): topic name
+              - delivered (int): messages successfully sent
+              - failed (int): messages that failed to send
+              - subscriber_count (int): total subscribers at time of publish
+              - results (list): per-peer delivery status
+              - published_at (str): ISO-8601 timestamp
+            """
+            try:
+                topic = p[len("/peers/broadcast/"):]
+                if not topic or len(topic) > _TOPIC_NAME_MAX_LEN:
+                    self._json({"ok": False, "error": f"invalid topic name (1-{_TOPIC_NAME_MAX_LEN} chars)"}, 400)
+                    return
+                body = self._read_body()
+
+                # Validate role
+                role_raw = body.get("role")
+                if role_raw not in {"user", "agent"}:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing or invalid 'role' field (must be 'user' or 'agent')")
+                    self._json(e_body, e_code)
+                    return
+
+                # Build parts
+                parts = body.get("parts")
+                if parts:
+                    ok_p, err_p = _validate_parts(parts)
+                    if not ok_p:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err_p)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "provide 'parts' (list) or 'text' (string)")
+                        self._json(e_body, e_code)
+                        return
+
+                msg_id     = body.get("message_id") or _make_id()
+                context_id = body.get("context_id") or _make_id()
+                pub_ts     = _now()
+
+                # Get subscribers for this topic
+                subs = _topic_subscribers.get(topic, {})
+                subscriber_count = len(subs)
+
+                delivered = 0
+                failed = 0
+                results = []
+
+                for pid in list(subs.keys()):
+                    wire_msg = {
+                        "type":       "acp.message",
+                        "message_id": msg_id,
+                        "role":       role_raw,
+                        "parts":      parts,
+                        "context_id": context_id,
+                        "topic":      topic,           # v3.9: topic annotation
+                        "topic_publish": True,
+                        "ts":         pub_ts,
+                    }
+                    ok_send = False
+                    err_send = None
+                    try:
+                        _ws_send_sync(wire_msg, peer_id=pid)
+                        ok_send = True
+                        delivered += 1
+                    except Exception as ex:
+                        err_send = str(ex)
+                        failed += 1
+                    results.append({
+                        "peer_id":    pid,
+                        "message_id": msg_id,
+                        "ok":         ok_send,
+                        "error":      err_send,
+                    })
+
+                # Record in topic log (ring buffer)
+                if topic not in _topic_log:
+                    _topic_log[topic] = []
+                log_entry = {
+                    "message_id":    msg_id,
+                    "published_at":  pub_ts,
+                    "subscriber_count": subscriber_count,
+                    "delivered":     delivered,
+                    "failed":        failed,
+                }
+                _topic_log[topic].append(log_entry)
+                if len(_topic_log[topic]) > _TOPIC_LOG_MAX:
+                    _topic_log[topic].pop(0)
+
+                _broadcast_sse_event("message", {
+                    "message_id": msg_id,
+                    "role": role_raw,
+                    "parts": parts,
+                    "topic": topic,
+                    "topic_publish": True,
+                    "delivered": delivered,
+                })
+                log.info(f"[v3.9] topic publish: topic={topic!r} subscribers={subscriber_count} delivered={delivered} failed={failed}")
+                self._json({
+                    "ok":               True,
+                    "topic":            topic,
+                    "delivered":        delivered,
+                    "failed":           failed,
+                    "subscriber_count": subscriber_count,
+                    "results":          results,
+                    "published_at":     pub_ts,
+                    "message_id":       msg_id,
                 }, 200)
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)

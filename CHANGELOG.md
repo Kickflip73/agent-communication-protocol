@@ -8,6 +8,28 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.9.0] - 2026-04-12
+
+### Added
+- **Topic-based Pub/Sub subset (v3.9)** — A2A #1196 aligned, 4 new endpoints:
+  - `POST /peers/subscribe/{topic}`: Subscribe a peer to a named topic. Resolves "self" or connected peer by default.
+  - `POST /peers/unsubscribe/{topic}`: Unsubscribe a peer from a topic (idempotent, `was_subscribed=false` when not found).
+  - `POST /peers/broadcast/{topic}`: Publish a message to all topic subscribers. Returns `ok=true, delivered=0` when no subscribers (no error).
+  - `GET /peers/topics`: List all active topics with subscriber counts, subscriber_ids, published_count, last_published_at.
+- **`capabilities.topic_broadcast: true`** in AgentCard — always advertised in v3.9+.
+- **`endpoints.topic_subscribe/topic_unsubscribe/topic_publish/topics_list`** declared in AgentCard.
+- **Internal state**: `_topic_subscribers: dict[topic→{peer_id→subscribed_at}]` and `_topic_log: dict[topic→list]` (ring buffer, max 50 per topic).
+- **`tests/test_topic_pubsub.py`**: 10 new tests (TP1–TP10), all passed. Covers: empty list, subscribe, no-peer error, publish to empty topic, log recording, response fields, unsubscribe idempotency, AgentCard declarations, accumulating publishes.
+
+### Changed
+- `VERSION` → `3.9.0`
+
+### Notes
+- ACP Pub/Sub subset is intentionally lightweight — no persistent subscriptions (restart clears state), no message retention, no dead-letter queue. Use `--persist-queue` for offline delivery. Full Pub/Sub persistence is a v4.x+ consideration.
+- **A2A #1196 status**: Proposal stage (3 comments, no implementation). ACP v3.9 is the first working reference implementation.
+
+---
+
 ## [3.8.0] - 2026-04-12
 
 ### Added
