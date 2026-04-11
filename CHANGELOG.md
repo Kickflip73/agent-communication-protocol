@@ -8,6 +8,15 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.7.0] - 2026-04-11
+### Added
+- scenario_d local-relay stress test (20-msg burst, P99 latency assertion, CI-safe)
+- Authorization hook stub _check_authorization() for A2A #1716 watchlist
+### Changed
+- VERSION → 3.7.0
+
+---
+
 ## [3.6.0] - 2026-04-11
 
 ### Fixed
