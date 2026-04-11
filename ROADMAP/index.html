@@ -1715,10 +1715,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#v34-multikey-verificationmethod" class="md-nav__link">
+  <a href="#v34-agentcard-governance-block2026-04-11" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔮 v3.4 — Multikey verificationMethod（规划中）
+        ✅ v3.4 — AgentCard Governance Block（2026-04-11）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v350-2026-04-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ v3.5.0 ✅ 已完成 — 2026-04-11
       
     </span>
   </a>
@@ -1727,6 +1738,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v360" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.6.0 候选特性
+      
+    </span>
+  </a>
   
 </li>
       
@@ -4019,12 +4041,25 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>修复：<code>origin_proof</code> 构建时机 bug（CT-06 回归）</li>
 <li>完全向后兼容</li>
 </ul>
-<h3 id="v34-multikey-verificationmethod">🔮 v3.4 — Multikey verificationMethod（规划中）<a class="headerlink" href="#v34-multikey-verificationmethod" title="Permanent link">&para;</a></h3>
+<h3 id="v34-agentcard-governance-block2026-04-11">✅ v3.4 — AgentCard Governance Block（2026-04-11）<a class="headerlink" href="#v34-agentcard-governance-block2026-04-11" title="Permanent link">&para;</a></h3>
 <ul>
-<li>单个 AgentCard 支持多密钥声明（<code>verificationMethod[]</code> 数组）</li>
-<li>Ed25519 主密钥 + ECDSA-SD 扩展点预留（选择性披露）</li>
-<li>密钥轮换协议（<code>key_rotation</code> capability）</li>
-<li>预计交付：下一个安全研发轮</li>
+<li><strong><code>AgentCard.governance</code></strong>：<code>/status</code> 新增顶层治理对象，包含 <code>framework</code>、<code>version</code>、<code>credential_lifecycle</code>（<code>ttl_seconds</code>/<code>revocation_endpoint</code>/<code>credential_ttl_seconds</code>）、<code>audit_mode</code>、<code>policy_ref</code></li>
+<li><code>credential_lifecycle.ttl_seconds</code> 默认 3600（1h）；<code>audit_mode</code> 支持 <code>static</code>（声明式）和 <code>live</code>（未来 REST 扩展）</li>
+<li>完全向后兼容；对齐 A2A #1717 <code>CredentialLifecyclePolicy</code></li>
+</ul>
+<h3 id="v350-2026-04-11">✅ v3.5.0 ✅ 已完成 — 2026-04-11<a class="headerlink" href="#v350-2026-04-11" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>governance.proof_suite</code></strong>（eddsa-jcs-2022 互操作）：声明节点支持的签名套件（<code>Ed25519Signature2020</code>、<code>eddsa-jcs-2022</code>），含 W3C 互操作引用</li>
+<li><strong><code>transport_bindings.experimental</code></strong>（SlimRPC 扩展口预留）：AgentCard 新增 <code>transport_bindings</code> 字段，<code>supported: ["http","websocket"]</code> + <code>experimental: []</code> 扩展口</li>
+<li><code>capabilities.transport_bindings: true</code>；CLI <code>--experimental-transport</code> flag</li>
+<li>测试：V35-01–V35-06 = 6/6 PASS</li>
+</ul>
+<h2 id="v360">v3.6.0 候选特性<a class="headerlink" href="#v360" title="Permanent link">&para;</a></h2>
+<ul>
+<li>BUG-030 修复：relay 高并发偶发崩溃（P2）</li>
+<li>scenario_d 压测集成到 CI</li>
+<li>SlimRPC 实验性绑定（待 A2A #1723 建仓确认）</li>
+<li>ECDSA-SD 选择性披露评估（跟踪 ANP 进展）</li>
 </ul>
 
 
