@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v2.98.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.7.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1637%2F1637_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1685%2F1685_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -576,10 +576,16 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.4** | ✅ | **AgentCard `governance` block** — `/status` 新增顶层 `governance` 对象（`framework`/`version`/`credential_lifecycle`/`audit_mode`/`policy_ref`）；`credential_lifecycle.ttl_seconds` 默认 3600；`audit_mode` 支持 `static`/`live`；A2A #1717 `CredentialLifecyclePolicy` 对齐 |
 | **v3.5** | ✅ | **Governance Proof Suite & Transport Bindings** — `governance.proof_suite` 声明签名套件（`Ed25519Signature2020`/`eddsa-jcs-2022`），附 W3C 规范引用，与 ANP 互操作；`AgentCard.transport_bindings` 新增传输绑定声明（`supported`/`experimental` 扩展口，为 SlimRPC 预留）；`capabilities.transport_bindings: true`；CLI `--experimental-transport` flag；V35-01–V35-06 = 6/6 |
 | **v3.6** | ✅ | **P1 Bug Fixes（稳定版）** — BUG-007 multi-peer 发送（`peer_ids` 列表参数，多播 + 逐 peer 状态响应）；BUG-009 SSE 零延迟（`_sse_notify.wait/set` 立即 flush，<50ms）；BUG-003b 连接幂等（link token 去重 + `--join` 直连）；P0/P1 全部清零 |
+| **v3.7** | ✅ | **CI Stress Test + Authorization Hook** — `test_scenario_d.py` local-relay 20-msg burst 压测（P99 latency assertion，全 CI-safe，零外部依赖）；`_check_authorization()` stub 预留（A2A #1716 Authorization Layer watchlist）；48 tests PASS |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.7.0 — CI Stress Test & Authorization Hook Stub
+- **`test_scenario_d.py`**：local-relay 场景下 20-msg burst 压测，含 P99 latency assertion；全 CI-safe，无外部网络依赖
+- **`_check_authorization()` stub**：`ACPRelayServer` 中预留授权钩子，占位 A2A #1716 Authorization Layer spec（watchlist，26+ 评论，等待 spec 稳定后实现）
+- 48/48 tests PASS
 
 ### v3.6 — P1 Bug Fixes（稳定版）
 - **multi-peer 发送**：`/message:send` 新增 `peer_ids` 列表参数，支持真正的多播；兼容逗号分隔 `peer_id` 自动拆分

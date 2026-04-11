@@ -10,10 +10,12 @@ Dates: Asia/Shanghai (UTC+8)
 
 ## [3.7.0] - 2026-04-11
 ### Added
-- scenario_d local-relay stress test (20-msg burst, P99 latency assertion, CI-safe)
-- Authorization hook stub _check_authorization() for A2A #1716 watchlist
+- `test_scenario_d.py`: local-relay 20-msg burst stress test + P99 latency assertion, fully CI-safe (no external network)
+- `_check_authorization()` stub in `ACPRelayServer` — reserved for A2A #1716 Authorization Layer spec (watchlist)
 ### Changed
 - VERSION → 3.7.0
+### Notes
+- A2A #1716 Authorization Layer: 26+ comments, actively discussed; ACP will implement when spec draft stabilizes
 
 ---
 

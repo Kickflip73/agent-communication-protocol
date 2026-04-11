@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-11 09:51（文档轮；v3.2 W3C DataIntegrityProof 完成记录；当前版本 v3.2.0 commit 806d303）
+> 最后更新：2026-04-11 22:24（文档轮；v3.7.0 docs synced；当前版本 v3.7.0）
 
 ---
 
@@ -736,7 +736,28 @@ Key commit: `806d303`
 
 ---
 
-## 🔭 v3.3 候选特性（规划中）
+## ✅ v3.7.0（完成，2026-04-11）
+**主题：CI Stress Test + Authorization Hook Stub**
+- ✅ `test_scenario_d.py`：local-relay 20-msg burst 压测，P99 latency assertion，全 CI-safe（零外部网络依赖）
+- ✅ `_check_authorization()` stub in `ACPRelayServer`：A2A #1716 Authorization Layer 预留钩子（watchlist）
+- ✅ VERSION → 3.7.0
+- ✅ 48/48 tests PASS
+- Key commits: 169b85e + 89f74db
+
+---
+
+## 🔭 v3.8.0（候选，截止 2026-04-18）
+### 候选特性
+- [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定，当前 watchlist）
+- [ ] scenario_e: 跨 relay 实例消息路由（multi-relay federation）
+- [ ] `_check_authorization()` 升级为真实 capability_token 验证逻辑
+### 优先级
+- P2: scenario_e multi-relay federation
+- P3: Authorization Layer 实现（等待上游 A2A #1716）
+
+---
+
+## 🔭 v3.3 候选特性（规划中，部分已完成）
 
 > 基于当前版本 v3.2.0，下一轮开发优先级：
 
