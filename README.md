@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.7.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.8.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1685%2F1685_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1693%2F1693_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -303,7 +303,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 
 > A2A [#1685](https://github.com/a2aproject/A2A/issues/1685) — error response Content-Type undefined in spec (PR #1600 removed `application/problem+json` without replacing it). A2A [#1681](https://github.com/a2aproject/A2A/issues/1681) — push notification config API exposes credentials in plaintext. ACP avoids both by design: uniform `application/json` + URL-only webhooks.
 
-> **Offline delivery (v2.0-alpha / v2.97 / v2.98)** — A2A has no spec-level offline buffering. If you send a message while your peer is restarting, it's gone. ACP automatically queues the message on your local relay (up to 100 per peer), and flushes the queue the moment the peer reconnects. `GET /offline-queue` shows what's waiting. **v2.97 `--persist-queue`** adds SQLite-backed durability: messages survive relay restarts, solving the heartbeat-agent offline window (A2A #1667). **v2.98 `POST /tasks/queue`** completes the offline-first story for task workloads: enqueue a task with 202 Accepted, pick up results later via poll or SSE — no blocking, no dropped work.
+> **Offline delivery (v2.0-alpha / v2.97 / v2.98 / v3.8)** — A2A has no spec-level offline buffering. If you send a message while your peer is restarting, it's gone. ACP automatically queues the message on your local relay (up to 100 per peer), and flushes the queue the moment the peer reconnects. `GET /offline-queue` shows what's waiting. **v2.97 `--persist-queue`** adds SQLite-backed durability: messages survive relay restarts, solving the heartbeat-agent offline window (A2A #1667). **v2.98 `POST /tasks/queue`** completes the offline-first story for task workloads: enqueue a task with 202 Accepted, pick up results later via poll or SSE — no blocking, no dropped work. **v3.8 `--heartbeat-agent` + `GET /offline-queue/summary`** closes the loop: cron-style agents wake up, call the lightweight summary endpoint (`has_messages`, `total_queued`, `oldest_queued_at`) for a fast pre-check before heavier processing, then stamp `POST /availability/heartbeat` when done.
 
 > **AgentCard limitations (v2.7 → v2.28)** — A2A [#1694](https://github.com/a2aproject/A2A/issues/1694) (opened 2026-03-27) proposes adding a `limitations` field. ACP v2.7 shipped working code the same day; ACP v2.20 upgrades to structured `LimitationObject[]` with stable/runtime split (`permanent: bool`), 6 kind types (`capability|modality|scale|domain|access|other`), machine-readable codes. **ACP v2.28 extends this to per-skill granularity**: every skill object now carries its own `limitations[]`, enabling orchestrators to ask "does skill X support audio?" rather than just "does this agent support audio?". `GET /skills?has_limitation=modality` returns only skills with modality-kind limitations; `POST /skills/query` response includes `skill_limitations_declared[]` for pre-flight routing decisions. Old clients ignore the optional field — fully backward-compatible. A2A #1694 is still an open proposal with no merged implementation.
 
@@ -577,10 +577,19 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.5** | ✅ | **Governance Proof Suite & Transport Bindings** — `governance.proof_suite` 声明签名套件（`Ed25519Signature2020`/`eddsa-jcs-2022`），附 W3C 规范引用，与 ANP 互操作；`AgentCard.transport_bindings` 新增传输绑定声明（`supported`/`experimental` 扩展口，为 SlimRPC 预留）；`capabilities.transport_bindings: true`；CLI `--experimental-transport` flag；V35-01–V35-06 = 6/6 |
 | **v3.6** | ✅ | **P1 Bug Fixes（稳定版）** — BUG-007 multi-peer 发送（`peer_ids` 列表参数，多播 + 逐 peer 状态响应）；BUG-009 SSE 零延迟（`_sse_notify.wait/set` 立即 flush，<50ms）；BUG-003b 连接幂等（link token 去重 + `--join` 直连）；P0/P1 全部清零 |
 | **v3.7** | ✅ | **CI Stress Test + Authorization Hook** — `test_scenario_d.py` local-relay 20-msg burst 压测（P99 latency assertion，全 CI-safe，零外部依赖）；`_check_authorization()` stub 预留（A2A #1716 Authorization Layer watchlist）；48 tests PASS |
+| **v3.8** | ✅ | **Heartbeat-Agent 三件套闭环（A2A IS#1667）** — `GET /offline-queue/summary` 轻量 polling 端点；`--heartbeat-agent` CLI 标志（implies `--local-only` + `availability.mode=heartbeat`）；`capabilities.heartbeat_agent`；完整 5 步 workflow；HA1–HA8 = 8/8 PASS |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.8.0 — Heartbeat-Agent Three-Piece Closure
+- **`GET /offline-queue/summary`**: 轻量 heartbeat-agent polling 端点。返回 `has_messages`、`total_queued`、`peer_count`、`oldest_queued_at`、`hint` — 无消息内容，最小开销，专为 cron/heartbeat 场景设计。
+- **`--heartbeat-agent` CLI 标志**: 一键配置 relay 为 heartbeat 模式（implies `--local-only` + `availability.mode=heartbeat`）。内置 5 步 workflow 文档。
+- **`capabilities.heartbeat_agent`**: AgentCard 能力声明，`availability.mode=heartbeat/cron` 时为 `true`。
+- **Heartbeat-Agent 三件套完整闭环**: `--persist-queue`（v2.97）+ `POST /tasks/queue`（v2.98）+ `GET /offline-queue/summary`（v3.8）
+- **Addresses**: A2A IS#1667（offline-first / heartbeat-agent — 上游仍在讨论，ACP 率先实现，领先 3+ 个月）
+- 8/8 新测试（HA1–HA8）全部 PASS
 
 ### v3.7.0 — CI Stress Test & Authorization Hook Stub
 - **`test_scenario_d.py`**：local-relay 场景下 20-msg burst 压测，含 P99 latency assertion；全 CI-safe，无外部网络依赖
