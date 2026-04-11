@@ -165,7 +165,7 @@ def test_et12_bilateral_ir_merkle_root_no_records():
 
 def test_et13_bilateral_ir_adj_module_unknown_peer():
     import relay.acp_relay as r
-    adj, count, merkle = r._bilateral_ir_adj("did:key:z6MkUnknown")
+    adj, count, merkle, _ = r._bilateral_ir_adj("did:key:z6MkUnknown")
     assert adj == 1
     assert count == 0
     assert merkle is None
@@ -174,7 +174,7 @@ def test_et13_bilateral_ir_adj_module_unknown_peer():
 def test_et14_bilateral_ir_adj_module_none_peer():
     """None peer_id → unknown → +1."""
     import relay.acp_relay as r
-    adj, count, merkle = r._bilateral_ir_adj(None)
+    adj, count, merkle, _ = r._bilateral_ir_adj(None)
     assert adj == 1
     assert count == 0
 
@@ -211,7 +211,7 @@ def test_et16_one_record_neutral():
         "id": "ir-one-01", "timestamp": "2026-04-07T09:00:00Z",
         "skill_id": "s1", "bilateral": True, "peer_id": peer, "caller_did": peer,
     })
-    adj, count, _ = r._bilateral_ir_adj(peer)
+    adj, count, _, _div = r._bilateral_ir_adj(peer)
     assert adj == 0
     assert count == 1
     r._interaction_records[:] = [
@@ -228,7 +228,7 @@ def test_et17_four_records_neutral():
             "id": f"ir-four-{i:02d}", "timestamp": f"2026-04-07T09:0{i}:00Z",
             "skill_id": "s1", "bilateral": True, "peer_id": peer, "caller_did": peer,
         })
-    adj, count, _ = r._bilateral_ir_adj(peer)
+    adj, count, _, _div = r._bilateral_ir_adj(peer)
     assert adj == 0
     assert count == 4
     r._interaction_records[:] = [
@@ -246,7 +246,7 @@ def test_et18_five_records_minus_one():
             "id": f"ir-five-{i:02d}", "timestamp": f"2026-04-07T09:0{i}:00Z",
             "skill_id": "s1", "bilateral": True, "peer_id": peer, "caller_did": peer,
         })
-    adj, count, _ = r._bilateral_ir_adj(peer)
+    adj, count, _, _div = r._bilateral_ir_adj(peer)
     assert adj == -1
     assert count == 5
     r._interaction_records[:] = [
@@ -264,7 +264,7 @@ def test_et19_ten_records_minus_one():
             "id": f"ir-ten-{i:02d}", "timestamp": f"2026-04-07T09:{i:02d}:00Z",
             "skill_id": "s1", "bilateral": True, "peer_id": peer, "caller_did": peer,
         })
-    adj, count, _ = r._bilateral_ir_adj(peer)
+    adj, count, _, _div = r._bilateral_ir_adj(peer)
     assert adj == -1
     assert count == 10
     r._interaction_records[:] = [
@@ -282,7 +282,7 @@ def test_et20_non_bilateral_records_not_counted():
             "id": f"ir-nb-{i:02d}", "timestamp": f"2026-04-07T09:{i:02d}:00Z",
             "skill_id": "s1", "bilateral": False, "peer_id": peer, "caller_did": peer,
         })
-    adj, count, _ = r._bilateral_ir_adj(peer)
+    adj, count, _, _div = r._bilateral_ir_adj(peer)
     assert adj == 1   # no bilateral records → unknown → +1
     assert count == 0
     r._interaction_records[:] = [

@@ -144,10 +144,11 @@ def test_bl05_bilateral_count_invariant(relay_url):
 
 
 def test_bl06_version_present(relay_url):
-    """BL-06: version is present and starts with 2."""
+    """BL-06: version is present and is a valid semver (2.x or 3.x)."""
     d = get_log(relay_url)
     assert "version" in d
-    assert d["version"].startswith("2."), f"Unexpected version: {d['version']}"
+    ver = d["version"]
+    assert ver.startswith("2.") or ver.startswith("3."), f"Unexpected version: {ver}"
 
 
 # ── Records after task creation ──────────────────────────────────────────────

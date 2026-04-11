@@ -1680,3 +1680,17 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **Discovered:** 2026-04-10 测试轮 scan31；2026-04-11 心跳复现（v3.0.0 升级后）
 **Root Cause:** SS01 (`test_ss01_version`) 和 `test_ts1_basic_response` 将 `startswith("2.")` 作为版本断言；版本升至 v3.0.0 后断言失败（同 BUG-029/031/061 stale version assertion 类）。
 **Fix:** 将 `startswith("2.")` 改为 `"." in version`（major-version agnostic），不再与具体大版本号耦合。
+
+---
+
+### BUG-063 🟢 P3 (flaky) — test_scenario_g_reconnect::test_g01 在跨模块全量运行时偶发 OSError[99]
+
+**发现日期**: 2026-04-11
+**场景**: `tests/test_scenario_g_reconnect.py::test_g01_relay_healthy_after_abrupt_disconnect`
+**复现条件**: 与 v3.x 回归套件（test_message_sig + test_origin_proof + test_data_integrity_proof）同一进程串行执行时偶发（约 1/3 概率）；单独运行 10/10 通过。
+**症状**: `OSError: [Errno 99] Cannot assign requested address` — 尝试连接 `ws://localhost:{port}/{token}` 的 IPv6 `::1` 地址失败
+**根本原因**: `_free_port_pair()` 使用 `ws_port + 100` 作为 HTTP 端口；跨模块运行时前序测试套件的 relay 进程可能短暂占用相邻端口，导致 `socket.AF_INET6` addrinfo 路径的 connect 失败（`EADDRNOTAVAIL`）。`module` 级别的 fixture 在多模块组合时端口分配窗口收窄。
+**影响**: 仅测试可靠性；relay 功能本身正常（单独运行 10/10 ✅；三次组合运行 20/20 ✅）
+**修复方向**: `_free_port_pair()` 改为双重 probe（先绑 ws_port，再绑 http_port，均可用才返回）；或在 `connect_ws` 中指定 `socket_options=[socket.AF_INET]` 跳过 IPv6 路径
+**优先级**: P3 (非阻断，纯测试健壮性)
+**状态**: 📝 已记录，待修复

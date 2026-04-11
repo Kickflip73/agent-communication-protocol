@@ -8,6 +8,41 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [v3.3.0] - 2026-04-11
+### Added
+- **`capability_token` transparent passthrough in `acp.message`** (A2A #1716 SINT Protocol interop)
+  - `/message:send` body: if caller provides `"capability_token": {...}`, relay attaches it verbatim
+    to the outgoing `acp.message` frame — relay does NOT validate, recipient verifies.
+  - Token format (informative): `{type, subject, resource, actions, tier, exp (ISO-8601), sig}`
+  - Persisted to `_recv_queue` outbound entry so `/recv` / `/messages` surfaces it
+  - `capabilities.capability_token: true` — always advertised (unconditional flag)
+- **`origin_proof` structure upgrade** — new optional OBO fields (A2A #1713 cross-org delegation)
+  - `_sign_message()` / `_verify_message_sig()` accept `principal_id`, `operator_id`,
+    `governance_framework_ref` which are included in the Ed25519 canonical payload when present
+  - `_attach_sig()` builds an `origin_proof` object in the message when any OBO field is provided:
+    `{from_peer, to_peer, session_id, timestamp, principal_id?, operator_id?, governance_framework_ref?}`
+  - `_build_proof_object()` forwards OBO fields to `_sign_message()` for consistent `proofValue`
+  - `/message:send` body: accepts `principal_id`, `operator_id`, `governance_framework_ref` fields
+  - `_ws_send` / `_ws_send_sync` updated to accept and forward OBO params
+- **`POST /capability/issue`** — ACP-native Ed25519 capability token helper (not A2A mandated)
+  - Body: `{subject, resource?, actions?, tier?, exp_seconds?}`
+  - Signs canonical JSON with relay's Ed25519 private key; returns full token with `sig` (base64url)
+  - Requires `--identity`; 403 `ERR_IDENTITY_REQUIRED` otherwise
+  - Token fields: `type`, `subject`, `resource`, `actions`, `tier`, `iss`, `jti`, `iat`, `exp` (ISO-8601), `sig`, `public_key`
+- **`_sign_message` / `_verify_message_sig`**: v3.3 canonical payload extended with optional OBO fields
+- **VERSION → 3.3.0**
+- **Tests**: `tests/test_v33_capability_token.py` — CT-01–CT-06, **6 passed**;
+  `tests/test_capability_token.py` — CT-01–CT-06, **6 passed** (new v3.3 test suite replaces v2.57 SINT token fixture tests)
+### Fixed
+- `origin_proof` OBO fields now correctly appear in `/messages` outbound entries — pre-build
+  the `origin_proof` dict eagerly before `_recv_queue.append()` since `_attach_sig()` runs
+  inside `_ws_send_sync()` which is called after the entry is stored (CT-06 regression)
+### Research
+- A2A #1716 (SINT Protocol Ed25519 capability token T0-T3 tiers) — passthrough interop
+- A2A #1713 (OBO cross-org delegation) — `origin_proof` field extension
+
+---
+
 ## [v3.2.0] - 2026-04-11
 ### Added
 - **W3C DataIntegrityProof compat layer** (ANP 2026-04-10 interoperability, Ed25519Signature2020)

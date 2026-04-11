@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.2.0"   # v3.2: W3C DataIntegrityProof compat layer — `proof` object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof; capabilities.data_integrity_proof
+VERSION = "3.3.0"   # v3.3: capability_token passthrough in messages + origin_proof OBO fields (principal_id/operator_id/governance_framework_ref) + POST /capability/issue helper
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -695,7 +695,9 @@ def _ed25519_verify_msg(msg: dict, public_key_b64: str, sig_b64: str) -> bool:
 # Verifiers reconstruct the same canonical payload and check the signature
 # against the signer's Ed25519 public key.
 
-def _sign_message(msg_payload: dict, to: str = "") -> str:
+def _sign_message(msg_payload: dict, to: str = "",
+                  principal_id: str = "", operator_id: str = "",
+                  governance_framework_ref: str = "") -> str:
     """Sign a message envelope and return a base64url Ed25519 signature.
 
     v3.0 canonical form (backward-compat, when to=""):
@@ -703,6 +705,10 @@ def _sign_message(msg_payload: dict, to: str = "") -> str:
 
     v3.1 canonical form (origin_proof, when to is non-empty):
         {"content": <JSON string of parts>, "from": <str>, "message_id": <str>, "to": <str>, "ts": <str>}
+
+    v3.3 canonical form (origin_proof + OBO fields, when any OBO field is non-empty):
+        adds optional fields principal_id / operator_id / governance_framework_ref to canonical
+        when present, enabling A2A #1713 OBO cross-organisation delegation attestation.
 
     When `to` is provided the signature is bound to the recipient peer_id,
     preventing replay-to-wrong-recipient attacks (origin_proof / ANP DataIntegrityProof).
@@ -724,14 +730,23 @@ def _sign_message(msg_payload: dict, to: str = "") -> str:
     }
     if to:  # v3.1: bind signature to recipient — origin_proof
         canonical["to"] = str(to)
+    # v3.3: optional OBO / delegation attestation fields (A2A #1713)
+    if principal_id:
+        canonical["principal_id"] = str(principal_id)
+    if operator_id:
+        canonical["operator_id"] = str(operator_id)
+    if governance_framework_ref:
+        canonical["governance_framework_ref"] = str(governance_framework_ref)
     payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
                                separators=(",", ":")).encode()
     sig_bytes = _ed25519_private.sign(payload_bytes)
     return _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
 
 
-def _build_proof_object(msg: dict, to: str = "") -> dict:
-    """Build a W3C DataIntegrityProof-format proof object (v3.2).
+def _build_proof_object(msg: dict, to: str = "",
+                        principal_id: str = "", operator_id: str = "",
+                        governance_framework_ref: str = "") -> dict:
+    """Build a W3C DataIntegrityProof-format proof object (v3.2/v3.3).
 
     Constructs a proof object compatible with the W3C Data Integrity specification,
     using the same Ed25519 canonical payload as msg_sig for interoperability.
@@ -749,6 +764,8 @@ def _build_proof_object(msg: dict, to: str = "") -> dict:
       (v3.0 or v3.1/origin_proof depending on `to`), enabling cross-verification.
     - `verificationMethod` embeds the relay's public key as a did:acp DID URL.
     - `created` is the current UTC timestamp in ISO-8601 format.
+    - v3.3: optional OBO fields (principal_id/operator_id/governance_framework_ref)
+      are passed through to _sign_message for inclusion in canonical payload.
 
     Requires _ed25519_private to be loaded. Returns None if identity unavailable.
     """
@@ -757,7 +774,10 @@ def _build_proof_object(msg: dict, to: str = "") -> dict:
     import datetime as _dt
     created = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     # proofValue reuses the same canonical signing path as msg_sig — full interop
-    proof_value = _sign_message(msg, to=to)
+    proof_value = _sign_message(msg, to=to,
+                                principal_id=principal_id,
+                                operator_id=operator_id,
+                                governance_framework_ref=governance_framework_ref)
     verification_method = f"did:acp:{_ed25519_public_b64}#key-0"
     return {
         "type":               "Ed25519Signature2020",
@@ -768,17 +788,24 @@ def _build_proof_object(msg: dict, to: str = "") -> dict:
     }
 
 
-def _verify_message_sig(msg: dict, public_key_b64: str, to: str = "") -> bool:
+def _verify_message_sig(msg: dict, public_key_b64: str, to: str = "",
+                        principal_id: str = "", operator_id: str = "",
+                        governance_framework_ref: str = "") -> bool:
     """Verify a msg_sig on an inbound (or stored) message.
 
     v3.0 (backward-compat): verifies without `to` field when to="" or to not provided.
     v3.1 (origin_proof):    verifies with `to` field included in canonical when to is non-empty.
+    v3.3 (OBO fields):      verifies with optional principal_id/operator_id/governance_framework_ref
+                            included in canonical when non-empty (A2A #1713 OBO delegation).
 
     Args:
         msg:            the full message dict (must include message_id, from, parts, ts, msg_sig)
         public_key_b64: base64url-encoded Ed25519 public key of the claimed sender
         to:             optional recipient peer_id (v3.1 origin_proof); if provided, the
                         canonical payload will include the `to` field for signature verification.
+        principal_id:   optional delegating principal DID (v3.3 OBO)
+        operator_id:    optional operating agent DID (v3.3 OBO)
+        governance_framework_ref: optional governance framework URL (v3.3 OBO)
 
     Returns:
         True  — signature is cryptographically valid
@@ -804,6 +831,13 @@ def _verify_message_sig(msg: dict, public_key_b64: str, to: str = "") -> bool:
         }
         if to:  # v3.1: verify with recipient binding (origin_proof)
             canonical["to"] = str(to)
+        # v3.3: optional OBO / delegation fields
+        if principal_id:
+            canonical["principal_id"] = str(principal_id)
+        if operator_id:
+            canonical["operator_id"] = str(operator_id)
+        if governance_framework_ref:
+            canonical["governance_framework_ref"] = str(governance_framework_ref)
         payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
                                    separators=(",", ":")).encode()
         pub_key.verify(sig_bytes, payload_bytes)
@@ -2255,6 +2289,7 @@ def _make_agent_card(name, skills):
             "msg_sig":                     bool(_ed25519_private),             # v3.0: per-message Ed25519 signature (msg_sig field); POST /verify/message; ANP DataIntegrityProof-aligned
             "origin_proof":                bool(_ed25519_private),             # v3.1: recipient-bound msg_sig (to field in canonical); prevents replay-to-wrong-recipient; ANP DataIntegrityProof origin_proof
             "data_integrity_proof":        bool(_ed25519_private),             # v3.2: W3C DataIntegrityProof compat layer — proof object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof
+            "capability_token":            True,                               # v3.3: capability_token field passthrough in acp.message (A2A #1716 SINT interop); POST /capability/issue helper
         },
 
         "identity": ({
@@ -5621,14 +5656,19 @@ def _on_message(raw):
 # WebSocket helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _attach_sig(msg: dict, to: str = "") -> dict:
-    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), msg_sig (v3.0/v3.1), and proof (v3.2) to outbound message.
+def _attach_sig(msg: dict, to: str = "",
+                principal_id: str = "", operator_id: str = "",
+                governance_framework_ref: str = "") -> dict:
+    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), msg_sig (v3.0/v3.1/v3.3), and proof (v3.2) to outbound message.
 
     v3.1: if `to` (recipient peer_id) is provided, the msg_sig canonical payload includes the
     `to` field (origin_proof — binds signature to the intended recipient).
     v3.2: additionally attaches a W3C DataIntegrityProof-format `proof` object (Ed25519Signature2020)
     alongside msg_sig for ANP interoperability. The `proof` field is backward-compatible — its
     absence does not affect existing message processing.
+    v3.3: optional OBO fields (principal_id/operator_id/governance_framework_ref) are included
+    in the canonical signing payload when non-empty (A2A #1713 cross-organisation delegation).
+    If these fields are provided, they are also stored in msg["origin_proof"] for verifiers.
     """
     if _hmac_secret and "message_id" in msg and "ts" in msg:
         msg["sig"] = _hmac_sign(str(msg["message_id"]), str(msg["ts"]))
@@ -5641,16 +5681,38 @@ def _attach_sig(msg: dict, to: str = "") -> dict:
         }
         # Sig is computed last (excludes identity.sig from canonical form)
         msg["identity"]["sig"] = _ed25519_sign_msg(msg)
-        # v3.0/v3.1: message-level signature — per-message cryptographic proof of origin.
+        # v3.0/v3.1/v3.3: message-level signature — per-message cryptographic proof of origin.
         # v3.1: when `to` is supplied, binds sig to recipient (origin_proof).
+        # v3.3: OBO fields extend the canonical payload for delegation attestation.
         try:
-            msg["msg_sig"] = _sign_message(msg, to=to)
+            msg["msg_sig"] = _sign_message(msg, to=to,
+                                           principal_id=principal_id,
+                                           operator_id=operator_id,
+                                           governance_framework_ref=governance_framework_ref)
         except Exception as _ms_err:
             log.debug(f"[msg_sig] Could not attach msg_sig: {_ms_err}")
+        # v3.3: attach origin_proof object with OBO metadata when any OBO field is present
+        if principal_id or operator_id or governance_framework_ref:
+            op = {
+                "from_peer":   str(msg.get("from", "")),
+                "to_peer":     str(to),
+                "session_id":  str(msg.get("context_id", msg.get("task_id", ""))),
+                "timestamp":   str(msg.get("ts", "")),
+            }
+            if principal_id:
+                op["principal_id"] = str(principal_id)
+            if operator_id:
+                op["operator_id"] = str(operator_id)
+            if governance_framework_ref:
+                op["governance_framework_ref"] = str(governance_framework_ref)
+            msg["origin_proof"] = op
         # v3.2: W3C DataIntegrityProof compat layer — proof object alongside msg_sig.
         # proofValue uses the same Ed25519 canonical payload as msg_sig (full interop).
         try:
-            proof_obj = _build_proof_object(msg, to=to)
+            proof_obj = _build_proof_object(msg, to=to,
+                                            principal_id=principal_id,
+                                            operator_id=operator_id,
+                                            governance_framework_ref=governance_framework_ref)
             if proof_obj is not None:
                 msg["proof"] = proof_obj
         except Exception as _proof_err:
@@ -5865,7 +5927,9 @@ def _offline_queue_snapshot() -> dict:
         }
 
 
-async def _ws_send(msg, peer_id=None):
+async def _ws_send(msg, peer_id=None,
+                   principal_id: str = "", operator_id: str = "",
+                   governance_framework_ref: str = ""):
     """Send msg over WebSocket.
     If peer_id is provided, route to that specific peer's WS connection.
     Falls back to legacy _peer_ws for single-peer / backward-compat.
@@ -5873,6 +5937,7 @@ async def _ws_send(msg, peer_id=None):
 
     v2.14 fix (BUG-045): serialise concurrent writes per-peer with an asyncio.Lock
     to prevent websockets protocol violations (code 1011) under concurrent _ws_send.
+    v3.3: optional OBO delegation fields forwarded to _attach_sig for origin_proof.
     """
     ws = None
     send_lock = None
@@ -5895,7 +5960,11 @@ async def _ws_send(msg, peer_id=None):
         # v2.0: no peer at all — buffer under "default" key
         _offline_enqueue(msg, peer_id=peer_id or "default")
         raise ConnectionError("No P2P connection — message queued for delivery on reconnect")
-    payload = json.dumps(_attach_sig(msg, to=peer_id or ""), ensure_ascii=False)
+    payload = json.dumps(_attach_sig(msg, to=peer_id or "",
+                                     principal_id=principal_id,
+                                     operator_id=operator_id,
+                                     governance_framework_ref=governance_framework_ref),
+                         ensure_ascii=False)
     if send_lock:
         # Per-peer asyncio.Lock: all callers are in the same event loop thread, safe.
         async with send_lock:
@@ -5913,8 +5982,16 @@ async def _ws_send(msg, peer_id=None):
             _ws_send_global_lock.release()
     _status["messages_sent"] += 1
 
-def _ws_send_sync(msg, peer_id=None):
-    asyncio.run_coroutine_threadsafe(_ws_send(msg, peer_id=peer_id), _loop).result(timeout=10)
+def _ws_send_sync(msg, peer_id=None,
+                  principal_id: str = "", operator_id: str = "",
+                  governance_framework_ref: str = ""):
+    asyncio.run_coroutine_threadsafe(
+        _ws_send(msg, peer_id=peer_id,
+                 principal_id=principal_id,
+                 operator_id=operator_id,
+                 governance_framework_ref=governance_framework_ref),
+        _loop
+    ).result(timeout=10)
 
 async def _send_agent_card(ws):
     # v1.9: send signed AgentCard so peer can auto-verify upon receipt
@@ -9606,6 +9683,79 @@ class LocalHTTP(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         p = parsed.path
 
+        # ── v3.3: POST /capability/issue — ACP generic Ed25519 capability token helper ──
+        if p == "/capability/issue":
+            """
+            POST /capability/issue — Issue an Ed25519 ACP capability token (A2A #1716 SINT-interop).
+
+            This is an ACP-native helper endpoint (not a mandated A2A interface).
+            Requires --identity (Ed25519 keypair must be loaded).
+
+            Body:
+              subject       (required) — peer_id or DID of the subject receiving this capability
+              resource      (optional) — resource scope: session_id or "*" (default: "*")
+              actions       (optional) — list of permitted actions (default: ["read", "write"])
+              tier          (optional) — numeric tier 0-3 (default: 0)
+              exp_seconds   (optional) — token lifetime in seconds (default: 3600)
+
+            Response 200:
+              {"ok": true, "token": {type, subject, resource, actions, tier, iss, iat, exp, sig}}
+            Response 400: missing subject
+            Response 403: --identity not loaded (no Ed25519 keypair)
+            """
+            try:
+                body = self._read_body()
+                subject_ci = (body.get("subject") or "").strip()
+                if not subject_ci:
+                    self._json({"ok": False, "error": "missing required field: subject"}, 400)
+                    return
+                if not _ed25519_private:
+                    self._json({"ok": False,
+                                "error": "capability_token issuance requires --identity (Ed25519 keypair)",
+                                "error_code": "ERR_IDENTITY_REQUIRED"}, 403)
+                    return
+                resource_ci    = str(body.get("resource", "*") or "*")
+                actions_ci     = list(body.get("actions") or ["read", "write"])
+                tier_ci        = int(body.get("tier", 0))
+                exp_seconds_ci = int(body.get("exp_seconds", 3600))
+
+                import secrets as _sec_ci
+                import time as _time_ci
+                import base64 as _b64_ci
+                jti_ci  = _sec_ci.token_hex(16)
+                iat_ci  = int(_time_ci.time())
+                exp_ci  = iat_ci + exp_seconds_ci
+                issuer_ci = _did_acp or _did_key or _status.get("agent_name", "acp-relay")
+
+                payload_ci = {
+                    "type":     "Ed25519CapabilityToken",
+                    "subject":  subject_ci,
+                    "resource": resource_ci,
+                    "actions":  sorted(actions_ci),
+                    "tier":     tier_ci,
+                    "iss":      issuer_ci,
+                    "jti":      jti_ci,
+                    "iat":      iat_ci,
+                    "exp":      exp_ci,
+                }
+                canonical_ci   = json.dumps(payload_ci, sort_keys=True, separators=(",", ":")).encode()
+                sig_bytes_ci   = _ed25519_private.sign(canonical_ci)
+                sig_b64url_ci  = _b64_ci.urlsafe_b64encode(sig_bytes_ci).rstrip(b"=").decode()
+                import datetime as _dt_ci
+                exp_iso_ci     = _dt_ci.datetime.utcfromtimestamp(exp_ci).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                token_ci = {
+                    **payload_ci,
+                    "exp":      exp_iso_ci,   # override with ISO-8601 per A2A #1716 convention
+                    "sig":      sig_b64url_ci,
+                    "public_key": _ed25519_public_b64,
+                }
+                log.info(f"🎫 /capability/issue: jti={jti_ci} sub={subject_ci} tier={tier_ci} exp={exp_iso_ci}")
+                self._json({"ok": True, "token": token_ci})
+            except Exception as _ci_err:
+                self._json({"ok": False, "error": str(_ci_err)}, 500)
+            return
+
         # ── v2.57: POST /skills/{skill_id}/capability-token — SINT-format token issuance ──
         if p.startswith("/skills/") and p.endswith("/capability-token") and p.count("/") == 3:
             """
@@ -10401,6 +10551,17 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     _self_did = _did_acp or _did_key or _status.get("agent_name", "unknown")
                     msg["principal_chain"] = [_self_did] + [e.get("did", "") for e in _principal_chain if e.get("did")]
 
+                # v3.3: capability_token transparent passthrough — relay does not validate,
+                # just attaches to the outgoing message so the recipient can verify.
+                _cap_token_fwd = body.get("capability_token")
+                if _cap_token_fwd and isinstance(_cap_token_fwd, dict):
+                    msg["capability_token"] = _cap_token_fwd
+
+                # v3.3: origin_proof OBO optional fields — extracted from body for _attach_sig
+                _principal_id_fwd        = str(body.get("principal_id", "") or "")
+                _operator_id_fwd         = str(body.get("operator_id", "") or "")
+                _gov_framework_ref_fwd   = str(body.get("governance_framework_ref", "") or "")
+
                 serialized = json.dumps(msg, ensure_ascii=False)
                 if len(serialized.encode()) > MAX_MSG_BYTES:
                     e_body, e_code = _err(ERR_MSG_TOO_LARGE,
@@ -10425,7 +10586,10 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     msg["correlation_id"] = message_id
                     future = _loop.create_future()
                     _sync_pending[message_id] = future
-                    _ws_send_sync(msg, peer_id=_req_peer_id or None)
+                    _ws_send_sync(msg, peer_id=_req_peer_id or None,
+                                  principal_id=_principal_id_fwd,
+                                  operator_id=_operator_id_fwd,
+                                  governance_framework_ref=_gov_framework_ref_fwd)
                     try:
                         reply = asyncio.run_coroutine_threadsafe(
                             asyncio.wait_for(asyncio.shield(future), timeout=timeout), _loop
@@ -10445,21 +10609,26 @@ class LocalHTTP(BaseHTTPRequestHandler):
                         self._json(e_body, e_code)
                 else:
                     seq = msg["server_seq"]
-                    # BUG-007 fix (part 2): when peer_id supplied in body, route to that peer
-                    _ws_send_sync(msg, peer_id=_req_peer_id or None)
-                    # BUG-001 fix: broadcast SSE event for outbound messages so local stream
-                    #              subscribers see all traffic (not just WS-received messages).
-                    # BUG-004 fix: also persist to local recv_queue so /recv and /stream reflect send.
-                    _broadcast_sse_event("message", {
-                        "message_id": message_id,
-                        "role":       role_raw,
-                        "parts":      parts,
-                        "task_id":    msg.get("task_id"),
-                        "context_id": msg.get("context_id"),   # v2.15: include context_id for context query
-                        "direction":  "outbound",
-                    })
-                    # v2.15: persist outbound message to _recv_queue so /context/<id>/messages
-                    # and /messages can surface sent messages (enables full conversation history).
+                    # v3.3: persist outbound entry BEFORE _ws_send_sync so it's always stored
+                    # even when peer is offline and ConnectionError is raised.
+                    # v3.3: pre-build origin_proof OBO fields for the outbound entry.
+                    # _attach_sig adds origin_proof to msg inside _ws_send_sync (which runs
+                    # after _recv_queue.append), so we construct it eagerly here from the
+                    # already-extracted OBO vars to ensure the stored entry contains them.
+                    _pre_origin_proof = None
+                    if _principal_id_fwd or _operator_id_fwd or _gov_framework_ref_fwd:
+                        _pre_origin_proof = {
+                            "from_peer":  _status.get("agent_name", "local"),
+                            "to_peer":    str(_req_peer_id or ""),
+                            "session_id": str(msg.get("context_id") or msg.get("task_id") or ""),
+                            "timestamp":  str(msg.get("ts", "")),
+                        }
+                        if _principal_id_fwd:
+                            _pre_origin_proof["principal_id"] = _principal_id_fwd
+                        if _operator_id_fwd:
+                            _pre_origin_proof["operator_id"] = _operator_id_fwd
+                        if _gov_framework_ref_fwd:
+                            _pre_origin_proof["governance_framework_ref"] = _gov_framework_ref_fwd
                     _outbound_entry = {
                         "peer_id":    "local",
                         "direction":  "outbound",
@@ -10473,9 +10642,29 @@ class LocalHTTP(BaseHTTPRequestHandler):
                             "parts":       parts,
                             "task_id":     msg.get("task_id"),
                             "context_id":  msg.get("context_id"),
+                            **( {"capability_token": msg["capability_token"]}
+                                if "capability_token" in msg else {} ),   # v3.3: passthrough
+                            **( {"origin_proof": _pre_origin_proof}
+                                if _pre_origin_proof else {} ),            # v3.3: OBO proof
                         },
                     }
                     _recv_queue.append(_outbound_entry)
+                    # BUG-007 fix (part 2): when peer_id supplied in body, route to that peer
+                    _ws_send_sync(msg, peer_id=_req_peer_id or None,
+                                  principal_id=_principal_id_fwd,
+                                  operator_id=_operator_id_fwd,
+                                  governance_framework_ref=_gov_framework_ref_fwd)
+                    # BUG-001 fix: broadcast SSE event for outbound messages so local stream
+                    #              subscribers see all traffic (not just WS-received messages).
+                    # BUG-004 fix: also persist to local recv_queue so /recv and /stream reflect send.
+                    _broadcast_sse_event("message", {
+                        "message_id": message_id,
+                        "role":       role_raw,
+                        "parts":      parts,
+                        "task_id":    msg.get("task_id"),
+                        "context_id": msg.get("context_id"),   # v2.15: include context_id for context query
+                        "direction":  "outbound",
+                    })
                     # v2.32: store server_seq in dedup cache so replay returns it
                     # v2.84: also record when client used client_msg_id alias
                     if _client_supplied_id:
