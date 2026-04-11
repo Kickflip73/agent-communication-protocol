@@ -343,3 +343,52 @@ ACP implementation predates the A2A proposal by approximately 3–4 months (trus
 - [A2A Issue #1717: Governance metadata in A2A Agent Cards](https://github.com/a2aproject/A2A/issues/1717)
 - [aeoess SDK v1.37.0 — Derivation governance primitives](https://github.com/a2aproject/A2A/issues/1717#issuecomment-latest)
 - [ACP CHANGELOG v2.60–v2.92](../../CHANGELOG.md)
+
+---
+
+## 11. v3.5 Extension — Governance Proof Suite
+
+> Added in ACP v3.5.0 (2026-04-11)
+
+The `governance` block now includes an optional `proof_suite` sub-object that declares which
+cryptographic proof suites the node supports. This enables W3C Data Integrity interoperability
+and aligns with the ANP `eddsa-jcs-2022` specification.
+
+### Schema
+
+```json
+{
+  "governance": {
+    "framework": "ACP-RFC-003",
+    "version": "1.0",
+    "proof_suite": {
+      "supported": ["Ed25519Signature2020", "eddsa-jcs-2022"],
+      "default": "Ed25519Signature2020",
+      "interop_refs": [
+        "https://w3c.github.io/vc-data-integrity/",
+        "https://www.w3.org/TR/vc-di-eddsa/"
+      ]
+    },
+    "credential_lifecycle": {
+      "ttl_seconds": 3600,
+      "revocation_endpoint": null,
+      "credential_ttl_seconds": 86400
+    },
+    "audit_mode": "static",
+    "policy_ref": null
+  }
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `proof_suite.supported` | `string[]` | Proof suite identifiers supported by this node |
+| `proof_suite.default` | `string` | Currently active proof suite |
+| `proof_suite.interop_refs` | `string[]` | W3C spec URLs (documentary only — not enforced at runtime) |
+
+### Backward Compatibility
+
+`proof_suite` is a new sub-field within the existing `governance` block. Clients that do not
+recognize `proof_suite` MUST ignore it. The field is always present in ACP v3.5+.

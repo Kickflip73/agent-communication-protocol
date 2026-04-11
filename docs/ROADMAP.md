@@ -889,8 +889,19 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - 修复：`origin_proof` 构建时机 bug（CT-06 回归）
 - 完全向后兼容
 
-### 🔮 v3.4 — Multikey verificationMethod（规划中）
-- 单个 AgentCard 支持多密钥声明（`verificationMethod[]` 数组）
-- Ed25519 主密钥 + ECDSA-SD 扩展点预留（选择性披露）
-- 密钥轮换协议（`key_rotation` capability）
-- 预计交付：下一个安全研发轮
+### ✅ v3.4 — AgentCard Governance Block（2026-04-11）
+- **`AgentCard.governance`**：`/status` 新增顶层治理对象，包含 `framework`、`version`、`credential_lifecycle`（`ttl_seconds`/`revocation_endpoint`/`credential_ttl_seconds`）、`audit_mode`、`policy_ref`
+- `credential_lifecycle.ttl_seconds` 默认 3600（1h）；`audit_mode` 支持 `static`（声明式）和 `live`（未来 REST 扩展）
+- 完全向后兼容；对齐 A2A #1717 `CredentialLifecyclePolicy`
+
+### ✅ v3.5.0 ✅ 已完成 — 2026-04-11
+- **`governance.proof_suite`**（eddsa-jcs-2022 互操作）：声明节点支持的签名套件（`Ed25519Signature2020`、`eddsa-jcs-2022`），含 W3C 互操作引用
+- **`transport_bindings.experimental`**（SlimRPC 扩展口预留）：AgentCard 新增 `transport_bindings` 字段，`supported: ["http","websocket"]` + `experimental: []` 扩展口
+- `capabilities.transport_bindings: true`；CLI `--experimental-transport` flag
+- 测试：V35-01–V35-06 = 6/6 PASS
+
+## v3.6.0 候选特性
+- BUG-030 修复：relay 高并发偶发崩溃（P2）
+- scenario_d 压测集成到 CI
+- SlimRPC 实验性绑定（待 A2A #1723 建仓确认）
+- ECDSA-SD 选择性披露评估（跟踪 ANP 进展）

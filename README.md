@@ -573,10 +573,24 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.1** | ✅ | **origin_proof — 签名绑定接收方 peer_id** — canonical 加入 `to` 字段（`{content,from,message_id,to,ts}`），防 replay-to-wrong-recipient 攻击；`capabilities.origin_proof: true`；向后兼容（`to=""` 退回 v3.0 canonical）；OP-01–OP-06 = 5/6（1 skipped，预期）|
 | **v3.2** | ✅ | **W3C DataIntegrityProof 兼容层** — `_build_proof_object()` 输出标准 `Ed25519Signature2020` proof 对象；出站消息并存 `msg_sig`（ACP 原生）+ `proof`（W3C 格式）；`POST /verify/proof` 新验证端点；`capabilities.data_integrity_proof: true`；proofValue 与 msg_sig 互操作等价（同 canonical）；DIP-01–DIP-06 = 6/6；对标 ANP DataIntegrityProof（2026-04-10 落地）|
 | **v3.3** | ✅ | **Capability Token 透传 & OBO Authorization** — `capability_token` 可选字段透传（A2A #1716 SINT Protocol Ed25519 格式）；`POST /capability/issue` 本地签发辅助端点；`origin_proof` OBO 扩展字段（`principal_id`/`operator_id`/`governance_framework_ref`，A2A #1713 对齐）；`capabilities.capability_token: true`；CT-01–CT-06 = 6/6；修复 origin_proof 构建时机 bug（CT-06 回归）|
+| **v3.4** | ✅ | **AgentCard `governance` block** — `/status` 新增顶层 `governance` 对象（`framework`/`version`/`credential_lifecycle`/`audit_mode`/`policy_ref`）；`credential_lifecycle.ttl_seconds` 默认 3600；`audit_mode` 支持 `static`/`live`；A2A #1717 `CredentialLifecyclePolicy` 对齐 |
+| **v3.5** | ✅ | **Governance Proof Suite & Transport Bindings** — `governance.proof_suite` 声明签名套件（`Ed25519Signature2020`/`eddsa-jcs-2022`），附 W3C 规范引用，与 ANP 互操作；`AgentCard.transport_bindings` 新增传输绑定声明（`supported`/`experimental` 扩展口，为 SlimRPC 预留）；`capabilities.transport_bindings: true`；CLI `--experimental-transport` flag；V35-01–V35-06 = 6/6 |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.5.0 — Governance Proof Suite & Transport Bindings
+- **`governance.proof_suite`**：`/status` governance 对象新增签名套件声明，支持 `Ed25519Signature2020` 和 `eddsa-jcs-2022`，附 W3C 规范引用（`https://w3c.github.io/vc-data-integrity/`、`https://www.w3.org/TR/vc-di-eddsa/`），与 ANP 互操作
+- **`AgentCard.transport_bindings`**：新增 `transport_bindings` 字段，`supported: ["http","websocket"]` 声明稳定传输方式，`experimental: []` 扩展口为 SlimRPC（A2A #1723）等未来绑定预留
+- **`capabilities.transport_bindings: true`**：能力声明标志
+- CLI `--experimental-transport <name>`：可重复追加实验性传输绑定
+- 向后兼容：proof_suite 为 governance 子对象新增字段；transport_bindings 为 AgentCard 新增顶层字段
+
+### v3.4.0 — Governance Block
+- **`AgentCard.governance`**：`/status` 新增顶层治理对象，包含 `framework`、`version`、`credential_lifecycle`（`ttl_seconds`/`revocation_endpoint`/`credential_ttl_seconds`）、`audit_mode`、`policy_ref`
+- `credential_lifecycle.ttl_seconds` 默认 3600（1h）；`audit_mode` 支持 `static`（声明式）和 `live`（未来 REST 扩展）
+- 对齐 A2A #1717 `CredentialLifecyclePolicy`；完全向后兼容
 
 ### v3.3.0 — Capability Token & OBO Authorization
 - **`capability_token` 透传**：消息携带 A2A #1716 兼容的 Ed25519 capability token，relay 不验证直接透传
