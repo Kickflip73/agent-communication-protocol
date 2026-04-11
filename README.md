@@ -566,6 +566,11 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v2.90** | ✅ | **POST /identity/verify-card — 离线 AgentCard 验签** — 无需与 card 所有者建立连接，直接提交任意 AgentCard JSON 进行 Ed25519 自签名验证；`verified`/`did`/`public_key`/`did_consistent` 响应字段；`capabilities.offline_card_verify: true`；`endpoints.offline_card_verify: /identity/verify-card`；9 个测试全通（IVC1-IVC9）|
 | **v2.89** | ✅ | **ACP-RFC-002 — 双边签名交互记录** — 新增 `docs/rfc/bilateral-interaction-records.md`，完整记录 ACP v2.59–v2.76 bilateral IR 设计：双方共签规范载荷、SHA-256 哈希链、Merkle root 证明、与 effective_tier 集成（bilateral_ir_adj 第5因子）、跨实现测试向量；README 新增 #1718 对比行 + blockquote 注释；对标 A2A Issue #1718（viftode4，提案阶段）|
 | **v2.88** | ✅ | **BUG-059 修复 — peer card exchange 竞态条件** — `guest_mode` 中 peer 注册提前至 `_send_agent_card()` 之前，消除 host 回送 card 时 `card_available=False` 的竞态；`test_peer_card.py` 加 `--local-only` 修复 flaky；PC1-9 = 9/9（3s）|
+| **v2.97** | ✅ | **`--persist-queue` SQLite 持久化离线队列** — Agent 离线期间消息不丢失；A2A #1667 offline-first 需求率先实现 |
+| **v2.98** | ✅ | **`POST /tasks/queue` 异步任务入队（202 Accepted）** — 立即返回 `task_id`+`poll_url`+`sse_url`；A2A #1667 三件套之一 |
+| **v2.99** | ✅ | **`--max-offline-ttl` 过期策略** — 离线队列消息超 TTL 自动清理（drop/notify 双策略）；`POST /offline-queue/sweep` 主动清扫端点 |
+| **v3.0** | ✅ | **消息级 Ed25519 签名（msg_sig）** — `_sign_message()` + `_verify_message_sig()`；出站消息自动签名；`POST /verify/message` 第三方验证端点；`capabilities.msg_sig: true`；对齐 ANP DataIntegrityProof 方向；MS-01–MS-10 = 8/10（2 skipped，预期） |
+| **v3.1** | ✅ | **origin_proof — 签名绑定接收方 peer_id** — canonical 加入 `to` 字段（`{content,from,message_id,to,ts}`），防 replay-to-wrong-recipient 攻击；`capabilities.origin_proof: true`；向后兼容（`to=""` 退回 v3.0 canonical）；OP-01–OP-06 = 5/6（1 skipped，预期）|
 
 ---
 

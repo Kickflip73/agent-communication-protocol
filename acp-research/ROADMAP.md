@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-10 22:37（开发轮；v2.99 完成：--max-offline-ttl 过期策略 + /offline-queue/sweep，OT1-OT9全通；当前版本 v2.99.0 commit 8464ed4）
+> 最后更新：2026-04-11 08:21（文档轮；v3.0 msg_sig + v3.1 origin_proof 完成记录；当前版本 v3.1.0 commits a7f0840/79a16c6）
 
 ---
 
@@ -23,14 +23,16 @@
 
 | 协议 | Stars | 活跃度 | 定位 | 身份认证 | 态度 |
 |------|-------|--------|------|----------|------|
-| **ACP** (本项目) | - | ✅ 活跃开发 | 轻量 P2P Agent 通信 | ✅ Ed25519+DID（v1.3） | - |
+| **ACP** (本项目) | - | ✅ 活跃开发 | 轻量 P2P Agent 通信 | ✅ Ed25519+DID（v1.3）+ msg_sig（v3.0）+ origin_proof（v3.1） | - |
 | **A2A** (Google) | 22,643+ | ⚡ 极高 | 企业级 Agent 总线 | ⏳ 讨论中（Issue #1672，408评论，无实现）| 借鉴概念，不复制复杂度 |
 | **ANP** (社区) | 1,240 | 🔴 已归档 | 去中心化身份 | ✅ 理论设计（但停更） | 停更（最后活跃 2026-03-05），不再追踪 |
 | **IBM ACP** | 966 | 🔴 停更 | 多模态消息 | ❌ 无 | 参考即可 |
 | **MCP** (Anthropic) | - | ✅ 稳定 | 工具调用 | ❌ 无 | 不同赛道，可互补 |
 
-> 🏆 **ACP 差异化优势（2026-04-10 v2.98 更新）**：
+> 🏆 **ACP 差异化优势（2026-04-11 v3.1 更新）**：
 > - **身份认证（无 CA 自签名）**：ACP Ed25519+DID 默认开启（v2.85）+ 离线验签（v2.90），A2A #1672 仍提案中心 CA 方案（无实现）→ 领先 **3.5 个月**，且方案更优（无单点故障）
+> - **消息级签名（msg_sig）**：ACP v3.0 实现 Ed25519 per-message signature + `POST /verify/message`，ANP DataIntegrityProof 2026-04-10 才提规范 → **ACP 同日落地实现**
+> - **origin_proof 接收方绑定**：ACP v3.1 canonical 含 `to` 字段，防 replay-to-wrong-recipient 攻击，ANP 同向设计但仅规范层 → **ACP 先于 ANP 有可工作实现**
 > - **对抗性 IR 测试夹具**：ACP v2.91 完整实现 5 种攻击场景，A2A #1718 刚提 bilateral records 提案（2026-04-08）→ **ACP 抢先实现**
 > - **治理元数据**：ACP v2.85/v2.87/v2.92 完整实现，A2A #1717 刚提案（Microsoft）→ 领先 **3-4 个月**
 > - **技能授权分级**：ACP v2.50/v2.74/v2.95 完整实现（T0-T3 + capability_token + skill_scoped_trust），A2A #1716 仍提 RFC → 领先 **5+ 个月**
@@ -393,7 +395,39 @@ Key commit: TBD（本轮）
 
 ---
 
-### 🔮 v3.0（目标：2026-Q3，真 P2P 完成后）
+### ✅ v3.0（完成，2026-04-11）
+**主题：消息级 Ed25519 签名（msg_sig）**
+
+- ✅ `_sign_message(msg_payload)` — canonical JSON Ed25519 签名，返回 base64url
+- ✅ `_verify_message_sig(msg, public_key_b64)` — 验证 msg_sig
+- ✅ 出站消息自动附加 `msg_sig`（`--identity` 启用时）
+- ✅ `POST /verify/message` — 第三方可验证消息签名端点
+- ✅ `capabilities.msg_sig: true`（AgentCard，identity 加载时）
+- ✅ `tests/test_message_sig.py`：8 passed, 2 skipped（含自启动 relay fixture）
+- ✅ 与 ANP DataIntegrityProof / origin_proof 方向对齐
+
+Key commits: `a7f0840`（feat）, `02489c3`（test fixture）
+
+---
+
+### ✅ v3.1（完成，2026-04-11）
+**主题：origin_proof — 签名绑定接收方 peer_id**
+
+- ✅ `_sign_message(msg, to="")` — canonical 新增 `to` 字段（`{content, from, message_id, to, ts}`）
+- ✅ `_verify_message_sig(msg, pubkey, to="")` — 验证时使用含 `to` 的相同 canonical
+- ✅ `_ws_send` 自动传入 `to=peer_id`，所有出站消息签名绑定接收方
+- ✅ `POST /verify/message` 接受 `to` 字段，响应回显
+- ✅ `capabilities.origin_proof: true`（identity 启用时）
+- ✅ **向后兼容**：`to=""` 退回 v3.0 canonical，老消息无缝验证
+- ✅ `tests/test_origin_proof.py`：OP-01–OP-06，5 passed, 1 skipped
+  - OP-03 核心安全保证：错误接收方 → `_verify_message_sig` 返回 False ✅
+- ✅ 安全意义：防止"replay-to-wrong-recipient"攻击（ANP DataIntegrityProof 同向设计）
+
+Key commit: `79a16c6`
+
+---
+
+### 🔮 v3.2（规划中）
 **主题：公开发布 + 联邦化**
 
 - [ ] 公开发布（博客文章 + GitHub README + Hacker News）
@@ -685,9 +719,19 @@ Key commit: TBD（本轮）
 
 ---
 
-## 🔭 v3.0 候选特性（规划中）
+## 🔭 v3.2 候选特性（规划中）
 
-> 基于当前版本 v2.99.0，下一轮开发优先级：
+> 基于当前版本 v3.1.0，下一轮开发优先级：
+
+### [ ] P1 — W3C DataIntegrityProof 格式对齐（互操作兼容）
+- scan33 结论：ANP 引入 W3C DataIntegrityProof 标准，ACP msg_sig 方向一致但格式不同
+- 评估 ACP msg_sig / origin_proof 是否向 W3C 标准格式靠拢，提升与 ANP 互操作性
+- 输出：`spec/security-v3.2.md` §14 补充 W3C 格式映射说明
+
+### [ ] P1 — A2A #1716 Capability Token 兼容字段预留
+- A2A #1716 AgentSkill 级别 capability token RFC 活跃，ACP 已领先实现
+- 预留兼容字段：`skill.capability_token_format`（A2A / ACP 双格式声明）
+- 避免未来强制迁移
 
 ### [ ] P1 — `--heartbeat-agent` 模式（heartbeat-agent 完整方案）
 - 来源：A2A #1667，配合 --persist-queue + /tasks/queue + --max-offline-ttl 完成三件套闭环
