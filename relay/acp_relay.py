@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.6.0"   # v3.6: P1 bug fixes — BUG-007 peer_ids multi-cast, BUG-009 SSE instant flush, BUG-003b idempotent reconnect
+VERSION = "3.7.0"   # v3.7: scenario_d CI stress test integration + Authorization hook stub (A2A #1716 watchlist)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -9756,7 +9756,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
         else:
             self._json({"error": "not found"}, 404)
 
-    # ── POST ──────────────────────────────────────────────────────────────────
+    # ── ACP v3.7 Authorization hook ──────────────────────────────────────────
+    # [STUB] ACP v3.7 Authorization hook — reserved for A2A #1716 capability token verification
+    # Future: validate capability_token against AgentSkill boundaries before routing
+    def _check_authorization(self, sender_id: str, target_id: str, skill_id: str = None) -> bool:
+        """Stub: always returns True until Authorization Layer spec is finalized (A2A #1716 watchlist)"""
+        return True
+
+# ── POST ──────────────────────────────────────────────────────────────────
 
     def do_POST(self):
         global _extensions  # v1.3: may be mutated by /extensions/register and /extensions/unregister
@@ -10485,6 +10492,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
         #   role    — must be present and one of: "user" | "agent"
         #   content — at least one of: parts (non-empty list) or text/content (non-empty string)
         if p == "/message:send":
+            # [v3.7] Authorization hook — A2A #1716 watchlist (stub: always passes)
+            if not self._check_authorization(
+                sender_id=_status.get("agent_name", "local"),
+                target_id="*",
+            ):
+                self._json({"ok": False, "error": "authorization_denied"}, 403)
+                return
+
             try:
                 body = self._read_body()
 

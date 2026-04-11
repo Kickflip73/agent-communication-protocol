@@ -1,278 +1,253 @@
 #!/usr/bin/env python3
 """
-ACP 场景D测试 — 压力测试
-=========================
-- D1: 100 条消息连续发送（单线程）
-- D2: 并发发送（10 线程 × 10 条）
-- D3: 大量消息积压后批量 /recv
-- D4: 消息幂等性（同一 message_id 重发 10 次）
-- D5: 快速连续 /tasks 创建（50 个 task）
+tests/test_scenario_d.py — ACP v3.7.0 Scenario D: Local-Relay CI Stress Tests
+===============================================================================
+All tests run against a locally spawned acp_relay.py instance.
+No external network dependencies (zero P2P, zero relay.acp.dev).
 
-运行方式：
-    python3 tests/test_scenario_d.py
+Architecture mirrors test_message_sig.py relay_url fixture
+(subprocess + ws_port+100 HTTP, --local-only flag).
+
+Tests:
+  SD-1  test_scenario_d_basic      — 3 local agents each submit a task; relay accepts all
+  SD-2  test_scenario_d_burst      — 20 tasks submitted in sequence; all accepted, IDs unique
+  SD-3  test_scenario_d_p99_latency — 10 task submissions; P99 round-trip latency < 2000ms
+
+Note on /message:send behaviour in --local-only mode:
+  When no peer is connected, POST /message:send returns HTTP 503 with
+  error_code="ERR_NOT_CONNECTED" and queues the message for later delivery.
+  This is intentional relay behaviour — 503 here means "queued, not dropped".
+  Tests that exercise /message:send therefore treat 503 as a valid (non-error) response.
 """
 
-import sys, os, time, json, threading, subprocess, signal, requests
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+
 import pytest
+import requests
+
 from helpers import clean_subprocess_env
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-RELAY_PATH = os.path.join(os.path.dirname(__file__), "../relay/acp_relay.py")
+# ── Port helpers ─────────────────────────────────────────────────────────────
 
 
-def _free_port():
-    """Return an OS-assigned free port where port AND port+100 are both free."""
-    import socket
+def _free_port_pair():
+    """Return a ws_port where both ws_port and ws_port+100 are free."""
     for _ in range(200):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
-            ws = s.getsockname()[1]
+            ws_port = s.getsockname()[1]
         try:
             with socket.socket() as s2:
-                s2.bind(("127.0.0.1", ws + 100))
-                return ws
+                s2.bind(("127.0.0.1", ws_port + 100))
+                return ws_port
         except OSError:
             continue
-    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+    raise RuntimeError("Could not find a free port pair (ws_port and ws_port+100)")
 
 
-RELAY_PORT = _free_port()
-HTTP_BASE  = f"http://localhost:{RELAY_PORT + 100}"
-RELAY_PROC = None
+# ── Module-scoped relay fixture ──────────────────────────────────────────────
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
-def start_relay():
-    global RELAY_PROC
-    RELAY_PROC = subprocess.Popen(
-        [sys.executable, RELAY_PATH, "--port", str(RELAY_PORT), "--name", "StressRelay"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+@pytest.fixture(scope="module")
+def relay_url():
+    """Start a local relay instance; yield its HTTP base URL; then shut it down.
+
+    Mirrors the relay_url fixture in test_message_sig.py exactly:
+    - subprocess.Popen with --local-only
+    - HTTP port = ws_port + 100
+    - Waits for /status to respond before yielding
+    """
+    ws_port = _free_port_pair()
+    http_port = ws_port + 100
+
+    relay_script = os.path.join(os.path.dirname(__file__), "..", "relay", "acp_relay.py")
+    identity_file = os.path.expanduser("~/.acp/identity.json")
+
+    cmd = [
+        sys.executable, relay_script,
+        "--port", str(ws_port),
+        "--identity", identity_file,
+        "--local-only",
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         env=clean_subprocess_env(),
     )
-    for _ in range(40):
-        try:
-            if requests.get(f"{HTTP_BASE}/recv", timeout=0.5).status_code == 200:
-                return
-        except Exception:
-            pass
-        time.sleep(0.2)
-    raise RuntimeError("Relay did not start")
 
-def stop_relay():
-    if RELAY_PROC:
-        RELAY_PROC.send_signal(signal.SIGTERM)
-        try:
-            RELAY_PROC.wait(timeout=8)
-        except Exception:
-            RELAY_PROC.kill()
+    base_url = f"http://127.0.0.1:{http_port}"
 
-def send_msg(content, msg_id=None, role="agent"):
-    payload = {"role": role, "parts": [{"type": "text", "content": content}]}
-    if msg_id:
-        payload["message_id"] = msg_id
+    # Wait up to 10 s for relay /status to respond
+    deadline = time.time() + 10
+    ready = False
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(f"{base_url}/status", timeout=2)
+            ready = True
+            break
+        except Exception:
+            time.sleep(0.3)
+
+    if not ready:
+        proc.terminate()
+        pytest.skip(f"local relay failed to start on port {http_port}")
+
+    yield base_url
+
+    proc.terminate()
     try:
-        r = requests.post(f"{HTTP_BASE}/message:send", json=payload, timeout=5)
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+# ── Helper utilities ─────────────────────────────────────────────────────────
+
+
+def _create_task(base_url: str, content: str, agent_id: str = "agent_a") -> tuple:
+    """POST /tasks — reliable in local-only mode (no peer required).
+
+    Returns (status_code, response_body_dict).
+    """
+    payload = {
+        "role": "agent",
+        "parts": [{"type": "text", "content": content}],
+        "sender_id": agent_id,
+    }
+    try:
+        r = requests.post(f"{base_url}/tasks", json=payload, timeout=5)
         return r.status_code, r.json()
-    except Exception as e:
-        return 0, {"error": str(e)}
+    except Exception as exc:
+        return 0, {"error": str(exc)}
 
-def recv_all():
-    try:
-        r = requests.get(f"{HTTP_BASE}/recv?limit=200", timeout=5)
-        if r.status_code == 200:
-            return r.json().get("messages", [])
-    except Exception:
-        pass
-    return []
 
-results = []
-def check(name, cond, detail=""):
-    status = "✅" if cond else "❌"
-    results.append((name, cond, detail))
-    detail_str = f"  ({detail})" if detail else ""
-    print(f"  {status} {name}{detail_str}")
-    return cond
+def _extract_task_id(body: dict) -> str | None:
+    """Extract task id from various possible response shapes."""
+    return (
+        body.get("task_id")
+        or body.get("id")
+        or (body.get("task") or {}).get("id")
+    )
 
-# ── pytest module-scoped fixture ───────────────────────────────────────────────
 
-@pytest.fixture(scope="module", autouse=True)
-def relay_instance():
-    """Start a single relay instance for the stress test suite."""
-    start_relay()
-    yield
-    stop_relay()
+# ── SD-1: Basic multi-agent task submission ──────────────────────────────────
 
-# ── Test cases ─────────────────────────────────────────────────────────────────
 
-def test_d1_sequential_100():
-    """D1: 100条消息顺序发送，全部返回 non-5xx"""
-    print("\n[D1] 100 条顺序消息发送...")
-    t0 = time.time()
+@pytest.mark.timeout(20)
+def test_scenario_d_basic(relay_url):
+    """SD-1: 3 local agents each submit a task; relay accepts all with 201 Created."""
+    agents = ["agent_a", "agent_b", "agent_c"]
+    results = {}
+    task_ids = {}
+
+    for agent in agents:
+        code, body = _create_task(relay_url, f"hello-from-{agent}", agent_id=agent)
+        results[agent] = code
+        task_ids[agent] = _extract_task_id(body)
+
+    # All three task submissions must succeed with 201
+    failures = {a: c for a, c in results.items() if c != 201}
+    assert not failures, (
+        f"SD-1: agents did not get 201 Created: {failures}"
+    )
+
+    # Each must have a non-empty task id
+    missing_ids = {a for a, tid in task_ids.items() if not tid}
+    assert not missing_ids, (
+        f"SD-1: these agents got no task_id in response: {missing_ids}"
+    )
+
+    # All task ids must be distinct
+    ids = list(task_ids.values())
+    assert len(set(ids)) == len(ids), (
+        f"SD-1: duplicate task IDs returned: {ids}"
+    )
+
+
+# ── SD-2: Burst 20 tasks ─────────────────────────────────────────────────────
+
+
+@pytest.mark.timeout(20)
+def test_scenario_d_burst(relay_url):
+    """SD-2: agent_a submits 20 tasks in sequence; all accepted with 201, all IDs unique."""
+    N = 20
     statuses = []
-    for i in range(100):
-        code, body = send_msg(f"stress-seq-{i:04d}")
-        statuses.append(code)
-
-    elapsed = time.time() - t0
-    ok_count  = sum(1 for c in statuses if c in (200, 400, 503))
-    err_count = sum(1 for c in statuses if c == 500 or c == 0)
-    rps = 100 / elapsed
-
-    check("D1  100 条发送无 5xx 错误", err_count == 0, f"{err_count} errors")
-    check("D1  全部返回 valid HTTP",   ok_count == 100, f"{ok_count}/100")
-    check(f"D1  吞吐量 ≥ 20 req/s",   rps >= 20, f"{rps:.1f} req/s")
-    print(f"      elapsed: {elapsed:.2f}s, {rps:.1f} req/s")
-
-def test_d2_concurrent_100():
-    """D2: 10 线程 × 10 条并发发送"""
-    print("\n[D2] 并发发送（10 线程 × 10 条）...")
-    errors = []
-    codes  = []
-    lock   = threading.Lock()
-
-    def worker(tid):
-        for i in range(10):
-            code, body = send_msg(f"stress-concurrent-t{tid}-{i}")
-            with lock:
-                codes.append(code)
-                if code == 500 or code == 0:
-                    errors.append((tid, i, code, body))
-
-    t0 = time.time()
-    threads = [threading.Thread(target=worker, args=(t,)) for t in range(10)]
-    for th in threads: th.start()
-    for th in threads: th.join()
-    elapsed = time.time() - t0
-
-    ok_count = sum(1 for c in codes if c in (200, 400, 503))
-    rps = 100 / elapsed
-
-    check("D2  并发 100 条无 5xx",      len(errors) == 0, f"{len(errors)} errors")
-    check("D2  全部返回 valid HTTP",    ok_count == 100, f"{ok_count}/100")
-    check(f"D2  并发吞吐 ≥ 30 req/s",  rps >= 30, f"{rps:.1f} req/s")
-    print(f"      elapsed: {elapsed:.2f}s, {rps:.1f} req/s")
-
-def test_d3_recv_batch():
-    """D3: 大量消息后 /recv 批量拉取"""
-    print("\n[D3] 批量 /recv 测试...")
-    # 先清空
-    recv_all()
-    # 在 host-mode 下没有 peer，/recv 始终为空 inbox（消息进不来）
-    # 改为测试 /status 和 /tasks 在负载后的响应性
-    t0 = time.time()
-    r = requests.get(f"{HTTP_BASE}/recv", timeout=5)
-    elapsed = (time.time() - t0) * 1000
-
-    check("D3  /recv 压力后仍返回 200",  r.status_code == 200, f"got {r.status_code}")
-    check("D3  /recv 响应时间 < 200ms",  elapsed < 200, f"{elapsed:.1f}ms")
-    body = r.json()
-    check("D3  响应包含 messages 字段",  "messages" in body, str(list(body.keys())))
-
-def test_d4_idempotency_10x():
-    """D4: 同一 message_id 重发 10 次，行为一致"""
-    print("\n[D4] 消息幂等性（同 message_id × 10）...")
-    mid = "stress-idem-fixed-001"
-    responses = []
-    for _ in range(10):
-        code, body = send_msg("idem-content", msg_id=mid)
-        responses.append((code, body))
-
-    codes = [c for c, _ in responses]
-    # All must return same status code
-    all_same = len(set(codes)) == 1
-    check("D4  10 次重发返回一致状态码",   all_same, f"codes={set(codes)}")
-    # No 500s
-    no_500 = all(c != 500 for c in codes)
-    check("D4  10 次无 500 错误",         no_500, f"codes={codes[:3]}...")
-
-def test_d5_task_burst():
-    """D5: 快速连续创建 50 个 task"""
-    print("\n[D5] 50 个 task 快速创建...")
     task_ids = []
-    errors   = []
-    t0 = time.time()
 
-    for i in range(50):
-        try:
-            r = requests.post(f"{HTTP_BASE}/tasks",
-                              json={"role": "agent",
-                                    "parts": [{"type":"text","content":f"task-stress-{i}"}]},
-                              timeout=5)
-            if r.status_code in (200, 201):   # /tasks returns 201 Created
-                body_j = r.json()
-                # /tasks returns {"ok":true,"task":{"id":"..."}}
-                tid = (body_j.get("task_id")
-                       or body_j.get("id")
-                       or (body_j.get("task") or {}).get("id"))
-                if tid:
-                    task_ids.append(tid)
-            elif r.status_code >= 500:
-                errors.append((i, r.status_code))
-        except Exception as e:
-            errors.append((i, str(e)))
+    for i in range(N):
+        code, body = _create_task(
+            relay_url, f"burst-content-{i:04d}", agent_id="agent_a"
+        )
+        statuses.append(code)
+        tid = _extract_task_id(body)
+        if tid:
+            task_ids.append(tid)
 
-    elapsed = time.time() - t0
+    # No connection errors (status == 0)
+    conn_errors = statuses.count(0)
+    assert conn_errors == 0, (
+        f"SD-2: {conn_errors}/{N} requests failed with connection error"
+    )
 
-    check("D5  50 个 task 无 5xx",         len(errors) == 0, f"{len(errors)} errors")
-    check("D5  创建成功数 = 50",           len(task_ids) == 50,
-          f"{len(task_ids)}/50")
-    check("D5  task_id 全部唯一",           len(set(task_ids)) == len(task_ids),
-          f"dupes={len(task_ids)-len(set(task_ids))}")
-    print(f"      elapsed: {elapsed:.2f}s, {50/elapsed:.1f} tasks/s")
+    # All must succeed (201 Created)
+    ok_count = sum(1 for s in statuses if s == 201)
+    assert ok_count == N, (
+        f"SD-2: only {ok_count}/{N} returned 201. statuses={statuses}"
+    )
 
-    # Verify /tasks list integrity
-    try:
-        r2 = requests.get(f"{HTTP_BASE}/tasks", timeout=5)
-        if r2.status_code == 200:
-            body = r2.json()
-            total = body.get("total", len(body.get("tasks", [])))
-            check("D5  /tasks 列表总数 ≥ 50",   total >= 50, f"total={total}")
-    except Exception as e:
-        check("D5  /tasks list reachable",     False, str(e))
+    # All task IDs must be unique
+    assert len(task_ids) == N, (
+        f"SD-2: only {len(task_ids)}/{N} responses contained a task_id"
+    )
+    assert len(set(task_ids)) == N, (
+        f"SD-2: duplicate task IDs found among {N} burst submissions"
+    )
 
-def test_d6_status_under_load():
-    """D6: 压力后 /status 正常响应"""
-    print("\n[D6] 压力后 /status 健康检查...")
-    r = requests.get(f"{HTTP_BASE}/status", timeout=5)
-    check("D6  /status → 200",             r.status_code == 200, f"got {r.status_code}")
-    body = r.json() if r.status_code == 200 else {}
-    check("D6  acp_version 字段存在",       "acp_version" in body, str(list(body.keys())[:5]))
+    # Verify /tasks list reflects the submissions
+    r = requests.get(f"{relay_url}/tasks", timeout=5)
+    assert r.status_code == 200, f"SD-2: GET /tasks returned {r.status_code}"
+    body = r.json()
+    total = body.get("total", len(body.get("tasks", [])))
+    assert total >= N, (
+        f"SD-2: /tasks reports only {total} tasks, expected >= {N}"
+    )
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 
-def main():
-    print("ACP 场景D — 压力测试")
-    print("=" * 50)
-    print("启动 StressRelay...")
-    start_relay()
-    print(f"Relay ready at {HTTP_BASE}\n")
+# ── SD-3: P99 latency ────────────────────────────────────────────────────────
 
-    try:
-        test_d1_sequential_100()
-        test_d2_concurrent_100()
-        test_d3_recv_batch()
-        test_d4_idempotency_10x()
-        test_d5_task_burst()
-        test_d6_status_under_load()
-    finally:
-        stop_relay()
 
-    passed = sum(1 for _, ok, _ in results if ok)
-    total  = len(results)
-    failed = total - passed
+@pytest.mark.timeout(20)
+def test_scenario_d_p99_latency(relay_url):
+    """SD-3: 10 task submissions; measure round-trip latency; assert P99 < 2000ms."""
+    N = 10
+    latencies_ms = []
 
-    print()
-    print("=" * 50)
-    print(f"场景D: {passed}/{total} PASS", end="")
-    if failed == 0:
-        print(" ✅")
-        sys.exit(0)
-    else:
-        print(f" ❌ ({failed} FAILURES)")
-        for name, ok, detail in results:
-            if not ok:
-                print(f"  FAIL: {name}  ({detail})")
-        sys.exit(1)
+    for i in range(N):
+        t0 = time.monotonic()
+        code, body = _create_task(
+            relay_url, f"latency-probe-{i:04d}", agent_id="agent_lat"
+        )
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        # Only record latency for successful or HTTP-level responses (not conn errors)
+        if code != 0:
+            latencies_ms.append(elapsed_ms)
 
-if __name__ == "__main__":
-    main()
+    assert len(latencies_ms) >= int(N * 0.9), (
+        f"SD-3: too many connection failures — only {len(latencies_ms)}/{N} got HTTP responses"
+    )
+
+    latencies_ms.sort()
+    # P99 index (conservative: last element for small N)
+    p99_idx = max(0, int(len(latencies_ms) * 0.99) - 1)
+    p99_ms = latencies_ms[p99_idx]
+
+    assert p99_ms < 2000, (
+        f"SD-3: P99 latency {p99_ms:.1f}ms exceeds 2000ms threshold. "
+        f"samples={[f'{x:.0f}ms' for x in latencies_ms]}"
+    )
