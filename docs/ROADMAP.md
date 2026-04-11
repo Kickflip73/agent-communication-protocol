@@ -860,3 +860,37 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - SDK 不引入强依赖，保持"单文件可运行"精神
 - spec 升版必须向后兼容（无 breaking change）
 - 生产就绪不意味着企业化（OAuth/多租户不在 v1.0 范围）
+
+---
+
+## 签名安全版本路线图（v3.x 系列）
+
+### ✅ v3.0 — Message Signature（2026-03-28）
+- `msg_sig`：每条消息的 Ed25519 per-message 签名
+- `POST /verify/message` 第三方验证端点
+- `capabilities.msg_sig: true`
+
+### ✅ v3.1 — Origin Proof（2026-04-11）
+- `origin_proof`：绑定接收方 peer_id 的 Ed25519 签名，防消息重放攻击
+- `capabilities.origin_proof: true`；向后兼容（`to=""` 退回 v3.0 canonical）
+
+### ✅ v3.2 — W3C DataIntegrityProof（2026-04-11）
+- `_build_proof_object()` 输出标准 `Ed25519Signature2020` proof 对象
+- 出站消息并存 `msg_sig`（ACP 原生）+ `proof`（W3C 格式）双字段
+- `POST /verify/proof`：W3C 格式验证端点
+- `capabilities.data_integrity_proof: true`
+- 对标 ANP DataIntegrityProof（2026-04-10 落地）；DIP-01–DIP-06 = 6/6
+
+### ✅ v3.3 — Capability Token & OBO Authorization（2026-04-11）
+- `capability_token` 可选字段透传：A2A #1716 SINT Protocol Ed25519 格式，relay 不验证直接转发
+- `POST /capability/issue`：本地辅助端点，使用 relay 身份私钥签发 `Ed25519CapabilityToken`
+- `origin_proof` OBO 扩展字段：`principal_id`、`operator_id`、`governance_framework_ref`（A2A #1713 对齐）
+- `capabilities.capability_token: true`；CT-01–CT-06 = 6/6
+- 修复：`origin_proof` 构建时机 bug（CT-06 回归）
+- 完全向后兼容
+
+### 🔮 v3.4 — Multikey verificationMethod（规划中）
+- 单个 AgentCard 支持多密钥声明（`verificationMethod[]` 数组）
+- Ed25519 主密钥 + ECDSA-SD 扩展点预留（选择性披露）
+- 密钥轮换协议（`key_rotation` capability）
+- 预计交付：下一个安全研发轮

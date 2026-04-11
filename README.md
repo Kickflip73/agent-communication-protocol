@@ -572,6 +572,26 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.0** | ✅ | **消息级 Ed25519 签名（msg_sig）** — `_sign_message()` + `_verify_message_sig()`；出站消息自动签名；`POST /verify/message` 第三方验证端点；`capabilities.msg_sig: true`；对齐 ANP DataIntegrityProof 方向；MS-01–MS-10 = 8/10（2 skipped，预期） |
 | **v3.1** | ✅ | **origin_proof — 签名绑定接收方 peer_id** — canonical 加入 `to` 字段（`{content,from,message_id,to,ts}`），防 replay-to-wrong-recipient 攻击；`capabilities.origin_proof: true`；向后兼容（`to=""` 退回 v3.0 canonical）；OP-01–OP-06 = 5/6（1 skipped，预期）|
 | **v3.2** | ✅ | **W3C DataIntegrityProof 兼容层** — `_build_proof_object()` 输出标准 `Ed25519Signature2020` proof 对象；出站消息并存 `msg_sig`（ACP 原生）+ `proof`（W3C 格式）；`POST /verify/proof` 新验证端点；`capabilities.data_integrity_proof: true`；proofValue 与 msg_sig 互操作等价（同 canonical）；DIP-01–DIP-06 = 6/6；对标 ANP DataIntegrityProof（2026-04-10 落地）|
+| **v3.3** | ✅ | **Capability Token 透传 & OBO Authorization** — `capability_token` 可选字段透传（A2A #1716 SINT Protocol Ed25519 格式）；`POST /capability/issue` 本地签发辅助端点；`origin_proof` OBO 扩展字段（`principal_id`/`operator_id`/`governance_framework_ref`，A2A #1713 对齐）；`capabilities.capability_token: true`；CT-01–CT-06 = 6/6；修复 origin_proof 构建时机 bug（CT-06 回归）|
+
+---
+
+## 版本历史（最新）
+
+### v3.3.0 — Capability Token & OBO Authorization
+- **`capability_token` 透传**：消息携带 A2A #1716 兼容的 Ed25519 capability token，relay 不验证直接透传
+- **`POST /capability/issue`**：本地签发 capability token 辅助工具
+- **`origin_proof` OBO 扩展**：支持跨域委托授权字段（`principal_id`/`operator_id`/`governance_framework_ref`）
+
+### v3.2.0 — W3C DataIntegrityProof
+- 出站消息携带 `proof`（Ed25519Signature2020）对象，与 W3C 标准互操作
+- `POST /verify/proof` 端点支持 W3C 格式验证
+
+### v3.1.0 — Origin Proof
+- `origin_proof`：绑定接收方的 Ed25519 签名，防止消息重放
+
+### v3.0.0 — Message Signature
+- `msg_sig`：每条消息的 Ed25519 per-message 签名
 
 ---
 
