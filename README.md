@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.12.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.13.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1564%2F1564_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1574%2F1574_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -596,10 +596,20 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.10** | ✅ | **Multi-relay Federation（跨 relay 实例消息路由）** — `GET /federation`、`POST /federation`（idempotent）、`POST /federation/route`；`acp.federation.route` WS 消息处理；offline-queue fallback 组合；`capabilities.federation: true`；FED1–FED12 = 12/12 PASS |
 | **v3.11** | ✅ | **Async Task Queue Workers（异步 worker 注册）** — `POST /tasks/queue/worker`（注册 callback_url + peer_id/skill_id 过滤器，幂等）、`GET /tasks/queue/workers`（列出 workers + stats）、`DELETE /tasks/queue/worker/{id}`（注销）；入队自动派发（`workers_dispatched` 字段）；`capabilities.task_queue_worker: true`；TQW1–TQW12 = 12/12 PASS |
 | **v3.12** | ✅ | **Governance Compliance Report（A2A #1717 对标）** — `AgentCard.governance` 新增 `compliance_report`（实时合规摘要）、`last_verified_at`、`operator_attestation`；`GET /governance/compliance`（当前报告）、`POST /governance/compliance`（触发实时检查）；`capabilities.governance_compliance: true`；GC1–GC12 = 12/12 PASS |
+| **v3.13** | ✅ | **Governance Audit Endpoint（A2A #1717 auditEndpoint 首个实现）** — `GET /governance/audit`（interaction records 结构化查询；`?limit=`/`?peer_id=`/`?task_id=`/`?since=` 过滤）；`governance_metadata.audit_endpoint`；`capabilities.governance_audit: true`；GA1–GA10 = 10/10 PASS |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.13.0 — Governance Audit Endpoint
+- **`GET /governance/audit`**: 结构化查询接口，返回 interaction records 审计链（A2A #1717 `auditEndpoint` 首个工作参考实现）。
+  - 支持查询参数：`?limit=`（默认 50，最大 200）、`?peer_id=`（精确过滤 caller）、`?task_id=`（精确过滤任务）、`?since=`（ISO 8601 时间戳，过滤之后的记录）。
+  - 响应：`{ok, records, total, returned, audit_endpoint, note}`。
+- **`governance_metadata.audit_endpoint: "/governance/audit"`** — 在 AgentCard `governance_metadata` 中声明，自动填充（`_build_governance_metadata()`）。
+- **`capabilities.governance_audit: true`** + **`endpoints.governance_audit`** 声明在 AgentCard。
+- **竞品对比**: A2A #1717（Microsoft AGT，26 comments）讨论 `auditEndpoint` REST 端点字段；ACP v3.13 是首个完整实现（端点 + AgentCard 声明 + 测试）。配合 v3.12 合规报告，ACP governance 可观测性完整闭环：IR 记录（v2.59）→ 双边签名（v2.64）→ 合规检查（v3.12）→ 审计查询（v3.13）。
+- 10/10 新测试（GA1–GA10）全部 PASS。
 
 ### v3.12.0 — Governance Compliance Report
 - **`AgentCard.governance` 扩展**（对标 A2A #1717，Microsoft AGT 团队）：

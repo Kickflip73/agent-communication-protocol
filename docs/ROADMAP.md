@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-12（v3.12.0：governance compliance report — GET/POST /governance/compliance + AgentCard.governance 扩展；GC1-GC12 全 PASS；当前版本 3.12.0，commit c5f6998）
+> 最后更新：2026-04-12（v3.13.0：governance audit endpoint — GET /governance/audit + auditEndpoint in governance_metadata；GA1-GA10 全 PASS；当前版本 3.13.0，commit 09e82b2）
 
 ---
 
@@ -789,9 +789,9 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | v2.94 | 主体多样性防御 | `GET /trust/bilateral-ir/diversity` — 共谋对惩罚（concentration>60%→0.10x权重）；`principal_diversity_defense: true`；16测试PD01-16全通 | `b9f638e` |
 | v2.95 | Skill 信任评分 | `_compute_skill_trust_scores()` + `GET /trust/skill-scores` + QuerySkill `skill_trust_score` + `governance_metadata.trust_scores` dict；`skill_scoped_v1` 算法；16测试SS01-16全通 | `070e0d3` |
 
-**当前版本**: `3.12.0` | **最新 commit**: `c5f6998`
+**当前版本**: `3.13.0` | **最新 commit**: `09e82b2`
 
-> 版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ v3.11（async task queue workers）→ **v3.12（governance compliance report, A2A #1717）**
+> 版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ v3.11（async task queue workers）→ v3.12（governance compliance report）→ **v3.13（governance audit endpoint, A2A #1717 auditEndpoint 首实现）**
 
 ---
 
@@ -937,7 +937,13 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - Commit: `c5f6998`
 - 测试：GC1–GC12 = 12/12 PASS
 
-## v3.13.0 候选特性
+## v3.13.0 ✅ 已完成 — 2026-04-12
+- **Governance Audit Endpoint（A2A #1717 auditEndpoint 首个实现）**: `GET /governance/audit`（interaction records 结构化查询；`?limit=`/`?peer_id=`/`?task_id=`/`?since=` 过滤）；`governance_metadata.audit_endpoint: "/governance/audit"`；`capabilities.governance_audit: true`
+- Governance 可观测性完整闭环：IR记录（v2.59）→ 双边签名（v2.64）→ 合规检查（v3.12）→ 审计查询（v3.13）
+- Commit: `09e82b2`
+- 测试：GA1–GA10 = 10/10 PASS
+
+## v3.14.0 候选特性
 - **P1**: QuerySkill API 扩展（增加 `skill_trust_score` 字段，对标 A2A #1717 capability_manifest）
 - **P2**: Bilateral Signed Interaction Records 完整互操作（A2A #1718，扩展 `bilateral_proof` 格式）
 - **P3**: SlimRPC CPB 实验性绑定（跟踪 A2A #1723）
