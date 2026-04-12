@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.8.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.9.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1693%2F1693_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1703%2F1703_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -578,10 +578,21 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.6** | ✅ | **P1 Bug Fixes（稳定版）** — BUG-007 multi-peer 发送（`peer_ids` 列表参数，多播 + 逐 peer 状态响应）；BUG-009 SSE 零延迟（`_sse_notify.wait/set` 立即 flush，<50ms）；BUG-003b 连接幂等（link token 去重 + `--join` 直连）；P0/P1 全部清零 |
 | **v3.7** | ✅ | **CI Stress Test + Authorization Hook** — `test_scenario_d.py` local-relay 20-msg burst 压测（P99 latency assertion，全 CI-safe，零外部依赖）；`_check_authorization()` stub 预留（A2A #1716 Authorization Layer watchlist）；48 tests PASS |
 | **v3.8** | ✅ | **Heartbeat-Agent 三件套闭环（A2A IS#1667）** — `GET /offline-queue/summary` 轻量 polling 端点；`--heartbeat-agent` CLI 标志（implies `--local-only` + `availability.mode=heartbeat`）；`capabilities.heartbeat_agent`；完整 5 步 workflow；HA1–HA8 = 8/8 PASS |
+| **v3.9** | ✅ | **Topic-based Pub/Sub subset（A2A #1196 对标）** — `POST /peers/subscribe/{topic}`、`POST /peers/unsubscribe/{topic}`、`POST /peers/broadcast/{topic}`、`GET /peers/topics`；`capabilities.topic_broadcast: true`；A2A #1196 首个工作参考实现；TP1–TP10 = 10/10 PASS |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.9.0 — Topic-based Pub/Sub Subset (A2A #1196)
+- **`POST /peers/subscribe/{topic}`**: 将指定 peer 订阅到命名 topic。peer_id 可为 `"self"`（relay 本身）或已连接 peer 的 id。响应 `{ok, topic, peer_id, subscribed_at}`。
+- **`POST /peers/unsubscribe/{topic}`**: 幂等取消订阅。若 peer 未订阅过，返回 `was_subscribed: false`（不报错）。
+- **`POST /peers/broadcast/{topic}`**: 向 topic 的所有订阅者发布消息。无订阅者时返回 `ok=true, delivered=0`（静默成功）。消息体同 `/message:send`（`role` + `text`/`parts`）。
+- **`GET /peers/topics`**: 列出所有活跃 topic，含 `subscriber_count`、`subscriber_ids`、`published_count`、`last_published_at`、`recent_log`（最近 5 条）。
+- **`capabilities.topic_broadcast: true`**: AgentCard 能力声明，v3.9+ 恒为 true。
+- **内部状态**: `_topic_subscribers: dict[str, dict[str, str]]`（topic→{peer_id→subscribed_at}）+ `_topic_log: dict[str, list]`（ring buffer，每 topic 最近 50 条）。
+- **A2A #1196 对标**: ACP v3.9 是 A2A Pub/Sub Primitives 提案（proposal，3 comments，无实现）的**首个工作参考实现**，领先上游。
+- 10/10 新测试（TP1–TP10）全部 PASS。
 
 ### v3.8.0 — Heartbeat-Agent Three-Piece Closure
 - **`GET /offline-queue/summary`**: 轻量 heartbeat-agent polling 端点。返回 `has_messages`、`total_queued`、`peer_count`、`oldest_queued_at`、`hint` — 无消息内容，最小开销，专为 cron/heartbeat 场景设计。

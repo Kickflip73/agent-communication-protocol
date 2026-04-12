@@ -1,9 +1,7 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 06:39 — 测试轮完成。场景E(1/1)+heartbeat-agent(8/8)=9/9 PASS，1 skip(BC P2P)，10.2s。无新 bug。下轮: 开发轮（v3.9.0 候选特性）。",
-  "next_round": "dev",
-  "last_test_result": "9/9 PASS, 1 skip",
-  "last_doc_version": "3.8.0",
-  "last_dev_version": "3.8.0",
-  "last_scan": "scan33"
+  "notes": "2026-04-12 07:39 — 测试轮完成。v3.9.0回归：topic_pubsub(10/10)+scenario_b_round23(7/7)+round12_c(16/16)=33/33全PASS。无新bug。下轮: 文档轮（sync v3.9.0 README/CHANGELOG/ROADMAP）。",
+  "next_round": "doc",
+  "last_test_version": "3.9.0",
+  "last_test_result": "33/33 PASS"
 }
