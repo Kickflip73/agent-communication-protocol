@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.12.0"  # v3.12: governance compliance report (GET+POST /governance/compliance + AgentCard.governance.compliance_report + last_verified_at + operator_attestation)
+VERSION = "3.13.0"  # v3.13: governance audit endpoint (GET /governance/audit + auditEndpoint in governance_metadata + capabilities.governance_audit, A2A #1717)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2333,6 +2333,7 @@ def _make_agent_card(name, skills):
             "capability_token":            True,                               # v3.3: capability_token field passthrough in acp.message (A2A #1716 SINT interop); POST /capability/issue helper
             "governance":                  True,                               # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy
             "governance_compliance":       True,                               # v3.12: GET+POST /governance/compliance — live compliance report (A2A #1717 Microsoft AGT)
+            "governance_audit":            True,                               # v3.13: GET /governance/audit — auditEndpoint (A2A #1717 auditEndpoint field)
             "transport_bindings":          True,                               # v3.5: AgentCard.transport_bindings (supported/experimental); --experimental-transport flag (pre-SlimRPC #1723)
         },
 
@@ -2428,6 +2429,7 @@ def _make_agent_card(name, skills):
             "policy_compliance":     "/policy-compliance",      # v2.87: GET/PATCH — governance/compliance standards (A2A #1717 inspired)
             "governance_policy":     "/governance/policy",     # v3.4: POST — query current governance policy (AgentCard.governance object)
             "governance_compliance": "/governance/compliance", # v3.12: GET/POST — live compliance report + verification (A2A #1717 Microsoft AGT)
+            "governance_audit":      "/governance/audit",      # v3.13: GET — interaction record audit trail (A2A #1717 auditEndpoint)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -2654,6 +2656,10 @@ def _build_governance_metadata() -> dict:
     # audit_trail_reference: provided by config or auto-generated from interaction_records endpoint
     if "audit_trail_reference" not in gm:
         gm["audit_trail_reference"] = "/interaction-records" if _interaction_records else None
+
+    # v3.13: audit_endpoint — structured query interface for interaction records (A2A #1717 auditEndpoint field)
+    if "audit_endpoint" not in gm:
+        gm["audit_endpoint"] = "/governance/audit"
 
     # v2.64: live_endpoint — APS serviceEndpoint pattern (A2A #1717, @aeoess production impl)
     # Receivers can hit this endpoint to get the current trust profile on demand,
@@ -7312,6 +7318,62 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "compliance_report": compliance_report,
                 "last_verified_at":  _governance_compliance_verified_at,
                 "governance":        _build_governance(),
+            })
+
+        # ── GET /governance/audit — interaction record audit trail (v3.13) ──
+        elif p == "/governance/audit":
+            """
+            GET /governance/audit — Return interaction record audit trail (v3.13).
+
+            Returns all (or filtered) bilateral interaction records stored in-memory.
+            Implements the `auditEndpoint` concept from A2A #1717 governance metadata discussion.
+
+            Query params:
+              limit=<n>       Max records to return (default 50, max 200)
+              peer_id=<id>    Filter by caller_peer_id (exact match)
+              task_id=<id>    Filter by task_id (exact match)
+              since=<ISO8601> Filter records created after this timestamp
+
+            Response 200:
+              {
+                "ok": true,
+                "records": [ ... ],
+                "total": <n>,
+                "returned": <n>,
+                "audit_endpoint": "/governance/audit",
+                "note": "ACP v3.13 auditEndpoint — A2A #1717 aligned"
+              }
+            """
+            qs = {}
+            if "?" in self.path:
+                import urllib.parse as _up
+                qs = dict(_up.parse_qsl(self.path.split("?", 1)[1]))
+            limit = min(int(qs.get("limit", 50)), 200)
+            filter_peer  = qs.get("peer_id")
+            filter_task  = qs.get("task_id")
+            filter_since = qs.get("since")
+
+            records = list(_interaction_records)  # snapshot
+
+            if filter_peer:
+                records = [r for r in records
+                           if r.get("caller_peer_id") == filter_peer
+                           or r.get("relay_did") == filter_peer]
+            if filter_task:
+                records = [r for r in records if r.get("task_id") == filter_task]
+            if filter_since:
+                records = [r for r in records
+                           if (r.get("created_at") or "") >= filter_since]
+
+            total = len(records)
+            records = records[-limit:]  # most recent first (last N)
+            self._json({
+                "ok":             True,
+                "records":        records,
+                "total":          total,
+                "returned":       len(records),
+                "audit_endpoint": "/governance/audit",
+                "note":           "ACP v3.13 auditEndpoint — A2A #1717 aligned",
             })
 
         # ── GET /ir/test-vectors — bilateral IR deterministic test vectors (v2.64) ──

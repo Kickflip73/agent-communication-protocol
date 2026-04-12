@@ -8,6 +8,22 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.13.0] - 2026-04-12
+
+### Added
+- **Governance audit endpoint** (v3.13): `GET /governance/audit` — structured query interface for interaction records (A2A #1717 `auditEndpoint` field)
+  - Returns filtered interaction records with `?limit=`, `?peer_id=`, `?task_id=`, `?since=` query params
+  - Response: `{ok, records, total, returned, audit_endpoint, note}`
+  - `governance_metadata.audit_endpoint: "/governance/audit"` — declared in AgentCard governance_metadata
+  - `capabilities.governance_audit: true` — declared in AgentCard capabilities
+  - `endpoints.governance_audit: "/governance/audit"` — declared in AgentCard endpoints
+- **`tests/test_governance_audit.py`**: 10 tests (GA1–GA10) — all passed
+
+### Background
+- A2A #1717 (`auditEndpoint` discussion, Microsoft AGT team, 26 comments) proposes a structured REST endpoint for interaction audit trails. ACP v3.13 implements `GET /governance/audit` as the first working reference for this concept, complementing the `audit_trail_reference` URI (v2.59) and bilateral interaction records (v2.64). Together with v3.12 compliance reporting, ACP now has a complete governance observability surface.
+
+---
+
 ## [3.12.0] - 2026-04-12
 
 ### Added
