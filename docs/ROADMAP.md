@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-12（v3.11.0：async task queue workers — POST /tasks/queue/worker + GET /tasks/queue/workers + DELETE；auto-dispatch；TQW1-TQW12 全 PASS；当前版本 3.11.0，commit a4b31ca）
+> 最后更新：2026-04-12（v3.12.0：governance compliance report — GET/POST /governance/compliance + AgentCard.governance 扩展；GC1-GC12 全 PASS；当前版本 3.12.0，commit c5f6998）
 
 ---
 
@@ -789,9 +789,9 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | v2.94 | 主体多样性防御 | `GET /trust/bilateral-ir/diversity` — 共谋对惩罚（concentration>60%→0.10x权重）；`principal_diversity_defense: true`；16测试PD01-16全通 | `b9f638e` |
 | v2.95 | Skill 信任评分 | `_compute_skill_trust_scores()` + `GET /trust/skill-scores` + QuerySkill `skill_trust_score` + `governance_metadata.trust_scores` dict；`skill_scoped_v1` 算法；16测试SS01-16全通 | `070e0d3` |
 
-**当前版本**: `3.11.0` | **最新 commit**: `a4b31ca`
+**当前版本**: `3.12.0` | **最新 commit**: `c5f6998`
 
-> 版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ **v3.11（async task queue workers）**
+> 版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ v3.11（async task queue workers）→ **v3.12（governance compliance report, A2A #1717）**
 
 ---
 
@@ -931,7 +931,13 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - Commit: `a4b31ca`
 - 测试：TQW1–TQW12 = 12/12 PASS
 
-## v3.12.0 候选特性
-- **P1**: Governance metadata block（A2A #1717，Microsoft AGT 团队）— `trust_score`、`capability_manifest`、`policy_compliance`、`audit_trail_reference`；ACP 现有覆盖 ~60%，扩展 `bilateral_proof` 支持
-- **P2**: Bilateral Signed Interaction Records（A2A #1718）— 双边签名交互记录，统一 trust/audit/delegation/Sybil-resistance
+## v3.12.0 ✅ 已完成 — 2026-04-12
+- **Governance Compliance Report（A2A #1717 对标）**: `AgentCard.governance` 扩展 `compliance_report`（实时合规摘要）+ `last_verified_at` + `operator_attestation`；`GET /governance/compliance`（只读）、`POST /governance/compliance`（触发实时检查）；`capabilities.governance_compliance: true`
+- 修复：Python 3.12 global 声明 SyntaxError
+- Commit: `c5f6998`
+- 测试：GC1–GC12 = 12/12 PASS
+
+## v3.13.0 候选特性
+- **P1**: QuerySkill API 扩展（增加 `skill_trust_score` 字段，对标 A2A #1717 capability_manifest）
+- **P2**: Bilateral Signed Interaction Records 完整互操作（A2A #1718，扩展 `bilateral_proof` 格式）
 - **P3**: SlimRPC CPB 实验性绑定（跟踪 A2A #1723）

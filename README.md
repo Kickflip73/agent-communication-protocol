@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.11.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.12.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1552%2F1552_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1564%2F1564_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -316,7 +316,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **1552/1552 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent · task-queue-worker)
+- **1564/1564 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent · task-queue-worker · governance-compliance)
 - **190+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
@@ -595,10 +595,22 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.9** | ✅ | **Topic-based Pub/Sub subset（A2A #1196 对标）** — `POST /peers/subscribe/{topic}`、`POST /peers/unsubscribe/{topic}`、`POST /peers/broadcast/{topic}`、`GET /peers/topics`；`capabilities.topic_broadcast: true`；A2A #1196 首个工作参考实现；TP1–TP10 = 10/10 PASS |
 | **v3.10** | ✅ | **Multi-relay Federation（跨 relay 实例消息路由）** — `GET /federation`、`POST /federation`（idempotent）、`POST /federation/route`；`acp.federation.route` WS 消息处理；offline-queue fallback 组合；`capabilities.federation: true`；FED1–FED12 = 12/12 PASS |
 | **v3.11** | ✅ | **Async Task Queue Workers（异步 worker 注册）** — `POST /tasks/queue/worker`（注册 callback_url + peer_id/skill_id 过滤器，幂等）、`GET /tasks/queue/workers`（列出 workers + stats）、`DELETE /tasks/queue/worker/{id}`（注销）；入队自动派发（`workers_dispatched` 字段）；`capabilities.task_queue_worker: true`；TQW1–TQW12 = 12/12 PASS |
+| **v3.12** | ✅ | **Governance Compliance Report（A2A #1717 对标）** — `AgentCard.governance` 新增 `compliance_report`（实时合规摘要）、`last_verified_at`、`operator_attestation`；`GET /governance/compliance`（当前报告）、`POST /governance/compliance`（触发实时检查）；`capabilities.governance_compliance: true`；GC1–GC12 = 12/12 PASS |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.12.0 — Governance Compliance Report
+- **`AgentCard.governance` 扩展**（对标 A2A #1717，Microsoft AGT 团队）：
+  - `compliance_report` — 实时合规摘要（所有 governance policies 的 pass/fail/pending 状态）
+  - `last_verified_at` — 最后一次显式合规检查时间戳（ISO 8601）
+  - `operator_attestation` — 可选的 operator 声明（human-in-the-loop 监督支持）
+- **`GET /governance/compliance`**: 返回当前合规报告（非触发式，只读）。
+- **`POST /governance/compliance`**: 触发实时合规检查，更新 `last_verified_at` 和 `compliance_report`。
+- **`capabilities.governance_compliance: true`** + **`endpoints.governance_compliance`** 声明在 AgentCard。
+- **竞品对比**: A2A #1717（Microsoft AGT，24 comments）仍在 proposal 阶段；ACP v3.12 是首个含完整端点 + 测试的工作实现。ACP 已有 `governance_metadata.governance_score` + `policies[]`（v2.85），v3.12 补充动态 `compliance_report` + 实时验证端点。
+- 12/12 新测试（GC1–GC12）全部 PASS。
 
 ### v3.11.0 — Async Task Queue Workers
 - **`POST /tasks/queue/worker`**: 注册异步 task queue worker。
@@ -718,7 +730,7 @@ curl -X POST http://localhost:7901/peers/connect \
 
 **ACP vs A2A (Google's protocol):** A2A requires OAuth 2.0, an HTTPS endpoint you must host, and an agent registry. ACP requires `pip install websockets`. A2A is great for enterprise platforms; ACP is for individuals, sandboxed agents, and fast prototyping.
 
-**Status:** Single-file Python daemon, 1552 tests passing, Apache 2.0. Built in public over ~200 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
+**Status:** Single-file Python daemon, 1564 tests passing, Apache 2.0. Built in public over ~200 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
 
 ---
 

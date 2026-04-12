@@ -8,6 +8,27 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.12.0] - 2026-04-12
+
+### Added
+- **Governance compliance report** (v3.12): `AgentCard.governance` extension aligned with A2A #1717 (Microsoft AGT team)
+  - `compliance_report` — real-time summary of active governance policies (pass/fail/pending per policy)
+  - `last_verified_at` — timestamp of last explicit compliance check (ISO 8601)
+  - `operator_attestation` — optional operator statement for human-in-the-loop oversight
+  - `GET /governance/compliance` — returns current compliance report (non-triggering)
+  - `POST /governance/compliance` — triggers a live compliance check, updates `last_verified_at`
+  - `capabilities.governance_compliance: true` — declared in AgentCard capabilities
+  - `endpoints.governance_compliance: "/governance/compliance"` — declared in AgentCard
+- **`tests/test_governance_compliance.py`**: 12 tests (GC1–GC12) — all passed
+
+### Fixed
+- **SyntaxError (Python 3.12 global declaration)**: `global _policy_compliance` was declared after a read reference inside `do_GET`; moved declaration to method top.
+
+### Background
+- A2A #1717 (Microsoft AGT team, 24 comments) proposes `trust_score`, `capability_manifest`, `policy_compliance` in AgentCard. ACP already had `governance_metadata.governance_score` + `policies[]` (v2.85); v3.12 adds the dynamic `compliance_report` + live verification endpoint, completing the alignment.
+
+---
+
 ## [3.11.0] - 2026-04-12
 
 ### Added
