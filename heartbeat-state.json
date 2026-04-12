@@ -1,7 +1,7 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 10:39 — 文档轮完成（第11轮）。README版本徽章v3.9→v3.10, 测试数1703→1715, 版本历史表+v3.10行, 新增v3.10版本历史节。下轮: 研究轮（A2A/ANP最新动态扫描）。",
-  "next_round": "research",
-  "today_rounds_completed": 11,
-  "last_doc_version": "3.10.0"
+  "notes": "2026-04-12 11:05 — 研究轮完成（scan35）。A2A本周期无协议变更。新发现: #1718 Bilateral Signed Interaction Records（观察中，2周后评估是否扩展vouch_chain）。ACP federation/pubsub/heartbeat-agent优势未变。下轮: 测试轮（场景B+G + federation FED集成）。",
+  "next_round": "test",
+  "today_rounds_completed": 12,
+  "last_research_scan": "scan35"
 }
