@@ -101,7 +101,7 @@ def test_sc1_schema_basic(relay_url):
     assert "version" in d
     assert d["count"] == 13  # v2.71: 13 signal types (was 12; +security_posture)
     assert len(d["schema"]) == 13
-    assert d["version"].startswith("2.")
+    assert d["version"]  # version string non-empty (BUG-062 fix: no hardcoded major version)
     assert "note" in d
 
 

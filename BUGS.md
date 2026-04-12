@@ -1700,3 +1700,17 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **修复方向**: `_free_port_pair()` 改为双重 probe（先绑 ws_port，再绑 http_port，均可用才返回）；或在 `connect_ws` 中指定 `socket_options=[socket.AF_INET]` 跳过 IPv6 路径
 **优先级**: P3 (非阻断，纯测试健壮性)
 **状态**: 📝 已记录，待修复
+
+---
+
+### BUG-064 ✅ P2 — `test_trust_signals_v270` SC-1 + `test_trust_signals_v271` SP-1 版本断言过期（`startsWith("2.")` vs 实际 `3.10.0`）
+
+**发现日期**: 2026-04-12（全量测试扫描）
+**测试**:
+- `tests/test_trust_signals_v270.py::test_sc1_schema_basic`
+- `tests/test_trust_signals_v271.py::test_sp1_security_posture_basic`
+**症状**: `AssertionError: assert False where False = '3.10.0'.startswith('2.')`
+**根因**: 与 BUG-062 完全同类 — 版本断言硬编码 major version "2."；版本升至 v3.x 后断言失效
+**修复**: 两文件均改为 `assert d["version"]`（非空即可，不限 major）
+**验证**: 2/2 PASS（2026-04-12 12:35）
+**commit**: 见下一条

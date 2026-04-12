@@ -100,7 +100,7 @@ def test_sp1_security_posture_basic(relay_url):
     d = r.json()
     assert d.get("ok") is True
     assert "version" in d
-    assert d["version"].startswith("2.")
+    assert d["version"]  # version string non-empty (BUG-062 fix: no hardcoded major version)
 
 
 def test_sp2_required_fields(relay_url):

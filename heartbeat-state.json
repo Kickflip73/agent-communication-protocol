@@ -1,7 +1,7 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 11:39 — 测试轮完成。场景B(7/7)+场景G(10/10)+federation(12/12)=29/29 PASS。无新bug。下轮: 文档轮（README/spec同步v3.10.0变更）。",
-  "next_round": "doc",
-  "today_rounds_completed": 13,
-  "last_test_results": "29/29 PASS (scenarioB + scenarioG + federation)"
+  "notes": "2026-04-12 12:20 — 文档轮完成。v3.10.0 README全量同步：测试徽章1715→1727、API速查表+federation端点、竞品优势段+federation blurb、ROADMAP v3.10完成/v3.11候选。commit: 6df8c55。下轮: 研究轮（A2A/ANP最新动态）。",
+  "next_round": "research",
+  "today_rounds_completed": 14,
+  "last_doc_version": "3.10.0"
 }
