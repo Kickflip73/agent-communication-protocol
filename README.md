@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1715%2F1715_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1727%2F1727_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -309,12 +309,14 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 
 > **LAN discovery (v2.1-alpha)** — A2A has no spec-level mechanism for agents to find each other on a local network. ACP `GET /peers/discover` scans your /24 subnet in 1–3 seconds: 64-thread TCP probe on common ACP ports, then `/.well-known/acp.json` fingerprint on every open port. Returns a list of ACP agents with their `acp://` links — ready to connect. No mDNS required on the target side. Find any ACP relay on your LAN, even ones you don't control.
 
+> **Multi-relay federation (v3.10)** — A2A has no cross-relay message routing mechanism. When agents are on different relay instances (different orgs, different networks), there's no standard way to deliver messages between them. ACP v3.10 adds `POST /federation` to connect remote relays as peers, and `POST /federation/route` to route messages to peers on remote relays — all in ~120 lines of stdlib Python. Federated messages fall back to offline-queue when the target peer is offline, composable with `--persist-queue` for durable cross-relay delivery. `capabilities.federation: true` lets orchestrators discover federation-capable relays via AgentCard.
+
 ### Numbers
 
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **240/240 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · Scenario B/E)
+- **1727/1727 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent)
 - **190+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
@@ -341,6 +343,14 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | Stream task evidence (SSE) | GET | `/tasks/{id}/evidence-stream` |
 | Heartbeat report | POST | `/availability/heartbeat` |
 | Query availability | GET | `/availability` |
+| List federation relays | GET | `/federation` |
+| Add federation relay | POST | `/federation` `{"link":"acp://..."}` |
+| Route to remote relay | POST | `/federation/route` `{"relay_id":"...","target_peer_id":"..."}` |
+| Subscribe to topic | POST | `/peers/subscribe/{topic}` |
+| Unsubscribe from topic | POST | `/peers/unsubscribe/{topic}` |
+| Publish to topic | POST | `/peers/broadcast/{topic}` |
+| List active topics | GET | `/peers/topics` |
+| Poll queue summary | GET | `/offline-queue/summary` |
 
 HTTP default port: `7901` · WebSocket port: `7801`
 
@@ -691,7 +701,7 @@ curl -X POST http://localhost:7901/peers/connect \
 
 **ACP vs A2A (Google's protocol):** A2A requires OAuth 2.0, an HTTPS endpoint you must host, and an agent registry. ACP requires `pip install websockets`. A2A is great for enterprise platforms; ACP is for individuals, sandboxed agents, and fast prototyping.
 
-**Status:** Single-file Python daemon, 240 tests passing, Apache 2.0. Built in public over ~190 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
+**Status:** Single-file Python daemon, 1727 tests passing, Apache 2.0. Built in public over ~200 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
 
 ---
 
