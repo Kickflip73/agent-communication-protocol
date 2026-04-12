@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-12 14:05（文档轮；v3.11.0 发布：async task queue workers TQW1-12 PASS；v3.12 路线图更新）
+> 最后更新：2026-04-12 14:10（研究轮 scan37；A2A 本周无协议变更；#1717 governance 升级 P1；#1655 QuerySkill 新增 P2；#1672 已 425c 仍无实现）
 
 ---
 
@@ -802,17 +802,28 @@ Key commit: TBD
 ---
 
 ## 🔭 v3.12.0（候选，截止 2026-05-12）
-### 候选特性
-- [ ] federation gossip：多跳 relay 路由（A→B→C 跨三 relay）— P1
-- [ ] **governance metadata 字段**（A2A #1717，Microsoft 参与，24 comments）— P2
-  - AgentCard `governance` 对象：`capability_manifest` + `policy_compliance`
+### 候选特性（scan37 更新，2026-04-12）
+- [ ] federation gossip：多跳 relay 路由（A→B→C 跨三 relay）— **P1**
+- [ ] **governance metadata 字段**（A2A #1717，Microsoft AGT 团队，24 comments）— **P1（从 P2 升级）**
+  - AgentCard `governance` 对象：`trust_score` + `capability_manifest` + `policy_compliance` + `audit_trail_reference`
+  - 与现有 vouch_chain + trust_signal 组合，领先上游
+- [ ] **QuerySkill() — 运行时 skill 能力查询**（A2A #1655，9 comments，2026-04-09 活跃）— **P2（新增）**
+  - `POST /skills/{id}/query`：运行时参数化查询（can_handle? estimated_cost? constraints?）
+  - 解决 orchestrator 无法运行时判断 skill 是否能处理请求的痛点
 - [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）— P2
 - [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713）— P3
 - [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定）— P3
-### 优先级
-- P1: federation gossip 多跳路由
-- P2: governance metadata（跟进 #1717）
-- P3: Authorization Layer 实现（等待上游 A2A #1716）
+
+### 优先级（scan37 修订）
+- **P1**: federation gossip 多跳路由 + governance metadata（Microsoft 参与，社区关注度高）
+- **P2**: QuerySkill() 运行时查询 + 双轴信任指标
+- P3: Authorization Layer 实现（等待上游 A2A #1716 稳定）
+
+### scan37 竞争情报更新
+- A2A #1672（Agent Identity）：**425 comments**（+11），仍无实现 — ACP v2.55/2.86 完整覆盖
+- A2A #1716（Authorization）：**32 comments**，仍无实现 — ACP v2.95 领先 5+ 月
+- A2A #1717（Governance）：24 comments，Microsoft 官方 — 升级至 P1 跟进
+- Strata AI Agent Game（#1739）：A2A 兼容游戏，低优先级跨协议兼容测试机会
 
 ---
 
