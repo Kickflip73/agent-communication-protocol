@@ -1,8 +1,8 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 16:13 — 文档轮完成（第21轮）。全量测试确认 1552 passed/18 skipped（ETV+CI stress 单独验证 16/8 passed/skipped）。README 1552 PASS 准确。docs/ROADMAP.md 更新至 v3.11.0 + v3.12 候选。下轮: 研究轮（scan38，A2A/ANP 最新动态）。",
-  "next_round": "research",
-  "today_rounds_completed": 21,
-  "last_doc_version": "3.11.0",
-  "last_full_test": "1552 passed, 18 skipped (2026-04-12)"
+  "notes": "2026-04-12 16:48 — 研究轮完成（scan38，第22轮）。A2A本周无协议变更（第5日连续停滞）。v3.11.0七大独有特性全面领先。v3.12 P1: governance metadata (#1717,Microsoft背书)。commit b9d5974 → pushed。下轮: 开发轮（v3.12.0 governance metadata）。",
+  "next_round": "dev",
+  "today_rounds_completed": 22,
+  "last_research": "scan38",
+  "next_dev_target": "v3.12.0 — governance metadata (AgentCard.governance block, #1717)"
 }

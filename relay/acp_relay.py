@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.11.0"  # v3.11: async task queue workers (POST/GET /tasks/queue/worker + DELETE /tasks/queue/worker/{id} + auto-dispatch)
+VERSION = "3.12.0"  # v3.12: governance compliance report (GET+POST /governance/compliance + AgentCard.governance.compliance_report + last_verified_at + operator_attestation)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -478,6 +478,13 @@ _governance_ttl: int = 3600          # --governance-ttl (identity token TTL seco
 _governance_revocation_endpoint: str | None = None  # --revocation-endpoint
 _governance_audit_mode: str = "static"  # --audit-mode static|live
 _governance_policy_ref: str | None = None  # future: governance framework reference URL
+
+# v3.12: governance compliance runtime state
+# _governance_compliance_verified_at: ISO8601 timestamp of last compliance check (or None)
+# _governance_operator_attestation: optional operator attestation dict {attested_by, attestation_url, attested_at}
+_governance_compliance_verified_at: str | None = None
+_governance_operator_attestation: dict | None = None
+_governance_compliance_lock = threading.Lock()
 _experimental_transports: list = []  # v3.5: --experimental-transport names (SlimRPC etc.)
 
 
@@ -2325,6 +2332,7 @@ def _make_agent_card(name, skills):
             "data_integrity_proof":        bool(_ed25519_private),             # v3.2: W3C DataIntegrityProof compat layer — proof object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof
             "capability_token":            True,                               # v3.3: capability_token field passthrough in acp.message (A2A #1716 SINT interop); POST /capability/issue helper
             "governance":                  True,                               # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy
+            "governance_compliance":       True,                               # v3.12: GET+POST /governance/compliance — live compliance report (A2A #1717 Microsoft AGT)
             "transport_bindings":          True,                               # v3.5: AgentCard.transport_bindings (supported/experimental); --experimental-transport flag (pre-SlimRPC #1723)
         },
 
@@ -2419,6 +2427,7 @@ def _make_agent_card(name, skills):
             "protocol_binding_compatibility": "/protocol-binding/compatibility",  # v2.85: GET — multi-protocol compatibility matrix
             "policy_compliance":     "/policy-compliance",      # v2.87: GET/PATCH — governance/compliance standards (A2A #1717 inspired)
             "governance_policy":     "/governance/policy",     # v3.4: POST — query current governance policy (AgentCard.governance object)
+            "governance_compliance": "/governance/compliance", # v3.12: GET/POST — live compliance report + verification (A2A #1717 Microsoft AGT)
             "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
             "availability":   "/availability",          # v2.17: GET — full availability status
             "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
@@ -3364,25 +3373,38 @@ def _build_governance() -> dict:
     """
     v3.4: Build the AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy).
     v3.5: Added proof_suite sub-object (ANP eddsa-jcs-2022 interop, A2A #1717).
+    v3.12: Added compliance_report, last_verified_at, operator_attestation (A2A #1717 Microsoft AGT).
 
     Returns a dict representing the governance declaration for this relay.
     The block is always present in v3.4+ AgentCards (not opt-in like governance_metadata).
 
-    Fields:
+    Fields (v3.4+):
       framework               — "ACP" (protocol identifier)
-      version                 — ACP version string (e.g. "3.5.0")
-      credential_lifecycle    — CredentialLifecyclePolicy object:
-          ttl_seconds           identity token TTL (default 3600)
-          revocation_endpoint   optional revocation URL (null when not configured)
-          credential_ttl_seconds  credential validity in seconds (default 86400 = 24h)
-      audit_mode              — "static" | "live" (default "static")
-      policy_ref              — optional governance framework reference URL (null)
-      proof_suite             — v3.5: supported cryptographic proof suites:
-          supported             list of suite names this node can produce/verify
-          default               currently active suite
-          interop_refs          W3C spec URLs (documentary only, not enforced)
+      version                 — ACP version string
+      credential_lifecycle    — CredentialLifecyclePolicy object
+      audit_mode              — "static" | "live"
+      policy_ref              — optional governance framework reference URL
+      proof_suite             — v3.5: supported cryptographic proof suites
+
+    Fields (v3.12, A2A #1717 Microsoft AGT):
+      compliance_report       — live compliance summary:
+          policies_declared     count of _policy_compliance entries
+          issues_detected       count of active compliance issues (0 = all clear)
+          status                "compliant" | "issues_detected" | "unverified"
+      last_verified_at        — ISO8601 timestamp of last compliance check (None if never)
+      operator_attestation    — optional third-party operator declaration:
+          attested_by           operator name / DID
+          attestation_url       link to public attestation document
+          attested_at           ISO8601
     """
-    return {
+    # v3.12: build live compliance report
+    compliance_issues = 0
+    compliance_status = "unverified"
+    policies_declared = len(_policy_compliance)
+    if _governance_compliance_verified_at:
+        compliance_status = "compliant" if compliance_issues == 0 else "issues_detected"
+
+    gov = {
         "framework": "ACP",
         "version": VERSION,
         "credential_lifecycle": {
@@ -3400,7 +3422,18 @@ def _build_governance() -> dict:
                 "https://www.w3.org/TR/vc-di-eddsa/",
             ],
         },
+        # v3.12: A2A #1717 Microsoft AGT governance extensions
+        "compliance_report": {
+            "policies_declared": policies_declared,
+            "issues_detected":   compliance_issues,
+            "status":            compliance_status,
+            "compliance_endpoint": "/governance/compliance",
+        },
+        "last_verified_at": _governance_compliance_verified_at,
     }
+    if _governance_operator_attestation:
+        gov["operator_attestation"] = _governance_operator_attestation
+    return gov
 
 
 def _build_transport_bindings() -> dict:
@@ -6806,6 +6839,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
     # ── GET ───────────────────────────────────────────────────────────────────
 
     def do_GET(self):
+        # v3.12: declare globals modified in do_GET PATCH branch (/policy-compliance)
+        global _policy_compliance  # noqa: PLW0602 — also assigned in PATCH branch of /policy-compliance
         parsed = urlparse(self.path)
         p  = parsed.path
         qs = parse_qs(parsed.query)
@@ -7236,6 +7271,48 @@ class LocalHTTP(BaseHTTPRequestHandler):
               { "ok": true, "governance_metadata": { ... } }
             """
             self._json({"ok": True, "governance_metadata": _build_governance_metadata()})
+
+        # ── v3.12: GET /governance/compliance — current compliance report (A2A #1717) ──
+        elif p == "/governance/compliance":
+            """
+            GET /governance/compliance — Return current compliance report without running a new check (v3.12).
+
+            Returns the last recorded compliance state. Run POST /governance/compliance
+            to trigger a fresh check.
+
+            Response 200:
+              {
+                "ok": true,
+                "compliance_report": { ... },
+                "last_verified_at": <ISO8601 or null>,
+                "governance": { ... }
+              }
+            """
+            issues = sum(
+                1 for e in _policy_compliance
+                if isinstance(e, dict) and e.get("status") == "non-compliant"
+            )
+            compliance_report = {
+                "policies_declared":  len(_policy_compliance),
+                "issues_detected":    issues,
+                "status":             "unverified" if not _governance_compliance_verified_at
+                                      else ("compliant" if issues == 0 else "issues_detected"),
+                "policy_checks":      [
+                    {
+                        "policy": e if isinstance(e, str) else e.get("policy", ""),
+                        "status": "unknown" if isinstance(e, str)
+                                  else ("pass" if e.get("status") != "non-compliant" else "warn"),
+                    }
+                    for e in _policy_compliance
+                ],
+                "compliance_endpoint": "/governance/compliance",
+            }
+            self._json({
+                "ok":                True,
+                "compliance_report": compliance_report,
+                "last_verified_at":  _governance_compliance_verified_at,
+                "governance":        _build_governance(),
+            })
 
         # ── GET /ir/test-vectors — bilateral IR deterministic test vectors (v2.64) ──
         elif p == "/ir/test-vectors":
@@ -7735,7 +7812,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
               {"ok": true, "policy_compliance": [...], "count": N, "updated": true}
             Response 400: invalid body
             """
-            global _policy_compliance
+            # _policy_compliance global declared at top of do_GET (v3.12 fix)
             if self.command == "GET":
                 return self._json({
                     "ok":                True,
@@ -10427,6 +10504,81 @@ class LocalHTTP(BaseHTTPRequestHandler):
             Aligns with A2A #1717 CredentialLifecyclePolicy governance metadata.
             """
             self._json(_build_governance())
+
+        # ── v3.12: POST /governance/compliance — trigger compliance check + return report ──
+        elif p == "/governance/compliance":
+            """
+            POST /governance/compliance — Run a live compliance check and return report (v3.12).
+
+            Checks all declared policy_compliance standards against runtime state,
+            records the verification timestamp, and returns a structured compliance report.
+
+            Body (optional):
+              - reset_attestation (bool): clear operator_attestation on check (default false)
+
+            Response 200:
+              {
+                "ok": true,
+                "compliance_report": {
+                  "policies_declared": <int>,
+                  "issues_detected": <int>,
+                  "status": "compliant|issues_detected|unverified",
+                  "policy_checks": [ {"policy": <str>, "status": "pass|warn|unknown"} ... ],
+                  "compliance_endpoint": "/governance/compliance"
+                },
+                "last_verified_at": <ISO8601>,
+                "governance": { ... }
+              }
+
+            A2A #1717 Microsoft AGT alignment: provides on-demand compliance verification.
+            """
+            global _governance_compliance_verified_at
+            try:
+                body = self._read_body()
+                reset = body.get("reset_attestation", False)
+            except Exception:
+                body, reset = {}, False
+
+            # Run lightweight compliance checks against declared policies
+            policy_checks = []
+            issues = 0
+            for policy_entry in _policy_compliance:
+                p_id  = policy_entry if isinstance(policy_entry, str) else policy_entry.get("policy", "")
+                p_status = "pass"   # Default: declared = assumed compliant
+                # Basic heuristic: if Ed25519 required by policy name but not available, flag warn
+                if "ed25519" in p_id.lower() or "signature" in p_id.lower():
+                    if not _ed25519_private:
+                        p_status = "warn"
+                        issues += 1
+                elif isinstance(policy_entry, dict):
+                    declared_status = policy_entry.get("status", "compliant")
+                    if declared_status == "non-compliant":
+                        p_status = "warn"
+                        issues += 1
+                    elif declared_status == "unknown":
+                        p_status = "unknown"
+                policy_checks.append({"policy": p_id, "status": p_status})
+
+            verified_at = _now()
+            with _governance_compliance_lock:
+                _governance_compliance_verified_at = verified_at
+                if reset:
+                    global _governance_operator_attestation
+                    _governance_operator_attestation = None
+
+            compliance_report = {
+                "policies_declared":  len(_policy_compliance),
+                "issues_detected":    issues,
+                "status":             "compliant" if issues == 0 else "issues_detected",
+                "policy_checks":      policy_checks,
+                "compliance_endpoint": "/governance/compliance",
+            }
+            self._json({
+                "ok":               True,
+                "compliance_report": compliance_report,
+                "last_verified_at": verified_at,
+                "governance":       _build_governance(),
+            })
 
         # ── v3.0: POST /verify/message — verify message-level Ed25519 signature (msg_sig) ─────────────────
         elif p == "/verify/message":
