@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.10.0"  # v3.10: multi-relay federation (GET/POST /federation + POST /federation/route + acp.federation.route WS msg)
+VERSION = "3.11.0"  # v3.11: async task queue workers (POST/GET /tasks/queue/worker + DELETE /tasks/queue/worker/{id} + auto-dispatch)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -338,6 +338,14 @@ _sync_pending: dict  = {}
 _sse_subscribers     = []
 _push_webhooks       = []
 _sse_notify          = threading.Event()   # BUG-009 fix: signal SSE handlers on new event
+
+# v3.11: Async task queue workers
+# _task_queue_workers: {worker_id: {peer_id, skill_id, callback_url, registered_at, tasks_dispatched, active}}
+# When a task is POST /tasks/queue'd, it is auto-dispatched to matching registered workers.
+# Matching rules: worker.peer_id matches task.from_peer_id (or None = match-all);
+#                 worker.skill_id matches task.payload.skill_id (or None = match-all).
+_task_queue_workers: dict = {}
+_task_queue_workers_lock  = threading.Lock()
 
 # v2.12: WebSocket /ws/stream native push clients
 # Each entry is a socket-like object with a send_ws_text(data: str) method
@@ -2226,6 +2234,7 @@ def _make_agent_card(name, skills):
             "offline_ttl":        _max_offline_ttl_sec is not None, # v2.99: --max-offline-ttl expiry policy enabled
             "heartbeat_agent":    bool(_availability and _availability.get("mode") in ("heartbeat", "cron")),  # v3.8: heartbeat/cron agent mode
             "federation":         True,  # v3.10: relay-to-relay message routing (multi-relay federation)
+            "task_queue_worker":  True,  # v3.11: async worker registration (POST /tasks/queue/worker)
             "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
             "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
@@ -2366,6 +2375,7 @@ def _make_agent_card(name, skills):
             "federation":         "/federation",               # v3.10: GET list + POST connect federation relay
             "federation_route":   "/federation/route",         # v3.10: POST — route message to peer on remote relay
             "task_queue":    "/tasks/queue",           # v2.97: async task enqueue (POST) + queue status (GET)
+            "task_queue_workers": "/tasks/queue/workers",  # v3.11: GET list + POST register + DELETE deregister
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
             "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
@@ -6052,6 +6062,73 @@ async def _offline_flush(ws, peer_id: str = "default") -> int:
     return count
 
 
+def _dispatch_task_to_workers(task: dict) -> int:
+    """v3.11: Dispatch a newly-queued task to all matching registered workers.
+
+    A worker matches if:
+      - worker.peer_id is None (match-all) OR equals task.from_peer_id
+      - worker.skill_id is None (match-all) OR equals task payload's skill_id
+
+    Dispatch method: POST to worker.callback_url with the task envelope.
+    Returns number of workers dispatched to.
+    """
+    import urllib.request as _urlreq
+    dispatched = 0
+    task_peer_id  = task.get("from_peer_id")
+    task_skill_id = (task.get("payload") or {}).get("skill_id") if isinstance(task.get("payload"), dict) else None
+
+    with _task_queue_workers_lock:
+        workers_snapshot = list(_task_queue_workers.items())
+
+    for worker_id, worker in workers_snapshot:
+        if not worker.get("active", True):
+            continue
+        w_peer  = worker.get("peer_id")
+        w_skill = worker.get("skill_id")
+        # Match peer_id filter: worker specifies peer_id → task MUST have matching from_peer_id
+        # (None peer_id on worker = match-all; None from_peer_id on task = only matches workers without filter)
+        if w_peer:
+            if not task_peer_id or w_peer != task_peer_id:
+                continue
+        # Match skill_id filter: same logic
+        if w_skill:
+            if not task_skill_id or w_skill != task_skill_id:
+                continue
+        # Dispatch via callback_url
+        cb_url = worker.get("callback_url")
+        if not cb_url:
+            continue
+        try:
+            payload_bytes = json.dumps({
+                "type":        "acp.task.dispatch",
+                "worker_id":   worker_id,
+                "task":        {
+                    "id":          task["id"],
+                    "status":      task.get("status"),
+                    "payload":     task.get("payload"),
+                    "queued_at":   task.get("queue_enqueued_at"),
+                    "poll_url":    f"/tasks/{task['id']}",
+                    "sse_url":     f"/tasks/{task['id']}/subscribe",
+                },
+                "dispatched_at": _now(),
+            }).encode()
+            req = _urlreq.Request(
+                cb_url, data=payload_bytes,
+                headers={"Content-Type": "application/json", "X-ACP-Worker-Id": worker_id},
+                method="POST",
+            )
+            _urlreq.urlopen(req, timeout=5)
+            with _task_queue_workers_lock:
+                if worker_id in _task_queue_workers:
+                    _task_queue_workers[worker_id]["tasks_dispatched"] = \
+                        _task_queue_workers[worker_id].get("tasks_dispatched", 0) + 1
+            dispatched += 1
+            log.info(f"[worker] task {task['id']} dispatched to worker {worker_id} → {cb_url}")
+        except Exception as e:
+            log.warning(f"[worker] dispatch to {worker_id} ({cb_url}) failed: {e}")
+    return dispatched
+
+
 def _offline_queue_snapshot() -> dict:
     """Return serializable snapshot of the offline queue for GET /offline-queue. (v2.0)"""
     with _offline_lock:
@@ -9478,6 +9555,27 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 "note":        "v2.98 async task queue — POST /tasks/queue to enqueue, poll GET /tasks/{id} or SSE /tasks/{id}/subscribe",
             }, 200)
 
+        elif p == "/tasks/queue/workers":
+            # ── GET /tasks/queue/workers — list registered workers (v3.11) ──
+            with _task_queue_workers_lock:
+                workers_list = [
+                    {
+                        "worker_id":        wid,
+                        "callback_url":     w.get("callback_url"),
+                        "peer_id":          w.get("peer_id"),
+                        "skill_id":         w.get("skill_id"),
+                        "registered_at":    w.get("registered_at"),
+                        "tasks_dispatched": w.get("tasks_dispatched", 0),
+                        "active":           w.get("active", True),
+                    }
+                    for wid, w in _task_queue_workers.items()
+                ]
+            self._json({
+                "ok":           True,
+                "workers":      workers_list,
+                "worker_count": len(workers_list),
+            })
+
         elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2/v0.9)
             # Query params:
             #   status=<status>        filter by status; comma-separated multi-value (v0.9)
@@ -12386,18 +12484,79 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 task["queue_enqueued"] = True
                 task["queue_enqueued_at"] = _now()
                 _append_audit(task, "queue_enqueued", {"via": "POST /tasks/queue"})
+                # v3.11: auto-dispatch to registered workers (best-effort, non-blocking)
+                workers_dispatched = 0
+                try:
+                    workers_dispatched = _dispatch_task_to_workers(task)
+                    if workers_dispatched:
+                        _append_audit(task, "worker_dispatched",
+                                      {"workers_dispatched": workers_dispatched})
+                except Exception as _de:
+                    log.warning(f"[worker] dispatch error for task {task['id']}: {_de}")
                 self._json({
-                    "ok":         True,
-                    "task_id":    task["id"],
-                    "status":     task["status"],
-                    "queued_at":  task["queue_enqueued_at"],
-                    "poll_url":   f"/tasks/{task['id']}",
-                    "sse_url":    f"/tasks/{task['id']}/subscribe",
-                    "note":       "Task accepted (202). Poll poll_url or subscribe to sse_url for status updates.",
+                    "ok":                True,
+                    "task_id":           task["id"],
+                    "status":            task["status"],
+                    "queued_at":         task["queue_enqueued_at"],
+                    "poll_url":          f"/tasks/{task['id']}",
+                    "sse_url":           f"/tasks/{task['id']}/subscribe",
+                    "workers_dispatched": workers_dispatched,
+                    "note":              "Task accepted (202). Poll poll_url or subscribe to sse_url for status updates.",
                 }, 202)
             except Exception as e:
                 log.exception("POST /tasks/queue error")
                 self._json(_err(ERR_INTERNAL, str(e))[0], 500)
+
+        # ── POST /tasks/queue/worker — register async worker (v3.11) ──────────
+        elif p == "/tasks/queue/worker":
+            """
+            Register an async task queue worker.
+
+            A worker receives a POST callback whenever a new task is enqueued
+            via POST /tasks/queue and the task matches the worker's filters.
+
+            Request body:
+              - callback_url (str, required): URL to POST task dispatch envelopes to
+              - peer_id (str, optional): only receive tasks from this peer (None = match-all)
+              - skill_id (str, optional): only receive tasks with this skill_id (None = match-all)
+              - worker_id (str, optional): client-supplied idempotency key
+
+            Response:
+              - ok (bool)
+              - worker_id (str)
+              - registered_at (str)
+              - filters: {peer_id, skill_id}
+            """
+            try:
+                body = self._read_body()
+                cb_url = body.get("callback_url", "").strip()
+                if not cb_url:
+                    self._json({"ok": False, "error": "callback_url required"}, 400)
+                    return
+                worker_id = body.get("worker_id") or _make_id("worker")
+                peer_id   = body.get("peer_id") or None
+                skill_id  = body.get("skill_id") or None
+                registered_at = _now()
+                with _task_queue_workers_lock:
+                    # Idempotent: if same worker_id, update
+                    _task_queue_workers[worker_id] = {
+                        "callback_url":     cb_url,
+                        "peer_id":          peer_id,
+                        "skill_id":         skill_id,
+                        "registered_at":    registered_at,
+                        "tasks_dispatched": 0,
+                        "active":           True,
+                    }
+                log.info(f"[worker] registered {worker_id} → {cb_url} (peer={peer_id}, skill={skill_id})")
+                self._json({
+                    "ok":            True,
+                    "worker_id":     worker_id,
+                    "registered_at": registered_at,
+                    "callback_url":  cb_url,
+                    "filters":       {"peer_id": peer_id, "skill_id": skill_id},
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
 
         # /tasks/create — create a task (optionally delegate to peer)
         elif p == "/tasks/create" or p == "/tasks":
@@ -13562,6 +13721,18 @@ class LocalHTTP(BaseHTTPRequestHandler):
             else:
                 self._json({"ok": False, "error": f"DID '{did_to_remove}' not in principal_chain",
                             "removed": False, "count": len(_principal_chain)}, 404)
+            return
+
+        # ── v3.11: DELETE /tasks/queue/worker/<worker_id> — deregister worker ──
+        if p.startswith("/tasks/queue/worker/"):
+            worker_id = p[len("/tasks/queue/worker/"):]
+            with _task_queue_workers_lock:
+                if worker_id in _task_queue_workers:
+                    _task_queue_workers.pop(worker_id)
+                    self._json({"ok": True, "worker_id": worker_id, "deregistered": True})
+                else:
+                    self._json({"ok": False, "error": f"worker '{worker_id}' not found",
+                                "deregistered": False}, 404)
             return
 
         if p.startswith("/tasks/"):
