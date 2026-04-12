@@ -1,7 +1,8 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 14:05 — 文档轮完成（第18轮）。v3.11.0文档全量同步：README徽章+版本历史+测试数1739，CHANGELOG[3.11.0]完整条目，ROADMAP v3.12候选更新。commit ce7bbe5 → pushed。下轮: 研究轮（scan37）。",
+  "notes": "2026-04-12 16:13 — 文档轮完成（第21轮）。全量测试确认 1552 passed/18 skipped（ETV+CI stress 单独验证 16/8 passed/skipped）。README 1552 PASS 准确。docs/ROADMAP.md 更新至 v3.11.0 + v3.12 候选。下轮: 研究轮（scan38，A2A/ANP 最新动态）。",
   "next_round": "research",
-  "today_rounds_completed": 18,
-  "last_doc_version": "3.11.0"
+  "today_rounds_completed": 21,
+  "last_doc_version": "3.11.0",
+  "last_full_test": "1552 passed, 18 skipped (2026-04-12)"
 }
