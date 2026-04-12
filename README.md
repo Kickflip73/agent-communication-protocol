@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1739%2F1739_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1552%2F1552_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -316,7 +316,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **1739/1739 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent · task-queue-worker)
+- **1552/1552 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent · task-queue-worker)
 - **190+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
@@ -351,6 +351,10 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | Publish to topic | POST | `/peers/broadcast/{topic}` |
 | List active topics | GET | `/peers/topics` |
 | Poll queue summary | GET | `/offline-queue/summary` |
+| Enqueue async task | POST | `/tasks/queue` `{"role":"agent","payload":{...}}` |
+| Register worker | POST | `/tasks/queue/worker` `{"callback_url":"http://...","peer_id":"...","skill_id":"..."}` |
+| List workers | GET | `/tasks/queue/workers` |
+| Deregister worker | DELETE | `/tasks/queue/worker/{id}` |
 
 HTTP default port: `7901` · WebSocket port: `7801`
 
@@ -714,7 +718,7 @@ curl -X POST http://localhost:7901/peers/connect \
 
 **ACP vs A2A (Google's protocol):** A2A requires OAuth 2.0, an HTTPS endpoint you must host, and an agent registry. ACP requires `pip install websockets`. A2A is great for enterprise platforms; ACP is for individuals, sandboxed agents, and fast prototyping.
 
-**Status:** Single-file Python daemon, 1739 tests passing, Apache 2.0. Built in public over ~200 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
+**Status:** Single-file Python daemon, 1552 tests passing, Apache 2.0. Built in public over ~200 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
 
 ---
 

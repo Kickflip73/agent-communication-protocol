@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-> 最后更新：2026-04-10（v2.95.0：skill-scoped trust scores — governance_metadata.trust_scores dict + QuerySkill skill_trust_score；当前版本 2.95.0，commit 070e0d3）
+> 最后更新：2026-04-12（v3.11.0：async task queue workers — POST /tasks/queue/worker + GET /tasks/queue/workers + DELETE；auto-dispatch；TQW1-TQW12 全 PASS；当前版本 3.11.0，commit a4b31ca）
 
 ---
 
@@ -789,7 +789,9 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 | v2.94 | 主体多样性防御 | `GET /trust/bilateral-ir/diversity` — 共谋对惩罚（concentration>60%→0.10x权重）；`principal_diversity_defense: true`；16测试PD01-16全通 | `b9f638e` |
 | v2.95 | Skill 信任评分 | `_compute_skill_trust_scores()` + `GET /trust/skill-scores` + QuerySkill `skill_trust_score` + `governance_metadata.trust_scores` dict；`skill_scoped_v1` 算法；16测试SS01-16全通 | `070e0d3` |
 
-**当前版本**: `2.95.0` | **最新 commit**: `070e0d3`
+**当前版本**: `3.11.0` | **最新 commit**: `a4b31ca`
+
+> 版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ **v3.11（async task queue workers）**
 
 ---
 
@@ -905,8 +907,31 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - BUG-009 P1 修复：SSE 推送延迟 <50ms
 - BUG-003b P1 修复：重复连接幂等
 
-## v3.7.0 候选特性
-- scenario_d 压测集成到 CI（P2）
-- SlimRPC 实验性绑定（待 A2A #1723 建仓确认，P3）
-- Agent Identity/Trust 互操作文档（参考 A2A #1672，P3）
-- ECDSA-SD 选择性披露评估（跟踪 ANP 进展，P3）
+## v3.7.0 ✅ 已完成 — 2026-04-12
+- **CI 压力测试 + Authorization Hook**: `test_scenario_d.py` local-relay 20-msg burst（P99 latency assertion，全 CI-safe）；`_check_authorization()` stub 预留（A2A #1716 watchlist）
+- 测试：48 tests PASS
+
+## v3.8.0 ✅ 已完成 — 2026-04-12
+- **Heartbeat-Agent 三件套闭环（A2A IS#1667）**: `GET /offline-queue/summary`（轻量 polling 端点）；`--heartbeat-agent` CLI 标志（implies `--local-only` + `availability.mode=heartbeat`）；`capabilities.heartbeat_agent`
+- 测试：HA1–HA8 = 8/8 PASS
+
+## v3.9.0 ✅ 已完成 — 2026-04-12
+- **Topic-based Pub/Sub subset（A2A #1196 对标）**: `POST /peers/subscribe/{topic}`、`POST /peers/unsubscribe/{topic}`、`POST /peers/broadcast/{topic}`、`GET /peers/topics`；`capabilities.topic_broadcast: true`
+- A2A #1196 首个工作参考实现（上游仅 proposal，无实现）
+- 测试：TP1–TP10 = 10/10 PASS
+
+## v3.10.0 ✅ 已完成 — 2026-04-12
+- **Multi-relay Federation（跨 relay 实例消息路由）**: `GET /federation`、`POST /federation`（idempotent）、`POST /federation/route`；`acp.federation.route` WS 消息处理；offline-queue fallback 组合；`capabilities.federation: true`
+- Commit: `68bf6f6`
+- 测试：FED1–FED12 = 12/12 PASS
+
+## v3.11.0 ✅ 已完成 — 2026-04-12
+- **Async Task Queue Workers**: `POST /tasks/queue/worker`（注册 callback_url + peer_id/skill_id 过滤器，幂等）、`GET /tasks/queue/workers`（列出 workers + stats）、`DELETE /tasks/queue/worker/{id}`（注销）；入队自动派发；`capabilities.task_queue_worker: true`
+- 修复 filter 逻辑 bug：worker 有 peer_id 过滤器时，无 from_peer_id 的任务不应被派发
+- Commit: `a4b31ca`
+- 测试：TQW1–TQW12 = 12/12 PASS
+
+## v3.12.0 候选特性
+- **P1**: Governance metadata block（A2A #1717，Microsoft AGT 团队）— `trust_score`、`capability_manifest`、`policy_compliance`、`audit_trail_reference`；ACP 现有覆盖 ~60%，扩展 `bilateral_proof` 支持
+- **P2**: Bilateral Signed Interaction Records（A2A #1718）— 双边签名交互记录，统一 trust/audit/delegation/Sybil-resistance
+- **P3**: SlimRPC CPB 实验性绑定（跟踪 A2A #1723）
