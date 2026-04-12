@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-12 08:09（文档轮；v3.9.0 README/CHANGELOG/ROADMAP 全量同步；当前版本 v3.9.0）
+> 最后更新：2026-04-12 09:35（开发轮；v3.10.0 multi-relay federation FED1-FED12全PASS；当前版本 v3.10.0）
 
 ---
 
@@ -774,16 +774,30 @@ Key commit: TBD
 
 ---
 
-## 🔭 v3.10.0（候选，截止 2026-05-05）
+## ✅ v3.10.0（完成，2026-04-12）
+**主题：Multi-relay Federation（跨 relay 实例消息路由）**
+
+- ✅ `GET /federation` — 列出已注册的 federation relay（routing stats）
+- ✅ `POST /federation` — 连接远端 relay（幂等 + acp:// 链接格式验证）
+- ✅ `POST /federation/route` — 路由消息到远端 relay 的指定 peer
+- ✅ `acp.federation.route` WS 消息类型：本地 relay 接收并转发给目标 peer（或 offline-queue）
+- ✅ `capabilities.federation: true` AgentCard 声明
+- ✅ `tests/test_federation.py`：FED1–FED12，**12/12 全 PASS**
+
+**架构亮点**：Federation 作为 peer 连接的轻量覆盖层；远端 relay 注册为 `role="relay"` 特殊 peer；与 `--persist-queue` 正交可组合。
+
+---
+
+## 🔭 v3.11.0（候选，截止 2026-05-12）
 ### 候选特性
-- [ ] scenario_e: 跨 relay 实例消息路由（multi-relay federation）— P1，生态完整性
-- [ ] `POST /tasks/queue/worker` — 注册异步任务处理器（v3.3 候选遗留）— P2
+- [ ] `POST /tasks/queue/worker` — 注册异步任务处理器（v3.3 候选遗留）— P1
+- [ ] federation gossip：多跳 relay 路由（A→B→C 跨三 relay）— P1
 - [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）— P2
 - [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713 scan33 新发现）— P3
 - [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定，当前 watchlist）— P3
 ### 优先级
-- P1: scenario_e multi-relay federation（生态完整性）
-- P2: `POST /tasks/queue/worker` 异步 worker 注册
+- P1: `POST /tasks/queue/worker` 异步 worker 注册
+- P1: federation gossip 多跳路由
 - P3: Authorization Layer 实现（等待上游 A2A #1716）
 
 ---

@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.9.0"   # v3.9: topic-based Pub/Sub subset (A2A #1196 aligned): subscribe/unsubscribe/publish/topics-list
+VERSION = "3.10.0"  # v3.10: multi-relay federation (GET/POST /federation + POST /federation/route + acp.federation.route WS msg)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -868,6 +868,14 @@ _topic_subscribers: dict = {}   # topic -> {peer_id -> subscribed_at}
 _topic_log: dict = {}           # topic -> list of recent publishes (max 50 per topic)
 _TOPIC_LOG_MAX = 50
 _TOPIC_NAME_MAX_LEN = 128       # max topic name length
+
+# v3.10: Federation — relay-to-relay message routing
+# _federation_relays: {relay_id: {peer_id, link, name, connected_at, messages_routed}}
+# A "federation relay" is a remote relay registered as a special peer with role="relay".
+# Messages can be routed to a target peer on a remote relay via POST /federation/route.
+_federation_relays: dict = {}   # relay_id -> federation relay info
+_federation_lock = threading.Lock()
+
 _pending_pongs: dict = {}  # v2.25: nonce -> asyncio.Future; resolved when acp.pong arrives
 _vouch_chain: list  = []  # v2.27: list of vouch_chain entries [{voucher_did, vouched_did, vouched_at, sig, comment}]
 
@@ -2217,6 +2225,7 @@ def _make_agent_card(name, skills):
             "async_task_queue":   True,                              # v2.98: POST /tasks/queue async enqueue (A2A #1667)
             "offline_ttl":        _max_offline_ttl_sec is not None, # v2.99: --max-offline-ttl expiry policy enabled
             "heartbeat_agent":    bool(_availability and _availability.get("mode") in ("heartbeat", "cron")),  # v3.8: heartbeat/cron agent mode
+            "federation":         True,  # v3.10: relay-to-relay message routing (multi-relay federation)
             "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
             "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
                 ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
@@ -2354,6 +2363,8 @@ def _make_agent_card(name, skills):
             "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
             "offline_queue_sweep":   "/offline-queue/sweep",    # v2.99: on-demand TTL sweep
             "offline_queue_summary": "/offline-queue/summary",  # v3.8: lightweight heartbeat-agent poll
+            "federation":         "/federation",               # v3.10: GET list + POST connect federation relay
+            "federation_route":   "/federation/route",         # v3.10: POST — route message to peer on remote relay
             "task_queue":    "/tasks/queue",           # v2.97: async task enqueue (POST) + queue status (GET)
             "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
             "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
@@ -5553,6 +5564,43 @@ def _on_message(raw):
         log.debug(f"[ping] Received acp.pong nonce={nonce}")
         return
 
+    # v3.10: acp.federation.route — a remote relay is routing a message to a local peer
+    if msg_type == "acp.federation.route":
+        target_pid = msg.get("target_peer_id", "")
+        fed_parts  = msg.get("parts", [])
+        fed_role   = msg.get("role", "agent")
+        fed_mid    = msg.get("message_id", _make_id("fed_delivery"))
+        source_relay = msg.get("source_relay", "unknown-relay")
+        log.info(f"[federation] Incoming route: target_peer={target_pid} "
+                 f"from_relay={source_relay} msg={fed_mid}")
+        if target_pid and target_pid in _peers and _peers[target_pid].get("ws"):
+            delivery = {
+                "type":              "acp.message",
+                "message_id":        fed_mid,
+                "role":              fed_role,
+                "parts":             fed_parts,
+                "federation_source": source_relay,
+                "federated":         True,
+            }
+            try:
+                target_ws = _peers[target_pid].get("ws")
+                asyncio.ensure_future(_ws_send(target_ws, target_pid, delivery))
+                log.info(f"[federation] Delivered msg {fed_mid} to local peer {target_pid}")
+            except Exception as e:
+                log.warning(f"[federation] Failed to deliver to {target_pid}: {e}")
+        elif target_pid:
+            # Target peer not connected — enqueue in offline queue
+            _offline_enqueue({
+                "type":    "acp.message",
+                "message_id": fed_mid,
+                "role":    fed_role,
+                "parts":   fed_parts,
+                "federation_source": source_relay,
+                "federated": True,
+            }, peer_id=target_pid)
+            log.info(f"[federation] msg {fed_mid} queued offline for {target_pid}")
+        return
+
     if msg_type == "task.updated":
         task_id = msg.get("task_id")
         if task_id and task_id in _tasks:
@@ -8321,6 +8369,35 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 ),
             }
             self._json(summary_resp)
+
+        elif p == "/federation":
+            # ── GET /federation — list federation relays (v3.10) ─────────────
+            """
+            Return the list of federation relays — remote relay instances that
+            this relay has connected to for cross-relay message routing.
+
+            Response fields:
+              - relays (list): [{relay_id, peer_id, link, name, connected_at, messages_routed}]
+              - relay_count (int): number of federation relays
+              - capabilities.federation (bool): always true
+            """
+            with _federation_lock:
+                relays_snapshot = [
+                    {
+                        "relay_id":        rid,
+                        "peer_id":         info.get("peer_id"),
+                        "link":            info.get("link"),
+                        "name":            info.get("name", rid),
+                        "connected_at":    info.get("connected_at"),
+                        "messages_routed": info.get("messages_routed", 0),
+                    }
+                    for rid, info in _federation_relays.items()
+                ]
+            self._json({
+                "relays":       relays_snapshot,
+                "relay_count":  len(relays_snapshot),
+                "capabilities": {"federation": True},
+            })
 
         elif p == "/offline-queue/sweep":
             # ── GET /offline-queue/sweep — on-demand TTL sweep (v2.99) ──────
@@ -11705,6 +11782,191 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 threading.Thread(target=_do_connect_nat, daemon=True).start()
                 self._json({"ok": True, "peer_id": peer_id,
                             "connecting_to": peer_link, "name": peer_name or peer_id})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /federation — connect to a remote relay for federation (v3.10) ──
+        elif p == "/federation":
+            """
+            Register a remote relay as a federation peer.
+
+            This establishes a relay-to-relay connection: the remote relay's acp://
+            link is registered as a peer with role="relay". Once connected, messages
+            can be routed to peers on that relay via POST /federation/route.
+
+            Request body:
+              - link (str, required): acp:// link of the remote relay
+              - name (str, optional): friendly name for this federation relay
+
+            Response:
+              - ok (bool)
+              - relay_id (str): assigned relay identifier
+              - peer_id (str): underlying peer id
+              - link (str): the registered link
+              - already_connected (bool): true if link was already registered
+            """
+            try:
+                body = self._read_body()
+                link = body.get("link", "").strip()
+                name = body.get("name", "").strip()
+                if not link:
+                    self._json({"ok": False, "error": "link required"}, 400)
+                    return
+                # Validate link format
+                try:
+                    parse_link(link)
+                except ValueError as ve:
+                    e_body, _ = _err(ERR_INVALID_REQUEST, str(ve))
+                    self._json(e_body, 400)
+                    return
+                # Idempotent: check if already federated
+                with _federation_lock:
+                    existing_rid = None
+                    for rid, info in _federation_relays.items():
+                        if info.get("link") == link:
+                            existing_rid = rid
+                            break
+                    if existing_rid:
+                        self._json({
+                            "ok": True,
+                            "relay_id": existing_rid,
+                            "peer_id": _federation_relays[existing_rid].get("peer_id"),
+                            "link": link,
+                            "already_connected": True,
+                        })
+                        return
+                # Register as a regular peer (with relay role tag)
+                peer_id = _make_peer_id()
+                _register_peer(peer_id=peer_id, link=link)
+                _peers[peer_id]["name"] = name or f"federation-relay-{peer_id}"
+                _peers[peer_id]["role"] = "relay"
+                # Generate relay_id
+                relay_id = f"relay_{peer_id}"
+                with _federation_lock:
+                    _federation_relays[relay_id] = {
+                        "peer_id":       peer_id,
+                        "link":          link,
+                        "name":          name or relay_id,
+                        "connected_at":  _now(),
+                        "messages_routed": 0,
+                    }
+                # Initiate NAT traversal in background (same as /peers/connect)
+                agent_name = _status.get("agent_name", "ACP-Agent")
+                def _do_connect_fed():
+                    async def _run():
+                        _pid, transport_level = await _connect_with_nat_traversal(
+                            link, agent_name, role="guest"
+                        )
+                        if peer_id in _peers:
+                            _peers[peer_id]["transport_level"] = transport_level
+                        log.info(f"[federation] relay {relay_id} connected via level={transport_level}")
+                    fut = asyncio.run_coroutine_threadsafe(_run(), _loop)
+                    try:
+                        fut.result(timeout=30)
+                    except Exception as e:
+                        log.warning(f"[federation] relay {relay_id} connect failed: {e}")
+                threading.Thread(target=_do_connect_fed, daemon=True).start()
+                self._json({
+                    "ok":      True,
+                    "relay_id": relay_id,
+                    "peer_id": peer_id,
+                    "link":    link,
+                    "already_connected": False,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /federation/route — route message to peer on remote relay (v3.10) ──
+        elif p == "/federation/route":
+            """
+            Route a message to a specific peer on a remote (federated) relay.
+
+            This is the core federation routing operation: the message is sent
+            to the remote relay via the relay-to-relay peer connection, with
+            federation metadata so the remote relay can deliver it to the correct
+            local peer.
+
+            Request body:
+              - relay_id (str, required): target federation relay id
+              - target_peer_id (str, required): peer id on the remote relay
+              - role (str): "agent" | "user" (default "agent")
+              - text (str): message text
+              - parts (list): structured message parts (A2A-aligned)
+              - message_id (str, optional): client-supplied idempotency key
+
+            Response:
+              - ok (bool)
+              - relay_id (str)
+              - message_id (str)
+              - routed_at (str): ISO-8601 timestamp
+              - error (str): only when ok=false
+            """
+            try:
+                body = self._read_body()
+                relay_id = body.get("relay_id", "").strip()
+                target_peer_id = body.get("target_peer_id", "").strip()
+                if not relay_id:
+                    self._json({"ok": False, "error": "relay_id required"}, 400)
+                    return
+                if not target_peer_id:
+                    self._json({"ok": False, "error": "target_peer_id required"}, 400)
+                    return
+                # Look up federation relay
+                with _federation_lock:
+                    fed_info = _federation_relays.get(relay_id)
+                if not fed_info:
+                    self._json({
+                        "ok": False,
+                        "error_code": "ERR_FEDERATION_RELAY_NOT_FOUND",
+                        "error": f"federation relay '{relay_id}' not registered; "
+                                 f"use POST /federation to connect first",
+                    }, 404)
+                    return
+                peer_id = fed_info["peer_id"]
+                if peer_id not in _peers or not _peers[peer_id].get("connected"):
+                    self._json({
+                        "ok": False,
+                        "error_code": "ERR_FEDERATION_NOT_CONNECTED",
+                        "error": f"federation relay '{relay_id}' peer {peer_id} is not connected",
+                    }, 503)
+                    return
+                # Build the federation envelope
+                message_id = body.get("message_id") or _make_id("fed_msg")
+                role = body.get("role", "agent")
+                text = body.get("text", "")
+                parts = body.get("parts") or ([{"type": "text", "text": text}] if text else [])
+                fed_envelope = {
+                    "type":            "acp.federation.route",
+                    "message_id":      message_id,
+                    "target_peer_id":  target_peer_id,
+                    "role":            role,
+                    "parts":           parts,
+                    "routed_at":       _now(),
+                    "source_relay":    _status.get("agent_name", "ACP-Agent"),
+                }
+                # Send via the relay-to-relay peer WS connection
+                async def _send_fed():
+                    ws = _peers[peer_id].get("ws")
+                    if ws is None:
+                        raise RuntimeError("peer ws not ready")
+                    await _ws_send(ws, peer_id, fed_envelope)
+                try:
+                    fut = asyncio.run_coroutine_threadsafe(_send_fed(), _loop)
+                    fut.result(timeout=10)
+                    # Update routing counter
+                    with _federation_lock:
+                        if relay_id in _federation_relays:
+                            _federation_relays[relay_id]["messages_routed"] = \
+                                _federation_relays[relay_id].get("messages_routed", 0) + 1
+                    self._json({
+                        "ok":        True,
+                        "relay_id":  relay_id,
+                        "message_id": message_id,
+                        "routed_at": _now(),
+                    })
+                except Exception as e:
+                    self._json({"ok": False, "error": str(e),
+                                "error_code": "ERR_FEDERATION_ROUTE_FAILED"}, 502)
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 

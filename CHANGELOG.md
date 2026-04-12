@@ -8,6 +8,32 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.10.0] - 2026-04-12
+
+### Added
+- **Multi-relay federation** (v3.10): relay-to-relay message routing across independent relay instances
+  - `GET /federation` — list registered federation relays with routing stats
+  - `POST /federation` — connect to a remote relay (idempotent; validates acp:// link format)
+  - `POST /federation/route` — route a message to a specific peer on a remote relay
+  - `acp.federation.route` WS message type: incoming federated messages are delivered to local peers (or offline-queued when peer is offline)
+  - `capabilities.federation: true` — declared in AgentCard capabilities
+  - `endpoints.federation` + `endpoints.federation_route` — declared in AgentCard
+- **`_federation_relays` data structure**: tracks relay_id → {peer_id, link, name, connected_at, messages_routed}
+- **`tests/test_federation.py`**: 12 tests (FED1–FED12) — all passed
+  - Covers: GET structure, initially-empty state, POST validation, registration, idempotency, AgentCard declarations, route validation, 404 error handling, two-relay cross-routing
+
+### Architecture Note
+Federation is implemented as a lightweight overlay on top of existing peer connections:
+- Remote relays register as regular peers with `role="relay"`
+- `POST /federation/route` sends an `acp.federation.route` WS envelope to the relay peer
+- The remote relay's message handler delivers it to the target local peer
+- If target peer is offline, message is offline-queued (composable with `--persist-queue`)
+
+### Changed
+- `VERSION` → `3.10.0`
+
+---
+
 ## [3.9.0] - 2026-04-12
 
 ### Added
