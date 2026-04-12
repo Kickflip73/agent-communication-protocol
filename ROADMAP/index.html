@@ -1753,10 +1753,65 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v370" class="md-nav__link">
+  <a href="#v370-2026-04-12" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v3.7.0 候选特性
+        v3.7.0 ✅ 已完成 — 2026-04-12
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v380-2026-04-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.8.0 ✅ 已完成 — 2026-04-12
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v390-2026-04-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.9.0 ✅ 已完成 — 2026-04-12
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v3100-2026-04-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.10.0 ✅ 已完成 — 2026-04-12
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v3110-2026-04-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.11.0 ✅ 已完成 — 2026-04-12
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v3120" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.12.0 候选特性
       
     </span>
   </a>
@@ -1939,7 +1994,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-10（v2.95.0：skill-scoped trust scores — governance_metadata.trust_scores dict + QuerySkill skill_trust_score；当前版本 2.95.0，commit 070e0d3）</p>
+最后更新：2026-04-12（v3.11.0：async task queue workers — POST /tasks/queue/worker + GET /tasks/queue/workers + DELETE；auto-dispatch；TQW1-TQW12 全 PASS；当前版本 3.11.0，commit a4b31ca）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3774,7 +3829,10 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </tr>
 </tbody>
 </table>
-<p><strong>当前版本</strong>: <code>2.95.0</code> | <strong>最新 commit</strong>: <code>070e0d3</code></p>
+<p><strong>当前版本</strong>: <code>3.11.0</code> | <strong>最新 commit</strong>: <code>a4b31ca</code></p>
+<blockquote>
+<p>版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ <strong>v3.11（async task queue workers）</strong></p>
+</blockquote>
 <hr />
 <h3 id="v2962026-04-15">🔮 v2.96（候选，目标：2026-04-15）<a class="headerlink" href="#v2962026-04-15" title="Permanent link">&para;</a></h3>
 <p><strong>主题：Show HN 发布 + 2-Agent demo</strong></p>
@@ -4071,12 +4129,40 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>BUG-009 P1 修复：SSE 推送延迟 &lt;50ms</li>
 <li>BUG-003b P1 修复：重复连接幂等</li>
 </ul>
-<h2 id="v370">v3.7.0 候选特性<a class="headerlink" href="#v370" title="Permanent link">&para;</a></h2>
+<h2 id="v370-2026-04-12">v3.7.0 ✅ 已完成 — 2026-04-12<a class="headerlink" href="#v370-2026-04-12" title="Permanent link">&para;</a></h2>
 <ul>
-<li>scenario_d 压测集成到 CI（P2）</li>
-<li>SlimRPC 实验性绑定（待 A2A #1723 建仓确认，P3）</li>
-<li>Agent Identity/Trust 互操作文档（参考 A2A #1672，P3）</li>
-<li>ECDSA-SD 选择性披露评估（跟踪 ANP 进展，P3）</li>
+<li><strong>CI 压力测试 + Authorization Hook</strong>: <code>test_scenario_d.py</code> local-relay 20-msg burst（P99 latency assertion，全 CI-safe）；<code>_check_authorization()</code> stub 预留（A2A #1716 watchlist）</li>
+<li>测试：48 tests PASS</li>
+</ul>
+<h2 id="v380-2026-04-12">v3.8.0 ✅ 已完成 — 2026-04-12<a class="headerlink" href="#v380-2026-04-12" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Heartbeat-Agent 三件套闭环（A2A IS#1667）</strong>: <code>GET /offline-queue/summary</code>（轻量 polling 端点）；<code>--heartbeat-agent</code> CLI 标志（implies <code>--local-only</code> + <code>availability.mode=heartbeat</code>）；<code>capabilities.heartbeat_agent</code></li>
+<li>测试：HA1–HA8 = 8/8 PASS</li>
+</ul>
+<h2 id="v390-2026-04-12">v3.9.0 ✅ 已完成 — 2026-04-12<a class="headerlink" href="#v390-2026-04-12" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Topic-based Pub/Sub subset（A2A #1196 对标）</strong>: <code>POST /peers/subscribe/{topic}</code>、<code>POST /peers/unsubscribe/{topic}</code>、<code>POST /peers/broadcast/{topic}</code>、<code>GET /peers/topics</code>；<code>capabilities.topic_broadcast: true</code></li>
+<li>A2A #1196 首个工作参考实现（上游仅 proposal，无实现）</li>
+<li>测试：TP1–TP10 = 10/10 PASS</li>
+</ul>
+<h2 id="v3100-2026-04-12">v3.10.0 ✅ 已完成 — 2026-04-12<a class="headerlink" href="#v3100-2026-04-12" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Multi-relay Federation（跨 relay 实例消息路由）</strong>: <code>GET /federation</code>、<code>POST /federation</code>（idempotent）、<code>POST /federation/route</code>；<code>acp.federation.route</code> WS 消息处理；offline-queue fallback 组合；<code>capabilities.federation: true</code></li>
+<li>Commit: <code>68bf6f6</code></li>
+<li>测试：FED1–FED12 = 12/12 PASS</li>
+</ul>
+<h2 id="v3110-2026-04-12">v3.11.0 ✅ 已完成 — 2026-04-12<a class="headerlink" href="#v3110-2026-04-12" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Async Task Queue Workers</strong>: <code>POST /tasks/queue/worker</code>（注册 callback_url + peer_id/skill_id 过滤器，幂等）、<code>GET /tasks/queue/workers</code>（列出 workers + stats）、<code>DELETE /tasks/queue/worker/{id}</code>（注销）；入队自动派发；<code>capabilities.task_queue_worker: true</code></li>
+<li>修复 filter 逻辑 bug：worker 有 peer_id 过滤器时，无 from_peer_id 的任务不应被派发</li>
+<li>Commit: <code>a4b31ca</code></li>
+<li>测试：TQW1–TQW12 = 12/12 PASS</li>
+</ul>
+<h2 id="v3120">v3.12.0 候选特性<a class="headerlink" href="#v3120" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>P1</strong>: Governance metadata block（A2A #1717，Microsoft AGT 团队）— <code>trust_score</code>、<code>capability_manifest</code>、<code>policy_compliance</code>、<code>audit_trail_reference</code>；ACP 现有覆盖 ~60%，扩展 <code>bilateral_proof</code> 支持</li>
+<li><strong>P2</strong>: Bilateral Signed Interaction Records（A2A #1718）— 双边签名交互记录，统一 trust/audit/delegation/Sybil-resistance</li>
+<li><strong>P3</strong>: SlimRPC CPB 实验性绑定（跟踪 A2A #1723）</li>
 </ul>
 
 
