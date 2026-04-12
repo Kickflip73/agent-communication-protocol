@@ -1,8 +1,8 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 09:35 — 开发轮完成。v3.10.0: multi-relay federation。FED1-FED12全PASS(12/12)。GET/POST /federation + POST /federation/route + acp.federation.route WS handler。下轮: 测试轮（场景A+D回归 + federation集成验证）。",
-  "next_round": "test",
-  "today_rounds_completed": 9,
-  "last_dev_version": "3.10.0",
-  "last_dev_feature": "multi-relay federation (v3.10.0)"
+  "notes": "2026-04-12 10:05 — 测试轮完成（第10轮）。v3.10.0回归：scenario_ab(7/7)+federation(12/12)+heartbeat_agent(8/8)+topic_pubsub(10/10)=37/37 PASS，8 skipped(P2 CI)。零失败。下轮: 文档轮（README/CHANGELOG同步v3.10.0）。",
+  "next_round": "doc",
+  "today_rounds_completed": 10,
+  "last_test_version": "3.10.0",
+  "last_test_result": "37/37 PASS, 8 skipped"
 }
