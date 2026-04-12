@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.9.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.10.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1703%2F1703_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1715%2F1715_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -579,10 +579,20 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.7** | ✅ | **CI Stress Test + Authorization Hook** — `test_scenario_d.py` local-relay 20-msg burst 压测（P99 latency assertion，全 CI-safe，零外部依赖）；`_check_authorization()` stub 预留（A2A #1716 Authorization Layer watchlist）；48 tests PASS |
 | **v3.8** | ✅ | **Heartbeat-Agent 三件套闭环（A2A IS#1667）** — `GET /offline-queue/summary` 轻量 polling 端点；`--heartbeat-agent` CLI 标志（implies `--local-only` + `availability.mode=heartbeat`）；`capabilities.heartbeat_agent`；完整 5 步 workflow；HA1–HA8 = 8/8 PASS |
 | **v3.9** | ✅ | **Topic-based Pub/Sub subset（A2A #1196 对标）** — `POST /peers/subscribe/{topic}`、`POST /peers/unsubscribe/{topic}`、`POST /peers/broadcast/{topic}`、`GET /peers/topics`；`capabilities.topic_broadcast: true`；A2A #1196 首个工作参考实现；TP1–TP10 = 10/10 PASS |
+| **v3.10** | ✅ | **Multi-relay Federation（跨 relay 实例消息路由）** — `GET /federation`、`POST /federation`（idempotent）、`POST /federation/route`；`acp.federation.route` WS 消息处理；offline-queue fallback 组合；`capabilities.federation: true`；FED1–FED12 = 12/12 PASS |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.10.0 — Multi-relay Federation
+- **`GET /federation`**: 列出已注册的 federation relay。返回 `relays[]`（含 relay_id、peer_id、link、name、connected_at、messages_routed）、`relay_count`、`capabilities.federation: true`。
+- **`POST /federation`**: 将远端 relay 注册为 federation peer。支持 `link`（acp:// 格式验证）+ `name`（可选）。幂等：重复注册同一 link 返回 `already_connected: true`。
+- **`POST /federation/route`**: 路由消息到远端 relay 的指定 peer。参数：`relay_id`（必填）、`target_peer_id`（必填）、`role`/`text`/`parts`/`message_id`（可选）。不存在的 relay → 404；未连接 → 503。
+- **`acp.federation.route` WS 消息处理**: 本地 relay 收到联邦消息时，直接投递给目标 peer；若 peer 离线则 offline-queue（与 `--persist-queue` 正交可组合）。
+- **`capabilities.federation: true`** + **`endpoints.federation` / `endpoints.federation_route`** 声明在 AgentCard。
+- **架构**: Federation 作为 peer 连接层的轻量覆盖，无独立协议层。远端 relay 注册为 `role="relay"` 特殊 peer。
+- 12/12 新测试（FED1–FED12）全部 PASS。
 
 ### v3.9.0 — Topic-based Pub/Sub Subset (A2A #1196)
 - **`POST /peers/subscribe/{topic}`**: 将指定 peer 订阅到命名 topic。peer_id 可为 `"self"`（relay 本身）或已连接 peer 的 id。响应 `{ok, topic, peer_id, subscribed_at}`。
