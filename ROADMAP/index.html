@@ -1819,10 +1819,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v3130" class="md-nav__link">
+  <a href="#v3130-2026-04-12" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v3.13.0 候选特性
+        v3.13.0 ✅ 已完成 — 2026-04-12
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v3140" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.14.0 候选特性
       
     </span>
   </a>
@@ -2005,7 +2016,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-12（v3.12.0：governance compliance report — GET/POST /governance/compliance + AgentCard.governance 扩展；GC1-GC12 全 PASS；当前版本 3.12.0，commit c5f6998）</p>
+最后更新：2026-04-12（v3.13.0：governance audit endpoint — GET /governance/audit + auditEndpoint in governance_metadata；GA1-GA10 全 PASS；当前版本 3.13.0，commit 09e82b2）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3840,9 +3851,9 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </tr>
 </tbody>
 </table>
-<p><strong>当前版本</strong>: <code>3.12.0</code> | <strong>最新 commit</strong>: <code>c5f6998</code></p>
+<p><strong>当前版本</strong>: <code>3.13.0</code> | <strong>最新 commit</strong>: <code>09e82b2</code></p>
 <blockquote>
-<p>版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ v3.11（async task queue workers）→ <strong>v3.12（governance compliance report, A2A #1717）</strong></p>
+<p>版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ v3.11（async task queue workers）→ v3.12（governance compliance report）→ <strong>v3.13（governance audit endpoint, A2A #1717 auditEndpoint 首实现）</strong></p>
 </blockquote>
 <hr />
 <h3 id="v2962026-04-15">🔮 v2.96（候选，目标：2026-04-15）<a class="headerlink" href="#v2962026-04-15" title="Permanent link">&para;</a></h3>
@@ -4176,7 +4187,14 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>Commit: <code>c5f6998</code></li>
 <li>测试：GC1–GC12 = 12/12 PASS</li>
 </ul>
-<h2 id="v3130">v3.13.0 候选特性<a class="headerlink" href="#v3130" title="Permanent link">&para;</a></h2>
+<h2 id="v3130-2026-04-12">v3.13.0 ✅ 已完成 — 2026-04-12<a class="headerlink" href="#v3130-2026-04-12" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Governance Audit Endpoint（A2A #1717 auditEndpoint 首个实现）</strong>: <code>GET /governance/audit</code>（interaction records 结构化查询；<code>?limit=</code>/<code>?peer_id=</code>/<code>?task_id=</code>/<code>?since=</code> 过滤）；<code>governance_metadata.audit_endpoint: "/governance/audit"</code>；<code>capabilities.governance_audit: true</code></li>
+<li>Governance 可观测性完整闭环：IR记录（v2.59）→ 双边签名（v2.64）→ 合规检查（v3.12）→ 审计查询（v3.13）</li>
+<li>Commit: <code>09e82b2</code></li>
+<li>测试：GA1–GA10 = 10/10 PASS</li>
+</ul>
+<h2 id="v3140">v3.14.0 候选特性<a class="headerlink" href="#v3140" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>P1</strong>: QuerySkill API 扩展（增加 <code>skill_trust_score</code> 字段，对标 A2A #1717 capability_manifest）</li>
 <li><strong>P2</strong>: Bilateral Signed Interaction Records 完整互操作（A2A #1718，扩展 <code>bilateral_proof</code> 格式）</li>
