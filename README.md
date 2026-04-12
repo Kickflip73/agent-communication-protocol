@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.10.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.11.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1727%2F1727_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-1739%2F1739_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -316,7 +316,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **1727/1727 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent)
+- **1739/1739 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent · task-queue-worker)
 - **190+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
@@ -590,10 +590,23 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.8** | ✅ | **Heartbeat-Agent 三件套闭环（A2A IS#1667）** — `GET /offline-queue/summary` 轻量 polling 端点；`--heartbeat-agent` CLI 标志（implies `--local-only` + `availability.mode=heartbeat`）；`capabilities.heartbeat_agent`；完整 5 步 workflow；HA1–HA8 = 8/8 PASS |
 | **v3.9** | ✅ | **Topic-based Pub/Sub subset（A2A #1196 对标）** — `POST /peers/subscribe/{topic}`、`POST /peers/unsubscribe/{topic}`、`POST /peers/broadcast/{topic}`、`GET /peers/topics`；`capabilities.topic_broadcast: true`；A2A #1196 首个工作参考实现；TP1–TP10 = 10/10 PASS |
 | **v3.10** | ✅ | **Multi-relay Federation（跨 relay 实例消息路由）** — `GET /federation`、`POST /federation`（idempotent）、`POST /federation/route`；`acp.federation.route` WS 消息处理；offline-queue fallback 组合；`capabilities.federation: true`；FED1–FED12 = 12/12 PASS |
+| **v3.11** | ✅ | **Async Task Queue Workers（异步 worker 注册）** — `POST /tasks/queue/worker`（注册 callback_url + peer_id/skill_id 过滤器，幂等）、`GET /tasks/queue/workers`（列出 workers + stats）、`DELETE /tasks/queue/worker/{id}`（注销）；入队自动派发（`workers_dispatched` 字段）；`capabilities.task_queue_worker: true`；TQW1–TQW12 = 12/12 PASS |
 
 ---
 
 ## 版本历史（最新）
+
+### v3.11.0 — Async Task Queue Workers
+- **`POST /tasks/queue/worker`**: 注册异步 task queue worker。
+  - 参数：`callback_url`（必填）、`peer_id`（可选，精确过滤）、`skill_id`（可选，精确过滤）、`worker_id`（可选，客户端幂等键）。
+  - 过滤语义：`peer_id=None` = match-all；有 peer_id 过滤器的 worker 只接收 `from_peer_id` 完全匹配的任务（无 from_peer_id 的任务不会触发有过滤器的 worker）。
+  - 幂等：相同 `worker_id` 重复注册 → 更新（覆盖 callback_url/filters）。
+- **`GET /tasks/queue/workers`**: 列出所有已注册 workers。返回每个 worker 的 `worker_id`、`callback_url`、`peer_id`、`skill_id`、`registered_at`、`tasks_dispatched`（累计派发数）、`active`。
+- **`DELETE /tasks/queue/worker/{id}`**: 注销 worker。未知 id 返回 404。
+- **自动派发**: `POST /tasks/queue` 入队时，relay 自动将任务 dispatch 给所有匹配的 worker（HTTP POST 到 callback_url）。派发信封格式：`{type: "acp.task.dispatch", worker_id, task: {id, status, payload, queued_at, poll_url, sse_url}, dispatched_at}`。`POST /tasks/queue` 响应新增 `workers_dispatched` 字段。
+- **`capabilities.task_queue_worker: true`** + **`endpoints.task_queue_workers`** 声明在 AgentCard。
+- **背景**: v2.98 `POST /tasks/queue` 入队后执行由调用方驱动（注释中预留"Future: POST /tasks/queue/worker"），v3.11 正式闭环异步 worker 注册机制。
+- 12/12 新测试（TQW1–TQW12）全部 PASS。
 
 ### v3.10.0 — Multi-relay Federation
 - **`GET /federation`**: 列出已注册的 federation relay。返回 `relays[]`（含 relay_id、peer_id、link、name、connected_at、messages_routed）、`relay_count`、`capabilities.federation: true`。
@@ -701,7 +714,7 @@ curl -X POST http://localhost:7901/peers/connect \
 
 **ACP vs A2A (Google's protocol):** A2A requires OAuth 2.0, an HTTPS endpoint you must host, and an agent registry. ACP requires `pip install websockets`. A2A is great for enterprise platforms; ACP is for individuals, sandboxed agents, and fast prototyping.
 
-**Status:** Single-file Python daemon, 1727 tests passing, Apache 2.0. Built in public over ~200 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
+**Status:** Single-file Python daemon, 1739 tests passing, Apache 2.0. Built in public over ~200 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
 
 ---
 

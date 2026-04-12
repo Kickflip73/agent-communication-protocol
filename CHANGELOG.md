@@ -8,6 +8,30 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
+## [3.11.0] - 2026-04-12
+
+### Added
+- **Async task queue workers** (v3.11): register callback-based async workers for `POST /tasks/queue`
+  - `POST /tasks/queue/worker` — register a worker with `callback_url` + optional `peer_id`/`skill_id` filters; idempotent (same `worker_id` updates existing)
+  - `GET /tasks/queue/workers` — list all registered workers with stats (`tasks_dispatched`, `active`, `registered_at`)
+  - `DELETE /tasks/queue/worker/{id}` — deregister a worker (404 for unknown id)
+  - `_dispatch_task_to_workers()` — auto-dispatch on `POST /tasks/queue`; best-effort (dispatch failures are logged but do not fail enqueue)
+  - `capabilities.task_queue_worker: true` — declared in AgentCard capabilities
+  - `endpoints.task_queue_workers: "/tasks/queue/workers"` — declared in AgentCard
+- **Auto-dispatch envelope**: `{type: "acp.task.dispatch", worker_id, task: {id, status, payload, queued_at, poll_url, sse_url}, dispatched_at}`
+- **`workers_dispatched` field**: `POST /tasks/queue` response now includes `workers_dispatched` count
+- **`_task_queue_workers` data structure**: thread-safe dict tracking worker_id → {callback_url, peer_id, skill_id, registered_at, tasks_dispatched, active}
+- **`tests/test_task_queue_worker.py`**: 12 tests (TQW1–TQW12) — all passed
+  - Covers: GET structure, POST validation, registration, GET listing, idempotency, DELETE, dispatch callback, AgentCard declarations, peer_id filter
+
+### Fixed
+- **Worker filter logic**: when a worker specifies `peer_id`, tasks without a matching `from_peer_id` are no longer erroneously dispatched. Old logic `if w_peer and task_peer_id and w_peer != task_peer_id` short-circuited on `task_peer_id=None`; new logic: `if w_peer: skip if not task_peer_id or w_peer != task_peer_id`.
+
+### Background
+v2.98 `POST /tasks/queue` comment explicitly reserved `POST /tasks/queue/worker` as a "Future" enhancement. v3.11 closes this gap: tasks are now automatically dispatched to registered workers on enqueue.
+
+---
+
 ## [3.10.0] - 2026-04-12
 
 ### Added

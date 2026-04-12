@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-04-12 12:35（研究轮 scan36；#1717 governance metadata P2候选；BUG-064修复；当前版本 v3.10.0）
+> 最后更新：2026-04-12 14:05（文档轮；v3.11.0 发布：async task queue workers TQW1-12 PASS；v3.12 路线图更新）
 
 ---
 
@@ -788,20 +788,30 @@ Key commit: TBD
 
 ---
 
-## 🔭 v3.11.0（候选，截止 2026-05-12）
-### 候选特性
-- [ ] `POST /tasks/queue/worker` — 注册异步任务处理器（v3.3 候选遗留）— P1
-- [ ] federation gossip：多跳 relay 路由（A→B→C 跨三 relay）— P1
-- [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）— P2
-- [ ] **governance metadata 字段**（A2A #1717 scan36 新发现，Microsoft 参与，24 comments）— P2
+## ✅ v3.11.0（已发布，2026-04-12）
+### 完成特性
+- [x] `POST /tasks/queue/worker` — 注册异步任务处理器 (TQW1-TQW12 = 12/12 PASS) — **P1 ✅**
+- [ ] federation gossip：多跳 relay 路由（A→B→C 跨三 relay）— P1（→ v3.12）
+- [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）— P2（→ v3.12）
+- [ ] **governance metadata 字段**（A2A #1717 scan36 新发现，Microsoft 参与，24 comments）— P2（→ v3.12）
   - AgentCard `governance` 对象：`capability_manifest`（action 级权限 JSON Schema）+ `policy_compliance`（治理标准引用）
   - 与现有 `vouch_chain`（v2.27）+ `trust_signal`（v2.70）组合，覆盖 #1717 提案 100%
-- [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713 scan33 新发现）— P3
+- [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713 scan33 新发现）— P3（→ v3.12）
 - [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定，当前 watchlist）— P3
+
+---
+
+## 🔭 v3.12.0（候选，截止 2026-05-12）
+### 候选特性
+- [ ] federation gossip：多跳 relay 路由（A→B→C 跨三 relay）— P1
+- [ ] **governance metadata 字段**（A2A #1717，Microsoft 参与，24 comments）— P2
+  - AgentCard `governance` 对象：`capability_manifest` + `policy_compliance`
+- [ ] `signal_depth` + `risk_intensity` 双轴信任指标（A2A #1628）— P2
+- [ ] SINT/APS cross-protocol compatibility 声明字段（A2A #1713）— P3
+- [ ] A2A #1716 Authorization Layer 实现（待 spec draft 稳定）— P3
 ### 优先级
-- P1: `POST /tasks/queue/worker` 异步 worker 注册
 - P1: federation gossip 多跳路由
-- P2: governance metadata（跟进 #1717，Microsoft/社区热度高）
+- P2: governance metadata（跟进 #1717）
 - P3: Authorization Layer 实现（等待上游 A2A #1716）
 
 ---
