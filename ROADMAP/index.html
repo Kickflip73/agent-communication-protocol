@@ -1808,10 +1808,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v3120" class="md-nav__link">
+  <a href="#v3120-2026-04-12" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v3.12.0 候选特性
+        v3.12.0 ✅ 已完成 — 2026-04-12
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v3130" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v3.13.0 候选特性
       
     </span>
   </a>
@@ -1994,7 +2005,7 @@
 <h1 id="acp">ACP 协议研发路线图<a class="headerlink" href="#acp" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p>持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。
-最后更新：2026-04-12（v3.11.0：async task queue workers — POST /tasks/queue/worker + GET /tasks/queue/workers + DELETE；auto-dispatch；TQW1-TQW12 全 PASS；当前版本 3.11.0，commit a4b31ca）</p>
+最后更新：2026-04-12（v3.12.0：governance compliance report — GET/POST /governance/compliance + AgentCard.governance 扩展；GC1-GC12 全 PASS；当前版本 3.12.0，commit c5f6998）</p>
 </blockquote>
 <hr />
 <h2 id="_1">战略定位<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
@@ -3829,9 +3840,9 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 </tr>
 </tbody>
 </table>
-<p><strong>当前版本</strong>: <code>3.11.0</code> | <strong>最新 commit</strong>: <code>a4b31ca</code></p>
+<p><strong>当前版本</strong>: <code>3.12.0</code> | <strong>最新 commit</strong>: <code>c5f6998</code></p>
 <blockquote>
-<p>版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ <strong>v3.11（async task queue workers）</strong></p>
+<p>版本演进：v2.95 → v3.0（NAT Auto-Traversal, 2026-03-28）→ v3.1–v3.6（签名/安全系列, 2026-04-11）→ v3.7（CI压测+Authorization Hook）→ v3.8（heartbeat-agent三件套）→ v3.9（topic Pub/Sub, A2A #1196 首实现）→ v3.10（multi-relay federation）→ v3.11（async task queue workers）→ <strong>v3.12（governance compliance report, A2A #1717）</strong></p>
 </blockquote>
 <hr />
 <h3 id="v2962026-04-15">🔮 v2.96（候选，目标：2026-04-15）<a class="headerlink" href="#v2962026-04-15" title="Permanent link">&para;</a></h3>
@@ -4158,10 +4169,17 @@ A2A = 企业工厂流水线调度；ACP = 两个 Agent 之间发消息，人人�
 <li>Commit: <code>a4b31ca</code></li>
 <li>测试：TQW1–TQW12 = 12/12 PASS</li>
 </ul>
-<h2 id="v3120">v3.12.0 候选特性<a class="headerlink" href="#v3120" title="Permanent link">&para;</a></h2>
+<h2 id="v3120-2026-04-12">v3.12.0 ✅ 已完成 — 2026-04-12<a class="headerlink" href="#v3120-2026-04-12" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>P1</strong>: Governance metadata block（A2A #1717，Microsoft AGT 团队）— <code>trust_score</code>、<code>capability_manifest</code>、<code>policy_compliance</code>、<code>audit_trail_reference</code>；ACP 现有覆盖 ~60%，扩展 <code>bilateral_proof</code> 支持</li>
-<li><strong>P2</strong>: Bilateral Signed Interaction Records（A2A #1718）— 双边签名交互记录，统一 trust/audit/delegation/Sybil-resistance</li>
+<li><strong>Governance Compliance Report（A2A #1717 对标）</strong>: <code>AgentCard.governance</code> 扩展 <code>compliance_report</code>（实时合规摘要）+ <code>last_verified_at</code> + <code>operator_attestation</code>；<code>GET /governance/compliance</code>（只读）、<code>POST /governance/compliance</code>（触发实时检查）；<code>capabilities.governance_compliance: true</code></li>
+<li>修复：Python 3.12 global 声明 SyntaxError</li>
+<li>Commit: <code>c5f6998</code></li>
+<li>测试：GC1–GC12 = 12/12 PASS</li>
+</ul>
+<h2 id="v3130">v3.13.0 候选特性<a class="headerlink" href="#v3130" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>P1</strong>: QuerySkill API 扩展（增加 <code>skill_trust_score</code> 字段，对标 A2A #1717 capability_manifest）</li>
+<li><strong>P2</strong>: Bilateral Signed Interaction Records 完整互操作（A2A #1718，扩展 <code>bilateral_proof</code> 格式）</li>
 <li><strong>P3</strong>: SlimRPC CPB 实验性绑定（跟踪 A2A #1723）</li>
 </ul>
 
