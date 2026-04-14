@@ -1192,19 +1192,20 @@
 
 <h1>ACP — Agent Communication Protocol</h1>
 
-<p><strong>让任意两个 AI Agent 直接通信。人只需做两件事。</strong></p>
+<p><strong>让任意两个 AI Agent 直接通信。</strong><br>
+<em>发一个 URL，获得链接，两个 Agent 开始对话。就这么简单。</em></p>
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/版本-v2.4.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/版本-v3.13.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="../LICENSE">
     <img src="https://img.shields.io/badge/协议-Apache_2.0-green?style=flat-square" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square">
-  <img src="https://img.shields.io/badge/依赖-仅_websockets-orange?style=flat-square">
-  <img src="https://img.shields.io/badge/延迟-0.6ms_avg-brightgreen?style=flat-square">
-  <img src="https://img.shields.io/badge/测试-232%2F232_PASS-success?style=flat-square">
+  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square" alt="Python">
+  <img src="https://img.shields.io/badge/stdlib__only-零重量级依赖-orange?style=flat-square" alt="Deps">
+  <img src="https://img.shields.io/badge/延迟-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
+  <img src="https://img.shields.io/badge/测试-1574%2F1574_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -1218,6 +1219,11 @@
 <p><strong>MCP 标准化 Agent↔Tool，ACP 标准化 Agent↔Agent。</strong><br />
 P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 </blockquote>
+<div align="center">
+  <img src="../demos/two_agent_demo.gif" alt="ACP 双 Agent 双向通信演示" width="700">
+  <br><em>Alpha ↔ Beta 双向 P2P 通信——无需中心服务器，无需 OAuth</em>
+</div>
+
 <hr />
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$<span class="w"> </span><span class="c1"># Agent A — 获取你的链接</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>$<span class="w"> </span>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span>AgentA
@@ -1271,7 +1277,7 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 </span></code></pre></div>
 <hr />
 <h2 id="k8s">网络受限（沙箱 / K8s / 内网）？<a class="headerlink" href="#k8s" title="Permanent link">&para;</a></h2>
-<p>ACP v1.4 内置三级自动连接策略，<strong>用户零感知</strong>：</p>
+<p>ACP v1.4 内置<strong>三级自动连接策略</strong>，用户零感知：</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Level 1 — 直连（有公网 IP 或同一局域网）
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>   ↓ 3 秒内失败
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>Level 2 — UDP 打洞（v1.4 新增，双方都在 NAT 后面）
@@ -1284,45 +1290,86 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 <p>SSE 事件实时反映当前连接层级：<code>dcutr_started</code> → <code>dcutr_connected</code> / <code>relay_fallback</code>。<br />
 <code>GET /status</code> 返回 <code>connection_type</code>：<code>p2p_direct</code> | <code>dcutr_direct</code> | <code>relay</code>。</p>
 <p>如需显式走 Relay（如旧版本兼容），可加 <code>--relay</code> 参数启动，得到 <code>acp+wss://</code> 链接。</p>
-<p>→ <strong>详见 <a href="../nat-traversal/">NAT 穿透与网络接入指南</a></strong></p>
+<p>→ <strong>详见 <a href="../nat-traversal/">NAT 穿透指南</a></strong></p>
+<hr />
+<h2 id="transport_modesv24">路由拓扑声明（<code>transport_modes</code>，v2.4）<a class="headerlink" href="#transport_modesv24" title="Permanent link">&para;</a></h2>
+<p>Agent 通过 <code>transport_modes</code> 顶层 AgentCard 字段声明支持的路由拓扑：</p>
+<table>
+<thead>
+<tr>
+<th>值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"p2p"</code></td>
+<td>Agent 支持直接点对点 WebSocket 连接</td>
+</tr>
+<tr>
+<td><code>"relay"</code></td>
+<td>Agent 支持通过 Relay 中转（HTTP relay fallback）</td>
+</tr>
+</tbody>
+</table>
+<p>默认值：<code>["p2p", "relay"]</code>——同时支持两种拓扑；缺省时含义相同。</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># 沙箱 / 仅 NAT 环境（只走 relay）</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>SandboxAgent<span class="w"> </span>--transport-modes<span class="w"> </span>relay
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># 有公网 IP 的边缘 Agent（仅 P2P，不依赖 relay）</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>EdgeAgent<span class="w"> </span>--transport-modes<span class="w"> </span>p2p
+</span></code></pre></div>
+<p><strong>AgentCard 示例片段：</strong>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;transport_modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;p2p&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;relay&quot;</span><span class="p">],</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">&quot;supported_transports&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;http&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ws&quot;</span><span class="p">]</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<blockquote>
+<p><strong>区别：</strong> <code>transport_modes</code> 声明<em>路由拓扑</em>（数据走哪条路径）。<br />
+<code>capabilities.supported_transports</code> 声明<em>协议绑定</em>（字节如何封帧）。<br />
+两者正交——详见 <a href="../spec/core-v1.0.md">spec §5.4</a>。</p>
+</blockquote>
 <hr />
 <h2 id="_2">通信架构<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
 <h3 id="_3">握手流程（人只参与前两步）<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>  人类
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    │
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    ├─[① Skill URL]──────────────► Agent A
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    │                                  │  pip install websockets
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    │                                  │  python3 acp_relay.py --name A
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    │                                  │  → 监听 :7801/:7901
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    │◄────────────[② acp://IP:7801/tok_xxx]─┘
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    │
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    ├─[③ acp://IP:7801/tok_xxx]──► Agent B
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    │                                  │  POST /connect {&quot;link&quot;:&quot;acp://...&quot;}
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    │                                  │
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    │          ┌────────── WebSocket 握手 ────────────┐
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>    │          │  B → A : connect(tok_xxx)            │
-</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>    │          │  A → B : AgentCard 交换              │
-</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>    │          │  A, B  : 已连接 ✅                   │
-</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>    │          └──────────────────────────────────────┘
-</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>    │
-</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>   完成                ↕ P2P 消息直接流转
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>  人类
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    │
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    ├─[① Skill URL]──────────────► Agent A
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    │                                  │  pip install websockets
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    │                                  │  python3 acp_relay.py --name A
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    │                                  │  → 监听 :7801/:7901
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    │◄────────────[② acp://IP:7801/tok_xxx]─┘
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    │
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    ├─[③ acp://IP:7801/tok_xxx]──► Agent B
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    │                                  │  POST /connect {&quot;link&quot;:&quot;acp://...&quot;}
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>    │                                  │
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    │          ┌────────── WebSocket 握手 ────────────┐
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>    │          │  B → A : connect(tok_xxx)            │
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>    │          │  A → B : AgentCard 交换              │
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>    │          │  A, B  : 已连接 ✅                   │
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>    │          └──────────────────────────────────────┘
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>    │
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>   完成                ↕ P2P 消息直接流转
 </span></code></pre></div>
 <h3 id="p2p">P2P 直连模式（默认）<a class="headerlink" href="#p2p" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>  机器 A                                             机器 B
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>┌─────────────────────────────┐    ┌─────────────────────────────┐
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>│  ┌─────────────────────┐    │    │    ┌─────────────────────┐  │
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>│  │    宿主程序 A        │    │    │    │    宿主程序 B        │  │
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>│  │  (LLM / 脚本)        │    │    │    │  (LLM / 脚本)        │  │
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>│  └──────────┬──────────┘    │    │    └──────────┬──────────┘  │
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>│             │ HTTP          │    │               │ HTTP         │
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>│  ┌──────────▼──────────┐    │    │    ┌──────────▼──────────┐  │
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>│  │   acp_relay.py      │    │    │    │   acp_relay.py      │  │
-</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>│  │  :7901  HTTP API    │◄───┼────┼────┤  POST /message:send │  │
-</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>│  │  :7901/stream (SSE) │────┼────┼───►│  GET /stream (SSE)  │  │
-</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>│  │  :7801  WebSocket   │◄═══╪════╪═══►│  :7801  WebSocket   │  │
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>│  └─────────────────────┘    │    │    └─────────────────────┘  │
-</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>└─────────────────────────────┘    └─────────────────────────────┘
-</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>                         互联网 / 局域网（无需中继服务器）
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>  机器 A                                             机器 B
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>┌─────────────────────────────┐    ┌─────────────────────────────┐
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>│  ┌─────────────────────┐    │    │    ┌─────────────────────┐  │
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>│  │    宿主程序 A        │    │    │    │    宿主程序 B        │  │
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>│  │  (LLM / 脚本)        │    │    │    │  (LLM / 脚本)        │  │
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>│  └──────────┬──────────┘    │    │    └──────────┬──────────┘  │
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>│             │ HTTP          │    │               │ HTTP         │
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>│  ┌──────────▼──────────┐    │    │    ┌──────────▼──────────┐  │
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>│  │   acp_relay.py      │    │    │    │   acp_relay.py      │  │
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>│  │  :7901  HTTP API    │◄───┼────┼────┤  POST /message:send │  │
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>│  │  :7901/stream (SSE) │────┼────┼───►│  GET /stream (SSE)  │  │
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>│  │  :7801  WebSocket   │◄═══╪════╪═══►│  :7801  WebSocket   │  │
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>│  └─────────────────────┘    │    │    └─────────────────────┘  │
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>└─────────────────────────────┘    └─────────────────────────────┘
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>                         互联网 / 局域网（无需中继服务器）
 </span></code></pre></div>
 <table>
 <thead>
@@ -1338,7 +1385,7 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 <td><strong>WebSocket</strong></td>
 <td><code>:7801</code></td>
 <td>Agent ↔ Agent</td>
-<td>P2P 数据通道，消息直达对端，无中间节点</td>
+<td>P2P 数据通道，消息直达对端</td>
 </tr>
 <tr>
 <td><strong>HTTP API</strong></td>
@@ -1350,47 +1397,47 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 <td><strong>SSE</strong></td>
 <td><code>:7901/stream</code></td>
 <td>Agent → 宿主程序</td>
-<td>实时推送收到的消息，长连接，无需轮询</td>
+<td>实时推送收到的消息（长连接）</td>
 </tr>
 </tbody>
 </table>
 <p><strong>宿主程序接入示例（3 行代码）：</strong></p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># 发消息给对端 Agent</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:7901/message:send&quot;</span><span class="p">,</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>              <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span><span class="s2">&quot;parts&quot;</span><span class="p">:[{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;text&quot;</span><span class="p">,</span><span class="s2">&quot;content&quot;</span><span class="p">:</span><span class="s2">&quot;你好&quot;</span><span class="p">}]})</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># 实时监听收到的消息（SSE 长连接）</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">sseclient</span><span class="o">.</span><span class="n">SSEClient</span><span class="p">(</span><span class="s2">&quot;http://localhost:7901/stream&quot;</span><span class="p">):</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>   <span class="c1"># {&quot;type&quot;:&quot;message&quot;,&quot;from&quot;:&quot;AgentB&quot;,...}</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># 发消息给对端 Agent</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:7901/message:send&quot;</span><span class="p">,</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>              <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span><span class="s2">&quot;parts&quot;</span><span class="p">:[{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;text&quot;</span><span class="p">,</span><span class="s2">&quot;content&quot;</span><span class="p">:</span><span class="s2">&quot;你好&quot;</span><span class="p">}]})</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># 实时监听收到的消息（SSE 长连接）</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">sseclient</span><span class="o">.</span><span class="n">SSEClient</span><span class="p">(</span><span class="s2">&quot;http://localhost:7901/stream&quot;</span><span class="p">):</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>   <span class="c1"># {&quot;type&quot;:&quot;message&quot;,&quot;from&quot;:&quot;AgentB&quot;,...}</span>
 </span></code></pre></div>
 <h3 id="v14">完整连接策略（v1.4，自动选择，用户零感知）<a class="headerlink" href="#v14" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>┌─────────────────────────────────────────────────────────────────┐
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>│                     三级连接策略                                  │
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>│                                                                 │
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>│  Level 1 — 直连（最优）                                           │
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>│  ┌────────────┐                         ┌────────────┐          │
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>│  │  Agent A   │◄══════ WS 直连 ════════►│  Agent B   │          │
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>│  └────────────┘     (公网 IP / 局域网)   └────────────┘          │
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>│                                                                 │
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>│  Level 2 — UDP 打洞（v1.4，双方在 NAT 后面）                      │
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>│  ┌────────────┐   ┌────────────┐        ┌────────────┐          │
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>│  │  Agent A   │──►│  Signaling │◄───────│  Agent B   │          │
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>│  │  (NAT)     │   │ (地址交换)  │        │  (NAT)     │          │
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>│  └────────────┘   └────────────┘        └────────────┘          │
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>│        │          握手后退出                  │                   │
-</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>│        └──────────── WS 直连 ───────────────┘                   │
-</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>│                    （打洞成功，真 P2P）                            │
-</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>│                                                                 │
-</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>│  Level 3 — Relay 降级（约 30% 对称 NAT 场景）                    │
-</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>│  ┌────────────┐   ┌─────────────┐       ┌────────────┐          │
-</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>│  │  Agent A   │◄─►│  Relay      │◄─────►│  Agent B   │          │
-</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>│  └────────────┘   │ (无状态)    │       └────────────┘          │
-</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>│                   └─────────────┘                               │
-</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>│                   仅转发帧，不存储消息内容                         │
-</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>└─────────────────────────────────────────────────────────────────┘
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>│                     三级连接策略                                  │
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>│                                                                 │
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>│  Level 1 — 直连（最优）                                           │
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>│  ┌────────────┐                         ┌────────────┐          │
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>│  │  Agent A   │◄══════ WS 直连 ════════►│  Agent B   │          │
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>│  └────────────┘     (公网 IP / 局域网)   └────────────┘          │
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>│                                                                 │
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>│  Level 2 — UDP 打洞（v1.4，双方在 NAT 后面）                      │
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>│  ┌────────────┐   ┌────────────┐        ┌────────────┐          │
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>│  │  Agent A   │──►│  Signaling │◄───────│  Agent B   │          │
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>│  │  (NAT)     │   │ (地址交换)  │        │  (NAT)     │          │
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>│  └────────────┘   └────────────┘        └────────────┘          │
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>│        │          握手后退出                  │                   │
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>│        └──────────── WS 直连 ───────────────┘                   │
+</span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>│                    （打洞成功，真 P2P）                            │
+</span><span id="__span-10-17"><a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>│                                                                 │
+</span><span id="__span-10-18"><a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>│  Level 3 — Relay 降级（约 30% 对称 NAT 场景）                    │
+</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>│  ┌────────────┐   ┌─────────────┐       ┌────────────┐          │
+</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>│  │  Agent A   │◄─►│  Relay      │◄─────►│  Agent B   │          │
+</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>│  └────────────┘   │ (无状态)    │       └────────────┘          │
+</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a>│                   └─────────────┘                               │
+</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a>│                   仅转发帧，不存储消息内容                         │
+</span><span id="__span-10-24"><a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a>└─────────────────────────────────────────────────────────────────┘
 </span></code></pre></div>
 <blockquote>
-<p><strong>Signaling Server</strong> 只做一次性地址交换（TTL 30s），不转发任何消息帧，握手后立即退出。<br />
+<p><strong>Signaling Server</strong> 只做一次性地址交换（TTL 30s），不转发任何消息帧。<br />
 <strong>Relay</strong> 是真正的最后兜底，不是主路径——对称 NAT 等少数场景才会触发。</p>
 </blockquote>
 <hr />
@@ -1411,7 +1458,7 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 </tr>
 <tr>
 <td><strong>是否需要服务器</strong></td>
-<td>需要（你必须自己搭建 HTTPS 端点）</td>
+<td>需要（必须自己搭建 HTTPS 端点）</td>
 <td><strong>不需要</strong></td>
 </tr>
 <tr>
@@ -1446,21 +1493,33 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 </tr>
 <tr>
 <td><strong>Agent 身份证明</strong></td>
-<td>❌（issue #1672，44 条评论，仍在讨论）</td>
-<td><strong>✅ 混合模型：<code>did:acp:</code> 自主权 + CA 证书（v1.5）</strong></td>
+<td>❌（issue #1672，425+ 评论，仍无实现）</td>
+<td><strong>✅ Ed25519 默认开启，零配置，自生成密钥对（v2.85）</strong></td>
+</tr>
+<tr>
+<td><strong>离线消息投递</strong></td>
+<td>❌（无规范层离线缓冲）</td>
+<td><strong>✅ 自动队列 + 重连自动 flush；SQLite 持久化（v2.97）</strong></td>
+</tr>
+<tr>
+<td><strong>异步任务队列</strong></td>
+<td>❌（#1667 仍在讨论）</td>
+<td><strong>✅ <code>POST /tasks/queue</code> 202 Accepted；worker 注册（v3.11）</strong></td>
+</tr>
+<tr>
+<td><strong>治理审计端点</strong></td>
+<td>❌（#1717 提案阶段）</td>
+<td><strong>✅ <code>GET /governance/audit</code> 首个实现（v3.13）</strong></td>
 </tr>
 </tbody>
 </table>
-<blockquote>
-<p>A2A <a href="https://github.com/a2aproject/A2A/issues/1672">#1672</a> 在 44 条评论后正在收敛到"混合身份模型"——ACP v1.5 今天就能用。</p>
-</blockquote>
 <h3 id="_4">性能数据<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>0.6ms</strong> 均值发送延迟 · <strong>2.8ms</strong> P99</li>
 <li><strong>1,100+ req/s</strong> 顺序吞吐 · <strong>1,200+ req/s</strong> 并发（10 线程）</li>
 <li><strong>&lt; 50ms</strong> SSE 推送延迟（threading.Event，非轮询）</li>
-<li><strong>232/232 单元 + 集成测试通过</strong>（错误处理 · 压力测试 · NAT 穿透 · 环形流水线 · transport_modes）</li>
-<li><strong>184+ commits</strong> · <strong>3,300+ 行</strong> · <strong>零已知 P0/P1 Bug</strong></li>
+<li><strong>1574/1574 单元 + 集成测试通过</strong></li>
+<li><strong>190+ commits</strong> · <strong>3,300+ 行</strong> · <strong>零已知 P0/P1 Bug</strong></li>
 </ul>
 <hr />
 <h2 id="api">API 速查<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
@@ -1533,9 +1592,116 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 <td>POST</td>
 <td><code>/tasks/{id}:cancel</code></td>
 </tr>
+<tr>
+<td>提交任务证据</td>
+<td>POST</td>
+<td><code>/tasks/{id}/evidence</code></td>
+</tr>
+<tr>
+<td>查询任务证据</td>
+<td>GET</td>
+<td><code>/tasks/{id}/evidence</code></td>
+</tr>
+<tr>
+<td>证据实时流（SSE）</td>
+<td>GET</td>
+<td><code>/tasks/{id}/evidence-stream</code></td>
+</tr>
+<tr>
+<td>心跳上报</td>
+<td>POST</td>
+<td><code>/availability/heartbeat</code></td>
+</tr>
+<tr>
+<td>查可用性</td>
+<td>GET</td>
+<td><code>/availability</code></td>
+</tr>
+<tr>
+<td>列出联邦 Relay</td>
+<td>GET</td>
+<td><code>/federation</code></td>
+</tr>
+<tr>
+<td>添加联邦 Relay</td>
+<td>POST</td>
+<td><code>/federation</code> <code>{"link":"acp://..."}</code></td>
+</tr>
+<tr>
+<td>跨 Relay 路由</td>
+<td>POST</td>
+<td><code>/federation/route</code></td>
+</tr>
+<tr>
+<td>订阅 Topic</td>
+<td>POST</td>
+<td><code>/peers/subscribe/{topic}</code></td>
+</tr>
+<tr>
+<td>取消订阅</td>
+<td>POST</td>
+<td><code>/peers/unsubscribe/{topic}</code></td>
+</tr>
+<tr>
+<td>发布到 Topic</td>
+<td>POST</td>
+<td><code>/peers/broadcast/{topic}</code></td>
+</tr>
+<tr>
+<td>列出活跃 Topic</td>
+<td>GET</td>
+<td><code>/peers/topics</code></td>
+</tr>
+<tr>
+<td>轮询队列摘要</td>
+<td>GET</td>
+<td><code>/offline-queue/summary</code></td>
+</tr>
+<tr>
+<td>入队异步任务</td>
+<td>POST</td>
+<td><code>/tasks/queue</code> <code>{"role":"agent","payload":{...}}</code></td>
+</tr>
+<tr>
+<td>注册 Worker</td>
+<td>POST</td>
+<td><code>/tasks/queue/worker</code> <code>{"callback_url":"http://..."}</code></td>
+</tr>
+<tr>
+<td>列出 Workers</td>
+<td>GET</td>
+<td><code>/tasks/queue/workers</code></td>
+</tr>
+<tr>
+<td>注销 Worker</td>
+<td>DELETE</td>
+<td><code>/tasks/queue/worker/{id}</code></td>
+</tr>
+<tr>
+<td>治理合规报告</td>
+<td>GET</td>
+<td><code>/governance/compliance</code></td>
+</tr>
+<tr>
+<td>治理审计查询</td>
+<td>GET</td>
+<td><code>/governance/audit</code></td>
+</tr>
 </tbody>
 </table>
 <p>HTTP 默认端口：<code>7901</code> · WebSocket 端口：<code>7801</code></p>
+<p><strong>AgentCard 响应示例</strong>（<code>GET /.well-known/acp.json</code>）：
+<div class="language-json highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">{</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span><span class="p">,</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="nt">&quot;acp_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;3.13.0&quot;</span><span class="p">,</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="nt">&quot;transport_modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;p2p&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;relay&quot;</span><span class="p">],</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="nt">&quot;streaming&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="nt">&quot;supported_transports&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;http&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ws&quot;</span><span class="p">],</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">    </span><span class="nt">&quot;governance_audit&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="p">}</span>
+</span></code></pre></div></p>
 <hr />
 <h2 id="_5">可选特性<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <table>
@@ -1559,8 +1725,8 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 </tr>
 <tr>
 <td>Ed25519 身份</td>
-<td><code>--identity</code></td>
-<td>需 <code>pip install cryptography</code></td>
+<td><em>(默认开启)</em></td>
+<td>首次运行自动生成；<code>--no-identity</code> 禁用</td>
 </tr>
 <tr>
 <td>mDNS 局域网发现</td>
@@ -1568,170 +1734,149 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 <td>无需 zeroconf 库</td>
 </tr>
 <tr>
-<td><strong>路由拓扑声明（v2.4）</strong></td>
-<td><code>--transport-modes p2p,relay</code></td>
-<td>AgentCard 顶层 <code>transport_modes</code> 字段；声明本节点支持的路由模式（<code>p2p</code> 直连 / <code>relay</code> 中继）；缺省为 <code>["p2p", "relay"]</code></td>
-</tr>
-<tr>
 <td>Docker</td>
 <td><code>docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay</code></td>
 <td>多架构，含 GHCR CI</td>
+</tr>
+<tr>
+<td>Heartbeat Agent 模式</td>
+<td><code>--heartbeat-agent</code></td>
+<td>一键配置为 cron 型 Agent</td>
+</tr>
+<tr>
+<td>SQLite 持久化队列</td>
+<td><code>--persist-queue</code></td>
+<td>重启后离线消息不丢失</td>
 </tr>
 </tbody>
 </table>
 <hr />
 <h2 id="task">Task 状态机<a class="headerlink" href="#task" title="Permanent link">&para;</a></h2>
 <p>用于跨 Agent 协作追踪任务进度：</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>submitted → working → completed ✅
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>                    → failed    ❌
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>                    → input_required → working（等待补充输入）
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>submitted → working → completed ✅
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>                    → failed    ❌
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>                    → input_required → working（等待补充输入）
 </span></code></pre></div>
 <p>API：<code>POST /tasks</code> 创建，<code>POST /tasks/{id}:update</code> 更新状态。</p>
 <hr />
 <h2 id="heartbeat-cron-agent">Heartbeat / Cron Agent<a class="headerlink" href="#heartbeat-cron-agent" title="Permanent link">&para;</a></h2>
-<p>ACP 原生支持<strong>离线 Agent</strong>（定时唤醒的 cron 型 Agent），无需长连接轮询。</p>
+<p>ACP 原生支持<strong>离线 Agent</strong>（定时唤醒的 cron 型 Agent），无需长连接。</p>
 <h3 id="_6">工作方式<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Cron Agent 每 5 分钟唤醒一次：
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>1. 启动 acp_relay.py（得到 acp:// 链接）
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>2. PATCH /.well-known/acp.json 更新可用性（告知对端什么时候能回消息）
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>3. GET /recv 收取积压消息，批量处理
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>4. POST /message:send 回复
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>5. 退出（relay 自动关闭）
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>Cron Agent 每 5 分钟唤醒一次：
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>1. 启动 acp_relay.py（得到 acp:// 链接）
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>2. PATCH /.well-known/acp.json 更新可用性
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>3. GET /recv 收取积压消息，批量处理
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>4. POST /message:send 回复
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>5. 退出（relay 自动关闭）
 </span></code></pre></div>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Python — cron agent 模板</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span><span class="o">,</span><span class="w"> </span><span class="nn">requests</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">relay</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">([</span><span class="s2">&quot;python3&quot;</span><span class="p">,</span> <span class="s2">&quot;relay/acp_relay.py&quot;</span><span class="p">,</span> <span class="s2">&quot;--name&quot;</span><span class="p">,</span> <span class="s2">&quot;MyCronAgent&quot;</span><span class="p">])</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># 等待启动</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">BASE</span> <span class="o">=</span> <span class="s2">&quot;http://localhost:7901&quot;</span>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>
-</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="c1"># 广播可用性</span>
-</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="n">requests</span><span class="o">.</span><span class="n">patch</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE</span><span class="si">}</span><span class="s2">/.well-known/acp.json&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>    <span class="s2">&quot;availability&quot;</span><span class="p">:</span> <span class="p">{</span>
-</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>        <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;cron&quot;</span><span class="p">,</span>
-</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>        <span class="s2">&quot;last_active_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2026-03-24T10:00:00Z&quot;</span><span class="p">,</span>
-</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>        <span class="s2">&quot;next_active_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2026-03-24T10:05:00Z&quot;</span><span class="p">,</span>
-</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>        <span class="s2">&quot;task_latency_max_seconds&quot;</span><span class="p">:</span> <span class="mi">300</span><span class="p">,</span>
-</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>    <span class="p">}</span>
-</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a><span class="p">})</span>
-</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>
-</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="c1"># 收取并处理消息</span>
-</span><span id="__span-11-20"><a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a><span class="n">msgs</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE</span><span class="si">}</span><span class="s2">/recv?limit=100&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s2">&quot;messages&quot;</span><span class="p">]</span>
-</span><span id="__span-11-21"><a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">msgs</span><span class="p">:</span>
-</span><span id="__span-11-22"><a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">m</span><span class="p">[</span><span class="s2">&quot;parts&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;content&quot;</span><span class="p">]</span>
-</span><span id="__span-11-23"><a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>    <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE</span><span class="si">}</span><span class="s2">/message:send&quot;</span><span class="p">,</span>
-</span><span id="__span-11-24"><a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>                  <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span><span class="s2">&quot;parts&quot;</span><span class="p">:[{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;text&quot;</span><span class="p">,</span><span class="s2">&quot;content&quot;</span><span class="p">:</span><span class="sa">f</span><span class="s2">&quot;已处理：</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}]})</span>
-</span><span id="__span-11-25"><a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a>
-</span><span id="__span-11-26"><a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a><span class="n">relay</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Python — cron agent 模板</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span><span class="o">,</span><span class="w"> </span><span class="nn">requests</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">relay</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">([</span><span class="s2">&quot;python3&quot;</span><span class="p">,</span> <span class="s2">&quot;relay/acp_relay.py&quot;</span><span class="p">,</span> <span class="s2">&quot;--name&quot;</span><span class="p">,</span> <span class="s2">&quot;MyCronAgent&quot;</span><span class="p">])</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># 等待启动</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="n">BASE</span> <span class="o">=</span> <span class="s2">&quot;http://localhost:7901&quot;</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="c1"># 广播可用性</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="n">requests</span><span class="o">.</span><span class="n">patch</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE</span><span class="si">}</span><span class="s2">/.well-known/acp.json&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>    <span class="s2">&quot;availability&quot;</span><span class="p">:</span> <span class="p">{</span>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>        <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;cron&quot;</span><span class="p">,</span>
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>        <span class="s2">&quot;last_active_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2026-03-24T10:00:00Z&quot;</span><span class="p">,</span>
+</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a>        <span class="s2">&quot;next_active_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2026-03-24T10:05:00Z&quot;</span><span class="p">,</span>
+</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a>        <span class="s2">&quot;task_latency_max_seconds&quot;</span><span class="p">:</span> <span class="mi">300</span><span class="p">,</span>
+</span><span id="__span-14-16"><a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a>    <span class="p">}</span>
+</span><span id="__span-14-17"><a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="p">})</span>
+</span><span id="__span-14-18"><a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a>
+</span><span id="__span-14-19"><a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a><span class="c1"># 收取并处理消息</span>
+</span><span id="__span-14-20"><a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a><span class="n">msgs</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE</span><span class="si">}</span><span class="s2">/recv?limit=100&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s2">&quot;messages&quot;</span><span class="p">]</span>
+</span><span id="__span-14-21"><a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a><span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">msgs</span><span class="p">:</span>
+</span><span id="__span-14-22"><a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">m</span><span class="p">[</span><span class="s2">&quot;parts&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;content&quot;</span><span class="p">]</span>
+</span><span id="__span-14-23"><a id="__codelineno-14-23" name="__codelineno-14-23" href="#__codelineno-14-23"></a>    <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE</span><span class="si">}</span><span class="s2">/message:send&quot;</span><span class="p">,</span>
+</span><span id="__span-14-24"><a id="__codelineno-14-24" name="__codelineno-14-24" href="#__codelineno-14-24"></a>                  <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span><span class="s2">&quot;parts&quot;</span><span class="p">:[{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;text&quot;</span><span class="p">,</span><span class="s2">&quot;content&quot;</span><span class="p">:</span><span class="sa">f</span><span class="s2">&quot;已处理：</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}]})</span>
+</span><span id="__span-14-25"><a id="__codelineno-14-25" name="__codelineno-14-25" href="#__codelineno-14-25"></a>
+</span><span id="__span-14-26"><a id="__codelineno-14-26" name="__codelineno-14-26" href="#__codelineno-14-26"></a><span class="n">relay</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
 </span></code></pre></div>
 <blockquote>
 <p><strong>为什么重要：</strong> A2A <a href="https://github.com/a2aproject/A2A/issues/1667">#1667</a> 仍在讨论 heartbeat agent 支持（尚是提案）——ACP <code>/recv</code> 天然解决，今天就能用。</p>
 </blockquote>
 <hr />
-<h2 id="agent-v15">Agent 身份认证（v1.5）<a class="headerlink" href="#agent-v15" title="Permanent link">&para;</a></h2>
-<p>ACP 支持<strong>两种身份模型</strong>，可单独使用或组合（混合模型）：</p>
+<h2 id="agent-v285">Agent 身份认证（v2.85）<a class="headerlink" href="#agent-v285" title="Permanent link">&para;</a></h2>
+<p>ACP 首次运行时<strong>自动生成 Ed25519 密钥对</strong>，零配置。密钥对保存到 <code>~/.acp/identity.json</code>，重启后复用。</p>
 <table>
 <thead>
 <tr>
 <th>模式</th>
-<th>启动参数</th>
+<th>参数</th>
 <th><code>capabilities.identity</code></th>
 <th>说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>无身份</td>
-<td><em>(默认)</em></td>
-<td><code>"none"</code></td>
-<td>向后兼容 v0.7</td>
-</tr>
-<tr>
-<td>自主权身份</td>
-<td><code>--identity</code></td>
+<td><strong>自主权身份（默认）</strong></td>
+<td><em>(无)</em></td>
 <td><code>"ed25519"</code></td>
-<td>Ed25519 签名 + <code>did:acp:</code> DID</td>
+<td>自动生成密钥对；<code>capabilities.identity_default=True</code>（v2.85）</td>
 </tr>
 <tr>
-<td><strong>混合模型</strong></td>
-<td><code>--identity --ca-cert</code></td>
+<td>自主权身份（自定义路径）</td>
+<td><code>--identity &lt;path&gt;</code></td>
+<td><code>"ed25519"</code></td>
+<td>从指定路径加载或生成密钥对</td>
+</tr>
+<tr>
+<td><strong>混合模式</strong></td>
+<td><code>--ca-cert</code></td>
 <td><code>"ed25519+ca"</code></td>
 <td>自主权 + CA 签发证书</td>
 </tr>
+<tr>
+<td>禁用身份</td>
+<td><code>--no-identity</code></td>
+<td><code>"none"</code></td>
+<td>仅用于嵌入式/测试场景（v2.85）</td>
+</tr>
 </tbody>
 </table>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># 自主权身份 (v0.8+)</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span>--identity
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># 混合身份 (v1.5) — CA 证书文件</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span>--identity<span class="w"> </span>--ca-cert<span class="w"> </span>/path/to/agent.crt
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
-</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="c1"># 混合身份 (v1.5) — 内联 PEM</span>
-</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span>--identity<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">  </span>--ca-cert<span class="w"> </span><span class="s2">&quot;-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># 默认——Ed25519 自动生成，零配置（v2.85+）</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># 混合身份（v1.5）——CA 证书文件</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span>--ca-cert<span class="w"> </span>/path/to/agent.crt
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="c1"># 禁用身份（测试场景）</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>python3<span class="w"> </span>relay/acp_relay.py<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span>--no-identity
 </span></code></pre></div>
-<p><strong>AgentCard 示例（混合模式）：</strong>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nt">&quot;scheme&quot;</span><span class="p">:</span><span class="w">     </span><span class="s2">&quot;ed25519+ca&quot;</span><span class="p">,</span>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nt">&quot;public_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;base64url 编码的 Ed25519 公钥&gt;&quot;</span><span class="p">,</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">&quot;did&quot;</span><span class="p">:</span><span class="w">        </span><span class="s2">&quot;did:acp:&lt;base64url(pubkey)&gt;&quot;</span><span class="p">,</span>
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">    </span><span class="nt">&quot;ca_cert&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----&quot;</span>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">    </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ed25519+ca&quot;</span>
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="p">}</span>
-</span></code></pre></div></p>
-<p><strong>验证策略</strong>（验证方自选）：
-- 仅信任 <code>did:acp:</code> — 验证 Ed25519 签名，忽略 <code>ca_cert</code>
-- 仅信任 CA — 验证证书链，忽略 DID
-- 两者都要 — 最高安全
-- 任一即可 — 最高互操作性</p>
 <blockquote>
-<p><strong>为什么重要：</strong> A2A <a href="https://github.com/a2aproject/A2A/issues/1672">#1672</a>（44 条评论，仍在讨论）正收敛到同一「混合模型」结论——ACP v1.5 今天就能用。</p>
+<p><strong>为什么重要：</strong> A2A <a href="https://github.com/a2aproject/A2A/issues/1672">#1672</a> 有 425+ 评论仍无定论，主流方案需要中心 CA——单点故障、注册瓶颈、隐私泄漏。ACP v2.85 默认开启自生成密钥对，无 CA、无注册、离线可用。</p>
 </blockquote>
 <hr />
-<h2 id="sdk">多语言 SDK<a class="headerlink" href="#sdk" title="Permanent link">&para;</a></h2>
+<h2 id="_7">最新动态<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>语言</th>
-<th>路径</th>
-<th>说明</th>
+<th>版本</th>
+<th>亮点</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Python</strong></td>
-<td><code>sdk/python/</code></td>
-<td><code>RelayClient</code> 类</td>
+<td><strong>v3.13</strong></td>
+<td>治理审计端点——<code>GET /governance/audit</code> 结构化查询 IR 审计链，支持 <code>?peer_id=</code>/<code>?task_id=</code>/<code>?since=</code> 过滤（A2A #1717 <code>auditEndpoint</code> 首个实现）</td>
 </tr>
 <tr>
-<td><strong>Node.js</strong></td>
-<td><code>sdk/node/</code></td>
-<td>零外部依赖，含 TypeScript 类型</td>
+<td><strong>v3.12</strong></td>
+<td>治理合规报告——<code>GET/POST /governance/compliance</code>；AgentCard.governance 新增 <code>compliance_report</code>/<code>last_verified_at</code>/<code>operator_attestation</code></td>
 </tr>
 <tr>
-<td><strong>Go</strong></td>
-<td><code>sdk/go/</code></td>
-<td>零外部依赖，Go 1.21+</td>
-</tr>
-<tr>
-<td><strong>Rust</strong></td>
-<td><code>sdk/rust/</code></td>
-<td>v1.3，reqwest + serde</td>
-</tr>
-<tr>
-<td><strong>Java</strong></td>
-<td><code>sdk/java/</code></td>
-<td>零外部依赖，JDK 11+，含 Spring Boot 集成示例</td>
+<td><strong>v3.11</strong></td>
+<td>异步 Task Queue Workers——注册 <code>callback_url</code> worker，入队自动派发，<code>DELETE /tasks/queue/worker/{id}</code></td>
 </tr>
 </tbody>
 </table>
+<p>→ <a href="../CHANGELOG.md">完整更新日志</a></p>
 <hr />
-<h2 id="_7">版本历史<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<h2 id="_8">版本历史<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -1767,78 +1912,131 @@ P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架</p>
 <td>生产稳定、安全审计、Go SDK</td>
 </tr>
 <tr>
-<td>v1.1</td>
+<td>v1.1–v1.3</td>
 <td>✅</td>
-<td>HMAC replay-window、<code>failed_message_id</code></td>
+<td>HMAC replay-window、DID 身份（<code>did:acp:</code>）、Rust SDK、GHCR CI</td>
 </tr>
 <tr>
-<td>v1.2</td>
+<td>v1.4</td>
 <td>✅</td>
-<td>调度元数据（<code>availability</code>）、Docker 镜像</td>
-</tr>
-<tr>
-<td>v1.3</td>
-<td>✅</td>
-<td>Rust SDK、DID 身份（<code>did:acp:</code>）、Extension 机制、GHCR CI</td>
-</tr>
-<tr>
-<td><strong>v1.4</strong></td>
-<td>✅ <strong>已实现</strong></td>
 <td><strong>真 P2P NAT 穿透</strong>：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级</td>
 </tr>
 <tr>
-<td><strong>v1.5</strong></td>
-<td>✅ <strong>已实现</strong></td>
-<td><strong>混合身份模型</strong>：<code>--ca-cert</code> 在 <code>did:acp:</code> 自主权基础上叠加 CA 证书</td>
-</tr>
-<tr>
-<td>v1.6–v1.9</td>
+<td>v1.5</td>
 <td>✅</td>
-<td>HTTP/2 传输（h2c）、AgentCard 自签名（v1.8）、握手时双向自动验证（v1.9）</td>
+<td><strong>混合身份模型</strong>：<code>--ca-cert</code> 叠加 CA 证书</td>
 </tr>
 <tr>
-<td>v2.0–v2.1</td>
+<td>v2.0–v2.9</td>
 <td>✅</td>
-<td>离线消息队列、LAN 发现（<code>GET /peers/discover</code>）</td>
+<td>离线消息队列、LAN 发现、任务分页、DID 文档、JWKS、trust signals</td>
 </tr>
 <tr>
-<td>v2.2</td>
+<td>v2.10–v2.34</td>
 <td>✅</td>
-<td><code>GET /tasks</code> 列表查询 + 游标分页</td>
+<td>结构化 Skills、limitations、context query、委托链、CRON 调度、per-peer 信任评分</td>
 </tr>
 <tr>
-<td>v2.3</td>
+<td>v2.35–v2.99</td>
 <td>✅</td>
-<td>Python SDK <code>auto_stream</code> 参数（自动选 SSE 接收）、<code>supported_transports</code> 能力声明</td>
+<td>消息优先级、长轮询、OpenAPI spec、SQLite 持久化队列、bilateral IR</td>
 </tr>
 <tr>
-<td><strong>v2.4</strong></td>
+<td>v3.0–v3.5</td>
+<td>✅</td>
+<td>消息签名、W3C DataIntegrityProof、Capability Token、治理 Block</td>
+</tr>
+<tr>
+<td>v3.6</td>
+<td>✅</td>
+<td><strong>P1 Bug 全部修复</strong>（稳定版）——多播、SSE 零延迟、连接幂等</td>
+</tr>
+<tr>
+<td>v3.7–v3.9</td>
+<td>✅</td>
+<td>CI 压测、Heartbeat-Agent 三件套、Topic Pub/Sub</td>
+</tr>
+<tr>
+<td>v3.10</td>
+<td>✅</td>
+<td><strong>Multi-relay Federation</strong>——跨 relay 实例消息路由</td>
+</tr>
+<tr>
+<td>v3.11</td>
+<td>✅</td>
+<td><strong>Async Task Queue Workers</strong>——worker 注册、入队自动派发</td>
+</tr>
+<tr>
+<td>v3.12</td>
+<td>✅</td>
+<td><strong>治理合规报告</strong>——<code>/governance/compliance</code> 实时检查</td>
+</tr>
+<tr>
+<td><strong>v3.13</strong></td>
 <td>✅ <strong>当前版本</strong></td>
-<td><strong><code>transport_modes</code> 顶层字段</strong>：路由拓扑声明（<code>p2p</code>/<code>relay</code>）；<code>--transport-modes</code> CLI 标志；spec §5.4</td>
+<td><strong>治理审计端点</strong>——<code>/governance/audit</code> 首个完整实现（A2A #1717）</td>
 </tr>
 </tbody>
 </table>
 <hr />
-<h2 id="_8">仓库结构<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>agent-communication-protocol/
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>├── SKILL.md              ← 发这个 URL 给 Agent 即可接入
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>├── relay/
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>│   └── acp_relay.py      ← 核心守护进程（单文件，stdlib 优先）
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>├── spec/                 ← 协议规范文档
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>├── sdk/                  ← Python / Node.js / Go / Rust / Java SDK
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>├── tests/                ← 兼容性 + 集成测试套件
-</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>├── docs/                 ← 中文文档、合规指南、博客草稿
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>└── acp-research/         ← 竞品情报、ROADMAP
+<h2 id="sdk">多语言 SDK<a class="headerlink" href="#sdk" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>语言</th>
+<th>路径</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Python</strong></td>
+<td><code>sdk/python/</code></td>
+<td><code>pip install acp-client</code> · <code>RelayClient</code>、<code>AsyncRelayClient</code>；LangChain 适配器：<code>pip install "acp-client[langchain]"</code></td>
+</tr>
+<tr>
+<td><strong>Node.js</strong></td>
+<td><code>sdk/node/</code></td>
+<td>零外部依赖，含 TypeScript 类型</td>
+</tr>
+<tr>
+<td><strong>Go</strong></td>
+<td><code>sdk/go/</code></td>
+<td>零外部依赖，Go 1.21+</td>
+</tr>
+<tr>
+<td><strong>Rust</strong></td>
+<td><code>sdk/rust/</code></td>
+<td>v1.3，reqwest + serde</td>
+</tr>
+<tr>
+<td><strong>Java</strong></td>
+<td><code>sdk/java/</code></td>
+<td>零外部依赖，JDK 11+，含 Spring Boot 集成示例</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_9">仓库结构<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>agent-communication-protocol/
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>├── SKILL.md              ← 发这个 URL 给 Agent 即可接入
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>├── relay/
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>│   └── acp_relay.py      ← 核心守护进程（单文件，stdlib 优先）
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>├── spec/                 ← 协议规范文档
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>├── sdk/                  ← Python / Node.js / Go / Rust / Java SDK
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>├── tests/                ← 兼容性 + 集成测试套件
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>├── docs/                 ← 中文文档、合规指南、博客草稿
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>└── acp-research/         ← 竞品情报、ROADMAP
 </span></code></pre></div>
 <hr />
-<h2 id="_9">贡献<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<h2 id="_10">贡献<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
 <p>欢迎贡献！详见 <a href="../CONTRIBUTING.zh.md">CONTRIBUTING.zh.md</a>。</p>
 <ul>
 <li>Bug 报告 &amp; 功能请求 → <a href="https://github.com/Kickflip73/agent-communication-protocol/issues">GitHub Issues</a></li>
 <li>协议设计讨论 → <a href="https://github.com/Kickflip73/agent-communication-protocol/discussions">GitHub Discussions</a></li>
 </ul>
 <hr />
-<h2 id="_10">许可证<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
+<h2 id="_11">许可证<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h2>
 <p><a href="../LICENSE">Apache License 2.0</a></p>
 <hr />
 <div align="center">
