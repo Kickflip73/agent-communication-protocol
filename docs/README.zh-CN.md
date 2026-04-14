@@ -2,19 +2,20 @@
 
 <h1>ACP — Agent Communication Protocol</h1>
 
-<p><strong>让任意两个 AI Agent 直接通信。人只需做两件事。</strong></p>
+<p><strong>让任意两个 AI Agent 直接通信。</strong><br>
+<em>发一个 URL，获得链接，两个 Agent 开始对话。就这么简单。</em></p>
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/版本-v2.4.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/版本-v3.13.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="../LICENSE">
     <img src="https://img.shields.io/badge/协议-Apache_2.0-green?style=flat-square" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square">
-  <img src="https://img.shields.io/badge/依赖-仅_websockets-orange?style=flat-square">
-  <img src="https://img.shields.io/badge/延迟-0.6ms_avg-brightgreen?style=flat-square">
-  <img src="https://img.shields.io/badge/测试-232%2F232_PASS-success?style=flat-square">
+  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square" alt="Python">
+  <img src="https://img.shields.io/badge/stdlib__only-零重量级依赖-orange?style=flat-square" alt="Deps">
+  <img src="https://img.shields.io/badge/延迟-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
+  <img src="https://img.shields.io/badge/测试-1574%2F1574_PASS-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -26,6 +27,11 @@
 
 > **MCP 标准化 Agent↔Tool，ACP 标准化 Agent↔Agent。**  
 > P2P · 零服务器 · curl 可接入 · 兼容任意 LLM 框架
+
+<div align="center">
+  <img src="../demos/two_agent_demo.gif" alt="ACP 双 Agent 双向通信演示" width="700">
+  <br><em>Alpha ↔ Beta 双向 P2P 通信——无需中心服务器，无需 OAuth</em>
+</div>
 
 ---
 
@@ -96,7 +102,7 @@ docker run -p 7801:7801 -p 7901:7901 \
 
 ## 网络受限（沙箱 / K8s / 内网）？
 
-ACP v1.4 内置三级自动连接策略，**用户零感知**：
+ACP v1.4 内置**三级自动连接策略**，用户零感知：
 
 ```
 Level 1 — 直连（有公网 IP 或同一局域网）
@@ -114,7 +120,42 @@ SSE 事件实时反映当前连接层级：`dcutr_started` → `dcutr_connected`
 
 如需显式走 Relay（如旧版本兼容），可加 `--relay` 参数启动，得到 `acp+wss://` 链接。
 
-→ **详见 [NAT 穿透与网络接入指南](nat-traversal.md)**
+→ **详见 [NAT 穿透指南](nat-traversal.md)**
+
+---
+
+## 路由拓扑声明（`transport_modes`，v2.4）
+
+Agent 通过 `transport_modes` 顶层 AgentCard 字段声明支持的路由拓扑：
+
+| 值 | 含义 |
+|----|------|
+| `"p2p"` | Agent 支持直接点对点 WebSocket 连接 |
+| `"relay"` | Agent 支持通过 Relay 中转（HTTP relay fallback） |
+
+默认值：`["p2p", "relay"]`——同时支持两种拓扑；缺省时含义相同。
+
+```bash
+# 沙箱 / 仅 NAT 环境（只走 relay）
+python3 relay/acp_relay.py --name SandboxAgent --transport-modes relay
+
+# 有公网 IP 的边缘 Agent（仅 P2P，不依赖 relay）
+python3 relay/acp_relay.py --name EdgeAgent --transport-modes p2p
+```
+
+**AgentCard 示例片段：**
+```json
+{
+  "transport_modes": ["p2p", "relay"],
+  "capabilities": {
+    "supported_transports": ["http", "ws"]
+  }
+}
+```
+
+> **区别：** `transport_modes` 声明*路由拓扑*（数据走哪条路径）。  
+> `capabilities.supported_transports` 声明*协议绑定*（字节如何封帧）。  
+> 两者正交——详见 [spec §5.4](../spec/core-v1.0.md)。
 
 ---
 
@@ -165,9 +206,9 @@ SSE 事件实时反映当前连接层级：`dcutr_started` → `dcutr_connected`
 
 | 通道 | 端口 | 方向 | 用途 |
 |------|------|------|------|
-| **WebSocket** | `:7801` | Agent ↔ Agent | P2P 数据通道，消息直达对端，无中间节点 |
+| **WebSocket** | `:7801` | Agent ↔ Agent | P2P 数据通道，消息直达对端 |
 | **HTTP API** | `:7901` | 宿主程序 → Agent | 发消息、管理任务、查询状态 |
-| **SSE** | `:7901/stream` | Agent → 宿主程序 | 实时推送收到的消息，长连接，无需轮询 |
+| **SSE** | `:7901/stream` | Agent → 宿主程序 | 实时推送收到的消息（长连接） |
 
 **宿主程序接入示例（3 行代码）：**
 
@@ -210,7 +251,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-> **Signaling Server** 只做一次性地址交换（TTL 30s），不转发任何消息帧，握手后立即退出。  
+> **Signaling Server** 只做一次性地址交换（TTL 30s），不转发任何消息帧。  
 > **Relay** 是真正的最后兜底，不是主路径——对称 NAT 等少数场景才会触发。
 
 ---
@@ -220,24 +261,25 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | | A2A (Google) | ACP |
 |---|---|---|
 | **接入成本** | OAuth 2.0 + Agent 注册中心 + 推送端点 | 一个 URL |
-| **是否需要服务器** | 需要（你必须自己搭建 HTTPS 端点）| **不需要** |
+| **是否需要服务器** | 需要（必须自己搭建 HTTPS 端点）| **不需要** |
 | **框架绑定** | 是 | **任意 Agent，任意语言** |
 | **NAT / 防火墙** | 自己解决 | **自动：直连 → 打洞 → Relay** |
 | **消息延迟** | 取决于你的基础设施 | **0.6ms 均值（P99 2.8ms）** |
 | **最小依赖** | 重量级 SDK | **`pip install websockets`** |
 | **身份认证** | OAuth token | **Ed25519 + did:acp: DID + CA 混合（v1.5）** |
 | **可用性信令** | ❌（issue #1667 仍是提案）| **✅ `availability` 字段（v1.2）** |
-| **Agent 身份证明** | ❌（issue #1672，44 条评论，仍在讨论）| **✅ 混合模型：`did:acp:` 自主权 + CA 证书（v1.5）** |
-
-> A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) 在 44 条评论后正在收敛到"混合身份模型"——ACP v1.5 今天就能用。
+| **Agent 身份证明** | ❌（issue #1672，425+ 评论，仍无实现）| **✅ Ed25519 默认开启，零配置，自生成密钥对（v2.85）** |
+| **离线消息投递** | ❌（无规范层离线缓冲）| **✅ 自动队列 + 重连自动 flush；SQLite 持久化（v2.97）** |
+| **异步任务队列** | ❌（#1667 仍在讨论）| **✅ `POST /tasks/queue` 202 Accepted；worker 注册（v3.11）** |
+| **治理审计端点** | ❌（#1717 提案阶段）| **✅ `GET /governance/audit` 首个实现（v3.13）** |
 
 ### 性能数据
 
 - **0.6ms** 均值发送延迟 · **2.8ms** P99
 - **1,100+ req/s** 顺序吞吐 · **1,200+ req/s** 并发（10 线程）
 - **< 50ms** SSE 推送延迟（threading.Event，非轮询）
-- **232/232 单元 + 集成测试通过**（错误处理 · 压力测试 · NAT 穿透 · 环形流水线 · transport_modes）
-- **184+ commits** · **3,300+ 行** · **零已知 P0/P1 Bug**
+- **1574/1574 单元 + 集成测试通过**
+- **190+ commits** · **3,300+ 行** · **零已知 P0/P1 Bug**
 
 ---
 
@@ -257,8 +299,41 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 | 创建任务 | POST | `/tasks` |
 | 更新任务 | POST | `/tasks/{id}:update` |
 | 取消任务 | POST | `/tasks/{id}:cancel` |
+| 提交任务证据 | POST | `/tasks/{id}/evidence` |
+| 查询任务证据 | GET | `/tasks/{id}/evidence` |
+| 证据实时流（SSE） | GET | `/tasks/{id}/evidence-stream` |
+| 心跳上报 | POST | `/availability/heartbeat` |
+| 查可用性 | GET | `/availability` |
+| 列出联邦 Relay | GET | `/federation` |
+| 添加联邦 Relay | POST | `/federation` `{"link":"acp://..."}` |
+| 跨 Relay 路由 | POST | `/federation/route` |
+| 订阅 Topic | POST | `/peers/subscribe/{topic}` |
+| 取消订阅 | POST | `/peers/unsubscribe/{topic}` |
+| 发布到 Topic | POST | `/peers/broadcast/{topic}` |
+| 列出活跃 Topic | GET | `/peers/topics` |
+| 轮询队列摘要 | GET | `/offline-queue/summary` |
+| 入队异步任务 | POST | `/tasks/queue` `{"role":"agent","payload":{...}}` |
+| 注册 Worker | POST | `/tasks/queue/worker` `{"callback_url":"http://..."}` |
+| 列出 Workers | GET | `/tasks/queue/workers` |
+| 注销 Worker | DELETE | `/tasks/queue/worker/{id}` |
+| 治理合规报告 | GET | `/governance/compliance` |
+| 治理审计查询 | GET | `/governance/audit` |
 
 HTTP 默认端口：`7901` · WebSocket 端口：`7801`
+
+**AgentCard 响应示例**（`GET /.well-known/acp.json`）：
+```json
+{
+  "name": "MyAgent",
+  "acp_version": "3.13.0",
+  "transport_modes": ["p2p", "relay"],
+  "capabilities": {
+    "streaming": true,
+    "supported_transports": ["http", "ws"],
+    "governance_audit": true
+  }
+}
+```
 
 ---
 
@@ -268,10 +343,11 @@ HTTP 默认端口：`7901` · WebSocket 端口：`7801`
 |------|------|------|
 | 公共中继（网络受限时） | `--relay` | 返回 `acp+wss://` 格式链接 |
 | HMAC 消息签名 | `--secret <key>` | 两端共享密钥，无需额外依赖 |
-| Ed25519 身份 | `--identity` | 需 `pip install cryptography` |
+| Ed25519 身份 | _(默认开启)_ | 首次运行自动生成；`--no-identity` 禁用 |
 | mDNS 局域网发现 | `--advertise-mdns` | 无需 zeroconf 库 |
-| **路由拓扑声明（v2.4）** | `--transport-modes p2p,relay` | AgentCard 顶层 `transport_modes` 字段；声明本节点支持的路由模式（`p2p` 直连 / `relay` 中继）；缺省为 `["p2p", "relay"]` |
 | Docker | `docker pull ghcr.io/kickflip73/agent-communication-protocol/acp-relay` | 多架构，含 GHCR CI |
+| Heartbeat Agent 模式 | `--heartbeat-agent` | 一键配置为 cron 型 Agent |
+| SQLite 持久化队列 | `--persist-queue` | 重启后离线消息不丢失 |
 
 ---
 
@@ -291,14 +367,14 @@ API：`POST /tasks` 创建，`POST /tasks/{id}:update` 更新状态。
 
 ## Heartbeat / Cron Agent
 
-ACP 原生支持**离线 Agent**（定时唤醒的 cron 型 Agent），无需长连接轮询。
+ACP 原生支持**离线 Agent**（定时唤醒的 cron 型 Agent），无需长连接。
 
 ### 工作方式
 
 ```
 Cron Agent 每 5 分钟唤醒一次：
 1. 启动 acp_relay.py（得到 acp:// 链接）
-2. PATCH /.well-known/acp.json 更新可用性（告知对端什么时候能回消息）
+2. PATCH /.well-known/acp.json 更新可用性
 3. GET /recv 收取积压消息，批量处理
 4. POST /message:send 回复
 5. 退出（relay 自动关闭）
@@ -337,62 +413,41 @@ relay.terminate()
 
 ---
 
-## Agent 身份认证（v1.5）
+## Agent 身份认证（v2.85）
 
-ACP 支持**两种身份模型**，可单独使用或组合（混合模型）：
+ACP 首次运行时**自动生成 Ed25519 密钥对**，零配置。密钥对保存到 `~/.acp/identity.json`，重启后复用。
 
-| 模式 | 启动参数 | `capabilities.identity` | 说明 |
-|------|----------|--------------------------|------|
-| 无身份 | _(默认)_ | `"none"` | 向后兼容 v0.7 |
-| 自主权身份 | `--identity` | `"ed25519"` | Ed25519 签名 + `did:acp:` DID |
-| **混合模型** | `--identity --ca-cert` | `"ed25519+ca"` | 自主权 + CA 签发证书 |
+| 模式 | 参数 | `capabilities.identity` | 说明 |
+|------|------|--------------------------|------|
+| **自主权身份（默认）** | _(无)_ | `"ed25519"` | 自动生成密钥对；`capabilities.identity_default=True`（v2.85） |
+| 自主权身份（自定义路径） | `--identity <path>` | `"ed25519"` | 从指定路径加载或生成密钥对 |
+| **混合模式** | `--ca-cert` | `"ed25519+ca"` | 自主权 + CA 签发证书 |
+| 禁用身份 | `--no-identity` | `"none"` | 仅用于嵌入式/测试场景（v2.85） |
 
 ```bash
-# 自主权身份 (v0.8+)
-python3 relay/acp_relay.py --name MyAgent --identity
+# 默认——Ed25519 自动生成，零配置（v2.85+）
+python3 relay/acp_relay.py --name MyAgent
 
-# 混合身份 (v1.5) — CA 证书文件
-python3 relay/acp_relay.py --name MyAgent --identity --ca-cert /path/to/agent.crt
+# 混合身份（v1.5）——CA 证书文件
+python3 relay/acp_relay.py --name MyAgent --ca-cert /path/to/agent.crt
 
-# 混合身份 (v1.5) — 内联 PEM
-python3 relay/acp_relay.py --name MyAgent --identity \
-  --ca-cert "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+# 禁用身份（测试场景）
+python3 relay/acp_relay.py --name MyAgent --no-identity
 ```
 
-**AgentCard 示例（混合模式）：**
-```json
-{
-  "identity": {
-    "scheme":     "ed25519+ca",
-    "public_key": "<base64url 编码的 Ed25519 公钥>",
-    "did":        "did:acp:<base64url(pubkey)>",
-    "ca_cert":    "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
-  },
-  "capabilities": {
-    "identity": "ed25519+ca"
-  }
-}
-```
-
-**验证策略**（验证方自选）：
-- 仅信任 `did:acp:` — 验证 Ed25519 签名，忽略 `ca_cert`
-- 仅信任 CA — 验证证书链，忽略 DID
-- 两者都要 — 最高安全
-- 任一即可 — 最高互操作性
-
-> **为什么重要：** A2A [#1672](https://github.com/a2aproject/A2A/issues/1672)（44 条评论，仍在讨论）正收敛到同一「混合模型」结论——ACP v1.5 今天就能用。
+> **为什么重要：** A2A [#1672](https://github.com/a2aproject/A2A/issues/1672) 有 425+ 评论仍无定论，主流方案需要中心 CA——单点故障、注册瓶颈、隐私泄漏。ACP v2.85 默认开启自生成密钥对，无 CA、无注册、离线可用。
 
 ---
 
-## 多语言 SDK
+## 最新动态
 
-| 语言 | 路径 | 说明 |
-|------|------|------|
-| **Python** | `sdk/python/` | `RelayClient` 类 |
-| **Node.js** | `sdk/node/` | 零外部依赖，含 TypeScript 类型 |
-| **Go** | `sdk/go/` | 零外部依赖，Go 1.21+ |
-| **Rust** | `sdk/rust/` | v1.3，reqwest + serde |
-| **Java** | `sdk/java/` | 零外部依赖，JDK 11+，含 Spring Boot 集成示例 |
+| 版本 | 亮点 |
+|------|------|
+| **v3.13** | 治理审计端点——`GET /governance/audit` 结构化查询 IR 审计链，支持 `?peer_id=`/`?task_id=`/`?since=` 过滤（A2A #1717 `auditEndpoint` 首个实现） |
+| **v3.12** | 治理合规报告——`GET/POST /governance/compliance`；AgentCard.governance 新增 `compliance_report`/`last_verified_at`/`operator_attestation` |
+| **v3.11** | 异步 Task Queue Workers——注册 `callback_url` worker，入队自动派发，`DELETE /tasks/queue/worker/{id}` |
+
+→ [完整更新日志](../CHANGELOG.md)
 
 ---
 
@@ -405,16 +460,31 @@ python3 relay/acp_relay.py --name MyAgent --identity \
 | v0.7 | ✅ | HMAC 签名、mDNS 发现 |
 | v0.8–v0.9 | ✅ | Ed25519 身份、Node.js SDK、兼容性测试套件 |
 | v1.0 | ✅ | 生产稳定、安全审计、Go SDK |
-| v1.1 | ✅ | HMAC replay-window、`failed_message_id` |
-| v1.2 | ✅ | 调度元数据（`availability`）、Docker 镜像 |
-| v1.3 | ✅ | Rust SDK、DID 身份（`did:acp:`）、Extension 机制、GHCR CI |
-| **v1.4** | ✅ **已实现** | **真 P2P NAT 穿透**：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级 |
-| **v1.5** | ✅ **已实现** | **混合身份模型**：`--ca-cert` 在 `did:acp:` 自主权基础上叠加 CA 证书 |
-| v1.6–v1.9 | ✅ | HTTP/2 传输（h2c）、AgentCard 自签名（v1.8）、握手时双向自动验证（v1.9） |
-| v2.0–v2.1 | ✅ | 离线消息队列、LAN 发现（`GET /peers/discover`） |
-| v2.2 | ✅ | `GET /tasks` 列表查询 + 游标分页 |
-| v2.3 | ✅ | Python SDK `auto_stream` 参数（自动选 SSE 接收）、`supported_transports` 能力声明 |
-| **v2.4** | ✅ **当前版本** | **`transport_modes` 顶层字段**：路由拓扑声明（`p2p`/`relay`）；`--transport-modes` CLI 标志；spec §5.4 |
+| v1.1–v1.3 | ✅ | HMAC replay-window、DID 身份（`did:acp:`）、Rust SDK、GHCR CI |
+| v1.4 | ✅ | **真 P2P NAT 穿透**：UDP 打洞（DCUtR 风格）+ Signaling，三级自动降级 |
+| v1.5 | ✅ | **混合身份模型**：`--ca-cert` 叠加 CA 证书 |
+| v2.0–v2.9 | ✅ | 离线消息队列、LAN 发现、任务分页、DID 文档、JWKS、trust signals |
+| v2.10–v2.34 | ✅ | 结构化 Skills、limitations、context query、委托链、CRON 调度、per-peer 信任评分 |
+| v2.35–v2.99 | ✅ | 消息优先级、长轮询、OpenAPI spec、SQLite 持久化队列、bilateral IR |
+| v3.0–v3.5 | ✅ | 消息签名、W3C DataIntegrityProof、Capability Token、治理 Block |
+| v3.6 | ✅ | **P1 Bug 全部修复**（稳定版）——多播、SSE 零延迟、连接幂等 |
+| v3.7–v3.9 | ✅ | CI 压测、Heartbeat-Agent 三件套、Topic Pub/Sub |
+| v3.10 | ✅ | **Multi-relay Federation**——跨 relay 实例消息路由 |
+| v3.11 | ✅ | **Async Task Queue Workers**——worker 注册、入队自动派发 |
+| v3.12 | ✅ | **治理合规报告**——`/governance/compliance` 实时检查 |
+| **v3.13** | ✅ **当前版本** | **治理审计端点**——`/governance/audit` 首个完整实现（A2A #1717） |
+
+---
+
+## 多语言 SDK
+
+| 语言 | 路径 | 说明 |
+|------|------|------|
+| **Python** | `sdk/python/` | `pip install acp-client` · `RelayClient`、`AsyncRelayClient`；LangChain 适配器：`pip install "acp-client[langchain]"` |
+| **Node.js** | `sdk/node/` | 零外部依赖，含 TypeScript 类型 |
+| **Go** | `sdk/go/` | 零外部依赖，Go 1.21+ |
+| **Rust** | `sdk/rust/` | v1.3，reqwest + serde |
+| **Java** | `sdk/java/` | 零外部依赖，JDK 11+，含 Spring Boot 集成示例 |
 
 ---
 
