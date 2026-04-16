@@ -1,7 +1,8 @@
 {
   "lastChecks": {"evangelism": 1773788282, "email": null, "calendar": null, "weather": null},
-  "notes": "2026-04-12 18:43 — 研究轮完成（scan39）。A2A连续第6日无协议变更（全文档commit）。新发现：#1717 auditEndpoint字段讨论→v3.13 P1候选；#1694 limitations ACP领先5+月；#1741社区SDK提交活跃。commit 9066939 → pushed。下轮: 开发轮（v3.13.0 auditEndpoint + GET /governance/audit）。",
-  "next_round": "dev",
-  "today_rounds_completed": 25,
-  "last_research": "scan39"
+  "notes": "2026-04-16 11:05 — 测试轮（第30轮）。修复 /root/.local/bin 文件损坏（非目录）→ pytest 无法调用。v3.13 回归全部通过：test_governance_audit 10/10, test_dcutr_t6_scenario_a 7/7, test_scenario_b_team_round23 + trust_signals_v270/v271 42/42。当前最新 BUGS.md 无未修复 P0/P1。下轮: 研究轮（scan41，检查 A2A/ANP 新动态）。",
+  "next_round": "research",
+  "today_rounds_completed": 30,
+  "last_research": "scan40",
+  "pending_push": null
 }
