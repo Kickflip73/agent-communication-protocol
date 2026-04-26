@@ -947,3 +947,10 @@ APS:  https://github.com/aeoess/agent-passport-system  （Ed25519 身份，v0.8 
 - **P1**: QuerySkill API 扩展（增加 `skill_trust_score` 字段，对标 A2A #1717 capability_manifest）
 - **P2**: Bilateral Signed Interaction Records 完整互操作（A2A #1718，扩展 `bilateral_proof` 格式）
 - **P3**: SlimRPC CPB 实验性绑定（跟踪 A2A #1723）
+- **P3**: `application/acp+json` 媒体类型支持（对标 A2A `application/a2a+json` SHOULD，scan41）
+
+## v3.15.0 候选特性
+- **P2**: CTEF `authority` 层（委托链实现），对标 A2A #1786 四层密码学身份扩展
+- **P2**: CTEF `continuity` 层（轮换证明链），完整四层身份证明
+
+> scan41（2026-04-26）: A2A 本周 1 个 spec 变更（Content-Type SHOULD）；#1786 CTEF 四层提案活跃（12c）；#1742 x-agent-trust 提案 26c；#1755 OpenClaw 实证数据被 A2A 社区引用（31c）。ACP 在 auditEndpoint、Ed25519 默认开启方面持续领先。
