@@ -94,10 +94,48 @@ For per-release detailed notes, see the sections below.
 | **v3.11** | ✅ | **Async Task Queue Workers** — `POST /tasks/queue/worker` (register callback_url + filters, idempotent); `GET /tasks/queue/workers`; `DELETE /tasks/queue/worker/{id}`; auto-dispatch on enqueue; `capabilities.task_queue_worker: true` |
 | **v3.12** | ✅ | **Governance Compliance Report (A2A #1717)** — `AgentCard.governance` adds `compliance_report`/`last_verified_at`/`operator_attestation`; `GET /governance/compliance`; `POST /governance/compliance`; `capabilities.governance_compliance: true` |
 | **v3.13** | ✅ | **Governance Audit Endpoint (A2A #1717 `auditEndpoint` first implementation)** — `GET /governance/audit` (structured IR query; `?limit=`/`?peer_id=`/`?task_id=`/`?since=` filters); `governance_metadata.audit_endpoint`; `capabilities.governance_audit: true` |
+| **v3.14** | ✅ | **`skill_trust_score` evidence-based composite + `application/acp+json` media type** — P1: `skill_trust_score` struct (`composite`/`evidence`/`last_calculated`) in `/skills`, `/skills/<id>/status`, `/skills/query`; `min_trust_score` filter in `POST /skills/query`; `capabilities.skill_trust_score: true`. P2: `application/acp+json; charset=utf-8` Content-Type when client sends `Accept: application/acp+json`; requests with `Content-Type: application/acp+json` accepted as equivalent to `application/json`; `capabilities.acp_json_media_type: true` (A2A `application/a2a+json` SHOULD aligned) |
 
 ---
 
 ## Detailed Release Notes (v3.x)
+
+### v3.13.0 — Governance Audit Endpoint
+
+- **`GET /governance/audit`**: Structured query interface returning interaction records audit trail (A2A #1717 `auditEndpoint` first working reference implementation).
+  - Query params: `?limit=` (default 50, max 200), `?peer_id=` (exact caller filter), `?task_id=` (exact task filter), `?since=` (ISO 8601 timestamp).
+  - Response: `{ok, records, total, returned, audit_endpoint, note}`.
+- **`governance_metadata.audit_endpoint: "/governance/audit"`** — declared in AgentCard `governance_metadata`, auto-populated by `_build_governance_metadata()`.
+- **`capabilities.governance_audit: true`** + **`endpoints.governance_audit`** declared in AgentCard.
+- **Competitive comparison**: A2A #1717 (Microsoft AGT, 26 comments) discusses `auditEndpoint` REST field. ACP v3.13 is the first complete implementation (endpoint + AgentCard declaration + tests). Together with v3.12 compliance reporting, ACP's governance observability is fully closed: IR records (v2.59) → bilateral signing (v2.64) → compliance check (v3.12) → audit query (v3.13).
+- 10/10 new tests (GA1–GA10) all PASS.
+
+### v3.14.0 — skill_trust_score Evidence Composite + application/acp+json Media Type
+
+#### P1: `skill_trust_score` — Evidence-Based Composite Trust Score
+
+- **`skill_trust_score` field** added to three skill endpoints:
+  - `GET /skills` — per-skill `skill_trust_score` object in each skill in the page
+  - `GET /skills/<id>/status` — `skill_trust_score` in status response
+  - `POST /skills/query` — `skill_trust_score` in single-skill query response
+- **Schema** `{composite: float, evidence: {has_limitations, has_examples, has_constraints, has_status}, last_calculated: ISO8601}`:
+  - `composite` — weighted sum (0.0–1.0): each of 4 evidence flags contributes 0.25
+  - `has_limitations` (0.25) — `skill.limitations` is non-empty
+  - `has_examples` (0.25) — `skill.examples` is non-empty
+  - `has_constraints` (0.25) — `skill.constraints` has at least one non-null value
+  - `has_status` (0.25) — skill has been probed via `GET /skills/<id>/status`
+- **`POST /skills/query` `min_trust_score` filter** — body param `min_trust_score: float [0.0, 1.0]`; filters skills by minimum composite score; returns 400 `ERR_INVALID_REQUEST` if out of range
+- **`capabilities.skill_trust_score: true`** declared in AgentCard
+- **Design rationale**: A2A #1717 capability_manifest trust signals inspired this evidence-based approach. Documentation completeness is a measurable proxy for agent reliability.
+- 16/16 new tests (STS1–STS10 + extras) all PASS.
+
+#### P2: `application/acp+json` Media Type
+
+- **Content-Type negotiation**: responses use `Content-Type: application/acp+json; charset=utf-8` when client sends `Accept: application/acp+json`; default remains `application/json` for backward compatibility
+- **Request body acceptance**: `Content-Type: application/acp+json` on POST requests accepted as equivalent to `application/json` (no longer returns 415 Unsupported Media Type)
+- **`capabilities.acp_json_media_type: true`** declared in AgentCard
+- **Standard alignment**: A2A spec uses `application/a2a+json` SHOULD; ACP v3.14 introduces `application/acp+json` as its equivalent media type
+- 8/8 new tests (AMT1–AMT8) all PASS.
 
 ### v3.13.0 — Governance Audit Endpoint
 

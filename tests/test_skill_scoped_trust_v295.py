@@ -302,28 +302,39 @@ class TestQuerySkillIntegration:
             _stop(proc)
 
     def test_ss13_query_skill_null_trust_when_no_ir(self):
-        """SS13: skill_trust_score == null when no IR evidence for this skill"""
+        """SS13: skill_trust_score present when no IR evidence for this skill
+        v3.14 upgrade note: skill_trust_score is now a structured object (composite + evidence),
+        not a null float. The field is always present; composite=0.0 when no evidence."""
         proc, hp = _start_relay(_free_port())
         try:
             _, body = _post(hp, "/skills/query", {"skill_id": "unknown.skill.xyz"})
-            assert body.get("skill_trust_score") is None
+            # v3.14: field always present (changed from null float to structured object)
+            assert "skill_trust_score" in body
+            sts = body.get("skill_trust_score")
+            # v3.14: sts is a dict with composite in [0.0, 1.0]
+            assert isinstance(sts, dict), f"v3.14: skill_trust_score should be a dict, got {type(sts)}"
+            assert 0.0 <= sts.get("composite", -1) <= 1.0
         finally:
             _stop(proc)
 
     def test_ss14_query_skill_populated_trust_after_ir(self):
-        """SS14: skill_trust_score populated after bilateral IR records for this skill"""
+        """SS14: skill_trust_score present in QuerySkill response (v3.14 structured format)
+        v3.14 upgrade note: skill_trust_score is now evidence-based composite struct, not IR float."""
         proc, hp = _start_relay(_free_port())
         try:
-            # Inject 4 bilateral records for "qa.skill"
+            # Inject 4 bilateral records for "qa.skill" (no effect on v3.14 doc-evidence score)
             for i in range(1, 5):
                 _inject(hp, f"did:key:z6MkQACaller{i}", "did:key:z6MkQACallee", "qa.skill")
             _, body = _post(hp, "/skills/query", {"skill_id": "qa.skill"})
-            score = body.get("skill_trust_score")
-            # Could be None if "qa.skill" not in AgentCard skills (query → unsupported)
-            # But the field must exist
+            # v3.14: field always present as structured object
             assert "skill_trust_score" in body
-            if score is not None:
-                assert 0.0 <= score <= 1.0
+            sts = body.get("skill_trust_score")
+            assert isinstance(sts, dict), f"v3.14: expected dict, got {type(sts)}"
+            composite = sts.get("composite", -1)
+            assert 0.0 <= composite <= 1.0, f"composite out of range: {composite}"
+            # v3.14: evidence sub-structure must be present
+            assert "evidence" in sts
+            assert "last_calculated" in sts
         finally:
             _stop(proc)
 

@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.13.0"  # v3.13: governance audit endpoint (GET /governance/audit + auditEndpoint in governance_metadata + capabilities.governance_audit, A2A #1717)
+VERSION = "3.14.0"  # v3.14: skill_trust_score field (P1: composite evidence score for skills; min_trust_score filter in POST /skills/query) + application/acp+json media type (P2, A2A application/a2a+json aligned)
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -1379,6 +1379,7 @@ _http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hyp
 _transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
 _limitations: list = []  # v2.20: top-level AgentCard field — LimitationObject[] (structured) or string[] (legacy compat)
 _skill_limitations_overrides: dict = {}  # v2.29: runtime per-skill limitations override {skill_id: LimitationObject[]}
+_skill_status_probed: set = set()        # v3.14: tracks skill_ids that have been probed via GET /skills/<id>/status (used in has_status evidence)
 
 # v2.87: policy_compliance — governance/compliance standards this agent conforms to (A2A #1717 inspired)
 # Populated from --policy-compliance CLI flag (comma-separated).
@@ -2334,6 +2335,8 @@ def _make_agent_card(name, skills):
             "governance":                  True,                               # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy
             "governance_compliance":       True,                               # v3.12: GET+POST /governance/compliance — live compliance report (A2A #1717 Microsoft AGT)
             "governance_audit":            True,                               # v3.13: GET /governance/audit — auditEndpoint (A2A #1717 auditEndpoint field)
+            "skill_trust_score":           True,                               # v3.14: skill_trust_score field in /skills, /skills/<id>/status, /skills/query; min_trust_score filter in POST /skills/query (A2A #1717)
+            "acp_json_media_type":         True,                               # v3.14: application/acp+json; charset=utf-8 Content-Type support (A2A application/a2a+json aligned)
             "transport_bindings":          True,                               # v3.5: AgentCard.transport_bindings (supported/experimental); --experimental-transport flag (pre-SlimRPC #1723)
         },
 
@@ -2759,6 +2762,71 @@ def _compute_skill_trust_scores() -> dict:
         trust_scores[sid] = round(min(1.0, max(0.0, base)), 3)
 
     return trust_scores
+
+
+def _compute_skill_trust_score_v314(skill_obj: dict, skill_id: str) -> dict:
+    """
+    v3.14: Compute the skill_trust_score for a single skill.
+
+    Evidence-based composite score (0.0–1.0) derived from documentation completeness:
+
+      has_limitations  (weight 0.25): skill.limitations is non-empty
+      has_examples     (weight 0.25): skill.examples is non-empty
+      has_constraints  (weight 0.25): skill.constraints has at least one non-null value
+      has_status       (weight 0.25): skill has been probed via GET /skills/<id>/status
+
+    composite = sum of weights for each True evidence flag (0.0, 0.25, 0.50, 0.75, or 1.0)
+
+    Returns:
+      {
+        "composite":       <float 0.0–1.0>,
+        "evidence": {
+          "has_limitations": <bool>,
+          "has_examples":    <bool>,
+          "has_constraints": <bool>,
+          "has_status":      <bool>,
+        },
+        "last_calculated": <ISO8601 string>,
+      }
+
+    References:
+      - A2A #1717: capability_manifest trust signals
+      - ACP v3.14: skill_trust_score extension to QuerySkill API
+    """
+    # Evidence: has_limitations — skill.limitations is non-empty
+    limitations = skill_obj.get("limitations") or [] if isinstance(skill_obj, dict) else []
+    has_limitations = bool(limitations)
+
+    # Evidence: has_examples — skill.examples is non-empty
+    examples = skill_obj.get("examples") or [] if isinstance(skill_obj, dict) else []
+    has_examples = bool(examples)
+
+    # Evidence: has_constraints — skill.constraints has at least one non-null value
+    constraints = skill_obj.get("constraints") or {} if isinstance(skill_obj, dict) else {}
+    has_constraints = any(v is not None for v in constraints.values()) if isinstance(constraints, dict) else False
+
+    # Evidence: has_status — skill has been probed via GET /skills/<id>/status
+    has_status = skill_id in _skill_status_probed
+
+    # Composite = weighted sum (each evidence flag contributes 0.25)
+    composite = round(
+        (0.25 if has_limitations else 0.0) +
+        (0.25 if has_examples    else 0.0) +
+        (0.25 if has_constraints else 0.0) +
+        (0.25 if has_status      else 0.0),
+        2,
+    )
+
+    return {
+        "composite": composite,
+        "evidence": {
+            "has_limitations": has_limitations,
+            "has_examples":    has_examples,
+            "has_constraints": has_constraints,
+            "has_status":      has_status,
+        },
+        "last_calculated": _now(),
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -6778,7 +6846,14 @@ class LocalHTTP(BaseHTTPRequestHandler):
     def _json(self, data, code=200):
         body = json.dumps(data, ensure_ascii=False, indent=2).encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        # v3.14: respond with application/acp+json when client signals Accept: application/acp+json
+        # (A2A application/a2a+json SHOULD alignment); default remains application/json for compat
+        accept_hdr = self.headers.get("Accept", "")
+        if "application/acp+json" in accept_hdr:
+            content_type = "application/acp+json; charset=utf-8"
+        else:
+            content_type = "application/json; charset=utf-8"
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
@@ -8483,8 +8558,17 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     merged_page.append(s)
                 page = merged_page
 
+            # v3.14: attach skill_trust_score to each skill in the page
+            final_page = []
+            for s in page:
+                if isinstance(s, dict):
+                    sid = s.get("id", "")
+                    sts = _compute_skill_trust_score_v314(s, sid)
+                    s = {**s, "skill_trust_score": sts}
+                final_page.append(s)
+
             self._json({
-                "skills":      page,
+                "skills":      final_page,
                 "total":       total,
                 "has_more":    has_more,
                 "next_offset": next_offset,
@@ -10115,12 +10199,17 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     available = False
                     reason    = lim.get("message") or lim.get("code") or "runtime limitation active"
                     break
+            # v3.14: record that this skill has been probed (contributes to has_status evidence)
+            _skill_status_probed.add(skill_id_req)
+            # v3.14: compute skill_trust_score AFTER recording probe (has_status=True for next call)
+            sts = _compute_skill_trust_score_v314(matched, skill_id_req)
             self._json({
-                "skill_id":     skill_id_req,
-                "available":    available,
-                "reason":       reason,
-                "limitations":  lims,              # v2.29: include resolved limitations in response
-                "last_checked": _now(),
+                "skill_id":         skill_id_req,
+                "available":        available,
+                "reason":           reason,
+                "limitations":      lims,              # v2.29: include resolved limitations in response
+                "last_checked":     _now(),
+                "skill_trust_score": sts,              # v3.14: evidence-based composite trust score
             })
 
         elif p == "/stream":  # [stable] SSE event stream
@@ -11443,7 +11532,8 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 # Already enforced by _read_body() for POST, but guard explicitly
                 # if caller didn't set application/json (returns empty dict {})
                 _ct = self.headers.get("Content-Type", "")
-                if _ct and "application/json" not in _ct and "application/x-www-form-urlencoded" not in _ct:
+                # v3.14: also accept application/acp+json (A2A application/a2a+json SHOULD alignment)
+                if _ct and "application/json" not in _ct and "application/acp+json" not in _ct and "application/x-www-form-urlencoded" not in _ct:
                     e_body, e_code = _err(ERR_INVALID_REQUEST,
                                           "Content-Type must be application/json", 415,
                                           failed_message_id=_client_msg_id)
@@ -13169,11 +13259,24 @@ class LocalHTTP(BaseHTTPRequestHandler):
         # Response: {"skill_id": "...", "support_level": "supported|partial|unsupported",
         #            "reason": "...", "constraints_applied": {...}, "agent": {...}}
         # v2.10: when skills are structured objects, uses id/name/description for keyword matching
+        # v3.14: min_trust_score filter in body (float 0.0–1.0); skill_trust_score = evidence composite struct
         elif p == "/skills/query":  # [stable] QuerySkill runtime capability discovery
             try:
                 body = self._read_body()
                 skill_id    = (body.get("skill_id") or "").strip()
                 constraints = body.get("constraints") or {}
+
+                # v3.14: min_trust_score filter — reject request if out of range [0.0, 1.0]
+                min_trust_score = body.get("min_trust_score")
+                if min_trust_score is not None:
+                    try:
+                        min_trust_score = float(min_trust_score)
+                    except (TypeError, ValueError):
+                        self._json(_err(ERR_INVALID_REQUEST, "min_trust_score must be a float in [0.0, 1.0]", 400)[0], 400)
+                        return
+                    if min_trust_score < 0.0 or min_trust_score > 1.0:
+                        self._json(_err(ERR_INVALID_REQUEST, "min_trust_score must be in range [0.0, 1.0]", 400)[0], 400)
+                        return
 
                 agent_card  = _status.get("agent_card") or {}
                 raw_skills  = agent_card.get("skills", [])
@@ -13206,6 +13309,12 @@ class LocalHTTP(BaseHTTPRequestHandler):
                             ]
                         else:
                             matched_skills = []
+                        # v3.14: apply min_trust_score filter on matched_skills
+                        if min_trust_score is not None and _is_structured:
+                            matched_skills = [
+                                s for s in matched_skills
+                                if _compute_skill_trust_score_v314(s, s.get("id", ""))["composite"] >= min_trust_score
+                            ]
                         if matched_skills:
                             self._json({
                                 "skills":       matched_skills,
@@ -13222,9 +13331,16 @@ class LocalHTTP(BaseHTTPRequestHandler):
                             })
                         return
                     # No skill_id and no input_mode filter: return full skill list
+                    # v3.14: apply min_trust_score filter
                     if _is_structured:
+                        filtered_skills = raw_skills
+                        if min_trust_score is not None:
+                            filtered_skills = [
+                                s for s in raw_skills
+                                if _compute_skill_trust_score_v314(s, s.get("id", ""))["composite"] >= min_trust_score
+                            ]
                         self._json({
-                            "skills":       raw_skills,
+                            "skills":       filtered_skills,
                             "capabilities": capabilities,
                             "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
                         })
@@ -13342,10 +13458,13 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     queried_skill_obj.get("limitations") if queried_skill_obj else None
                 ) or []   # v2.28: per-skill limitations[] in QuerySkill response
 
-                # v2.95: attach per-skill trust score from bilateral IR evidence
-                # Returns null if no IR evidence for this skill yet
-                _skill_trust_scores = _compute_skill_trust_scores()
-                skill_trust_score_val = _skill_trust_scores.get(skill_id)  # None if no evidence
+                # v3.14: attach structured evidence-based skill_trust_score
+                # (replaces the v2.95 float from bilateral IR; now uses documentation completeness evidence)
+                if queried_skill_obj is not None:
+                    skill_trust_score_val = _compute_skill_trust_score_v314(queried_skill_obj, skill_id)
+                else:
+                    # skill not in agent card (unsupported) — still compute with empty obj
+                    skill_trust_score_val = _compute_skill_trust_score_v314({}, skill_id)
 
                 self._json({
                     "skill_id":                   skill_id,
@@ -13354,7 +13473,7 @@ class LocalHTTP(BaseHTTPRequestHandler):
                     "constraints_applied":        constraints_applied,
                     "skill_constraints_declared": skill_constraints_declared,   # v2.26
                     "skill_limitations_declared": skill_limitations_declared,   # v2.28
-                    "skill_trust_score":          skill_trust_score_val,        # v2.95: per-skill IR evidence trust score (null = no evidence yet)
+                    "skill_trust_score":          skill_trust_score_val,        # v3.14: evidence-based composite trust score struct
                     "known_skills":               known_skills_str,
                     "agent": {
                         "name":        agent_card.get("name"),
