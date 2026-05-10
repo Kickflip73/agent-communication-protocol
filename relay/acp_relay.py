@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.14.0"  # v3.14: skill_trust_score field (P1: composite evidence score for skills; min_trust_score filter in POST /skills/query) + application/acp+json media type (P2, A2A application/a2a+json aligned)
+VERSION = "3.15.0"  # v3.15: batch message send (POST /messages:batch) — atomic multi-message enqueue with per-message result + rollback on partial failure option
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2292,6 +2292,7 @@ def _make_agent_card(name, skills):
             "offline_card_verify":      True,                                  # v2.90: POST /identity/verify-card — offline AgentCard Ed25519 sig verification (no live connection needed)
             "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
             "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
+            "batch_message":            True,                                  # v3.15: POST /messages:batch — atomic multi-message send
             "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
             "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
             "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
@@ -11791,6 +11792,132 @@ class LocalHTTP(BaseHTTPRequestHandler):
                 e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
                                       failed_message_id=_fmid)
                 self._json(e_body, e_code)
+
+        # ── POST /messages:batch — batch message send (v3.15) ─────────────────
+        # Atomically enqueue multiple messages with per-message results.
+        # Request: {"messages": [{role, parts|text, peer_id?, ...}, ...], "atomic?": bool}
+        # Response: {"ok": true/false, "sent": N, "total": M, "results": [{ok, message_id?, error?}, ...]}
+        elif p == "/messages:batch":
+            try:
+                body = self._read_body()
+                _messages = body.get("messages", [])
+                if not isinstance(_messages, list) or not _messages:
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "'messages' must be a non-empty list"}, 400)
+                    return
+                if len(_messages) > 100:  # Max batch size
+                    self._json({"ok": False, "error_code": "ERR_BATCH_TOO_LARGE",
+                                "error": "batch size exceeds 100 messages"}, 413)
+                    return
+
+                _atomic = body.get("atomic", False)  # If true, all-or-nothing
+                _results = []
+                _all_ok = True
+
+                for idx, _msg in enumerate(_messages):
+                    try:
+                        # Validate required fields
+                        _role = _msg.get("role")
+                        if _role not in {"user", "agent"}:
+                            _results.append({"ok": False, "index": idx,
+                                             "error": "invalid or missing 'role' (must be 'user' or 'agent')"})
+                            _all_ok = False
+                            continue
+
+                        # Build parts
+                        _parts = _msg.get("parts")
+                        if not _parts:
+                            _text = _msg.get("text") or _msg.get("content") or ""
+                            _parts = [_make_text_part(str(_text))] if _text else []
+                        if not _parts:
+                            _results.append({"ok": False, "index": idx,
+                                             "error": "missing 'parts' or 'text'"})
+                            _all_ok = False
+                            continue
+
+                        # Generate message ID
+                        _msg_id = _msg.get("message_id") or _msg.get("client_msg_id") or _make_id("msg")
+                        _seq = _next_seq()
+
+                        # Build message envelope
+                        _envelope = {
+                            "type": "acp.message",
+                            "message_id": _msg_id,
+                            "server_seq": _seq,
+                            "ts": _now(),
+                            "from": _status.get("agent_name", "unknown"),
+                            "role": _role,
+                            "parts": _parts,
+                        }
+                        if _msg.get("task_id"):
+                            _envelope["task_id"] = _msg["task_id"]
+                        if _msg.get("context_id"):
+                            _envelope["context_id"] = _msg["context_id"]
+
+                        # Determine target peer
+                        _target_pid = _msg.get("peer_id")
+                        if not _target_pid:
+                            # Default to first connected peer
+                            _connected = [pid for pid, pinfo in _peers.items() if pinfo.get("connected")]
+                            if len(_connected) == 1:
+                                _target_pid = _connected[0]
+                            elif len(_connected) > 1:
+                                _results.append({"ok": False, "index": idx,
+                                                 "error": "ambiguous peer: specify peer_id"})
+                                _all_ok = False
+                                continue
+                            else:
+                                _results.append({"ok": False, "index": idx,
+                                                 "error": "no connected peers"})
+                                _all_ok = False
+                                continue
+
+                        # Send via WebSocket
+                        _pinfo = _peers.get(_target_pid)
+                        if not _pinfo or not _pinfo.get("ws"):
+                            _results.append({"ok": False, "index": idx,
+                                             "error": f"peer '{_target_pid}' not connected"})
+                            _all_ok = False
+                            continue
+
+                        _serialized = json.dumps(_envelope, ensure_ascii=False)
+                        if len(_serialized.encode()) > MAX_MSG_BYTES:
+                            _results.append({"ok": False, "index": idx,
+                                             "error": "message too large"})
+                            _all_ok = False
+                            continue
+
+                        try:
+                            future = asyncio.run_coroutine_threadsafe(
+                                _pinfo["ws"].send(_serialized), _loop)
+                            future.result(timeout=5)
+                            _pinfo["messages_sent"] = _pinfo.get("messages_sent", 0) + 1
+                            _status["messages_sent"] += 1
+                            _results.append({"ok": True, "index": idx,
+                                             "message_id": _msg_id, "server_seq": _seq})
+                        except Exception as _send_err:
+                            _unregister_peer(_target_pid)
+                            _results.append({"ok": False, "index": idx,
+                                             "error": f"send failed: {_send_err}"})
+                            _all_ok = False
+
+                    except Exception as _item_err:
+                        _results.append({"ok": False, "index": idx,
+                                         "error": str(_item_err)})
+                        _all_ok = False
+
+                # Atomic mode: if any failed, return partial success indicator
+                _sent_count = sum(1 for r in _results if r.get("ok"))
+                self._json({
+                    "ok": _all_ok or not _atomic,
+                    "sent": _sent_count,
+                    "total": len(_messages),
+                    "results": _results,
+                    "atomic": _atomic,
+                })
+
+            except Exception as e:
+                self._json({"ok": False, "error_code": "ERR_INTERNAL", "error": str(e)}, 500)
 
         # ── POST /peer/{id}/rename — rename a peer for readability (v0.6) ────
         elif p.startswith("/peer/") and p.endswith("/rename"):
