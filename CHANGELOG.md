@@ -95,6 +95,7 @@ For per-release detailed notes, see the sections below.
 | **v3.12** | ✅ | **Governance Compliance Report (A2A #1717)** — `AgentCard.governance` adds `compliance_report`/`last_verified_at`/`operator_attestation`; `GET /governance/compliance`; `POST /governance/compliance`; `capabilities.governance_compliance: true` |
 | **v3.13** | ✅ | **Governance Audit Endpoint (A2A #1717 `auditEndpoint` first implementation)** — `GET /governance/audit` (structured IR query; `?limit=`/`?peer_id=`/`?task_id=`/`?since=` filters); `governance_metadata.audit_endpoint`; `capabilities.governance_audit: true` |
 | **v3.14** | ✅ | **`skill_trust_score` evidence-based composite + `application/acp+json` media type** — P1: `skill_trust_score` struct (`composite`/`evidence`/`last_calculated`) in `/skills`, `/skills/<id>/status`, `/skills/query`; `min_trust_score` filter in `POST /skills/query`; `capabilities.skill_trust_score: true`. P2: `application/acp+json; charset=utf-8` Content-Type when client sends `Accept: application/acp+json`; requests with `Content-Type: application/acp+json` accepted as equivalent to `application/json`; `capabilities.acp_json_media_type: true` (A2A `application/a2a+json` SHOULD aligned) |
+| **v3.15** | ✅ | **Batch Message Send (`POST /messages:batch`)** — atomic multi-message enqueue with per-message results (`ok`/`message_id`/`error`); `atomic: true` flag for all-or-nothing semantics; batch size limit 100; `capabilities.batch_message: true`; 7 integration tests |
 
 ---
 
@@ -136,6 +137,22 @@ For per-release detailed notes, see the sections below.
 - **`capabilities.acp_json_media_type: true`** declared in AgentCard
 - **Standard alignment**: A2A spec uses `application/a2a+json` SHOULD; ACP v3.14 introduces `application/acp+json` as its equivalent media type
 - 8/8 new tests (AMT1–AMT8) all PASS.
+
+### v3.15.0 — Batch Message Send
+
+- **`POST /messages:batch`**: Atomic multi-message enqueue endpoint.
+  - Request body: `{messages: [{role, parts|text, peer_id?, task_id?, context_id?, message_id?}, ...], atomic?: bool}`
+  - Max batch size: 100 messages (returns 413 `ERR_BATCH_TOO_LARGE` if exceeded)
+  - Per-message validation: `role` must be `"user"` or `"agent"`; either `parts` or `text` required
+  - Response: `{ok, sent, total, results[], atomic}`
+    - `ok`: true if all messages succeeded (or false if any failed and atomic=true)
+    - `sent`: count of successfully sent messages
+    - `total`: total messages in batch
+    - `results[]`: per-message result with `{ok, index, message_id?, server_seq?, error?}`
+    - `atomic`: echo of request flag
+- **`atomic: true` mode**: When set, all-or-nothing semantics; if any message fails, `ok: false` in response (though partial results still returned for debugging)
+- **AgentCard capability declaration**: `capabilities.batch_message: true`
+- **Test coverage**: 7 integration tests (B1–B7) covering capability declaration, basic batch, explicit peer_id, empty batch rejection, per-item validation errors, size limits, and atomic mode
 
 ### v3.13.0 — Governance Audit Endpoint
 
