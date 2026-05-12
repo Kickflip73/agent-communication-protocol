@@ -5,9 +5,9 @@
     "calendar": null,
     "weather": null
   },
-  "notes": "2026-04-28 08:55 — 测试轮（v3.14.0 验证）。v3.14.0 P1 skill_trust_score + P2 acp+json 全部测试通过（24/24 新测试 + 47/47 回归）。更新 test_skill_scoped_trust_v295.py SS13/SS14 适配新接口。CHANGELOG 更新。已提交并推送。下轮: 研究轮。",
-  "next_round": "research",
-  "today_rounds_completed": 34,
-  "last_research": "scan42",
+  "notes": "2026-05-12 11:35 — 研究轮 scan43。A2A v1.0 生态稳定（最后 commit 2026-04-23），#1846 Push Notification 中间状态缺失暴露可靠性问题。ANP 仍不可访问。评估 v3.16 方向：Message ACK 协议（P1，根本修复 BUG-012）。下轮: 开发轮（v3.16）。",
+  "next_round": "development",
+  "today_rounds_completed": 35,
+  "last_research": "scan43",
   "pending_push": null
 }
