@@ -1703,6 +1703,21 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 
 ---
 
+### BUG-065 ✅ P2 — test_batch_message.py 使用不存在的 `--http-port` 参数导致 relay 启动失败
+
+**发现日期**: 2026-05-15（心跳测试轮）
+**场景**: `tests/test_batch_message.py` 全部 7 个用例 ERROR（Relay exited early）
+**描述**: `_start_relay()` 函数传递 `--http-port` 参数给 `acp_relay.py`，但 relay 不支持该参数（HTTP 端口自动计算为 WS port + 100）。relay 启动时解析参数失败 → 进程退出 → fixture 报 RuntimeError。
+**根因**: v3.15 新增 batch message 测试时，`_start_relay()` 复用了旧版双端口模式，未同步到 relay 的单端口（+100）架构。
+**修复**: 
+1. 移除 `--http-port {http_port}` 参数
+2. `relay_pair` fixture 中 HTTP 端口改为 `alpha_ws + 100`
+3. 额外修复 B1: `capabilities` 断言路径从顶层改为 `self.capabilities`（AgentCard v3 结构调整）
+**影响**: 仅测试文件；v3.15 batch message 功能本身正常
+**状态**: ✅ 已修复（2026-05-15）
+
+---
+
 ### BUG-064 ✅ P2 — `test_trust_signals_v270` SC-1 + `test_trust_signals_v271` SP-1 版本断言过期（`startsWith("2.")` vs 实际 `3.10.0`）
 
 **发现日期**: 2026-04-12（全量测试扫描）

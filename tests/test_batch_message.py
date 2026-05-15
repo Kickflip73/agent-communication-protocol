@@ -39,11 +39,11 @@ def _start_relay(ws_port, http_port, name="BatchTest", join_link=None):
     cmd = [
         "python3", "-u", "relay/acp_relay.py",
         "--port", str(ws_port),
-        "--http-port", str(http_port),
         "--http-host", "127.0.0.1",
         "--name", name,
         "--local-only",
     ]
+    # HTTP port is auto-derived as ws_port + 100 by relay
     if join_link:
         cmd.extend(["--join", join_link])
 
@@ -105,8 +105,10 @@ def _wait_peer_connected(http_port, retries=20):
 @pytest.fixture(scope="module")
 def relay_pair():
     """Create a pair of connected relays for testing."""
-    alpha_ws, alpha_http = _free_port_pair()
-    beta_ws, beta_http = _free_port_pair()
+    alpha_ws, _ = _free_port_pair()
+    beta_ws, _ = _free_port_pair()
+    alpha_http = alpha_ws + 100  # HTTP port = WS port + 100
+    beta_http = beta_ws + 100
 
     alpha_proc = _start_relay(alpha_ws, alpha_http, "AlphaBatch")
 
@@ -151,7 +153,7 @@ class TestBatchMessageSend:
         r = requests.get(f"http://127.0.0.1:{relay_pair['alpha']['http']}/.well-known/acp.json")
         assert r.status_code == 200
         data = r.json()
-        assert data["capabilities"]["batch_message"] is True
+        assert data["self"]["capabilities"]["batch_message"] is True
 
     def test_b2_batch_send_basic(self, relay_pair):
         """B2: Basic batch send with 3 messages"""
