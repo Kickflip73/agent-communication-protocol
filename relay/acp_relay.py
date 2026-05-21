@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.15.0"  # v3.15: batch message send (POST /messages:batch) — atomic multi-message enqueue with per-message result + rollback on partial failure option
+VERSION = "3.16.0"  # v3.16: Message ACK protocol — acp.ack auto-reply; require_ack=true on POST /message:send; ack_timeout_ms param (default 5s, max 30s); ERR_ACK_TIMEOUT 408; ACK transparent to /recv; capabilities.message_ack=true
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -277,6 +277,7 @@ ERR_PARAM_CONSTRAINT     = "ERR_PARAM_CONSTRAINT"     # v2.50: task params viola
 ERR_CONFIRM_NOT_PENDING  = "ERR_CONFIRM_NOT_PENDING"  # v2.51: task not in input_required/confirmation_pending state
 ERR_SKILL_DEPRECATED     = "ERR_SKILL_DEPRECATED"     # v2.52: informational — skill is deprecated (task still created, warning injected)
 ERR_RATE_LIMIT           = "ERR_RATE_LIMIT"           # v2.53: caller has exceeded skill.rate_limit (429)
+ERR_ACK_TIMEOUT          = "ERR_ACK_TIMEOUT"          # v3.16: waiting for acp.ack timed out (408)
 
 def _err(code: str, message: str, http_status: int = 400,
          failed_message_id: str = None) -> tuple:
@@ -893,6 +894,16 @@ _federation_lock = threading.Lock()
 
 _pending_pongs: dict = {}  # v2.25: nonce -> asyncio.Future; resolved when acp.pong arrives
 _vouch_chain: list  = []  # v2.27: list of vouch_chain entries [{voucher_did, vouched_did, vouched_at, sig, comment}]
+
+# v3.16: pending ACK registry — {message_id: threading.Event}
+# When require_ack=true, sender registers an Event here, then blocks until
+# the event is set (by the incoming acp.ack handler) or timeout expires.
+# threading.Event is used (not asyncio) because /message:send runs in HTTP
+# threads, not the asyncio event loop.
+_pending_acks: dict = {}
+_pending_acks_lock = threading.Lock()
+_ACK_DEFAULT_TIMEOUT_MS = 5000   # v3.16: default ACK wait timeout (ms)
+_ACK_MAX_TIMEOUT_MS     = 30000  # v3.16: max ACK wait timeout (ms)
 
 def _make_peer_id():
     global _peer_id_counter
@@ -2293,6 +2304,7 @@ def _make_agent_card(name, skills):
             "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
             "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
             "batch_message":            True,                                  # v3.15: POST /messages:batch — atomic multi-message send
+            "message_ack":              True,                                  # v3.16: acp.ack auto-reply; require_ack=true on /message:send; ack_timeout_ms param; ERR_ACK_TIMEOUT 408
             "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
             "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
             "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
@@ -5797,6 +5809,19 @@ def _on_message(raw):
         log.debug(f"[typing] peer={_from_typing} typing={_typing_val}")
         return
 
+    # v3.16: acp.ack — peer acknowledged our message; notify any pending require_ack waiters
+    if msg_type == "acp.ack":
+        acked_msg_id = msg.get("ack_message_id") or msg.get("message_id")
+        if acked_msg_id:
+            with _pending_acks_lock:
+                evt = _pending_acks.get(acked_msg_id)
+            if evt:
+                evt.set()  # unblock the waiting /message:send thread
+                log.debug(f"[ack] Received acp.ack for {acked_msg_id} — event set")
+            else:
+                log.debug(f"[ack] Received unsolicited acp.ack for {acked_msg_id} (no waiter)")
+        return  # ACK never hits _recv_queue — transparent to user
+
     # Business message — idempotency check
     if not _check_and_record_message_id(message_id):
         return
@@ -5897,6 +5922,34 @@ def _on_message(raw):
                 except Exception as _ack_err:
                     log.debug(f"[delivery_ack] Failed to send ack for {message_id}: {_ack_err}")
             log.debug(f"[delivery_ack] Sent acp.delivered for {message_id} to {_from}")
+
+        # v3.16: send acp.ack back to sender — automatic ACK for every received business message
+        # acp.ack is distinct from acp.delivered: it signals protocol-level acknowledgement
+        # (used with require_ack=true on /message:send).  Not sent for acp.ack messages themselves.
+        if message_id:
+            _ack_reply_frame = json.dumps({
+                "type":           "acp.ack",
+                "ack_message_id": message_id,
+                "from":           _status.get("agent_name", "ACP-Agent"),
+                "timestamp":      int(time.time() * 1000),
+            }, ensure_ascii=False)
+            # Reuse the same sender WS lookup used for acp.delivered
+            _ack_reply_ws = None
+            for pinfo in _peers.values():
+                if pinfo.get("connected") and (
+                    pinfo.get("agent_name") == _from or pinfo.get("name") == _from
+                ):
+                    _ack_reply_ws = pinfo.get("ws")
+                    break
+            if _ack_reply_ws is None:
+                _ack_reply_ws = _ws_ctx  # fallback: single-peer scenario
+            if _ack_reply_ws:
+                try:
+                    asyncio.ensure_future(_ack_reply_ws.send(_ack_reply_frame))
+                except Exception as _ack_reply_err:
+                    log.debug(f"[ack] Failed to send acp.ack for {message_id}: {_ack_reply_err}")
+            log.debug(f"[ack] Sent acp.ack for {message_id} to {_from}")
+
         log.info(f"Message ({len(msg['parts'])} parts) from={msg.get('from','?')}")
         return
 
@@ -11469,9 +11522,35 @@ class LocalHTTP(BaseHTTPRequestHandler):
                             except Exception as _re:
                                 log.debug(f"[read_receipt] Failed to send acp.read: {_re}")
 
-                    self._json({"ok": True, "message_id": message_id,
-                               "client_msg_id": message_id,  # v2.84: echo for ANP-style callers
-                               "server_seq": seq, "task": task})
+                    # v3.16: require_ack — optionally wait for acp.ack from peer
+                    _require_ack = body.get("require_ack", False)
+                    _ack_timeout_ms = min(
+                        int(body.get("ack_timeout_ms", _ACK_DEFAULT_TIMEOUT_MS)),
+                        _ACK_MAX_TIMEOUT_MS,
+                    )
+                    if _require_ack:
+                        _ack_evt = threading.Event()
+                        with _pending_acks_lock:
+                            _pending_acks[message_id] = _ack_evt
+                        try:
+                            _acked = _ack_evt.wait(timeout=_ack_timeout_ms / 1000.0)
+                        finally:
+                            with _pending_acks_lock:
+                                _pending_acks.pop(message_id, None)
+                        if not _acked:
+                            e_body, e_code = _err(ERR_ACK_TIMEOUT,
+                                                  f"ACK timeout: no acp.ack received within {_ack_timeout_ms}ms",
+                                                  408,
+                                                  failed_message_id=message_id)
+                            self._json(e_body, e_code)
+                            return
+                        self._json({"ok": True, "message_id": message_id,
+                                   "client_msg_id": message_id,
+                                   "server_seq": seq, "task": task, "acked": True})
+                    else:
+                        self._json({"ok": True, "message_id": message_id,
+                                   "client_msg_id": message_id,  # v2.84: echo for ANP-style callers
+                                   "server_seq": seq, "task": task})
 
             except ConnectionError as e:
                 # message_id may be defined if we got past body parsing

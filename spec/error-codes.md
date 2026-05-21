@@ -40,6 +40,7 @@ The `error` field is human-readable and may change.
 | `ERR_INVALID_REQUEST` | 400 | Missing or malformed request parameters | — |
 | `ERR_TIMEOUT` | 408 | Sync reply wait timed out | ✅ included |
 | `ERR_INTERNAL` | 500 | Unexpected server-side exception | — |
+| `ERR_ACK_TIMEOUT` | 408 | `require_ack=true` and no `acp.ack` arrived within `ack_timeout_ms` | ✅ included |
 
 ---
 
