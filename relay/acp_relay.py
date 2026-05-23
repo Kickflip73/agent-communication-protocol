@@ -11859,6 +11859,35 @@ class LocalHTTP(BaseHTTPRequestHandler):
                               "server_seq": msg["server_seq"]}
                 if _peer_client_supplied:
                     _peer_resp["client_msg_id"] = message_id  # v2.84: echo back for ANP-style callers
+
+                # ── v3.16: require_ack — block until peer's acp.ack arrives ──
+                _require_ack = body.get("require_ack", False)
+                if _require_ack:
+                    _ack_timeout_ms = min(
+                        int(body.get("ack_timeout_ms", _ACK_DEFAULT_TIMEOUT_MS)),
+                        _ACK_MAX_TIMEOUT_MS,
+                    )
+                    _ack_evt = threading.Event()
+                    with _pending_acks_lock:
+                        _pending_acks[message_id] = _ack_evt
+                    try:
+                        _acked = _ack_evt.wait(timeout=_ack_timeout_ms / 1000.0)
+                    finally:
+                        with _pending_acks_lock:
+                            _pending_acks.pop(message_id, None)
+                    if _acked:
+                        _peer_resp["acked"] = True
+                    else:
+                        # ACK timeout — peer did not acknowledge
+                        e_body, e_code = _err(
+                            ERR_ACK_TIMEOUT,
+                            f"ACK timeout: no acp.ack received within {_ack_timeout_ms}ms",
+                            408,
+                            failed_message_id=message_id,
+                        )
+                        self._json(e_body, e_code)
+                        return
+
                 self._json(_peer_resp)
 
             except ConnectionError as e:
