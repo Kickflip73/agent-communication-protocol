@@ -1729,3 +1729,18 @@ curl -X POST http://127.0.0.1:<http_port>/tasks \
 **修复**: 两文件均改为 `assert d["version"]`（非空即可，不限 major）
 **验证**: 2/2 PASS（2026-04-12 12:35）
 **commit**: 见下一条
+
+### BUG-066 ✅ P1 — `/peer/{id}/send` 不支持 `require_ack` 参数（v3.16 功能缺失）
+
+**发现日期**: 2026-05-23（心跳测试轮 Round 36）
+**场景**: 真实双 Agent 集成测试（Alpha + Beta relay 实例）
+**描述**: v3.16 Message ACK 协议在 `/message:send` 中实现了 `require_ack` + `ack_timeout_ms` + `ERR_ACK_TIMEOUT 408`，但 `/peer/{id}/send`（定向发送）handler 缺少此逻辑。通过 `/peer/{id}/send` 发送 `require_ack=true` 的消息时，响应中 `acked=None`（未生效），消息照常发送但无 ACK 确认。
+**根因**: v3.16 开发时只在 `/message:send` POST handler（约 L11525）添加了 `_pending_acks` 阻塞等待逻辑，遗漏了 `/peer/{id}/send` handler（约 L11741）
+**影响**: 所有使用定向发送（多 peer 场景）的 Agent 无法享受 v3.16 ACK 确认功能
+**修复**: 在 `/peer/{id}/send` handler 的 `_peer_resp` 构建后、`self._json(_peer_resp)` 前，复制与 `/message:send` 相同的 require_ack/ack_timeout_ms/_pending_acks 阻塞逻辑
+**验证**: 
+- Test2 (peer+ack): `acked=True` ✅
+- Test4 (msg:send+ack regression): `acked=True` ✅  
+- test_message_ack.py: 8/8 PASS ✅
+**状态**: ✅ 已修复 (commit `df144dc`, 2026-05-23)
+

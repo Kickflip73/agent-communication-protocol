@@ -162,7 +162,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.16.0"  # v3.16: Message ACK protocol — acp.ack auto-reply; require_ack=true on POST /message:send; ack_timeout_ms param (default 5s, max 30s); ERR_ACK_TIMEOUT 408; ACK transparent to /recv; capabilities.message_ack=true
+VERSION = "3.17.0"  # v3.17: POST /messages:stream WebSocket streaming inlet — persistent WS; per-frame routing; {ok,message_id,server_seq} ack; ERR_PEER_NOT_FOUND; invalid JSON handled; completes reliable-messaging trio (batch v3.15 + ACK v3.16 + stream v3.17); capabilities.messages_stream=true
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 
@@ -2305,6 +2305,7 @@ def _make_agent_card(name, skills):
             "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
             "batch_message":            True,                                  # v3.15: POST /messages:batch — atomic multi-message send
             "message_ack":              True,                                  # v3.16: acp.ack auto-reply; require_ack=true on /message:send; ack_timeout_ms param; ERR_ACK_TIMEOUT 408
+            "messages_stream":          True,                                  # v3.17: POST /messages:stream WebSocket streaming inlet — persistent WS connection; per-frame routing
             "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
             "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
             "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
@@ -2414,6 +2415,7 @@ def _make_agent_card(name, skills):
             "peer_messages":           "/peers/{peer_id}/messages",  # v2.48: GET per-peer message history
             "peers_paginated":         "/peers?limit=&offset=&filter=",  # v2.27: paginated peer list
             "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
+            "messages_stream": "/messages:stream",      # v3.17: WebSocket streaming message inlet (POST upgrade)
             "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
             "delegation":        "/identity/delegation",          # v2.16: GET — query delegation chain
             "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
@@ -4308,6 +4310,219 @@ def _handle_ws_stream(handler):
         with _ws_stream_lock:
             _ws_stream_clients.discard(client)
         log.info(f"/ws/stream client disconnected (total={len(_ws_stream_clients)})")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# v3.17: POST /messages:stream — WebSocket streaming message inlet
+# ══════════════════════════════════════════════════════════════════════════════
+
+_messages_stream_seq_lock = threading.Lock()
+_messages_stream_seq = 0
+
+
+def _messages_stream_next_seq() -> int:
+    """Thread-safe monotonic sequence counter for /messages:stream frames."""
+    global _messages_stream_seq
+    with _messages_stream_seq_lock:
+        _messages_stream_seq += 1
+        return _messages_stream_seq
+
+
+def _handle_messages_stream(handler):
+    """
+    v3.17: Handle POST /messages:stream WebSocket streaming inlet.
+
+    The client upgrades to WebSocket and then continuously sends message frames:
+      { "peer_id": "peer_xxx", "content": "...",
+        "message_id": "optional-client-id", "require_ack": false }
+
+    For each frame the relay:
+      - Routes the message to the named peer (or the sole connected peer).
+      - Returns a per-frame confirmation:
+          {"ok": true,  "message_id": "...", "server_seq": 42}  on success
+          {"ok": false, "error": "ERR_PEER_NOT_FOUND", "message_id": "..."}  on failure
+      - On invalid JSON: {"ok": false, "error": "ERR_INVALID_JSON", "message_id": null}
+
+    Messages that were already enqueued before the connection closes are
+    considered delivered (queue-in = delivered, consistent with v3.15/v3.16).
+
+    Called from do_POST when path == /messages:stream and
+    Upgrade: websocket header is present.
+    """
+    try:
+        sock = _ws_handshake(handler)
+    except Exception as e:
+        log.warning(f"/messages:stream handshake failed: {e}")
+        return
+
+    log.info("/messages:stream client connected")
+    sock.settimeout(120.0)  # generous idle timeout; client can send at any rate
+
+    try:
+        while True:
+            try:
+                opcode, payload = _ws_recv_frame(sock)
+            except (ConnectionResetError, OSError):
+                break  # client disconnected cleanly
+
+            # Handle WebSocket control frames
+            if opcode == 0x8:  # close
+                # Echo close frame back
+                try:
+                    close_frame = bytearray([0x88, 0])
+                    sock.sendall(bytes(close_frame))
+                except Exception:
+                    pass
+                break
+            elif opcode == 0x9:  # ping → pong
+                try:
+                    pong = bytearray([0x8A, len(payload)]) + bytearray(payload)
+                    sock.sendall(bytes(pong))
+                except Exception:
+                    break
+                continue
+            elif opcode == 0xA:  # pong (unsolicited) — ignore
+                continue
+
+            # Parse frame payload as JSON
+            try:
+                frame = json.loads(payload.decode("utf-8"))
+            except Exception:
+                err_frame = json.dumps({
+                    "ok": False,
+                    "error": "ERR_INVALID_JSON",
+                    "message_id": None,
+                }, ensure_ascii=False)
+                try:
+                    _ws_send_frame(sock, err_frame)
+                except Exception:
+                    break
+                continue
+
+            # Extract fields
+            client_msg_id = frame.get("message_id") or _make_id("msg")
+            peer_id_raw   = frame.get("peer_id")
+            content       = frame.get("content") or frame.get("text") or ""
+            role          = frame.get("role", "user")
+            if role not in ("user", "agent"):
+                role = "user"
+
+            # Resolve target peer
+            if peer_id_raw:
+                target_pid = peer_id_raw
+                pinfo = _peers.get(target_pid)
+                if not pinfo or not pinfo.get("connected"):
+                    err_resp = json.dumps({
+                        "ok": False,
+                        "error": "ERR_PEER_NOT_FOUND",
+                        "message_id": client_msg_id,
+                    }, ensure_ascii=False)
+                    try:
+                        _ws_send_frame(sock, err_resp)
+                    except Exception:
+                        break
+                    continue
+            else:
+                # Default: sole connected peer
+                connected = [pid for pid, pi in _peers.items() if pi.get("connected")]
+                if len(connected) == 1:
+                    target_pid = connected[0]
+                    pinfo = _peers[target_pid]
+                elif len(connected) == 0:
+                    err_resp = json.dumps({
+                        "ok": False,
+                        "error": "ERR_PEER_NOT_FOUND",
+                        "message_id": client_msg_id,
+                    }, ensure_ascii=False)
+                    try:
+                        _ws_send_frame(sock, err_resp)
+                    except Exception:
+                        break
+                    continue
+                else:
+                    err_resp = json.dumps({
+                        "ok": False,
+                        "error": "ERR_AMBIGUOUS_PEER",
+                        "message_id": client_msg_id,
+                    }, ensure_ascii=False)
+                    try:
+                        _ws_send_frame(sock, err_resp)
+                    except Exception:
+                        break
+                    continue
+
+            # Build message envelope
+            seq = _next_seq()
+            server_seq = _messages_stream_next_seq()
+            parts = [_make_text_part(str(content))] if content else []
+            envelope = {
+                "type":       "acp.message",
+                "message_id": client_msg_id,
+                "server_seq": seq,
+                "ts":         _now(),
+                "from":       _status.get("agent_name", "unknown"),
+                "role":       role,
+                "parts":      parts,
+            }
+            if frame.get("task_id"):
+                envelope["task_id"] = frame["task_id"]
+            if frame.get("context_id"):
+                envelope["context_id"] = frame["context_id"]
+
+            serialized = json.dumps(envelope, ensure_ascii=False)
+
+            # Route to peer via WebSocket
+            ws_conn = pinfo.get("ws")
+            if not ws_conn:
+                err_resp = json.dumps({
+                    "ok": False,
+                    "error": "ERR_PEER_NOT_FOUND",
+                    "message_id": client_msg_id,
+                }, ensure_ascii=False)
+                try:
+                    _ws_send_frame(sock, err_resp)
+                except Exception:
+                    break
+                continue
+
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    ws_conn.send(serialized), _loop)
+                future.result(timeout=5)
+                pinfo["messages_sent"] = pinfo.get("messages_sent", 0) + 1
+                _status["messages_sent"] += 1
+            except Exception as send_err:
+                _unregister_peer(target_pid)
+                err_resp = json.dumps({
+                    "ok": False,
+                    "error": f"ERR_SEND_FAILED: {send_err}",
+                    "message_id": client_msg_id,
+                }, ensure_ascii=False)
+                try:
+                    _ws_send_frame(sock, err_resp)
+                except Exception:
+                    break
+                continue
+
+            # Send per-frame confirmation back to client
+            ack_resp = json.dumps({
+                "ok":         True,
+                "message_id": client_msg_id,
+                "server_seq": server_seq,
+            }, ensure_ascii=False)
+            try:
+                _ws_send_frame(sock, ack_resp)
+            except Exception:
+                break
+
+    except Exception as e:
+        log.warning(f"/messages:stream error: {e}")
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+        log.info("/messages:stream client disconnected")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -12026,6 +12241,20 @@ class LocalHTTP(BaseHTTPRequestHandler):
 
             except Exception as e:
                 self._json({"ok": False, "error_code": "ERR_INTERNAL", "error": str(e)}, 500)
+
+        # ── POST /messages:stream — WebSocket streaming message inlet (v3.17) ───
+        elif p == "/messages:stream":
+            upgrade = self.headers.get("Upgrade", "").lower()
+            if upgrade != "websocket":
+                self._json({
+                    "error": "WebSocket upgrade required",
+                    "hint": "Set 'Upgrade: websocket' and 'Connection: Upgrade' headers",
+                    "endpoint": "/messages:stream",
+                    "version": "v3.17",
+                }, 426)
+                return
+            self.close_connection = True
+            _handle_messages_stream(self)
 
         # ── POST /peer/{id}/rename — rename a peer for readability (v0.6) ────
         elif p.startswith("/peer/") and p.endswith("/rename"):

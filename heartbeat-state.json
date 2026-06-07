@@ -5,8 +5,8 @@
     "calendar": null,
     "weather": null
   },
-  "notes": "2026-06-06 05:34 — 研究轮 scan44 完成。A2A v1.0 稳定期，身份认证#1672仍无实现，ACP领先4+月。v3.17推荐：POST /messages:stream 流式入口(P1) + 双轴信任指标(P1)。",
-  "next_round": "develop",
+  "notes": "2026-06-08 05:34 — 开发轮 v3.17 完成。POST /messages:stream WebSocket 流式入口，可靠消息传递三件套收官。测试待下轮全量回归。",
+  "next_round": "test",
   "today_rounds_completed": 38,
   "last_research": "scan44",
   "pending_push": null
