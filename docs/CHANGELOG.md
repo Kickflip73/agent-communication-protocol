@@ -7,7 +7,7 @@ Dates: Asia/Shanghai (UTC+8)
 
 ---
 
-## Unreleased — Public Release Readiness
+## v3.17.1 — Public Release Readiness (2026-06-12)
 
 ### Added
 - GitHub Actions CI for Python, Node, Go, Rust, and MkDocs.
