@@ -8,7 +8,11 @@ Security fixes target the current `main` branch and the latest tagged release. O
 
 ## Reporting a Vulnerability
 
-Use GitHub Private Vulnerability Reporting from the repository's **Security** tab when it is enabled. Include:
+Use GitHub Private Vulnerability Reporting from the repository's **Security** tab when it is enabled:
+
+https://github.com/Kickflip73/agent-communication-protocol/security/advisories/new
+
+Include:
 
 - A short description of the issue and affected component
 - Reproduction steps or a proof of concept
@@ -25,4 +29,6 @@ Please avoid opening public GitHub issues for vulnerabilities until a maintainer
 
 ## Security Documentation
 
-See [docs/security.md](docs/security.md) for the relay security model, identity notes, and operational hardening guidance.
+See the published security model for relay identity notes and operational hardening guidance:
+
+https://kickflip73.github.io/agent-communication-protocol/security/

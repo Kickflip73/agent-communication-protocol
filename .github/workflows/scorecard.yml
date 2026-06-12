@@ -13,9 +13,6 @@ permissions:
   id-token: write
   security-events: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: scorecard-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -38,6 +35,6 @@ jobs:
           publish_results: true
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: scorecard.sarif
