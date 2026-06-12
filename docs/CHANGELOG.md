@@ -19,6 +19,7 @@ Dates: Asia/Shanghai (UTC+8)
 
 ### Fixed
 - Relay HTTP startup no longer performs reverse-DNS lookup during bind, avoiding local startup hangs.
+- Docker images now keep the HTTP API bound to `0.0.0.0` even when custom relay flags replace `CMD`.
 - Push webhook delivery now executes from the SSE broadcast path instead of unreachable code.
 - Reliable messaging tests use the active Python interpreter and explicit HTTP ports for deterministic CI runs.
 - MkDocs strict builds now pass after fixing stale relative links.
