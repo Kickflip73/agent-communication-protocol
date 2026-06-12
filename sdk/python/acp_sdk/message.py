@@ -68,7 +68,11 @@ class ACPMessage:
     # Auto-generated fields
     acp: str = "0.1"
     id: str = field(default_factory=lambda: "msg_" + str(uuid.uuid4()).replace("-", "")[:16])
-    ts: str = field(default_factory=lambda: datetime.datetime.utcnow().isoformat() + "Z")
+    ts: str = field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
     # Optional fields
     correlation_id: Optional[str] = None

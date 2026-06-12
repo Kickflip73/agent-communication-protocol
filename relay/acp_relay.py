@@ -3453,7 +3453,9 @@ def _init_security_posture():
     """v2.71: Populate _SECURITY_POSTURE with real installed package versions at startup."""
     import importlib.metadata as _ilm
     import datetime as _dt
-    _SECURITY_POSTURE["scanned_at"] = _dt.datetime.utcnow().isoformat() + "Z"
+    _SECURITY_POSTURE["scanned_at"] = (
+        _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    )
     for comp in _SECURITY_POSTURE["components"]:
         try:
             comp["version"] = _ilm.version(comp["name"])
@@ -13661,7 +13663,9 @@ class LocalHTTP(BaseHTTPRequestHandler):
             # Build and store evidence entry
             entries = _task_evidence.setdefault(task_id, [])
             seq = len(entries)
-            recorded_at = datetime.datetime.utcnow().isoformat() + "Z"
+            recorded_at = (
+                datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+            )
             entry = {
                 "seq":         seq,
                 "event_type":  event_type,

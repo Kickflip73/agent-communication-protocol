@@ -21,7 +21,7 @@ from pathlib import Path
 # ── ACP message helpers (inline, no SDK dependency) ──────────────────────────
 
 def now() -> str:
-    return datetime.datetime.utcnow().isoformat() + "Z"
+    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
 def make_id() -> str:
     return "msg_" + uuid.uuid4().hex[:12]

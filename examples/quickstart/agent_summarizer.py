@@ -21,7 +21,7 @@ AID = "did:acp:local:summarizer"
 
 
 def now() -> str:
-    return datetime.datetime.utcnow().isoformat() + "Z"
+    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def make_id() -> str:
