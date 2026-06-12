@@ -263,6 +263,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import (
     Encoding, PublicFormat, PrivateFormat, NoEncryption
 )
+from datetime import datetime, timezone
 import json, base64, hashlib
 
 def generate_identity(path="~/.acp/identity.json"):
@@ -275,7 +276,7 @@ def generate_identity(path="~/.acp/identity.json"):
         "public_key": pub_b64,
         "private_key": base64.urlsafe_b64encode(priv).rstrip(b'=').decode(),
         "did": did,
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "version": 1
     }
     with open(os.path.expanduser(path), 'w') as f:
