@@ -4230,6 +4230,7 @@ Dates: Asia/Shanghai (UTC+8)</p>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Relay HTTP startup no longer performs reverse-DNS lookup during bind, avoiding local startup hangs.</li>
+<li>Docker images now keep the HTTP API bound to <code>0.0.0.0</code> even when custom relay flags replace <code>CMD</code>.</li>
 <li>Push webhook delivery now executes from the SSE broadcast path instead of unreachable code.</li>
 <li>Reliable messaging tests use the active Python interpreter and explicit HTTP ports for deterministic CI runs.</li>
 <li>MkDocs strict builds now pass after fixing stale relative links.</li>
