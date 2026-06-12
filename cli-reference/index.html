@@ -1735,7 +1735,12 @@ This document covers every flag, common usage patterns, and environment variable
 <tr>
 <td><code>--port &lt;int&gt;</code></td>
 <td><code>7801</code></td>
-<td>WebSocket listen port. HTTP API auto-binds to <code>port + 100</code> (default: <code>7901</code>)</td>
+<td>WebSocket listen port. HTTP API auto-binds to <code>port + 100</code> unless <code>--http-port</code> is set</td>
+</tr>
+<tr>
+<td><code>--http-port &lt;int&gt;</code></td>
+<td><code>--port + 100</code></td>
+<td>Explicit HTTP API listen port. Useful in CI, containers, or hosts where <code>port + 100</code> is unavailable</td>
 </tr>
 <tr>
 <td><code>--join &lt;link&gt;</code></td>
@@ -1913,7 +1918,7 @@ Inspired by the gap identified in A2A protocol (issue #1667).</p>
 </tr>
 <tr>
 <td>HTTP API</td>
-<td><code>--port + 100</code> (default 7901)</td>
+<td><code>--http-port</code> or <code>--port + 100</code> (default 7901)</td>
 <td>All REST endpoints (<code>/message:send</code>, <code>/stream</code>, etc.)</td>
 </tr>
 </tbody>
@@ -1933,6 +1938,9 @@ Inspired by the gap identified in A2A protocol (issue #1667).</p>
 <h3 id="custom-port">Custom port<a class="headerlink" href="#custom-port" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;AgentA&quot;</span><span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># WebSocket: 9000   HTTP API: 9100</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;AgentA&quot;</span><span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w"> </span>--http-port<span class="w"> </span><span class="m">19001</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># WebSocket: 9000   HTTP API: 19001</span>
 </span></code></pre></div>
 <h3 id="behind-a-firewall-relay-fallback">Behind a firewall — relay fallback<a class="headerlink" href="#behind-a-firewall-relay-fallback" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>python3<span class="w"> </span>acp_relay.py<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;AgentA&quot;</span><span class="w"> </span>--relay
@@ -2013,7 +2021,7 @@ their scheduling metadata so callers know when to expect a response.</p>
 This is the first Agent communication protocol to support scheduling metadata natively.</p>
 <h4 id="live-availability-update-patch-v12">Live availability update (PATCH) — v1.2<a class="headerlink" href="#live-availability-update-patch-v12" title="Permanent link">&para;</a></h4>
 <p>A running heartbeat agent can stamp its wake times <strong>without restarting the relay</strong>
-by calling <code>PATCH /.well-known/acp.json</code> on the local HTTP port (<code>--port + 100</code>):</p>
+by calling <code>PATCH /.well-known/acp.json</code> on the local HTTP port (<code>--http-port</code>, or <code>--port + 100</code> by default):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># On each cron wake: update last_active_at + compute next_active_at</span>
 </span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="nv">NEXT</span><span class="o">=</span><span class="k">$(</span>date<span class="w"> </span>-u<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;+1 hour&#39;</span><span class="w"> </span>+%Y-%m-%dT%H:%M:%SZ<span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">       </span>date<span class="w"> </span>-u<span class="w"> </span>-v+1H<span class="w"> </span>+%Y-%m-%dT%H:%M:%SZ<span class="k">)</span><span class="w">   </span><span class="c1"># macOS fallback</span>
@@ -2096,7 +2104,7 @@ by calling <code>PATCH /.well-known/acp.json</code> on the local HTTP port (<cod
 </span></code></pre></div></p>
 <hr />
 <h2 id="quick-api-reference">Quick API Reference<a class="headerlink" href="#quick-api-reference" title="Permanent link">&para;</a></h2>
-<p>Once running, the HTTP API is available at <code>http://localhost:&lt;port+100&gt;</code>:</p>
+<p>Once running, the HTTP API is available at <code>http://localhost:&lt;http-port&gt;</code>:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Send a message</span>
 </span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:7901/message:send<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
@@ -2117,7 +2125,7 @@ by calling <code>PATCH /.well-known/acp.json</code> on the local HTTP port (<cod
 </span><span id="__span-25-18"><a id="__codelineno-25-18" name="__codelineno-25-18" href="#__codelineno-25-18"></a><span class="c1"># LAN discovery (requires --advertise-mdns)</span>
 </span><span id="__span-25-19"><a id="__codelineno-25-19" name="__codelineno-25-19" href="#__codelineno-25-19"></a>curl<span class="w"> </span>http://localhost:7901/discover
 </span></code></pre></div>
-<p>Full API reference: <a href="../spec/core-v0.8.md"><code>spec/core-v0.8.md §4</code></a>.</p>
+<p>Full API reference: <a href="../spec/core-v0.8/"><code>spec/core-v0.8.md §4</code></a>.</p>
 <hr />
 <hr />
 <h2 id="config-files">Config Files<a class="headerlink" href="#config-files" title="Permanent link">&para;</a></h2>
@@ -2296,7 +2304,7 @@ use JSON format instead.</p>
 </tr>
 <tr>
 <td><code>8100</code></td>
-<td>HTTP API + AgentCard (<code>--port + 100</code>)</td>
+<td>HTTP API + AgentCard (<code>--http-port</code>, default <code>--port + 100</code>)</td>
 </tr>
 </tbody>
 </table>

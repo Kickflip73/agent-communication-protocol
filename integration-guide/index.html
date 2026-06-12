@@ -2445,7 +2445,7 @@ changes to the core SDK</strong> (LangChain remains an optional dependency).</p>
 - <strong>Dynamic subclassing</strong>: builds a real <code>BaseTool</code> / <code>BaseCallbackHandler</code> subclass inside <code>__new__</code> — compatible with LangChain Pydantic v1 and v2.
 - <strong>Zero new mandatory deps</strong>: core <code>acp-client</code> remains stdlib-only.
 - <strong>Graceful errors</strong>: <code>_run</code> / <code>_arun</code> return descriptive error strings (never raise) so the LLM can observe and retry.</p>
-<p>See <a href="../sdk/python/README-sdk.md#langchain-integration">sdk/python/README-sdk.md</a> for the full API reference.</p>
+<p>See <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/sdk/python/README-sdk.md#langchain-integration">sdk/python/README-sdk.md</a> for the full API reference.</p>
 <hr />
 <h2 id="nodejs-sdk">Node.js SDK<a class="headerlink" href="#nodejs-sdk" title="Permanent link">&para;</a></h2>
 <div class="language-javascript highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">RelayClient</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;./sdk/node/relay_client.mjs&#39;</span><span class="p">;</span>

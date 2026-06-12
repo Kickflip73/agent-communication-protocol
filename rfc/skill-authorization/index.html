@@ -1559,7 +1559,7 @@
 <hr />
 <h2 id="9-implementation-notes">9. Implementation Notes<a class="headerlink" href="#9-implementation-notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Reference implementation: <a href="../../relay/acp_relay.py"><code>relay/acp_relay.py</code></a> — <code>_compute_effective_tier()</code>, <code>_check_authorization_tier()</code>, <code>_issue_capability_token()</code>, <code>_verify_capability_token()</code></li>
+<li>Reference implementation: <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/relay/acp_relay.py"><code>relay/acp_relay.py</code></a> — <code>_compute_effective_tier()</code>, <code>_check_authorization_tier()</code>, <code>_issue_capability_token()</code>, <code>_verify_capability_token()</code></li>
 <li>Test coverage: <code>tests/test_effective_tier.py</code>, <code>tests/test_effective_tier_v276.py</code>, <code>tests/test_capability_token.py</code>, <code>tests/test_capability_token_detail_v274.py</code>, <code>tests/test_capability_token_revoke_v278.py</code>, <code>tests/test_capability_token_validate_v277.py</code>, <code>tests/test_capability_token_fixtures_v275.py</code> — <strong>60+ passing tests</strong></li>
 <li>CLI flags: <code>--skill-tiers "skill_id:T2,other_skill:T3"</code>, <code>--human-confirm-t3</code>, <code>--auto-confirm-t3</code> (test only)</li>
 <li>Version history: T0–T3 tiers (v2.50), <code>human_confirmation_required</code> (v2.51), <code>confirmation_pending</code> state (v2.51), capability tokens (v2.74), five-factor <code>effective_tier</code> (v2.76)</li>

@@ -1193,8 +1193,8 @@
 <strong>Authors:</strong> ACP Community<br />
 <strong>Date:</strong> 2026-03-21<br />
 <strong>License:</strong> Apache 2.0<br />
-<strong>Supersedes:</strong> <a href="core-v0.5.md">core-v0.5.md</a>, <a href="core-v0.1.md">core-v0.1.md</a><br />
-<strong>See also:</strong> <a href="../transports/">transports.md</a> · <a href="error-codes.md">error-codes.md</a> · <a href="identity-v0.8.md">identity-v0.8.md</a></p>
+<strong>Supersedes:</strong> <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/core-v0.5.md">core-v0.5.md</a>, <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/core-v0.1.md">core-v0.1.md</a>
+<strong>See also:</strong> <a href="../transports/">transports.md</a> · <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/error-codes.md">error-codes.md</a> · <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/identity-v0.8.md">identity-v0.8.md</a></p>
 <hr />
 <h2 id="0-design-principles">0. Design Principles<a class="headerlink" href="#0-design-principles" title="Permanent link">&para;</a></h2>
 <p>ACP is a lightweight, open protocol for direct Agent-to-Agent communication.</p>
@@ -1640,7 +1640,7 @@
 </tbody>
 </table>
 <p><code>failed_message_id</code> is present for <code>ERR_TIMEOUT</code> and <code>ERR_MSG_TOO_LARGE</code> only.</p>
-<p>See <a href="error-codes.md">error-codes.md</a> for retry guidance and full examples.</p>
+<p>See <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/error-codes.md">error-codes.md</a> for retry guidance and full examples.</p>
 <hr />
 <h2 id="6-optional-extensions">6. Optional Extensions<a class="headerlink" href="#6-optional-extensions" title="Permanent link">&para;</a></h2>
 <p>Extensions are opt-in fields that can be combined freely. Absence of any extension
@@ -1672,7 +1672,7 @@ Mismatch → log warning + set <code>_sig_invalid=true</code> on message object.
 <p>AgentCard: <code>capabilities.identity = "ed25519"</code>, <code>identity.{scheme, public_key}</code> block.</p>
 <p>CLI: <code>--identity [path]</code>. Requires: <code>pip install cryptography</code>.</p>
 <p>HMAC and Ed25519 may be active simultaneously — they serve different use cases.</p>
-<p>See <a href="identity-v0.8.md">identity-v0.8.md</a> for full spec including coexistence table and security properties.</p>
+<p>See <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/identity-v0.8.md">identity-v0.8.md</a> for full spec including coexistence table and security properties.</p>
 <h3 id="63-context_id-v07">6.3 context_id (v0.7)<a class="headerlink" href="#63-context_id-v07" title="Permanent link">&para;</a></h3>
 <p>Groups messages across multiple turns into a named conversation context:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">&quot;context_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ctx_xyz456&quot;</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span>
