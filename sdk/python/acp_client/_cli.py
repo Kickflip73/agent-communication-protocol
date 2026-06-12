@@ -25,7 +25,6 @@ import argparse
 import json
 import sys
 
-
 DEFAULT_URL = "http://localhost:7901"
 
 

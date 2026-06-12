@@ -202,7 +202,7 @@ cloudflared tunnel --url http://localhost:7901
 acp-relay --relay "acp+wss://your-worker.workers.dev/..."
 ```
 
-This transport uses HTTPS by default. See [transports.md](transports.md) §Binding-C.
+This transport uses HTTPS by default. See [transports.md](spec/transports.md) §Binding-C.
 
 ---
 

@@ -106,6 +106,7 @@ Usage:
 Requires: pip install websockets
 """
 import asyncio
+import concurrent.futures
 import json
 import uuid
 import time
@@ -319,6 +320,7 @@ CANCELLING_STATES  = {TASK_CANCELLING}
 # ── Global state ───────────────────────────────────────────────────────────────
 _recv_queue: deque = deque(maxlen=1000)
 _peer_ws    = None
+_ws_ctx     = None
 _loop       = None
 _inbox_path = None
 
@@ -4017,6 +4019,10 @@ def _broadcast_sse_event(event_type, payload):
     _sse_notify.set()   # BUG-009 fix: wake up SSE polling handlers immediately
     # v2.12: also broadcast to WebSocket /ws/stream clients
     _broadcast_ws_stream_event(event_type, event)
+    if _push_webhooks:
+        body = json.dumps(event, ensure_ascii=False).encode()
+        for url in list(_push_webhooks):
+            threading.Thread(target=_deliver_push, args=(url, body), daemon=True).start()
 
 
 # v2.3: SSE event type → named SSE event field mapping.
@@ -4042,10 +4048,6 @@ def _sse_format(evt: dict) -> bytes:
     if event_name:
         return f"event: {event_name}\n{data_line}".encode()
     return data_line.encode()
-    if _push_webhooks:
-        body = json.dumps(event, ensure_ascii=False).encode()
-        for url in list(_push_webhooks):
-            threading.Thread(target=_deliver_push, args=(url, body), daemon=True).start()
 
 def _deliver_push(url, body):
     try:
@@ -6599,7 +6601,7 @@ async def _send_agent_card(ws):
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def host_mode(token, ws_port, http_port):
-    global _peer_ws
+    global _peer_ws, _ws_ctx
 
     async def on_guest(websocket):
         global _peer_ws
@@ -14849,6 +14851,15 @@ class _ACPHTTPServer(ThreadingHTTPServer):
     request_queue_size  = 64
     daemon_threads      = True
 
+    def server_bind(self):
+        """Bind without reverse-DNS lookup so local API startup cannot hang."""
+        import socketserver
+
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
 
 def run_http(port, host="127.0.0.1", http2=False):
     # BUG-001 root-cause fix (2026-03-23): use ThreadingHTTPServer so that
@@ -15259,6 +15270,9 @@ Examples:
                         help="Relay endpoint URL (default: public Cloudflare Worker)")
     parser.add_argument("--port",         type=int, default=None,
                         help="WebSocket listen port (default: 7801; HTTP API = port+100)")
+    parser.add_argument("--http-port",    type=int, default=None,
+                        help="HTTP API listen port (default: WebSocket port + 100). "
+                             "Use this when port+100 is unavailable.")
     parser.add_argument("--skills",       default=None,
                         help="Comma-separated skill ids to advertise in AgentCard")
     parser.add_argument("--inbox",        default=None,
@@ -15476,6 +15490,7 @@ Examples:
     use_relay      = _get_bool(args.relay,          "relay")
     relay_url      = _get(args.relay_url,    "relay-url",      _DEFAULT_RELAY)
     port           = _get(args.port,         "port",           7801)
+    http_port_arg  = _get(args.http_port,    "http-port",      None)
     skills_str     = _get(args.skills,       "skills",         "")
     inbox_path     = _get(args.inbox,        "inbox",          None)
     max_msg_size   = _get(args.max_msg_size, "max-msg-size",   MAX_MSG_BYTES)
@@ -15670,12 +15685,13 @@ Examples:
     args.relay         = use_relay
     args.relay_url     = relay_url
     args.port          = port
+    args.http_port     = int(http_port_arg) if http_port_arg is not None else None
     args.skills        = skills_str
     args.inbox         = inbox_path
     args.advertise_mdns = advertise_mdns
 
     ws_port   = args.port
-    http_port = args.port + 100
+    http_port = args.http_port if args.http_port is not None else args.port + 100
     # v2.10: Skills-lite — support both plain CSV ("summarize,translate") and
     # JSON array ('[{"id":"summarize","name":"Text Summarization","tags":["nlp"]}]').
     if args.skills:
@@ -16686,6 +16702,3 @@ async def connect_with_holepunch(ws_uri: str, relay_ws=None, local_udp_port: int
 
 if __name__ == "__main__":
     main()
-
-
-

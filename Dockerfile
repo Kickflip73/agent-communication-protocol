@@ -43,9 +43,9 @@ ARG EXTRAS=base
 
 LABEL org.opencontainers.image.title="ACP Relay" \
       org.opencontainers.image.description="ACP P2P Agent Communication Protocol relay" \
-      org.opencontainers.image.version="1.3.0" \
+      org.opencontainers.image.version="3.17.0" \
       org.opencontainers.image.source="https://github.com/Kickflip73/agent-communication-protocol" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="Apache-2.0"
 
 WORKDIR /app
 

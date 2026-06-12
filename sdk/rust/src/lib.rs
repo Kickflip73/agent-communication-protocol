@@ -217,6 +217,7 @@ pub struct RelayStatus {
 /// Blocking HTTP client for a running `acp_relay.py` instance.
 ///
 /// Default base URL: `http://localhost:8100`
+#[derive(Debug)]
 pub struct RelayClient {
     base: String,
     http: Client,

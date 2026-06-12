@@ -314,7 +314,7 @@ UDP（通用数据报协议）。打洞成功后，ACP 会在打洞建立的 NAT
 
 ## 相关链接
 
-- [ACP NAT Traversal 规范 v1.4](../spec/nat-traversal-v1.4.md)
-- [架构总览](../README.md)
+- [ACP NAT Traversal 规范 v1.4](spec/nat-traversal-v1.4.md)
+- [架构总览](architecture.md)
 - [CLI 参数参考](cli-reference.md)
 - [集成指南](integration-guide.md)

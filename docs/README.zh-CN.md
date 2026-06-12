@@ -7,19 +7,19 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/版本-v3.13.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/版本-v3.17.0-blue?style=flat-square" alt="Version">
   </a>
-  <a href="../LICENSE">
+  <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/协议-Apache_2.0-green?style=flat-square" alt="License">
   </a>
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-零重量级依赖-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/延迟-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/测试-1574%2F1574_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/测试-300%2B_CI_checks-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
-  <a href="../README.md">English</a> ·
+  <a href="https://github.com/Kickflip73/agent-communication-protocol/blob/main/README.md">English</a> ·
   <strong>简体中文</strong>
 </p>
 
@@ -155,7 +155,7 @@ python3 relay/acp_relay.py --name EdgeAgent --transport-modes p2p
 
 > **区别：** `transport_modes` 声明*路由拓扑*（数据走哪条路径）。  
 > `capabilities.supported_transports` 声明*协议绑定*（字节如何封帧）。  
-> 两者正交——详见 [spec §5.4](../spec/core-v1.0.md)。
+> 两者正交——详见 [spec §5.4](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/core-v1.0.md)。
 
 ---
 
@@ -278,7 +278,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** 均值发送延迟 · **2.8ms** P99
 - **1,100+ req/s** 顺序吞吐 · **1,200+ req/s** 并发（10 线程）
 - **< 50ms** SSE 推送延迟（threading.Event，非轮询）
-- **1574/1574 单元 + 集成测试通过**
+- **300+ 发布 CI 检查通过**（认证 · 集成 · 可靠消息 · 混合身份 · Python/Node/Go/Rust SDK · 文档）
 - **190+ commits** · **3,300+ 行** · **零已知 P0/P1 Bug**
 
 ---
@@ -447,7 +447,7 @@ python3 relay/acp_relay.py --name MyAgent --no-identity
 | **v3.12** | 治理合规报告——`GET/POST /governance/compliance`；AgentCard.governance 新增 `compliance_report`/`last_verified_at`/`operator_attestation` |
 | **v3.11** | 异步 Task Queue Workers——注册 `callback_url` worker，入队自动派发，`DELETE /tasks/queue/worker/{id}` |
 
-→ [完整更新日志](../CHANGELOG.md)
+→ [完整更新日志](CHANGELOG.md)
 
 ---
 
@@ -506,7 +506,7 @@ agent-communication-protocol/
 
 ## 贡献
 
-欢迎贡献！详见 [CONTRIBUTING.zh.md](../CONTRIBUTING.zh.md)。
+欢迎贡献！详见 [CONTRIBUTING.zh.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/CONTRIBUTING.zh.md)。
 
 - Bug 报告 & 功能请求 → [GitHub Issues](https://github.com/Kickflip73/agent-communication-protocol/issues)
 - 协议设计讨论 → [GitHub Discussions](https://github.com/Kickflip73/agent-communication-protocol/discussions)
@@ -515,7 +515,7 @@ agent-communication-protocol/
 
 ## 许可证
 
-[Apache License 2.0](../LICENSE)
+[Apache License 2.0](https://github.com/Kickflip73/agent-communication-protocol/blob/main/LICENSE)
 
 ---
 

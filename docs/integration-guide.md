@@ -496,7 +496,7 @@ print(result)
 - **Zero new mandatory deps**: core `acp-client` remains stdlib-only.
 - **Graceful errors**: `_run` / `_arun` return descriptive error strings (never raise) so the LLM can observe and retry.
 
-See [sdk/python/README-sdk.md](../sdk/python/README-sdk.md#langchain-integration) for the full API reference.
+See [sdk/python/README-sdk.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/sdk/python/README-sdk.md#langchain-integration) for the full API reference.
 
 ---
 

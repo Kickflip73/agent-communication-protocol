@@ -186,7 +186,7 @@ python3 -m pytest tests/unit/ -v
 python3 -m pytest tests/test_compat.py -v  # if present
 ```
 
-See [`spec/compatibility-certification.md`](../spec/compatibility-certification.md) for full certification criteria.
+See [`spec/compatibility-certification.md`](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/compatibility-certification.md) for full certification criteria.
 
 ---
 

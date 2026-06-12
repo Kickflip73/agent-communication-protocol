@@ -299,8 +299,8 @@ ACP does not auto-expire typing state (e.g., after 30 seconds of no update). Imp
 
 ## Related Specs
 
-- [Delivery ACK — v2.35](./delivery-ack-v2.35.md) *(planned)*
-- [Read Receipt — v2.36](./read-receipt-v2.36.md) *(planned)*
+- Delivery ACK — v2.35 *(planned)*
+- Read Receipt — v2.36 *(planned)*
 - [Peer Trust Score — v2.34](./peer-trust-v2.34.md)
 - [Core Protocol — v0.8](./core-v0.8.md)
 

@@ -9,6 +9,24 @@ For per-release detailed notes, see the sections below.
 
 ---
 
+## Unreleased — Public Release Readiness
+
+### Added
+- GitHub Actions CI for Python, Node, Go, Rust, and MkDocs.
+- Dependabot configuration, issue templates, pull request template, security policy, code of conduct, editor config, and a top-level Makefile.
+
+### Changed
+- Python package metadata now matches the current relay version and builds clean sdist/wheel artifacts.
+- CI now runs a stable release smoke suite covering certification, integration, reliable messaging, hybrid identity, and Python SDK tests.
+
+### Fixed
+- Relay HTTP startup no longer performs reverse-DNS lookup during bind, avoiding local startup hangs.
+- Push webhook delivery now executes from the SSE broadcast path instead of unreachable code.
+- Reliable messaging tests use the active Python interpreter and explicit HTTP ports for deterministic CI runs.
+- MkDocs strict builds now pass after fixing stale relative links.
+
+---
+
 ## Version History
 
 | Version | Status | Highlights |

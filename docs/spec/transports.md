@@ -2,7 +2,7 @@
 
 **Status:** Draft  
 **Version:** 0.3 (2026-03-20 — §3.6 transport-level HTTP headers clarification, Binding A)  
-**Language:** **English** · [中文](transports.zh.md)
+**Language:** **English** · [中文](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/transports.zh.md)
 
 > **What changed in v0.3:**  
 > Added §3.6 transport-level HTTP headers clarification for Binding A.  

@@ -266,7 +266,7 @@ A2A Issue [#1718](https://github.com/google/A2A/issues/1718) (viftode4, 2026-04-
 
 ## 9. Implementation Notes
 
-- Reference implementation: [`relay/acp_relay.py`](../../relay/acp_relay.py)
+- Reference implementation: [`relay/acp_relay.py`](https://github.com/Kickflip73/agent-communication-protocol/blob/main/relay/acp_relay.py)
   - `_create_interaction_record()` — record creation + bilateral signing (v2.59/v2.61)
   - `_bilateral_ir_merkle_root()` — Merkle root computation (v2.72)
   - `_bilateral_ir_adj()` — trust adjustment factor (v2.76)

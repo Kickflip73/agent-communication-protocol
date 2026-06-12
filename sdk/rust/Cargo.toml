@@ -2,7 +2,6 @@
 name = "acp-relay-sdk"
 version = "1.2.0"
 edition = "2021"
-rust-edition = "2021"
 description = "ACP Relay SDK for Rust — send/receive messages via acp_relay.py HTTP API"
 license = "Apache-2.0"
 repository = "https://github.com/Kickflip73/agent-communication-protocol"

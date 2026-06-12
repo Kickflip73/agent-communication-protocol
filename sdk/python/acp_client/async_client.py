@@ -23,23 +23,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import queue as _queue
 import time
 import urllib.error
 import urllib.request
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List
 
 from .client import _http_get, _http_post
 from .exceptions import (
-    ACPError,
-    PeerNotFoundError,
     SendError,
     TaskNotCancelableError,
     _raise_from_response,
 )
-from .models import AgentCard, Message, Task, TaskStatus
+from .models import AgentCard, Message, Task
 
-import logging
 logger = logging.getLogger("acp_client.async")
 
 

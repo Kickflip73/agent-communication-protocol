@@ -281,7 +281,7 @@ ACP has addressed this gap since v2.50 (skill tiers), v2.51 (human confirmation)
 
 ## 9. Implementation Notes
 
-- Reference implementation: [`relay/acp_relay.py`](../../relay/acp_relay.py) — `_compute_effective_tier()`, `_check_authorization_tier()`, `_issue_capability_token()`, `_verify_capability_token()`
+- Reference implementation: [`relay/acp_relay.py`](https://github.com/Kickflip73/agent-communication-protocol/blob/main/relay/acp_relay.py) — `_compute_effective_tier()`, `_check_authorization_tier()`, `_issue_capability_token()`, `_verify_capability_token()`
 - Test coverage: `tests/test_effective_tier.py`, `tests/test_effective_tier_v276.py`, `tests/test_capability_token.py`, `tests/test_capability_token_detail_v274.py`, `tests/test_capability_token_revoke_v278.py`, `tests/test_capability_token_validate_v277.py`, `tests/test_capability_token_fixtures_v275.py` — **60+ passing tests**
 - CLI flags: `--skill-tiers "skill_id:T2,other_skill:T3"`, `--human-confirm-t3`, `--auto-confirm-t3` (test only)
 - Version history: T0–T3 tiers (v2.50), `human_confirmation_required` (v2.51), `confirmation_pending` state (v2.51), capability tokens (v2.74), five-factor `effective_tier` (v2.76)

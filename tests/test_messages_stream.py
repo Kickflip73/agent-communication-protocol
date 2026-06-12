@@ -69,8 +69,9 @@ def _relay_env():
 def _start_relay(ws_port, http_port, name="MSTest", join_link=None):
     """Start a relay subprocess and wait until HTTP /status is ready."""
     cmd = [
-        "python3", "-u", "relay/acp_relay.py",
+        sys.executable, "-u", "relay/acp_relay.py",
         "--port", str(ws_port),
+        "--http-port", str(http_port),
         "--http-host", "127.0.0.1",
         "--name", name,
         "--local-only",

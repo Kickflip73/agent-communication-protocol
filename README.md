@@ -7,7 +7,7 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.13.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v3.17.0-blue?style=flat-square" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-1574%2F1574_PASS-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tested-300%2B_CI_checks-success?style=flat-square" alt="Tests">
 </p>
 
 <p>
@@ -316,7 +316,7 @@ for event in sseclient.SSEClient("http://localhost:7901/stream"):
 - **0.6ms** avg send latency · **2.8ms** P99
 - **1,100+ req/s** sequential throughput · **1,200+ req/s** concurrent (10 threads)
 - **< 50ms** SSE push latency (threading.Event, not polling)
-- **1574/1574 unit + integration tests PASS** (error handling · pressure test · NAT traversal · ring pipeline · transport_modes · context query · federation · Pub/Sub · heartbeat-agent · task-queue-worker · governance-compliance · governance-audit)
+- **300+ release CI checks PASS** (certification · integration · reliable messaging · hybrid identity · Python/Node/Go/Rust SDKs · docs)
 - **190+ commits** · **3,300+ lines** · **zero known P0/P1 bugs**
 
 ---
@@ -563,7 +563,7 @@ curl -X POST http://localhost:7901/peers/connect \
 
 **ACP vs A2A (Google's protocol):** A2A requires OAuth 2.0, an HTTPS endpoint you must host, and an agent registry. ACP requires `pip install websockets`. A2A is great for enterprise platforms; ACP is for individuals, sandboxed agents, and fast prototyping.
 
-**Status:** Single-file Python daemon, 1574 tests passing, Apache 2.0. Built in public over ~190 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
+**Status:** Single-file Python daemon, release smoke suite passing, Apache 2.0. Built in public over ~190 commits. Would love feedback on the P2P design and the `acp://` URI scheme.
 
 ---
 

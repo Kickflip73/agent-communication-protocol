@@ -33,22 +33,21 @@ Usage:
 from __future__ import annotations
 
 import json
-import time
 import logging
-import urllib.request
+import time
 import urllib.error
+import urllib.request
 from typing import Any, Dict, Generator, List, Optional
 
 from .exceptions import (
-    ACPError,
     ConnectionError as ACPConnectionError,
-    PeerNotFoundError,
-    TaskNotFoundError,
-    TaskNotCancelableError,
+)
+from .exceptions import (
     SendError,
+    TaskNotCancelableError,
     _raise_from_response,
 )
-from .models import AgentCard, Message, Task, TaskStatus
+from .models import AgentCard, Message, Task
 
 logger = logging.getLogger("acp_client")
 
@@ -498,7 +497,6 @@ class RelayClient:
         Returns:
             Final Task model (may still be non-terminal if timeout was reached).
         """
-        TERMINAL = {"completed", "failed", "canceled"}
         deadline = time.monotonic() + timeout
         task = self.get_task(task_id)
         while not task.is_terminal() and time.monotonic() < deadline:

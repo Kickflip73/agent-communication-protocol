@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible ACP relay, SDK, or spec problem.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make ACP sturdier. Please include a minimal reproduction so maintainers can verify the issue quickly.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug and the behavior you expected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Commands, code, or curl requests that reproduce the issue.
+      placeholder: |
+        1. Run `python relay/acp_relay.py --name AgentA`
+        2. Send request ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Relay
+        - Python SDK
+        - Node SDK
+        - Go SDK
+        - Rust SDK
+        - Java SDK
+        - Protocol spec
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ACP version or commit
+      placeholder: v3.17.0 or commit SHA
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python/Node/Go/Rust versions, network/NAT context if relevant.
+      placeholder: macOS 15, Python 3.12, websockets 16.0, behind CGNAT
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      render: shell

@@ -28,7 +28,8 @@ python3 acp_relay.py [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--name <str>` | `ACP-Agent` | Human-readable agent name, shown in AgentCard and peer lists |
-| `--port <int>` | `7801` | WebSocket listen port. HTTP API auto-binds to `port + 100` (default: `7901`) |
+| `--port <int>` | `7801` | WebSocket listen port. HTTP API auto-binds to `port + 100` unless `--http-port` is set |
+| `--http-port <int>` | `--port + 100` | Explicit HTTP API listen port. Useful in CI, containers, or hosts where `port + 100` is unavailable |
 | `--join <link>` | *(none)* | Connect to an existing peer immediately on startup. Accepts `acp://` or `acp+wss://` links |
 | `--skills <csv>` | *(none)* | Comma-separated list of skill ids to advertise in AgentCard (e.g. `summarize,translate`) |
 | `--inbox <path>` | `/tmp/acp_inbox_<name>.jsonl` | Path to JSONL message persistence file |
@@ -99,7 +100,7 @@ Inspired by the gap identified in A2A protocol (issue #1667).
 | Purpose | Port | Notes |
 |---------|------|-------|
 | WebSocket (P2P) | `--port` (default 7801) | Used for agent-to-agent WebSocket connections |
-| HTTP API | `--port + 100` (default 7901) | All REST endpoints (`/message:send`, `/stream`, etc.) |
+| HTTP API | `--http-port` or `--port + 100` (default 7901) | All REST endpoints (`/message:send`, `/stream`, etc.) |
 
 ---
 
@@ -123,6 +124,9 @@ python3 acp_relay.py --name "AgentB" --join "acp://1.2.3.4:7801/tok_xxxxx"
 ```bash
 python3 acp_relay.py --name "AgentA" --port 9000
 # WebSocket: 9000   HTTP API: 9100
+
+python3 acp_relay.py --name "AgentA" --port 9000 --http-port 19001
+# WebSocket: 9000   HTTP API: 19001
 ```
 
 ### Behind a firewall — relay fallback
@@ -233,7 +237,7 @@ This is the first Agent communication protocol to support scheduling metadata na
 #### Live availability update (PATCH) — v1.2
 
 A running heartbeat agent can stamp its wake times **without restarting the relay**
-by calling `PATCH /.well-known/acp.json` on the local HTTP port (`--port + 100`):
+by calling `PATCH /.well-known/acp.json` on the local HTTP port (`--http-port`, or `--port + 100` by default):
 
 ```bash
 # On each cron wake: update last_active_at + compute next_active_at
@@ -348,7 +352,7 @@ INFO  🔑 Ed25519 identity loaded: <pubkey-prefix>...
 
 ## Quick API Reference
 
-Once running, the HTTP API is available at `http://localhost:<port+100>`:
+Once running, the HTTP API is available at `http://localhost:<http-port>`:
 
 ```bash
 # Send a message
@@ -372,7 +376,7 @@ curl http://localhost:7901/tasks
 curl http://localhost:7901/discover
 ```
 
-Full API reference: [`spec/core-v0.8.md §4`](../spec/core-v0.8.md).
+Full API reference: [`spec/core-v0.8.md §4`](spec/core-v0.8.md).
 
 ---
 
@@ -497,7 +501,7 @@ curl -X POST http://localhost:8101/message:send \
 | Port | Purpose |
 |------|---------|
 | `8000` | WebSocket P2P (default `--port`) |
-| `8100` | HTTP API + AgentCard (`--port + 100`) |
+| `8100` | HTTP API + AgentCard (`--http-port`, default `--port + 100`) |
 
 Pass any `acp_relay.py` flag after the image name to override defaults.
 

@@ -64,8 +64,9 @@ def _relay_env():
 def _start_relay(ws_port, http_port, name="ACKTest", join_link=None):
     """Start a relay subprocess and wait until HTTP /status is ready."""
     cmd = [
-        "python3", "-u", "relay/acp_relay.py",
+        sys.executable, "-u", "relay/acp_relay.py",
         "--port", str(ws_port),
+        "--http-port", str(http_port),
         "--http-host", "127.0.0.1",
         "--name", name,
         "--local-only",
@@ -85,7 +86,8 @@ def _start_relay(ws_port, http_port, name="ACKTest", join_link=None):
     deadline = time.time() + 30
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"Relay '{name}' exited early")
+            out, err = proc.communicate()
+            raise RuntimeError(f"Relay '{name}' exited early.\nstdout: {out}\nstderr: {err}")
         try:
             r = requests.get(f"http://127.0.0.1:{http_port}/status", timeout=0.5)
             if r.status_code == 200:

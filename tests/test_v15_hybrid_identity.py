@@ -1,26 +1,25 @@
 """
-ACP v1.5 — CA certificate / hybrid identity tests
-Uses /status endpoint (reliable agent_card access)
+ACP v1.5 CA certificate / hybrid identity tests.
+
+These tests intentionally start real relay subprocesses so they exercise the
+same command-line path users run. Keep all process startup inside test
+functions so pytest collection stays portable and side-effect free.
 """
-import subprocess, time, requests, tempfile, os
 
-def _free_port():
-    """Return an OS-assigned free port where port AND port+100 are both free."""
-    import socket
-    for _ in range(200):
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            ws = s.getsockname()[1]
-        try:
-            with socket.socket() as s2:
-                s2.bind(("127.0.0.1", ws + 100))
-                return ws
-        except OSError:
-            continue
-    raise RuntimeError("Could not find a free port pair (ws + ws+100)")
+from __future__ import annotations
 
-BASE_PORT = _free_port()
-HTTP_PORT = BASE_PORT + 100
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+import requests
+
+
+RELAY_PATH = Path(__file__).resolve().parents[1] / "relay" / "acp_relay.py"
 
 SAMPLE_PEM = """\
 -----BEGIN CERTIFICATE-----
@@ -28,130 +27,153 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2a2rwplBQLzHPZe5TNJF
 FAKE_CERT_FOR_TESTING_ONLY_NOT_VALID_ACP_V15_TEST
 -----END CERTIFICATE-----"""
 
-def start_relay(*extra_args, port=BASE_PORT):
-    cmd = ["python3",
-           "/root/.openclaw/workspace/agent-communication-protocol/relay/acp_relay.py",
-           "--name", f"TestV15p{port}", f"--port={port}"] + list(extra_args)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    hp = HTTP_PORT + (port - BASE_PORT)
-    for _ in range(25):
+
+def _free_port_pair() -> tuple[int, int]:
+    """Return a free relay port pair where the HTTP port is WS + 100."""
+    for _ in range(200):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as ws_sock:
+            ws_sock.bind(("127.0.0.1", 0))
+            ws_port = ws_sock.getsockname()[1]
+
+        http_port = ws_port + 100
+        if http_port > 65535:
+            continue
+
         try:
-            r = requests.get(f"http://localhost:{hp}/status", timeout=0.5)
-            if r.status_code == 200:
-                return proc, f"http://localhost:{hp}"
-        except Exception:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as http_sock:
+                http_sock.bind(("127.0.0.1", http_port))
+            return ws_port, http_port
+        except OSError:
+            continue
+
+    raise RuntimeError("Could not find a free port pair (ws + 100)")
+
+
+def _start_relay(*extra_args: str, identity_path: Path | None = None) -> tuple[subprocess.Popen, str]:
+    ws_port, http_port = _free_port_pair()
+    cmd = [
+        sys.executable,
+        str(RELAY_PATH),
+        "--name",
+        f"TestV15p{ws_port}",
+        f"--port={ws_port}",
+        f"--http-port={http_port}",
+        "--http-host",
+        "127.0.0.1",
+        "--local-only",
+        "--test-mode",
+    ]
+    if identity_path is not None:
+        cmd.extend(["--identity", str(identity_path)])
+    cmd.extend(extra_args)
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    base = f"http://127.0.0.1:{http_port}"
+    for _ in range(35):
+        try:
+            response = requests.get(f"{base}/status", timeout=0.5)
+            if response.status_code == 200:
+                return proc, base
+        except requests.RequestException:
             pass
-        time.sleep(0.3)
-    out, err = proc.stdout.read(), proc.stderr.read()
+        time.sleep(0.2)
+
     proc.kill()
-    raise RuntimeError(f"relay not ready on port {hp}\nOUT:{out[:300]}\nERR:{err[:300]}")
+    out, err = proc.communicate(timeout=2)
+    raise RuntimeError(
+        f"relay not ready on port {http_port}\n"
+        f"OUT:{out[:300]!r}\nERR:{err[:300]!r}"
+    )
 
-def get_card(base):
-    return requests.get(f"{base}/status").json().get("agent_card", {}) or {}
 
-def stop(proc):
+def _get_card(base: str) -> dict:
+    return requests.get(f"{base}/status", timeout=3).json().get("agent_card", {}) or {}
+
+
+def _stop(proc: subprocess.Popen) -> None:
     proc.terminate()
-    try: proc.wait(timeout=3)
-    except: proc.kill()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
-results = {}
 
-# V1: --ca-cert without --identity → ignored
-print("V1: --ca-cert without --identity...")
-with tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False) as f:
-    f.write(SAMPLE_PEM); cert_path = f.name
-try:
-    proc, base = start_relay("--ca-cert", cert_path, port=BASE_PORT)
-    card = get_card(base)
-    identity_block = card.get("identity")
-    cap_identity = card.get("capabilities", {}).get("identity", "none")
-    ok = (identity_block is None and cap_identity == "none")
-    print(f"  identity=None, cap=none: {'✅' if ok else '❌'} (identity={identity_block}, cap={cap_identity})")
-    results["V1_ca_cert_without_identity_ignored"] = ok
-    stop(proc)
-finally:
-    os.unlink(cert_path)
-time.sleep(0.5)
+def test_ca_cert_without_identity_is_ignored() -> None:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as cert_file:
+        cert_file.write(SAMPLE_PEM)
+        cert_path = Path(cert_file.name)
 
-# V2: --identity without --ca-cert → scheme=ed25519
-print("V2: --identity without --ca-cert → scheme=ed25519...")
-proc, base = start_relay("--identity", f"/tmp/v15-id-{BASE_PORT+1}.json", port=BASE_PORT+1)
-try:
-    card = get_card(base)
-    identity = card.get("identity") or {}
-    scheme = identity.get("scheme", "MISSING")
-    ca_cert = identity.get("ca_cert")
-    cap = card.get("capabilities", {}).get("identity")
-    ok = (scheme == "ed25519" and ca_cert is None and cap == "ed25519")
-    print(f"  scheme=ed25519, no ca_cert: {'✅' if ok else '❌'} (scheme={scheme}, cap={cap})")
-    results["V2_identity_only_ed25519"] = ok
-finally:
-    stop(proc)
-time.sleep(0.5)
+    try:
+        proc, base = _start_relay("--ca-cert", str(cert_path), "--no-identity")
+        try:
+            card = _get_card(base)
+            assert card.get("identity") is None
+            assert card.get("capabilities", {}).get("identity", "none") == "none"
+        finally:
+            _stop(proc)
+    finally:
+        os.unlink(cert_path)
 
-# V3: --identity + --ca-cert file → scheme=ed25519+ca
-print("V3: --identity + --ca-cert (file)...")
-with tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False) as f:
-    f.write(SAMPLE_PEM); cert_path = f.name
-try:
-    proc, base = start_relay("--identity", f"/tmp/v15-id-{BASE_PORT+2}.json",
-                              "--ca-cert", cert_path, port=BASE_PORT+2)
-    card = get_card(base)
-    identity = card.get("identity") or {}
-    scheme = identity.get("scheme")
-    ca_cert = identity.get("ca_cert")
-    cap = card.get("capabilities", {}).get("identity")
-    ok = (scheme == "ed25519+ca" and ca_cert is not None
-          and "BEGIN CERTIFICATE" in ca_cert and cap == "ed25519+ca")
-    print(f"  scheme=ed25519+ca, ca_cert present: {'✅' if ok else '❌'} (scheme={scheme}, cap={cap}, len={len(ca_cert or '')})")
-    results["V3_hybrid_from_file"] = ok
-    stop(proc)
-finally:
-    os.unlink(cert_path)
-time.sleep(0.5)
 
-# V4: --identity + --ca-cert inline PEM
-print("V4: --identity + --ca-cert (inline PEM)...")
-proc, base = start_relay("--identity", f"/tmp/v15-id-{BASE_PORT+3}.json",
-                          "--ca-cert", SAMPLE_PEM, port=BASE_PORT+3)
-try:
-    card = get_card(base)
-    identity = card.get("identity") or {}
-    scheme = identity.get("scheme")
-    ca_cert = identity.get("ca_cert")
-    cap = card.get("capabilities", {}).get("identity")
-    ok = (scheme == "ed25519+ca" and ca_cert is not None and cap == "ed25519+ca")
-    print(f"  inline PEM hybrid: {'✅' if ok else '❌'} (scheme={scheme}, cap={cap})")
-    results["V4_hybrid_inline_pem"] = ok
-finally:
-    stop(proc)
-time.sleep(0.5)
+def test_identity_without_ca_cert_uses_ed25519(tmp_path: Path) -> None:
+    proc, base = _start_relay(identity_path=tmp_path / "identity.json")
+    try:
+        card = _get_card(base)
+        identity = card.get("identity") or {}
+        assert identity.get("scheme") == "ed25519"
+        assert identity.get("ca_cert") is None
+        assert card.get("capabilities", {}).get("identity") == "ed25519"
+    finally:
+        _stop(proc)
 
-# V5+V6: did and public_key preserved in hybrid mode
-print("V5+V6: did + public_key preserved in hybrid...")
-with tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False) as f:
-    f.write(SAMPLE_PEM); cert_path = f.name
-try:
-    proc, base = start_relay("--identity", f"/tmp/v15-id-{BASE_PORT+4}.json",
-                              "--ca-cert", cert_path, port=BASE_PORT+4)
-    card = get_card(base)
-    identity = card.get("identity") or {}
-    did = identity.get("did")
-    pubkey = identity.get("public_key")
-    did_ok = did is not None and did.startswith("did:acp:")
-    pk_ok  = pubkey is not None and len(pubkey) > 10
-    print(f"  did preserved: {'✅' if did_ok else '❌'} ({(did or 'MISSING')[:35]}...)")
-    print(f"  public_key preserved: {'✅' if pk_ok else '❌'}")
-    results["V5_did_preserved_in_hybrid"] = did_ok
-    results["V6_pubkey_preserved_in_hybrid"] = pk_ok
-    stop(proc)
-finally:
-    os.unlink(cert_path)
 
-# Summary
-passed = sum(1 for v in results.values() if v)
-total  = len(results)
-print(f"\n{'='*50}")
-print(f"ACP v1.5 CA cert: {passed}/{total} PASS")
-for k, v in results.items():
-    print(f"  {'✅' if v else '❌'} {k}")
+def test_identity_with_ca_cert_file_uses_hybrid_scheme(tmp_path: Path) -> None:
+    cert_path = tmp_path / "test-ca.pem"
+    cert_path.write_text(SAMPLE_PEM, encoding="utf-8")
+
+    proc, base = _start_relay(
+        "--ca-cert",
+        str(cert_path),
+        identity_path=tmp_path / "identity.json",
+    )
+    try:
+        card = _get_card(base)
+        identity = card.get("identity") or {}
+        assert identity.get("scheme") == "ed25519+ca"
+        assert "BEGIN CERTIFICATE" in identity.get("ca_cert", "")
+        assert card.get("capabilities", {}).get("identity") == "ed25519+ca"
+    finally:
+        _stop(proc)
+
+
+def test_identity_with_inline_ca_cert_uses_hybrid_scheme(tmp_path: Path) -> None:
+    proc, base = _start_relay(
+        "--ca-cert",
+        SAMPLE_PEM,
+        identity_path=tmp_path / "identity.json",
+    )
+    try:
+        card = _get_card(base)
+        identity = card.get("identity") or {}
+        assert identity.get("scheme") == "ed25519+ca"
+        assert identity.get("ca_cert")
+        assert card.get("capabilities", {}).get("identity") == "ed25519+ca"
+    finally:
+        _stop(proc)
+
+
+def test_hybrid_identity_preserves_did_and_public_key(tmp_path: Path) -> None:
+    cert_path = tmp_path / "test-ca.pem"
+    cert_path.write_text(SAMPLE_PEM, encoding="utf-8")
+
+    proc, base = _start_relay(
+        "--ca-cert",
+        str(cert_path),
+        identity_path=tmp_path / "identity.json",
+    )
+    try:
+        identity = _get_card(base).get("identity") or {}
+        assert identity.get("did", "").startswith("did:acp:")
+        assert len(identity.get("public_key", "")) > 10
+    finally:
+        _stop(proc)

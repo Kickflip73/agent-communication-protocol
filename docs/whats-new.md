@@ -1,7 +1,7 @@
 # What's New in ACP — Last 7 Days
 
 > Last updated: 2026-04-10
-> For the full history see [CHANGELOG.md](../CHANGELOG.md)
+> For the full history see [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -55,7 +55,7 @@ curl -X POST http://localhost:18900/skills/query \
 
 Global `trust_score` retained for full backward compatibility. When bilateral IR evidence exists, it is updated to the per-skill average. Empty `{}` = no evidence yet (not an error).
 
-Test coverage: **SS01–SS16 = 16/16 PASS** | [See CHANGELOG](../CHANGELOG.md)
+Test coverage: **SS01–SS16 = 16/16 PASS** | [See CHANGELOG](CHANGELOG.md)
 
 ---
 
@@ -1287,7 +1287,7 @@ ACP capability tokens use the standard SINT fields:
 
 ### v2.56.0 — principal_chain[] OBO Delegation (2026-04-05)
 
-See [v2.56 entry in CHANGELOG](../CHANGELOG.md#2560--2026-04-05).
+See [v2.56 entry in CHANGELOG](CHANGELOG.md).
 
 **TL;DR:** On-behalf-of delegation via a DID-identified principal chain embedded in AgentCard trust block and messages. No shared AS. Answers A2A Issue #1713.
 

@@ -342,7 +342,7 @@ ACP implementation predates the A2A proposal by approximately 3–4 months (trus
 - [ACP-RFC-002: Bilateral Interaction Records](./bilateral-interaction-records.md)
 - [A2A Issue #1717: Governance metadata in A2A Agent Cards](https://github.com/a2aproject/A2A/issues/1717)
 - [aeoess SDK v1.37.0 — Derivation governance primitives](https://github.com/a2aproject/A2A/issues/1717#issuecomment-latest)
-- [ACP CHANGELOG v2.60–v2.92](../../CHANGELOG.md)
+- [ACP CHANGELOG v2.60–v2.92](../CHANGELOG.md)
 
 ---
 

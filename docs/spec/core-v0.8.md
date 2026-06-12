@@ -4,8 +4,8 @@
 **Authors:** ACP Community  
 **Date:** 2026-03-21  
 **License:** Apache 2.0  
-**Supersedes:** [core-v0.5.md](core-v0.5.md), [core-v0.1.md](core-v0.1.md)  
-**See also:** [transports.md](transports.md) · [error-codes.md](error-codes.md) · [identity-v0.8.md](identity-v0.8.md)
+**Supersedes:** [core-v0.5.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/core-v0.5.md), [core-v0.1.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/core-v0.1.md)
+**See also:** [transports.md](transports.md) · [error-codes.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/error-codes.md) · [identity-v0.8.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/identity-v0.8.md)
 
 ---
 
@@ -288,7 +288,7 @@ All error responses follow a consistent envelope:
 
 `failed_message_id` is present for `ERR_TIMEOUT` and `ERR_MSG_TOO_LARGE` only.
 
-See [error-codes.md](error-codes.md) for retry guidance and full examples.
+See [error-codes.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/error-codes.md) for retry guidance and full examples.
 
 ---
 
@@ -342,7 +342,7 @@ CLI: `--identity [path]`. Requires: `pip install cryptography`.
 
 HMAC and Ed25519 may be active simultaneously — they serve different use cases.
 
-See [identity-v0.8.md](identity-v0.8.md) for full spec including coexistence table and security properties.
+See [identity-v0.8.md](https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/identity-v0.8.md) for full spec including coexistence table and security properties.
 
 ### 6.3 context_id (v0.7)
 

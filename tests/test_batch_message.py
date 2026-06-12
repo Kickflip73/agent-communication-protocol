@@ -37,13 +37,13 @@ def _free_port_pair():
 def _start_relay(ws_port, http_port, name="BatchTest", join_link=None):
     """Start a relay instance."""
     cmd = [
-        "python3", "-u", "relay/acp_relay.py",
+        sys.executable, "-u", "relay/acp_relay.py",
         "--port", str(ws_port),
+        "--http-port", str(http_port),
         "--http-host", "127.0.0.1",
         "--name", name,
         "--local-only",
     ]
-    # HTTP port is auto-derived as ws_port + 100 by relay
     if join_link:
         cmd.extend(["--join", join_link])
 
@@ -68,7 +68,8 @@ def _start_relay(ws_port, http_port, name="BatchTest", join_link=None):
         except Exception:
             pass
         if proc.poll() is not None:
-            raise RuntimeError(f"Relay {name} exited early")
+            out, err = proc.communicate()
+            raise RuntimeError(f"Relay {name} exited early.\nstdout: {out}\nstderr: {err}")
         time.sleep(0.5)
 
     proc.terminate()
