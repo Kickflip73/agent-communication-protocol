@@ -227,4 +227,5 @@ This transport uses HTTPS by default. See [transports.md](spec/transports.md) §
 
 ---
 
-*Security questions or disclosures: open an issue at https://github.com/Kickflip73/agent-communication-protocol/issues*
+*Security questions or disclosures: follow the private reporting process in
+[SECURITY.md](https://github.com/Kickflip73/agent-communication-protocol/security/policy).*

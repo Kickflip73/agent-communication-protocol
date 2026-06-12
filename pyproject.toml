@@ -50,6 +50,10 @@ dev = [
     "cryptography>=42.0",   # identity/signature tests
     "ruff>=0.7",
     "build>=1.2",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocs-minify-plugin>=0.8",
+    "pymdown-extensions>=10.0",
 ]
 
 # Full install (relay + SDK + identity)
@@ -61,9 +65,11 @@ full = [
 [project.urls]
 Homepage      = "https://github.com/Kickflip73/agent-communication-protocol"
 Repository    = "https://github.com/Kickflip73/agent-communication-protocol"
-Documentation = "https://github.com/Kickflip73/agent-communication-protocol/blob/main/docs/integration-guide.md"
+Documentation = "https://kickflip73.github.io/agent-communication-protocol/"
 Changelog     = "https://github.com/Kickflip73/agent-communication-protocol/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/Kickflip73/agent-communication-protocol/issues"
+Discussions   = "https://github.com/Kickflip73/agent-communication-protocol/discussions"
+Security      = "https://github.com/Kickflip73/agent-communication-protocol/security/policy"
 
 [project.scripts]
 # `acp-relay` CLI entry-point — runs acp_relay.py main()

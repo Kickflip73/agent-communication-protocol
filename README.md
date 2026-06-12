@@ -7,15 +7,29 @@
 
 <p>
   <a href="https://github.com/Kickflip73/agent-communication-protocol/releases">
-    <img src="https://img.shields.io/badge/version-v3.17.1-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/github/v/release/Kickflip73/agent-communication-protocol?style=flat-square" alt="Release">
+  </a>
+  <a href="https://github.com/Kickflip73/agent-communication-protocol/actions/workflows/ci.yml">
+    <img src="https://github.com/Kickflip73/agent-communication-protocol/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/Kickflip73/agent-communication-protocol/actions/workflows/codeql.yml">
+    <img src="https://github.com/Kickflip73/agent-communication-protocol/actions/workflows/codeql.yml/badge.svg" alt="CodeQL">
+  </a>
+  <a href="https://kickflip73.github.io/agent-communication-protocol/">
+    <img src="https://img.shields.io/badge/docs-github.io-brightgreen?style=flat-square" alt="Docs">
+  </a>
+  <a href="https://github.com/Kickflip73/agent-communication-protocol/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/Kickflip73/agent-communication-protocol/actions/workflows/docker-publish.yml/badge.svg" alt="Docker">
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square" alt="License">
+    <img src="https://img.shields.io/github/license/Kickflip73/agent-communication-protocol?style=flat-square" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/stdlib__only-zero__heavy__deps-orange?style=flat-square" alt="Deps">
   <img src="https://img.shields.io/badge/latency-0.6ms_avg-brightgreen?style=flat-square" alt="Latency">
-  <img src="https://img.shields.io/badge/tested-300%2B_CI_checks-success?style=flat-square" alt="Tests">
+  <a href="https://api.securityscorecards.dev/projects/github.com/Kickflip73/agent-communication-protocol">
+    <img src="https://api.securityscorecards.dev/projects/github.com/Kickflip73/agent-communication-protocol/badge" alt="OpenSSF Scorecard">
+  </a>
 </p>
 
 <p>
@@ -573,6 +587,8 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Bug reports & feature requests → [GitHub Issues](https://github.com/Kickflip73/agent-communication-protocol/issues)
 - Protocol design discussion → [GitHub Discussions](https://github.com/Kickflip73/agent-communication-protocol/discussions)
+- Support options → [SUPPORT.md](SUPPORT.md)
+- Security disclosures → [SECURITY.md](SECURITY.md)
 
 ---
 
