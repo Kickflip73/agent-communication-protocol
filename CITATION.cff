@@ -7,7 +7,7 @@ authors:
 repository-code: "https://github.com/Kickflip73/agent-communication-protocol"
 url: "https://kickflip73.github.io/agent-communication-protocol/"
 license: "Apache-2.0"
-version: "3.17.1"
+version: "3.17.2"
 date-released: "2026-06-12"
 abstract: "A peer-to-peer protocol and relay implementation for direct agent-to-agent communication."
 keywords:

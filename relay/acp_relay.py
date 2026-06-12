@@ -163,7 +163,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("acp-p2p")
 
-VERSION = "3.17.1"  # v3.17: POST /messages:stream WebSocket streaming inlet — persistent WS; per-frame routing; {ok,message_id,server_seq} ack; ERR_PEER_NOT_FOUND; invalid JSON handled; completes reliable-messaging trio (batch v3.15 + ACK v3.16 + stream v3.17); capabilities.messages_stream=true
+VERSION = "3.17.2"  # v3.17: POST /messages:stream WebSocket streaming inlet — persistent WS; per-frame routing; {ok,message_id,server_seq} ack; ERR_PEER_NOT_FOUND; invalid JSON handled; completes reliable-messaging trio (batch v3.15 + ACK v3.16 + stream v3.17); capabilities.messages_stream=true
 
 _heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
 

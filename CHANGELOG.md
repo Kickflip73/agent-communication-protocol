@@ -9,6 +9,25 @@ For per-release detailed notes, see the sections below.
 
 ---
 
+## v3.17.2 — Public Launch Polish (2026-06-12)
+
+### Added
+- CodeQL code scanning for Python, JavaScript/TypeScript, and Go.
+- OpenSSF Scorecard workflow with SARIF upload and published scorecard results.
+- `SUPPORT.md`, `CITATION.cff`, and expanded English contributor guidance for public collaboration.
+
+### Changed
+- README badges now show live release, CI, CodeQL, docs, Docker, license, and OpenSSF Scorecard status.
+- Development extras now include MkDocs dependencies so `make docs` works after `pip install -e ".[dev]"`.
+- Root and Node SDK license files now use the full Apache License 2.0 text, enabling GitHub SPDX detection.
+- Security policy links now point directly to private vulnerability reporting and the published security model.
+
+### Fixed
+- Runtime UTC timestamp generation now uses timezone-aware `datetime.now(timezone.utc)`.
+- Identity documentation examples now avoid deprecated `datetime.utcnow()`.
+
+---
+
 ## v3.17.1 — Public Release Readiness (2026-06-12)
 
 ### Added

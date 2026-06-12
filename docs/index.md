@@ -6,9 +6,9 @@
 
 *Send a URL. Get a link. Two agents talk. That's it.*
 
-[![Version](https://img.shields.io/badge/version-v3.17.1-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
+[![Version](https://img.shields.io/badge/version-v3.17.2-blue?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/releases)
 [![License](https://img.shields.io/badge/license-Apache_2.0-green?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tested-330%2B_PASS-success?style=flat-square)](https://github.com/Kickflip73/agent-communication-protocol/actions)
 
 </div>
@@ -159,5 +159,5 @@ curl http://localhost:7901/stream
 
 ## Version
 
-Current stable: **v3.17.1** — `POST /messages:stream` WebSocket streaming inlet with release hardening for CI, packaging, docs, and Docker publishing; see [CHANGELOG](CHANGELOG.md) for full history.
+Current stable: **v3.17.2** — `POST /messages:stream` WebSocket streaming inlet with public launch hardening for CI, packaging, docs, Docker publishing, CodeQL, OpenSSF Scorecard, and standard Apache-2.0 license detection; see [CHANGELOG](CHANGELOG.md) for full history.
 See [What's New](whats-new.md) · [Compatibility Matrix](compatibility-matrix.md) · [Roadmap](ROADMAP.md).
