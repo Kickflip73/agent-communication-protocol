@@ -37,8 +37,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.name "J.A.R.V.I.S."
-          git config --global user.email "jarvis@acp-protocol.dev"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Deploy to GitHub Pages
         run: mkdocs gh-deploy --force --clean --verbose
