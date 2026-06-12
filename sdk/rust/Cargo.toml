@@ -11,7 +11,7 @@ categories = ["network-programming", "api-bindings"]
 readme = "README.md"
 
 [dependencies]
-reqwest  = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+reqwest  = { version = "0.13", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 serde    = { version = "1",    features = ["derive"] }
 serde_json = "1"
 thiserror  = "1"
