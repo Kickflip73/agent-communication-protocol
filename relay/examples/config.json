@@ -1,0 +1,7 @@
+{
+  "name": "MyAgent",
+  "port": 7801,
+  "skills": "summarize,translate,search",
+  "inbox": "/tmp/acp_inbox.jsonl",
+  "verbose": false
+}

@@ -1,0 +1,8 @@
+# ACP config — HMAC signing + Ed25519 identity + LAN discovery
+name: SecureAgent
+port: 7801
+skills: summarize
+secret: replace-with-your-shared-secret
+advertise-mdns: true
+identity: ~/.acp/identity.json
+verbose: false

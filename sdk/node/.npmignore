@@ -1,0 +1,8 @@
+# Test files — not needed in the published package
+tests/
+*.test.js
+
+# Development artifacts
+.DS_Store
+*.log
+node_modules/

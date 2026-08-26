@@ -1,0 +1,1507 @@
+openapi: "3.1.0"
+info:
+  title: ACP Skills Discovery API
+  version: "2.65.0"
+  description: |
+    ACP (Agent Communication Protocol) Skills Discovery endpoint.
+    Allows agents to programmatically discover what skills a peer agent supports.
+
+    This is ACP's answer to A2A IS#1655 (QuerySkill proposal) —
+    a working implementation that has been live since ACP v2.4.
+
+    Key features:
+    - Full structured skill list with input/output schemas
+    - Tag-based and keyword filtering
+    - Offset-based pagination
+    - Per-skill availability probes (GET /skills/{id}/status)
+    - Runtime limitations overlay (PATCH /skills/{id}/limitations)
+
+paths:
+  /skills:
+    get:
+      summary: List agent skills
+      description: |
+        Returns all skills exposed by this agent.
+        Skills are declared in AgentCard.skills[] and dynamically served here.
+
+        Use this endpoint to:
+        - Discover what tasks this agent can perform
+        - Get input/output schemas for type-safe invocation
+        - Browse examples before sending a message
+        - Filter by tag or keyword for large skill sets
+
+        **Pagination:** Use `limit` and `offset` for large skill sets.
+        Default page size is 50; maximum is 200.
+      operationId: listSkills
+      parameters:
+        - name: tag
+          in: query
+          required: false
+          description: Filter skills by exact tag match
+          schema:
+            type: string
+          example: "text-processing"
+        - name: q
+          in: query
+          required: false
+          description: Keyword search in skill id/name/description (case-insensitive)
+          schema:
+            type: string
+          example: "summarize"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of skills to return (default 50, max 200)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+        - name: offset
+          in: query
+          required: false
+          description: Number of skills to skip for pagination (default 0)
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: has_limitation
+          in: query
+          required: false
+          description: Filter skills that declare a limitation with matching kind or code (v2.28)
+          schema:
+            type: string
+          example: "rate_limited"
+      responses:
+        "200":
+          description: Paginated skill list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillsResponse"
+              example:
+                skills:
+                  - name: "summarize"
+                    description: "Summarize a document or text passage"
+                    input_schema:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        max_words:
+                          type: integer
+                          default: 100
+                    output_schema:
+                      type: object
+                      properties:
+                        summary:
+                          type: string
+                    examples:
+                      - input:
+                          text: "Long document..."
+                          max_words: 50
+                        output:
+                          summary: "Brief summary..."
+                    tags: ["text-processing", "nlp"]
+                    version: "1.0.0"
+                total: 1
+                has_more: false
+                next_offset: null
+        "400":
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "ERR_INVALID_REQUEST"
+                message: "limit must be a non-negative integer"
+
+  /skills/{skill_id}/effective-tier:
+    get:
+      summary: Dynamic effective tier computation (v2.58)
+      description: |
+        Computes and returns the dynamically resolved effective authorization tier
+        for a skill, combining three factors:
+          1. `tier_rule` — the skill's declared `authorization_tier`
+          2. `depth_floor` — delegation depth penalty from `principal_chain[]`
+          3. `reputation_adj` — caller's peer reputation adjustment (-1/0/+1)
+
+        The `reputation_adj` is only applied when `base_int >= T2` to preserve
+        backward-compatible T0/T1 auto-execute semantics.
+
+        Optional `peer_id` query parameter simulates a specific caller context.
+      operationId: getSkillEffectiveTier
+      parameters:
+        - name: skill_id
+          in: path
+          required: true
+          description: The skill identifier
+          schema:
+            type: string
+        - name: peer_id
+          in: query
+          required: false
+          description: |
+            DID or internal peer ID to simulate as the caller.
+            If omitted, reputation_adj=+1 (unknown caller) is used.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective tier computed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectiveTierResponse"
+        "404":
+          description: Skill not found in agent card
+
+  /skills/{skill_id}/status:
+    get:
+      summary: Per-skill availability probe
+      description: |
+        Returns the current availability status of a specific skill (v2.29).
+        Useful for checking if a skill is currently operational before invoking it.
+      operationId: getSkillStatus
+      parameters:
+        - name: skill_id
+          in: path
+          required: true
+          description: The skill identifier (matches `id` or `name` field)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill availability status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillStatusResponse"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /governance-metadata:
+    get:
+      summary: Get live governance metadata block (v2.60)
+      description: |
+        Returns the live governance metadata for this relay/agent.
+        Static fields (trust_score, policy_compliance, audit_trail_reference,
+        capability_manifest, schema_version) are configured via --governance-metadata
+        or updated via PATCH. Runtime counters (generated_at, peer_count, task_count,
+        interaction_record_count) are freshly computed on each call.
+        Inspired by A2A Issue #1717 (Microsoft agent-governance-toolkit).
+      responses:
+        "200":
+          description: Live governance metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GovernanceMetadataResponse"
+    patch:
+      summary: Update writable governance metadata fields at runtime (v2.60)
+      description: |
+        Updates writable fields in the governance metadata store.
+        Writable: trust_score (0.0-1.0), policy_compliance (array), audit_trail_reference,
+        capability_manifest (object), schema_version.
+        Read-only fields (generated_at, peer_count, task_count, interaction_record_count)
+        are silently ignored if provided.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GovernanceMetadataPatch"
+      responses:
+        "200":
+          description: Updated governance metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GovernanceMetadataPatchResponse"
+        "400":
+          description: Validation error (e.g. trust_score out of range, policy_compliance not array)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /interaction-records:
+    get:
+      summary: List bilateral interaction records (v2.59)
+      description: |
+        Returns all bilateral interaction records generated by this relay.
+        Each record attests a task invocation with a relay Ed25519 signature
+        and optional caller_token_hash (sha256 of capability_token.jti).
+
+        Records form an append-only chain via `previous_hash` (sha256 of prior record).
+        Inspired by A2A Issue #1718; ACP implements a relay-anchored lightweight variant.
+      parameters:
+        - name: skill_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter records by skill_id
+        - name: peer_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter records where caller_did contains peer_id
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+          description: Maximum number of records to return
+      responses:
+        "200":
+          description: List of interaction records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InteractionRecordsResponse"
+
+  /ir/import-evidence:
+    post:
+      summary: Import external bilateral IR + generate APS reputation_update (v2.65)
+      description: |
+        Accepts an external bilateral interaction record from a peer relay, verifies
+        relay_signature and caller_signature (Ed25519), and returns an APS-compatible
+        reputation_update payload. Aligns with A2A #1718 importBilateralEvidence().
+      tags: [interaction-records]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportEvidenceRequest"
+      responses:
+        "200":
+          description: Import succeeded (even if signatures invalid — check verify block)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportEvidenceResponse"
+        "400":
+          description: Missing or invalid ir field
+
+  /ir/imported-evidence:
+    get:
+      summary: List imported bilateral IR evidence records (v2.65)
+      tags: [interaction-records]
+      parameters:
+        - in: query
+          name: agent_did
+          schema:
+            type: string
+          description: Filter by agent DID
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
+          description: Maximum number of records to return
+      responses:
+        "200":
+          description: List of imported evidence records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportedEvidenceListResponse"
+
+  /ir/test-vectors:
+    get:
+      summary: Deterministic bilateral IR test vectors for cross-implementation verification (v2.64)
+      description: |
+        Returns 4 deterministic bilateral interaction record test vectors with Ed25519
+        signatures for cross-implementation interoperability testing. Keys are derived
+        from SHA-256 seeds for full reproducibility. Aligns with A2A #1718 (@aeoess).
+      tags: [interaction-records]
+      responses:
+        "200":
+          description: Test vectors generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IrTestVectorsResponse"
+        "503":
+          description: Ed25519 not available or no identity loaded
+
+components:
+  schemas:
+    GovernanceMetadata:
+      type: object
+      description: Governance metadata block for an ACP relay/agent (v2.60)
+      properties:
+        schema_version:
+          type: string
+          example: "1.0"
+        generated_at:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC timestamp of when this block was generated (read-only)
+        trust_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Agent trust score (0.0 = untrusted, 1.0 = fully trusted)
+          example: 0.78
+        capability_manifest:
+          type: object
+          description: Map of skill_id to capability entry
+          additionalProperties:
+            type: object
+            properties:
+              tier:
+                type: string
+                enum: [T0, T1, T2, T3]
+              status:
+                type: string
+                example: available
+              deprecated:
+                type: boolean
+        policy_compliance:
+          type: array
+          items:
+            type: object
+            properties:
+              policy:
+                type: string
+                example: acp-security-v1
+              status:
+                type: string
+                example: compliant
+        audit_trail_reference:
+          type: string
+          nullable: true
+          description: URI pointing to an external audit trail for this agent
+          example: "https://audit.example.com/trail/relay-1"
+        interaction_record_count:
+          type: integer
+          description: Total bilateral interaction records generated (read-only, live counter)
+        peer_count:
+          type: integer
+          description: Current connected peer count (read-only, live counter)
+        task_count:
+          type: integer
+          description: Total tasks processed in this session (read-only, live counter)
+
+    GovernanceMetadataResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          example: true
+        governance_metadata:
+          $ref: "#/components/schemas/GovernanceMetadata"
+
+    GovernanceMetadataPatch:
+      type: object
+      description: Writable fields for PATCH /governance-metadata (v2.60)
+      properties:
+        trust_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        policy_compliance:
+          type: array
+          items:
+            type: object
+        audit_trail_reference:
+          type: string
+          nullable: true
+        capability_manifest:
+          type: object
+          additionalProperties:
+            type: object
+        schema_version:
+          type: string
+
+    GovernanceMetadataPatchResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          example: true
+        updated:
+          type: array
+          items:
+            type: string
+          description: List of field names that were actually updated
+          example: ["trust_score", "policy_compliance"]
+        governance_metadata:
+          $ref: "#/components/schemas/GovernanceMetadata"
+
+    InteractionRecord:
+      type: object
+      description: A bilateral interaction record attesting a task invocation (v2.59)
+      required: [id, type, relay_did, caller_did, task_id, sequence_a, previous_hash, timestamp]
+      properties:
+        id:
+          type: string
+          description: Unique record ID (ir-<uuid>)
+          example: "ir-a3f7bc12"
+        type:
+          type: string
+          enum: [interaction]
+        relay_did:
+          type: string
+          description: The relay's DID (did:acp: or did:key:)
+          example: "did:acp:z6MkhaXgBZDvot..."
+        caller_did:
+          type: string
+          description: The caller's DID (from body or peer registry), or "unknown"
+        task_id:
+          type: string
+          description: The task this record attests
+        skill_id:
+          type: string
+          nullable: true
+          description: The skill invoked, if known
+        sequence_a:
+          type: integer
+          description: Monotonic relay-side sequence counter
+        previous_hash:
+          type: string
+          description: sha256 of the previous stored record, or "genesis" for first
+          example: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        timestamp:
+          type: string
+          format: date-time
+        quality_hint:
+          type: string
+          nullable: true
+          description: Optional outcome quality signal (null at creation time)
+        caller_token_hash:
+          type: string
+          nullable: true
+          description: sha256(capability_token.jti) if a cap token was provided
+        relay_signature:
+          type: string
+          nullable: true
+          description: Ed25519 signature over canonical JSON payload (base64url)
+        relay_public_key:
+          type: string
+          nullable: true
+          description: Relay's Ed25519 public key (base64url)
+        caller_signature:
+          type: string
+          nullable: true
+          description: |
+            Caller's Ed25519 signature (base64url) over canonical payload:
+            "<relay_did>|<caller_did>|<task_id>|<sequence_a>|<timestamp>"
+            Null when no caller_signature was provided in POST /tasks.
+        caller_public_key:
+          type: string
+          nullable: true
+          description: Caller's raw Ed25519 public key (base64url). Used by relay to verify caller_signature.
+        caller_signature_valid:
+          type: boolean
+          nullable: true
+          description: |
+            True: caller_signature verified successfully.
+            False: caller_signature provided but verification failed.
+            null: no caller_signature was provided.
+        bilateral:
+          type: boolean
+          description: |
+            True only when BOTH relay_signature AND caller_signature are cryptographically valid.
+            Indicates the record is non-repudiable by both parties.
+
+    InteractionRecordsResponse:
+      type: object
+      required: [ok, count, total, records]
+      properties:
+        ok:
+          type: boolean
+        count:
+          type: integer
+          description: Number of records returned (≤ limit)
+        total:
+          type: integer
+          description: Total matching records before limit applied
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/InteractionRecord"
+
+    SkillsResponse:
+      type: object
+      required: [skills, total, has_more]
+      properties:
+        skills:
+          type: array
+          description: List of skills for the current page
+          items:
+            $ref: "#/components/schemas/Skill"
+        total:
+          type: integer
+          description: Total number of skills matching the filter (before pagination)
+        has_more:
+          type: boolean
+          description: Whether there are more skills beyond the current page
+        next_offset:
+          type: integer
+          nullable: true
+          description: Offset to use for the next page, or null if this is the last page
+
+    Skill:
+      type: object
+      required: [name]
+      properties:
+        id:
+          type: string
+          description: Unique skill identifier (stable, machine-readable)
+        name:
+          type: string
+          description: Human-readable skill name
+        description:
+          type: string
+          description: Human-readable description of what this skill does
+        input_schema:
+          type: object
+          description: JSON Schema for the input message content
+          additionalProperties: true
+        output_schema:
+          type: object
+          description: JSON Schema for the expected output message content
+          additionalProperties: true
+        examples:
+          type: array
+          description: Example input/output pairs for this skill
+          items:
+            $ref: "#/components/schemas/SkillExample"
+        tags:
+          type: array
+          description: Skill category tags for filtering
+          items:
+            type: string
+        version:
+          type: string
+          description: Skill version string (semver recommended)
+        limitations:
+          type: array
+          description: Per-skill limitations (v2.28, ref A2A #1694)
+          items:
+            $ref: "#/components/schemas/LimitationObject"
+        availability:
+          type: object
+          description: Skill availability metadata
+          properties:
+            mode:
+              type: string
+              enum: [persistent, on_demand, scheduled]
+            has_schedule:
+              type: boolean
+        authorization_tier:
+          type: string
+          enum: [T0, T1, T2, T3]
+          nullable: true
+          description: >
+            v2.49 — Minimum caller trust tier required to invoke this skill.
+            T0/T1: auto-execute (no trust requirement).
+            T2: requires caller trust_score >= 0.7.
+            T3: requires trust_score >= 0.9 AND `verified_identity` signal in caller's AgentCard.
+            Omitted or null means no enforcement (equivalent to T0).
+        param_constraints:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ConstraintRule"
+          nullable: true
+          description: >
+            v2.50 — Per-parameter invocation constraints, keyed by param name.
+            Validated at POST /tasks before execution. Violation returns 400 ERR_PARAM_CONSTRAINT
+            with a `violated_params` list. Invalid regex patterns are silently dropped.
+        human_confirmation_required:
+          type: boolean
+          default: false
+          description: >
+            v2.51 — When true AND authorization_tier=T3, a POST /tasks targeting this skill
+            enters `confirmation_pending` state instead of `submitted`. Human must explicitly
+            approve via POST /tasks/{id}:confirm before execution proceeds.
+            Use POST /tasks/{id}:reject to abort with status `failed`.
+        deprecation_notice:
+          $ref: '#/components/schemas/DeprecationNotice'
+          nullable: true
+          description: >
+            v2.52 — Optional skill sunset declaration. When deprecated=true, POST /tasks
+            on this skill still succeeds (201) but the response includes a top-level
+            `deprecation_warning` object with the notice fields, prompting callers to migrate.
+            Absent or deprecated=false → no warning injected (backward-compatible).
+        rate_limit:
+          $ref: '#/components/schemas/SkillRateLimit'
+          nullable: true
+          description: >
+            v2.53 — Optional per-skill/per-peer invocation frequency limit.
+            Enforced at POST /tasks after param_constraints, before human_confirmation gate.
+            Violation returns HTTP 429 ERR_RATE_LIMIT with reset_in_seconds hint.
+            Absent → no rate limiting (backward-compatible).
+
+    SkillRateLimit:
+      type: object
+      description: >
+        v2.53 — Per-skill/per-peer invocation frequency limits. All fields are optional;
+        omit the entire object to impose no limit (backward-compatible).
+        Counters are keyed by (skill_id, peer_id) and reset on sliding windows.
+        burst extends requests_per_minute only (not requests_per_day).
+      properties:
+        requests_per_minute:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Maximum POST /tasks calls per peer per 60-second window.
+        requests_per_day:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Maximum POST /tasks calls per peer per 86 400-second window.
+        burst:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: >
+            Extra tokens above requests_per_minute that absorb short spikes.
+            effective_limit = requests_per_minute + burst.
+            Refills when the minute window resets.
+      example:
+        requests_per_minute: 5
+        requests_per_day: 50
+        burst: 2
+
+    DeprecationNotice:
+      type: object
+      description: >
+        v2.52 — Skill sunset declaration embedded in AgentCard skill objects.
+        When deprecated=true, POST /tasks injects a `deprecation_warning` in the response.
+      properties:
+        deprecated:
+          type: boolean
+          description: Must be true to trigger deprecation_warning injection on POST /tasks.
+        deprecated_since:
+          type: string
+          nullable: true
+          description: ISO-8601 date string when deprecation began (e.g. "2026-03-01").
+        sunset_at:
+          type: string
+          nullable: true
+          description: ISO-8601 date string after which the skill may be removed.
+        replacement_skill:
+          type: string
+          nullable: true
+          description: id of the recommended replacement skill.
+        message:
+          type: string
+          nullable: true
+          description: Human-readable migration guidance.
+      required:
+        - deprecated
+
+    SkillExample:
+      type: object
+      properties:
+        input:
+          type: object
+          description: Example input payload
+          additionalProperties: true
+        output:
+          type: object
+          description: Example output payload
+          additionalProperties: true
+
+    ConstraintRule:
+      type: object
+      description: >
+        v2.50 — A single parameter-level invocation constraint.
+        All fields are optional; absent fields impose no restriction.
+        Invalid regex patterns in `pattern` are silently dropped at parse time (forward-compat).
+      properties:
+        type:
+          type: string
+          enum: [string, number, integer, boolean, array]
+          description: Expected value type for the parameter
+        required:
+          type: boolean
+          description: If true, the parameter must be present in the request
+        min:
+          type: number
+          description: >
+            For numbers/integers: value must be >= min.
+            For strings/arrays: length must be >= min.
+        max:
+          type: number
+          description: >
+            For numbers/integers: value must be <= max.
+            For strings/arrays: length must be <= max.
+        allowed_values:
+          type: array
+          description: Whitelist of permitted values (strict equality, any type)
+          items: {}
+        pattern:
+          type: string
+          description: >
+            Python-compatible regex pattern; string values must match (re.search).
+            Invalid patterns are silently ignored.
+
+    LimitationObject:
+      type: object
+      description: Structured constraint declaration for a skill (v2.20+)
+      properties:
+        kind:
+          type: string
+          description: Limitation category (e.g., rate_limited, context_window, file_size)
+        code:
+          type: string
+          description: Machine-readable limitation code
+        description:
+          type: string
+          description: Human-readable explanation of the limitation
+        value:
+          description: Constraint value (type depends on kind)
+
+    SkillStatusResponse:
+      type: object
+      required: [skill_id, available]
+      properties:
+        skill_id:
+          type: string
+        available:
+          type: boolean
+          description: Whether the skill is currently available for invocation
+        mode:
+          type: string
+          enum: [persistent, on_demand, scheduled]
+        has_schedule:
+          type: boolean
+        limitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/LimitationObject"
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable error message
+
+    # ── v2.54: /verify-card schemas ──────────────────────────────────────────
+
+    CardVerifyResult:
+      type: object
+      description: |
+        Result of a single AgentCard Ed25519 signature verification (v2.54).
+        Returned by POST /verify-card in single mode and as elements of
+        batch results[].
+      properties:
+        valid:
+          type: boolean
+          nullable: true
+          description: |
+            true = signature valid; false = invalid; null = Ed25519 library unavailable.
+        did:
+          type: string
+          nullable: true
+          description: "did:acp: or did:key: identifier from card.identity.did"
+        did_consistent:
+          type: boolean
+          nullable: true
+          description: |
+            true if did matches the public_key derivation; null if DID scheme not checked.
+        public_key:
+          type: string
+          nullable: true
+          description: Base64url-encoded Ed25519 public key from card.identity.public_key
+        scheme:
+          type: string
+          description: "Identity scheme from card.identity.scheme (e.g. ed25519)"
+        error:
+          type: string
+          nullable: true
+          description: Human-readable failure reason when valid=false
+        cached:
+          type: boolean
+          description: true if this result was served from the TTL cache
+        cache_expires_in:
+          type: integer
+          nullable: true
+          description: Seconds until the cached result expires (only present when cached=true)
+        index:
+          type: integer
+          nullable: true
+          description: Position in the input cards array (batch mode only)
+
+    CardVerifyBatchResponse:
+      type: object
+      description: Response body for POST /verify-card with mode=batch (v2.54).
+      required: [ok, mode, total, valid_count, invalid_count, unknown_count, results]
+      properties:
+        ok:
+          type: boolean
+        mode:
+          type: string
+          enum: [batch]
+        total:
+          type: integer
+          description: Total number of cards submitted
+        valid_count:
+          type: integer
+          description: Cards where valid=true
+        invalid_count:
+          type: integer
+          description: Cards where valid=false
+        unknown_count:
+          type: integer
+          description: Cards where valid=null (library unavailable)
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardVerifyResult'
+
+    CardVerifyFetchResponse:
+      type: object
+      description: Response body for POST /verify-card with mode=fetch (v2.54).
+      required: [ok, mode, fetched_from]
+      properties:
+        ok:
+          type: boolean
+        mode:
+          type: string
+          enum: [fetch]
+        fetched_from:
+          type: string
+          format: uri
+          description: URL the AgentCard was fetched from
+        card_name:
+          type: string
+          nullable: true
+          description: "name field from the fetched AgentCard"
+        trust_signal_written:
+          type: boolean
+          description: true if trust_integration=true and valid=true (signal upserted)
+      allOf:
+        - $ref: '#/components/schemas/CardVerifyResult'
+
+    PrincipalChainEntry:
+      type: object
+      description: A single OBO delegation entry in a principal_chain[] list (v2.56).
+      required: [did]
+      properties:
+        did:
+          type: string
+          description: DID of the principal (did:acp / did:key / any DID method)
+        role:
+          type: string
+          description: "Role label (e.g. orchestrator, delegator, owner). Free-form string."
+          default: delegator
+        added_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp when this entry was added to the chain
+
+    PrincipalChainResponse:
+      type: object
+      description: |
+        Response body for GET /principal-chain and GET /peers/{peer_id}/principal-chain (v2.56).
+      required: [ok, count, principal_chain]
+      properties:
+        ok:
+          type: boolean
+        count:
+          type: integer
+          description: Number of entries in the chain
+        principal_chain:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrincipalChainEntry'
+        self_did:
+          type: string
+          nullable: true
+          description: "This agent's own DID (only present in GET /principal-chain response)"
+        peer_id:
+          type: string
+          nullable: true
+          description: "Peer identifier (only present in GET /peers/{id}/principal-chain response)"
+        source:
+          type: string
+          enum: [agent_card, none]
+          nullable: true
+          description: "Where the chain was read from (peer-endpoint only)"
+
+    PeerVerifyCardResponse:
+      type: object
+      description: |
+        Response body for GET /peers/{peer_id}/verify-card (v2.55).
+        On-demand re-verification of the cached AgentCard for a known peer.
+      required: [ok, peer_id, card_available]
+      properties:
+        ok:
+          type: boolean
+        peer_id:
+          type: string
+          description: Peer identifier in the local registry
+        name:
+          type: string
+          nullable: true
+          description: Display name of the peer agent
+        connected:
+          type: boolean
+          description: Whether the peer currently has an active WebSocket connection
+        card_available:
+          type: boolean
+          description: false if the peer has not yet shared an AgentCard (422 response)
+        valid:
+          type: boolean
+          nullable: true
+          description: true if AgentCard signature verified; false if invalid; null if unverifiable
+        did:
+          type: string
+          nullable: true
+          description: DID extracted from the AgentCard
+        did_consistent:
+          type: boolean
+          nullable: true
+          description: true if the DID in the card is consistent with the public key
+        public_key:
+          type: string
+          nullable: true
+          description: Ed25519 public key (base58) from the AgentCard identity block
+        scheme:
+          type: string
+          nullable: true
+          description: Signature scheme (e.g. "ed25519")
+        error:
+          type: string
+          nullable: true
+          description: Verification error message; null on success
+        cached:
+          type: boolean
+          description: true if result was served from TTL cache
+        cache_expires_in:
+          type: integer
+          nullable: true
+          description: Seconds until cache entry expires; null if not cached
+        trust_signal_written:
+          type: boolean
+          description: true if trust=1 was requested AND valid=true (card_verified signal upserted)
+        last_connected:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp of the peer's last WebSocket connection
+        card_received_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp when the peer's AgentCard was first received
+
+    # ── v2.58: effective_tier computation schemas ──────────────────────────────
+    EffectiveTierFactors:
+      description: |
+        Detailed factor breakdown for _compute_effective_tier() (v2.58/v2.62).
+        All four factors are returned for observability and debugging.
+      type: object
+      properties:
+        tier_rule:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: "Factor 1: Skill's declared authorization_tier (raw value)"
+        delegation_depth:
+          type: integer
+          minimum: 0
+          description: Length of the current principal_chain[]
+        depth_floor:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: "Factor 2: Tier derived from delegation depth (min(depth, 3) mapped to T-tier)"
+        reputation_adj:
+          type: integer
+          enum: [-1, 0, 1]
+          description: |
+            Factor 3: Reputation adjustment from local relay knowledge.
+            -1 (known+verified+active peer), 0 (neutral), +1 (unknown peer, conservative).
+            Only applied (via combined_adj) when base_int >= T2.
+        wtrmrk_sequence_root:
+          type: string
+          nullable: true
+          description: "Factor 4 input (v2.62): Merkle commitment queried against WTRMRK registry. Null if not provided."
+        wtrmrk_queried:
+          type: boolean
+          description: "True if a wtrmrk_sequence_root was provided and a query was attempted."
+        wtrmrk_grade:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 3
+          description: "WTRMRK registry grade (0-3). Null if query failed or not attempted."
+        wtrmrk_adj:
+          type: integer
+          nullable: true
+          enum: [-1, 0, 1, null]
+          description: |
+            Factor 4 adjustment from WTRMRK grade.
+            Grade 3→-1, Grade 1-2/None→0, Grade 0→+1. Null if not queried.
+        combined_adj:
+          type: integer
+          enum: [-1, 0, 1]
+          description: |
+            Combined adjustment: clamp(-1, +1, reputation_adj + wtrmrk_adj).
+            Asymmetric safety rule: if either factor is +1, combined cannot be -1.
+            Applied (instead of reputation_adj alone) when base_int >= T2.
+        effective_tier:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: "Final computed effective tier after all four factors"
+
+    EffectiveTierResponse:
+      description: Response body for GET /skills/{id}/effective-tier (v2.58)
+      type: object
+      required: [skill_id, effective_tier, factors]
+      properties:
+        skill_id:
+          type: string
+          description: The skill identifier from the request path
+        effective_tier:
+          type: string
+          nullable: true
+          enum: [T0, T1, T2, T3, null]
+          description: Dynamically computed effective authorization tier
+        factors:
+          $ref: "#/components/schemas/EffectiveTierFactors"
+
+    # ── v2.57: /skills/{id}/capability-token + /capability-tokens schemas ─────
+    CapabilityToken:
+      description: |
+        A SINT-format Ed25519 signed capability token (v2.57).
+        Self-contained credential authorizing a subject DID to invoke a specific
+        ACP skill. Compatible with SINT Protocol (A2A IS#1716).
+      type: object
+      required:
+        - jti
+        - iss
+        - sub
+        - resource
+        - actions
+        - tier
+        - iat
+        - exp
+        - signature
+        - scheme
+        - public_key
+      properties:
+        jti:
+          type: string
+          description: Unique token identifier (random 16-byte hex)
+        iss:
+          type: string
+          description: Issuer DID (this relay's did:acp: or did:key:)
+        sub:
+          type: string
+          description: Subject DID (agent authorized to invoke)
+        resource:
+          type: string
+          description: "Resource URI: acp://{agent_name}/skills/{skill_id}"
+        actions:
+          type: array
+          items:
+            type: string
+          description: Permitted actions (default: ["invoke"])
+        tier:
+          type: string
+          enum: [T0, T1, T2, T3]
+          description: Authorization tier the token grants
+        constraints:
+          type: object
+          description: Optional parameter constraints (composable with skill.param_constraints v2.50)
+          additionalProperties: true
+        iat:
+          type: integer
+          description: Issued-at unix timestamp
+        exp:
+          type: integer
+          description: Expiry unix timestamp
+        signature:
+          type: string
+          description: Hex-encoded Ed25519 signature over canonical JSON payload
+        scheme:
+          type: string
+          enum: [sint_ed25519]
+          description: Signature scheme identifier
+        public_key:
+          type: string
+          description: Hex-encoded 32-byte Ed25519 public key for verification
+    CapabilityTokenIssueRequest:
+      type: object
+      required: [subject]
+      properties:
+        subject:
+          type: string
+          description: Subject DID (who will hold this capability)
+        tier:
+          type: string
+          enum: [T0, T1, T2, T3]
+          description: "Tier to encode (default: skill's authorization_tier or T1)"
+        ttl:
+          type: integer
+          default: 3600
+          description: Token lifetime in seconds
+        actions:
+          type: array
+          items:
+            type: string
+          description: "Permitted actions (default: [\"invoke\"])"
+        constraints:
+          type: object
+          description: Optional parameter constraints dict
+          additionalProperties: true
+    CapabilityTokenIssueResponse:
+      type: object
+      required: [ok, token]
+      properties:
+        ok:
+          type: boolean
+        token:
+          $ref: "#/components/schemas/CapabilityToken"
+    CapabilityTokenListResponse:
+      description: Response body for GET /capability-tokens (v2.57)
+      type: object
+      required: [ok, count, tokens]
+      properties:
+        ok:
+          type: boolean
+        count:
+          type: integer
+        tokens:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/CapabilityToken"
+              - type: object
+                properties:
+                  skill_id:
+                    type: string
+                    description: Skill for which this token was issued
+                  issued_at:
+                    type: string
+                    format: date-time
+                  expired:
+                    type: boolean
+
+    DidKeyResponse:
+      type: object
+      description: Relay's W3C did:key identifier and public key material (v2.63)
+      properties:
+        ok:
+          type: boolean
+        did_key:
+          type: string
+          description: W3C did:key identifier (multicodec 0xed01 + base58btc, z6Mk... prefix)
+          example: "did:key:z6MkpK7WQSpmbJUMxqa3EP2CeA7DTrD12H1Xhuwo5VaCPP9m"
+        did_acp:
+          type: string
+          description: ACP-native DID (raw base64url pubkey)
+        public_key_b64:
+          type: string
+          description: Ed25519 public key, base64url encoded (32 bytes)
+        public_key_hex:
+          type: string
+          description: Ed25519 public key, 64 hex chars
+        algorithm:
+          type: string
+          enum: [Ed25519]
+        multicodec:
+          type: string
+          enum: ["0xed01"]
+          description: Multicodec prefix used in did:key derivation
+
+    SintToken:
+      type: object
+      description: SINT-format cross-protocol capability token (A2A #1716 / APS v1.32.0 compatible)
+      required: [subject, resource, actions, tier, signature]
+      properties:
+        subject:
+          type: string
+          description: Issuer's Ed25519 public key, 64 hex chars (32 bytes)
+          minLength: 64
+          maxLength: 64
+        resource:
+          type: string
+          description: Resource URI this token grants access to
+          example: "acp://relay.example/skills/invoke"
+        actions:
+          type: array
+          items:
+            type: string
+          description: List of permitted actions
+          example: ["invoke"]
+        tier:
+          type: string
+          description: Authorization tier (T0_public / T1_read / T2_act / T3_admin)
+          example: "T2_act"
+        exp:
+          type: integer
+          format: int64
+          description: Expiry as Unix timestamp (omit or 0 = no expiry)
+        signature:
+          type: string
+          description: Ed25519 signature over canonical payload (hex), see spec for payload format
+
+    ExternalTokenVerifyRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          $ref: "#/components/schemas/SintToken"
+
+    ExternalTokenVerifyResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: true if token is cryptographically valid and not expired
+        valid:
+          type: boolean
+          description: true if signature verification passed
+        expired:
+          type: boolean
+          description: true if exp field is present and in the past
+        subject_did:
+          type: string
+          description: did:key derived from token subject pubkey
+        relay_did_key:
+          type: string
+          description: This relay's did:key (for cross-reference; null if no identity loaded)
+        fields_verified:
+          type: array
+          items:
+            type: string
+          description: Ordered list of verification steps completed successfully
+          example: ["required_fields","expiry_not_expired","subject_pubkey_decoded","did_key_derived","canonical_payload_built","signature_valid"]
+        error:
+          type: string
+          description: Human-readable error message when ok=false
+
+  /identity/did-key:
+    get:
+      summary: Get relay's W3C did:key identifier and public key material (v2.63)
+      description: |
+        Returns this relay's Ed25519 public key as a W3C did:key identifier
+        (multicodec 0xed01 + base58btc). Compatible with APS v1.32.0 toDIDKey()
+        and SINT keyToDid(). Cross-verify benchmark: 9/9 PASS (A2A #1713, 2026-04-06).
+      tags: [identity]
+      responses:
+        "200":
+          description: Relay DID and public key material
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DidKeyResponse"
+        "404":
+          description: No Ed25519 identity loaded (relay started without --identity)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /verify/external-token:
+    post:
+      summary: Verify a SINT-format cross-protocol capability token (v2.63)
+      description: |
+        Accepts a SINT-format Ed25519-signed capability token and performs
+        7-step cryptographic verification:
+          1. Required fields check
+          2. Expiry (exp) check
+          3. Subject pubkey decode (64 hex chars → 32 bytes Ed25519)
+          4. did:key derivation (multicodec 0xed01 + base58btc)
+          5. Canonical payload construction: subject|resource|actions_csv|tier|exp_or_0
+          6. Ed25519 signature verification
+          7. Optional MoltTrust registry query (if configured)
+        Compatible with APS v1.32.0 and SINT token formats.
+      tags: [identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalTokenVerifyRequest"
+      responses:
+        "200":
+          description: Verification result (ok=true for valid, ok=false for invalid/expired)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalTokenVerifyResponse"
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    ImportEvidenceRequest:
+      type: object
+      required: [ir]
+      properties:
+        ir:
+          type: object
+          description: The bilateral interaction record to import
+          properties:
+            id:            { type: string }
+            type:          { type: string, default: "interaction" }
+            relay_did:     { type: string }
+            caller_did:    { type: string }
+            task_id:       { type: string }
+            skill_id:      { type: string }
+            sequence_a:    { type: integer }
+            previous_hash: { type: string }
+            timestamp:     { type: string, format: date-time }
+            relay_signature:   { type: string, nullable: true }
+            relay_public_key:  { type: string, nullable: true }
+            caller_signature:  { type: string, nullable: true }
+            caller_public_key: { type: string, nullable: true }
+            bilateral:         { type: boolean }
+
+    ImportEvidenceVerify:
+      type: object
+      properties:
+        relay_sig_valid:
+          type: boolean
+          nullable: true
+          description: True if relay_signature verified, False if invalid, null if not provided
+        caller_sig_valid:
+          type: boolean
+          nullable: true
+          description: True if caller_signature verified, False if invalid, null if not provided
+        bilateral_verified:
+          type: boolean
+          description: True only when BOTH relay and caller signatures are valid
+        errors:
+          type: array
+          items: { type: string }
+          description: List of verification errors (empty on full success)
+
+    ReputationUpdate:
+      type: object
+      description: APS-compatible reputation update payload (aps_schema v1)
+      properties:
+        evidence_type:
+          type: string
+          enum: [bilateral_interaction_record]
+        source_relay_did:  { type: string, nullable: true }
+        agent_did:         { type: string, nullable: true }
+        task_id:           { type: string, nullable: true }
+        skill_id:          { type: string, nullable: true }
+        sequence_a:        { type: integer, nullable: true }
+        timestamp:         { type: string, nullable: true, format: date-time }
+        bilateral:         { type: boolean }
+        relay_sig_valid:   { type: boolean, nullable: true }
+        caller_sig_valid:  { type: boolean, nullable: true }
+        trust_delta:
+          type: integer
+          enum: [-1, 0, 1]
+          description: "+1 bilateral verified / 0 relay-only / -1 tampered or no signatures"
+        freshness_hint:
+          type: integer
+          nullable: true
+          description: Seconds elapsed since original interaction timestamp
+        aps_schema:
+          type: string
+          enum: [v1]
+
+    ImportEvidenceResponse:
+      type: object
+      properties:
+        ok:          { type: boolean }
+        import_id:   { type: string, description: "Stable identifier: imp-<uuid>" }
+        verify:
+          $ref: "#/components/schemas/ImportEvidenceVerify"
+        reputation_update:
+          $ref: "#/components/schemas/ReputationUpdate"
+
+    ImportedEvidenceRecord:
+      type: object
+      properties:
+        import_id:   { type: string }
+        imported_at: { type: string, format: date-time }
+        source_ir:
+          type: object
+          description: The original imported IR record
+        verify:
+          $ref: "#/components/schemas/ImportEvidenceVerify"
+        reputation_update:
+          $ref: "#/components/schemas/ReputationUpdate"
+
+    ImportedEvidenceListResponse:
+      type: object
+      properties:
+        ok:      { type: boolean }
+        count:   { type: integer }
+        total:   { type: integer }
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportedEvidenceRecord"
+
+    IrTestVector:
+      type: object
+      description: A single deterministic bilateral IR test vector
+      properties:
+        id:                { type: string }
+        description:       { type: string }
+        canonical_fields:  { type: object }
+        canonical_bytes_hex: { type: string }
+        relay_public_key:  { type: string, nullable: true }
+        relay_signature:   { type: string, nullable: true }
+        caller_public_key: { type: string, nullable: true }
+        caller_signature:  { type: string, nullable: true }
+        verify:            { type: boolean, description: "Expected verify result" }
+        bilateral:         { type: boolean }
+        previous_hash:     { type: string, nullable: true }
+
+    IrTestVectorsResponse:
+      type: object
+      properties:
+        ok:         { type: boolean }
+        count:      { type: integer }
+        relay_did:  { type: string }
+        generated_at: { type: string, format: date-time }
+        vectors:
+          type: array
+          items:
+            $ref: "#/components/schemas/IrTestVector"
+
+tags:
+  - name: skills
+    description: |
+      Skill discovery and introspection endpoints.
+      ACP's working answer to A2A IS#1655 (QuerySkill proposal) —
+      live since ACP v2.4, documented as OpenAPI 3.1 since v2.41.
+  - name: capability-tokens
+    description: |
+      SINT-format Ed25519 signed capability token issuance and management (v2.57).
+      Implements the capability token model from A2A IS#1716 (SINT Protocol).
+  - name: identity
+    description: |
+      Ed25519 identity endpoints: did:key exposure and cross-protocol token verification (v2.63).
+      Compatible with APS v1.32.0 toDIDKey() and SINT keyToDid() (A2A #1713 cross-verify 9/9 PASS).
+  - name: interaction-records
+    description: |
+      Bilateral interaction records: creation (v2.59/v2.61), test vectors (v2.64),
+      and external evidence import with APS reputation_update (v2.65).
+      Aligns with A2A #1718 importBilateralEvidence() interface.

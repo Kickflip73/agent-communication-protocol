@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: "ACP: Agent Communication Protocol"
+message: "If ACP helps your research or project, please cite the repository."
+type: software
+authors:
+  - name: "ACP Community"
+repository-code: "https://github.com/Kickflip73/agent-communication-protocol"
+url: "https://kickflip73.github.io/agent-communication-protocol/"
+license: "Apache-2.0"
+version: "3.17.2"
+date-released: "2026-06-12"
+abstract: "A peer-to-peer protocol and relay implementation for direct agent-to-agent communication."
+keywords:
+  - "agent communication"
+  - "multi-agent systems"
+  - "protocol"
+  - "p2p"
+  - "llm"

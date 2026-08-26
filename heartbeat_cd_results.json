@@ -1,0 +1,21 @@
+{
+  "scenario_c": {
+    "passed": 9,
+    "failed": 0,
+    "bugs": []
+  },
+  "scenario_d": {
+    "passed": 6,
+    "failed": 0,
+    "bugs": [],
+    "stats": {
+      "sent": 100,
+      "received": 100,
+      "loss_rate": 0.0,
+      "send_rate": 1569.595317750784,
+      "seq_monotonic": true,
+      "seqs": []
+    }
+  },
+  "all_bugs": []
+}

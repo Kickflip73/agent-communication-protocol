@@ -1,0 +1,13 @@
+# ACP .dockerignore — keep image lean
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.github/
+tests/
+docs/
+acp-research/
+*.md
+!relay/acp_relay.py
+.env
+*.log

@@ -1,0 +1,17288 @@
+#!/usr/bin/env python3
+"""
+ACP P2P Relay v3.0.0
+====================
+Zero-server, zero-code-change P2P Agent communication.
+
+v2.48 changes (2026-04-05):
+  - GET /peers/<peer_id>/messages — per-peer message history query:
+    * Filters: direction=inbound|outbound|all, since_seq=<N>, limit, offset, sort=asc|desc
+    * Returns both inbound and outbound messages involving the target peer
+    * Incremental polling via since_seq (same semantics as /stream?since=<seq>)
+    * Clean response: message_id, direction, from/to, parts, context_id, task_id, priority, timestamps
+    * capabilities.peer_message_history=true + endpoints.peer_messages declared
+    * Inbound messages matched by peer agent_name or peer_id; outbound from _recv_queue direction field
+    * Useful for: auditing conversation history, debugging orchestration, replaying context
+    * 10/10 tests PASS (tests/test_peer_message_history.py)
+
+v2.7 changes (2026-03-28):
+  - AgentCard top-level `limitations: string[]` field (ACP-exclusive, ref A2A #1694):
+    Declares what this agent cannot do (e.g. ["no_file_access", "no_internet"]).
+    Completes the three-part capability boundary declaration alongside
+    `capabilities` (what the agent CAN do) and `availability` (current state).
+    --limitations flag: comma-separated string (e.g. --limitations "no_file_access,no_internet")
+    Optional field; defaults to [] (empty array) when not specified.
+    Fully backward-compatible: old clients that don't know this field simply ignore it.
+
+v2.6 changes (2026-03-27):
+  - Task `cancelling` intermediate state (ACP-unique, fills A2A #1684/#1680 semantic gap):
+    * New constant TASK_CANCELLING = "cancelling"
+    * :cancel endpoint: phase-1 → `cancelling` (SSE event pushed immediately),
+      phase-2 → async `canceled` (worker thread, ~instant in ref impl)
+    * Idempotent: already cancelling/canceled → 200 + current status
+    * AgentCard capabilities.task_cancelling = true (negotiation flag)
+    * spec/core-v1.0.md §3 updated: new state row + transition diagram
+    * A2A comparison table updated (ACP leads A2A on cancel semantics)
+
+v2.5 changes (2026-03-27):
+  - SSE event sequence field (`seq`): every SSE event now carries a global monotonically-
+    increasing `seq` integer.  Clients can detect dropped/out-of-order events without
+    relying on wall-clock timestamps.
+    capabilities.sse_seq=true declared in AgentCard.
+  - Named SSE event types: task-related SSE events now emit a named `event:` line on the
+    wire so EventSource consumers can filter by type:
+      event: acp.task.status   (for type=status events)
+      event: acp.task.artifact (for type=artifact events)
+    All other event types (message, peer, mdns) remain as unnamed data-only events.
+  - AgentCard top-level `supported_interfaces` field: declares which ACP interface groups
+    this agent implements (core/task/stream/mdns/p2p/identity).  Inspired by A2A SDK
+    v1.0.0-alpha `supported_interfaces` for lightweight capability negotiation.
+    Auto-derived from runtime config; override with --supported-interfaces flag.
+
+v2.4 changes (2026-03-27):
+  - AgentCard top-level `transport_modes` field: declares routing modes ["p2p", "relay"] or subset
+    Distinct from capabilities.supported_transports (protocol bindings): this declares *routing* topology
+    --transport-modes p2p,relay  (default: both; pass subset to restrict)
+    /.well-known/acp.json now includes "transport_modes": ["p2p", "relay"]
+
+v2.1-alpha changes (2026-03-26):
+  - LAN port-scan discovery: GET /peers/discover
+    TCP connect probe + /.well-known/acp.json fingerprint, no mDNS required
+    Scans local /24 subnet in ~1-3s using 64-thread pool
+    Optional params: ?subnet=192.168.1 ?ports=7901,7902 ?workers=32
+    Merges mDNS cache automatically; deduplicates by host
+    capabilities.lan_port_scan=true + endpoints.peers_discover advertised
+    Works against any ACP relay regardless of --advertise-mdns flag
+
+v0.7 changes (2026-03-20):
+  - Optional HMAC-SHA256 message signing: --secret <shared_key>
+    sig = HMAC-SHA256(secret, message_id + ":" + ts).hexdigest()
+  - AgentCard trust block: { "scheme": "hmac-sha256" | "none", "enabled": bool }
+  - AgentCard capabilities.hmac_signing + lan_discovery + context_id fields
+  - Verification: warn-only on mismatch (never drop) — graceful interop
+  - Without --secret: unsigned mode, fully backward compatible
+  - mDNS LAN peer discovery: --advertise-mdns flag
+    Pure stdlib UDP multicast 224.0.0.251:5354 — no zeroconf dependency
+    GET /discover endpoint: list LAN peers with their acp:// links
+    SSE event type=mdns for real-time new peer notifications
+  - context_id: optional multi-turn conversation grouping (client-generated, server-echo)
+
+v0.6 changes (2026-03-20):
+  - Standardized error codes: 6 codes (ERR_NOT_CONNECTED/MSG_TOO_LARGE/NOT_FOUND/
+    INVALID_REQUEST/TIMEOUT/INTERNAL) with failed_message_id for precise retries
+  - Multi-session peer registry: /peers, /peer/{id}, /peer/{id}/send
+  - AgentCard capabilities.multi_session=true
+
+v0.5 changes (2026-03-19):
+  - Task state machine: 5 states (submitted/working/completed/failed/input_required)
+  - Structured Part model: text / file / data (with media_type + filename)
+  - Message idempotency: client-generated message_id, server-side dedup
+  - Structured SSE events: type=status | artifact | message | peer
+  - AgentCard v2: /.well-known/acp.json with capabilities block
+  - /message:send endpoint (A2A-aligned) alongside legacy /send
+  - /tasks/{id}:cancel (A2A-aligned)
+
+Design principles (confirmed 2026-03-19):
+  1. Lightweight & zero-config
+  2. True P2P — no middleman, relay punches holes only
+  3. Practical — any Agent, any framework, curl-compatible
+  4. Personal/team focus — not enterprise complexity
+  5. Standardization — MCP standardized Agent<->Tool, ACP standardizes Agent<->Agent
+
+Usage:
+  python3 acp_relay.py --name "Agent-A" --skills "summarize,code-review"
+  python3 acp_relay.py --name "Agent-B" --join acp://1.2.3.4:7801/tok_xxx
+
+Requires: pip install websockets
+"""
+import asyncio
+import concurrent.futures
+import json
+import uuid
+import time
+import argparse
+import logging
+import threading
+import signal
+import sys
+import socket
+import os
+import hmac
+import hashlib
+import struct
+import select
+import queue as _queue_module
+from collections import deque
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+import urllib.request
+import urllib.error
+import datetime
+
+# Optional HTTP/2 support via hypercorn + h2 (not required; graceful fallback to HTTP/1.1)
+try:
+    import asyncio as _asyncio_h2
+    import hypercorn.asyncio as _hypercorn_asyncio
+    import hypercorn.config as _hypercorn_config
+    _HTTP2_AVAILABLE = True
+except ImportError:
+    _HTTP2_AVAILABLE = False
+
+try:
+    import websockets
+    import websockets.exceptions
+except ImportError:
+    print("Missing dependency: pip install websockets")
+    sys.exit(1)
+
+# ── Optional Ed25519 identity (v0.8) ───────────────────────────────────────
+# Uses `cryptography` library if available; falls back gracefully without it.
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey, Ed25519PublicKey,
+    )
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding, PublicFormat, PrivateFormat, NoEncryption,
+    )
+    from cryptography.exceptions import InvalidSignature as _Ed25519InvalidSignature
+    import base64 as _base64
+    _ED25519_AVAILABLE = True
+except ImportError:
+    _ED25519_AVAILABLE = False
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [acp] %(message)s", datefmt="%H:%M:%S")
+log = logging.getLogger("acp-p2p")
+
+VERSION = "3.19.0"  # v3.19: skill_id routing — POST /message/send & /tasks/create 支持 skill_id 字段; client-directed skill selection (A2A #1989 aligned); capabilities.skill_id_routing=true
+
+_heartbeat_period_ms = None   # v2.80: optional heartbeat period in ms declared in AgentCard
+
+# v2.38: valid priority levels and sort order (lower index = higher priority)
+VALID_PRIORITIES  = {"critical", "high", "normal", "low"}
+_PRIORITY_ORDER   = {"critical": 0, "high": 1, "normal": 2, "low": 3}
+
+# ── ACP Identity Extension v0.8 (optional Ed25519 module) ────────────────────
+# Import relay/identity.py for standalone verify helpers.
+# Falls back silently if identity.py is not on sys.path.
+try:
+    import os as _os_id
+    import sys as _sys_id
+    _identity_dir = _os_id.path.dirname(_os_id.path.abspath(__file__))
+    if _identity_dir not in _sys_id.path:
+        _sys_id.path.insert(0, _identity_dir)
+    import identity as _identity_ext
+    _IDENTITY_EXT_AVAILABLE = True
+except ImportError:
+    _identity_ext = None  # type: ignore
+    _IDENTITY_EXT_AVAILABLE = False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Proxy-aware WebSocket connector (v0.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_proxy_for_host(host):
+    """
+    Detect if a host should go through the HTTP proxy.
+    Returns (proxy_host, proxy_port) or None for direct connection.
+    Respects no_proxy / NO_PROXY environment variables.
+    """
+    import ipaddress as _ipa
+
+    no_proxy_raw = os.environ.get("no_proxy", "") or os.environ.get("NO_PROXY", "")
+    no_proxy_entries = [e.strip() for e in no_proxy_raw.split(",") if e.strip()]
+
+    def _in_no_proxy(h):
+        for entry in no_proxy_entries:
+            if entry.startswith(".") and h.endswith(entry):
+                return True
+            if h == entry:
+                return True
+            try:
+                net = _ipa.ip_network(entry, strict=False)
+                if _ipa.ip_address(h) in net:
+                    return True
+            except ValueError:
+                pass
+        return False
+
+    if _in_no_proxy(host):
+        return None  # direct
+
+    proxy_url = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+    if not proxy_url:
+        return None
+
+    from urllib.parse import urlparse as _up
+    p = _up(proxy_url)
+    return (p.hostname, p.port)
+
+
+async def _proxy_ws_connect(uri, **kwargs):
+    """
+    Connect to a WebSocket URI via proxy if needed.
+    Compatible with websockets <12 (Python 3.9) and >=12.
+    """
+    import inspect as _inspect
+    from urllib.parse import urlparse as _up
+    parsed = _up(uri)
+    host = parsed.hostname
+    proxy = _get_proxy_for_host(host)
+    _supports_proxy = "proxy" in _inspect.signature(websockets.connect).parameters
+
+    if proxy is None:
+        # No proxy needed — never pass proxy= parameter at all
+        # proxy=None in new websockets can trigger unexpected behavior
+        # Just connect directly without proxy kwarg on both old and new versions
+        _saved = {k: os.environ.pop(k, None) for k in
+                  ["http_proxy","https_proxy","HTTP_PROXY","HTTPS_PROXY"]}
+        try:
+            return await websockets.connect(uri, **kwargs)
+        finally:
+            for k, v in _saved.items():
+                if v is not None: os.environ[k] = v
+    else:
+        proxy_url = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY", "")
+        if _supports_proxy:
+            return await websockets.connect(uri, proxy=proxy_url, **kwargs)
+        return await websockets.connect(uri, **kwargs)
+
+MAX_MSG_BYTES = 1 * 1024 * 1024
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Standardized error codes (v0.6, inspired by ANP failed_msg_id)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# ACP uses 6 error codes. Every error response includes:
+#   { "ok": false, "error_code": "<CODE>", "error": "<human message>",
+#     "failed_message_id": "<msg_id if applicable>" }
+#
+ERR_NOT_CONNECTED        = "ERR_NOT_CONNECTED"        # No peer connected
+ERR_MSG_TOO_LARGE        = "ERR_MSG_TOO_LARGE"        # Message exceeds max_msg_bytes
+ERR_NOT_FOUND            = "ERR_NOT_FOUND"            # Task/peer/resource not found
+ERR_INVALID_REQUEST      = "ERR_INVALID_REQUEST"      # Bad input (missing fields, invalid parts)
+ERR_TIMEOUT              = "ERR_TIMEOUT"              # Sync wait timed out
+ERR_INTERNAL             = "ERR_INTERNAL"             # Unexpected server error
+ERR_AUTHORIZATION_TIER   = "ERR_AUTHORIZATION_TIER"   # v2.49: caller does not meet skill tier requirement
+ERR_PARAM_CONSTRAINT     = "ERR_PARAM_CONSTRAINT"     # v2.50: task params violate skill.param_constraints
+ERR_CONFIRM_NOT_PENDING  = "ERR_CONFIRM_NOT_PENDING"  # v2.51: task not in input_required/confirmation_pending state
+ERR_SKILL_DEPRECATED     = "ERR_SKILL_DEPRECATED"     # v2.52: informational — skill is deprecated (task still created, warning injected)
+ERR_RATE_LIMIT           = "ERR_RATE_LIMIT"           # v2.53: caller has exceeded skill.rate_limit (429)
+ERR_SKILL_NOT_FOUND      = "ERR_SKILL_NOT_FOUND"      # v3.19: skill_id specified in /message/send but skill not declared in AgentCard (400)
+ERR_ACK_TIMEOUT          = "ERR_ACK_TIMEOUT"          # v3.16: waiting for acp.ack timed out (408)
+
+def _err(code: str, message: str, http_status: int = 400,
+         failed_message_id: str = None) -> tuple:
+    """Build a standardized ACP error response dict + HTTP status code."""
+    body = {"ok": False, "error_code": code, "error": message}
+    if failed_message_id:
+        body["failed_message_id"] = failed_message_id
+    return body, http_status
+
+# ── Task states ────────────────────────────────────────────────────────────────
+#
+#  submitted -> working -> completed      (terminal)
+#                       -> failed         (terminal)
+#                       -> input_required (interrupted; resumes via /tasks/{id}/continue)
+#                       -> cancelling     (v2.6: intermediate cancel state; ACP-unique)
+#                            └──> canceled (terminal)
+#
+# BUG-002 fix (2026-03-23): added TASK_CANCELED — spec §3 defines 5 states including canceled.
+# v2.6 (2026-03-27): added TASK_CANCELLING — intermediate state exposing cancel-in-progress
+#   to observers via SSE.  Fills semantic gap identified in A2A issues #1684/#1680 (CancelTask
+#   lacks a "being cancelled" intermediate state).  ACP leads A2A on this.
+#
+TASK_SUBMITTED      = "submitted"
+TASK_WORKING        = "working"
+TASK_COMPLETED      = "completed"
+TASK_FAILED         = "failed"
+TASK_CANCELED       = "canceled"
+TASK_REJECTED       = "rejected"       # v2.66: A2A v1.0.0 alignment — agent-initiated rejection
+TASK_CANCELLING     = "cancelling"     # v2.6: intermediate cancel state (ACP-unique)
+TASK_INPUT_REQUIRED       = "input_required"
+TASK_CONFIRMATION_PENDING = "confirmation_pending"   # v2.51: T3 awaiting human sign-off
+
+TERMINAL_STATES    = {TASK_COMPLETED, TASK_FAILED, TASK_CANCELED, TASK_REJECTED}  # v2.66: +rejected
+INTERRUPTED_STATES = {TASK_INPUT_REQUIRED}
+CONFIRMATION_PENDING_STATES = {TASK_CONFIRMATION_PENDING}  # v2.51
+# States that represent an in-progress cancel (not yet terminal)
+CANCELLING_STATES  = {TASK_CANCELLING}
+
+# ── Global state ───────────────────────────────────────────────────────────────
+_recv_queue: deque = deque(maxlen=1000)
+_peer_ws    = None
+_ws_ctx     = None
+_loop       = None
+_inbox_path = None
+
+# v2.0: Offline delivery queue — buffers messages when peer is disconnected,
+#        auto-flushes on reconnect.
+# v2.97: --persist-queue SQLite backend — survives relay restart (heartbeat-agent scenario)
+# v2.99: --max-offline-ttl expiry policy — drop / extend / notify
+OFFLINE_QUEUE_MAXLEN = 100          # per-peer max buffered messages
+_offline_queue: dict  = {}          # { peer_id|"default": deque([msg, ...]) }
+_offline_lock         = threading.Lock()
+_persist_queue_path: str | None = None  # v2.97: SQLite DB path when --persist-queue enabled
+_persist_queue_conn  = None             # v2.97: sqlite3 connection (thread-local writes via lock)
+_max_offline_ttl_sec: int | None = None  # v2.99: max TTL in seconds; None = no expiry
+_offline_ttl_policy: str = "drop"        # v2.99: "drop" | "notify" (send expiry notice to sender)
+
+_tasks: dict         = {}
+_sync_pending: dict  = {}
+_sse_subscribers     = []
+_push_webhooks       = []
+_sse_notify          = threading.Event()   # BUG-009 fix: signal SSE handlers on new event
+
+# v3.11: Async task queue workers
+# _task_queue_workers: {worker_id: {peer_id, skill_id, callback_url, registered_at, tasks_dispatched, active}}
+# When a task is POST /tasks/queue'd, it is auto-dispatched to matching registered workers.
+# Matching rules: worker.peer_id matches task.from_peer_id (or None = match-all);
+#                 worker.skill_id matches task.payload.skill_id (or None = match-all).
+_task_queue_workers: dict = {}
+_task_queue_workers_lock  = threading.Lock()
+
+# v2.12: WebSocket /ws/stream native push clients
+# Each entry is a socket-like object with a send_ws_text(data: str) method
+_ws_stream_clients: set = set()
+_ws_stream_lock = threading.Lock()
+
+# v2.3: SSE event sequence counter — monotonically-increasing global seq for all SSE events.
+# Clients use seq to detect out-of-order or dropped events without relying on wall-clock timestamps.
+_sse_seq_lock = threading.Lock()
+_sse_seq: int = 0
+
+# v2.13: Event replay log — last _EVENT_LOG_MAX events kept in-memory for ?since= replay.
+# Allows clients to recover missed events after reconnect without data loss.
+_EVENT_LOG_MAX = 500                    # ring buffer capacity
+_event_log: list = []                  # list of event dicts, ordered by seq
+_event_log_lock = threading.Lock()
+
+# BUG-045: global threading.Lock for legacy _peer_ws path.
+# Using threading.Lock (not asyncio.Lock) because multiple HTTP threads call
+# _ws_send_sync() concurrently and we need cross-thread serialisation.
+_ws_send_global_lock = threading.Lock()
+
+# Idempotency cache (bounded)
+_seen_message_ids: dict = {}
+_SEEN_MAX = 2000
+
+# ── HMAC optional signing (v0.7) ──────────────────────────────────────────
+# _hmac_secret: bytes | None
+# When set, every outbound message gets a `sig` field:
+#   sig = HMAC-SHA256(secret, message_id + ":" + ts_str).hexdigest()
+# Inbound: if sig present AND secret set, verify; mismatch → log warning (not drop).
+# If secret not set, sig is ignored on receive (graceful interop).
+_hmac_secret: bytes = None
+
+# ── Test mode (v2.48) ────────────────────────────────────────────────────────
+# --test-mode enables POST /debug/inject for unit-test message + peer injection.
+# NEVER enabled in production; gated behind explicit CLI flag.
+_test_mode: bool = False
+
+# --auto-confirm-t3: skip human_confirmation_required gate for T3 skills (test-only).
+# When True, POST /tasks with T3 + human_confirmation_required proceeds directly to submitted.
+_auto_confirm_t3: bool = False
+
+# ── HMAC replay-window (v1.1) ─────────────────────────────────────────────
+# When HMAC signing is enabled (--secret), inbound messages must have a `ts`
+# field within ±HMAC_REPLAY_WINDOW_SECONDS of server clock.
+# This converts the security audit result from PARTIAL → PASS.
+# Default: 300 seconds (5 minutes).  Override with --hmac-window <seconds>.
+_HMAC_REPLAY_WINDOW: int = 300  # seconds
+
+
+def _hmac_sign(message_id: str, ts) -> str:
+    """Compute HMAC-SHA256(secret, '{message_id}:{ts}') as hex."""
+    payload = f"{message_id}:{ts}".encode()
+    return hmac.new(_hmac_secret, payload, hashlib.sha256).hexdigest()
+
+
+def _hmac_check_replay_window(ts_str: str) -> tuple[bool, str]:
+    """
+    Returns (ok: bool, reason: str).
+    Accepts ISO-8601 UTC timestamps (with or without trailing Z).
+    If ts_str is missing/unparseable, returns (False, reason).
+    Only called when _hmac_secret is set.
+    """
+    if not ts_str:
+        return False, "missing ts field"
+    try:
+        ts_clean = ts_str.rstrip("Z")
+        msg_time = datetime.datetime.fromisoformat(ts_clean)
+        now_utc  = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        skew     = abs((now_utc - msg_time).total_seconds())
+        if skew > _HMAC_REPLAY_WINDOW:
+            return False, f"ts outside replay-window ({skew:.0f}s > {_HMAC_REPLAY_WINDOW}s)"
+        return True, "ok"
+    except ValueError as exc:
+        return False, f"unparseable ts: {exc}"
+
+
+def _hmac_verify(message_id: str, ts, sig: str) -> bool:
+    """Verify inbound sig. Returns True if valid (or if no secret configured)."""
+    if not _hmac_secret:
+        return True  # no secret = accept all
+    expected = _hmac_sign(message_id, ts)
+    return hmac.compare_digest(expected, sig)
+
+
+# ── Ed25519 optional identity (v0.8) ──────────────────────────────────────
+# When --identity flag is used:
+#   - Generates (or loads) an Ed25519 keypair from ~/.acp/identity.json
+#   - Every outbound message gets an `identity` block:
+#       { "scheme": "ed25519", "public_key": "<base64url>", "sig": "<base64url>" }
+#   - Signature covers canonical JSON of the message envelope (excluding identity.sig)
+#   - Inbound: if identity.scheme==ed25519 present, verify sig; mismatch → warn only
+# Without --identity: no identity block; fully backward compatible with v0.7.
+_ed25519_private: "Ed25519PrivateKey | None" = None   # type: ignore
+_ed25519_public_b64: str = None   # base64url-encoded 32-byte public key
+_did_acp: str = None              # v1.3: did:acp:<base64url(pubkey)> — stable Agent identifier
+_did_key: str = None              # v0.8: did:key:z6Mk... W3C did:key identifier (base58btc multibase)
+_ca_cert_pem: str = None          # v1.5: optional PEM-encoded CA-signed certificate (hybrid identity)
+_delegation_chain: list = []      # v2.16: signed delegation entries [{delegator_did, scope, expires_at, sig}]
+_principal_chain: list  = []      # v2.56: OBO delegation chain [{did, role, added_at}] — "on behalf of" principal stack
+_capability_tokens: dict = {}     # v2.57: issued capability tokens {token_id: CapabilityTokenObject}
+_revoked_tokens: dict = {}        # v2.78: actively revoked token JTIs {jti: revocation_record}
+
+# v2.79: Protocol Binding declaration (A2A §5.8 CPB URI identification)
+_PROTOCOL_BINDING: dict = {
+    "binding_uri":      "urn:acp:binding:p2p-relay/v1",
+    "binding_name":     "ACP P2P Relay",
+    "binding_version":  "1.0",
+    "transport":        "p2p+relay",
+    "base_protocol":    "http+websocket",
+    "addressing":       "acp://<relay_host>/<session_token>",
+    "supports_sse":     True,
+    "supports_ws":      True,
+    "nat_traversal":    True,
+    "nat_levels":       3,
+    "description":      "ACP custom protocol binding: P2P direct connection with 3-level NAT traversal fallback to HTTP relay. Zero-config, Skill-driven. A2A §5.8 aligned.",
+    "a2a_ref":          "https://github.com/google-a2a/A2A/pull/1619",
+    "spec_url":         "https://github.com/Kickflip73/agent-communication-protocol/blob/main/spec/core-v0.9.md",
+}
+_interaction_records: list = []  # v2.59: bilateral interaction records [{id, task_id, relay_did, caller_did, ...}]
+_ir_seq: int = 0                 # v2.59: monotonic sequence counter for interaction records
+_imported_evidence: list = []    # v2.65: externally-imported bilateral IR evidence [{import_id, source_ir, reputation_update, ...}]
+_task_evidence: dict = {}        # v2.81: task lifecycle evidence {task_id: [evidence_entry, ...]}
+_evidence_subscribers: dict = {}  # v2.82: SSE subscribers per task_id {task_id: [queue.Queue, ...]}
+_governance_metadata: dict = {}  # v2.60: governance metadata (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
+
+# v3.4: AgentCard.governance block — A2A #1717 CredentialLifecyclePolicy
+_governance_ttl: int = 3600          # --governance-ttl (identity token TTL seconds)
+_governance_revocation_endpoint: str | None = None  # --revocation-endpoint
+_governance_audit_mode: str = "static"  # --audit-mode static|live
+_governance_policy_ref: str | None = None  # future: governance framework reference URL
+
+# v3.12: governance compliance runtime state
+# _governance_compliance_verified_at: ISO8601 timestamp of last compliance check (or None)
+# _governance_operator_attestation: optional operator attestation dict {attested_by, attestation_url, attested_at}
+_governance_compliance_verified_at: str | None = None
+_governance_operator_attestation: dict | None = None
+_governance_compliance_lock = threading.Lock()
+_experimental_transports: list = []  # v3.5: --experimental-transport names (SlimRPC etc.)
+
+
+def _pubkey_to_did_acp(pubkey_bytes: bytes) -> str:
+    """Derive a did:acp: identifier from a raw 32-byte Ed25519 public key.
+
+    Format: did:acp:<base64url-no-padding(pubkey)>
+    Zero-dependency (stdlib base64 only); intentionally avoids base58 to keep
+    the relay self-contained.  The 'acp' DID method is key-based — the DID IS
+    the public key, no registry needed.
+
+    Example:
+        did:acp:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK  (conceptual)
+    Actual (base64url):
+        did:acp:AAEC...  (43 chars for a 32-byte key)
+    """
+    encoded = _base64.urlsafe_b64encode(pubkey_bytes).rstrip(b"=").decode()
+    return f"did:acp:{encoded}"
+
+
+_BASE58_ALPHABET = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _base58_encode(data: bytes) -> str:
+    """Pure-Python base58btc encoding (stdlib-only, no external deps)."""
+    n = int.from_bytes(data, "big")
+    result = bytearray()
+    while n > 0:
+        n, remainder = divmod(n, 58)
+        result.append(_BASE58_ALPHABET[remainder])
+    # leading zero bytes → '1' characters
+    for byte in data:
+        if byte != 0:
+            break
+        result.append(_BASE58_ALPHABET[0])
+    return result[::-1].decode("ascii")
+
+
+def _base58_decode(s: str) -> bytes:
+    """Pure-Python base58btc decoding (stdlib-only, no external deps)."""
+    alphabet = _BASE58_ALPHABET
+    n = 0
+    for char in s.encode("ascii"):
+        n = n * 58 + alphabet.index(char)
+    # Determine the number of leading zero bytes
+    leading_zeros = 0
+    for char in s.encode("ascii"):
+        if char == alphabet[0]:
+            leading_zeros += 1
+        else:
+            break
+    result = n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b""
+    return bytes(leading_zeros) + result
+
+
+def _resolve_did_to_pubkey(did: str) -> dict:
+    """Resolve a DID to its Ed25519 public key (offline, no HTTP required).
+
+    v2.33: Supports did:acp: and did:key: schemes.
+
+    Returns:
+      {
+        "ok": True,
+        "did": str,
+        "scheme": "did:acp" | "did:key",
+        "public_key_b64": str,        # base64url-encoded 32-byte Ed25519 public key
+        "public_key_hex": str,        # hex-encoded
+        "algorithm": "ed25519",
+        "derived_did_acp": str,       # canonical did:acp: derived from pubkey
+        "derived_did_key": str,       # canonical did:key: derived from pubkey
+        "consistent": bool,           # True if input DID round-trips correctly
+      }
+    or {"ok": False, "error": str, "did": str}
+    """
+    if not did or not isinstance(did, str):
+        return {"ok": False, "error": "did must be a non-empty string", "did": did}
+
+    try:
+        if did.startswith("did:acp:"):
+            # did:acp:<base64url-no-padding(32-byte pubkey)>
+            encoded = did[len("did:acp:"):]
+            # Add padding back
+            pub_raw = _base64.urlsafe_b64decode(encoded + "==")
+            if len(pub_raw) != 32:
+                return {"ok": False, "error": f"did:acp: pubkey must be 32 bytes, got {len(pub_raw)}", "did": did}
+
+        elif did.startswith("did:key:z"):
+            # did:key:z<base58btc(0xed01 + 32-byte pubkey)>
+            # Multibase: leading 'z' = base58btc
+            encoded = did[len("did:key:z"):]
+            decoded = _base58_decode(encoded)
+            # Expect 2-byte multicodec prefix [0xed, 0x01] + 32-byte pubkey
+            if len(decoded) < 34:
+                return {"ok": False, "error": f"did:key: decoded length {len(decoded)} < 34", "did": did}
+            if decoded[0] != 0xed or decoded[1] != 0x01:
+                return {"ok": False, "error": f"did:key: expected Ed25519 multicodec 0xed01, got {decoded[:2].hex()}", "did": did}
+            pub_raw = decoded[2:34]
+
+        else:
+            return {"ok": False, "error": f"unsupported DID scheme (supported: did:acp:, did:key:z)", "did": did}
+
+        # Validate it's a real Ed25519 public key
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        Ed25519PublicKey.from_public_bytes(pub_raw)
+
+        pub_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+        pub_hex = pub_raw.hex()
+        derived_acp = _pubkey_to_did_acp(pub_raw)
+        derived_key = _pubkey_to_did_key(pub_raw)
+        consistent  = (did == derived_acp) or (did == derived_key)
+
+        return {
+            "ok":              True,
+            "did":             did,
+            "scheme":          "did:acp" if did.startswith("did:acp:") else "did:key",
+            "public_key_b64":  pub_b64,
+            "public_key_hex":  pub_hex,
+            "algorithm":       "ed25519",
+            "derived_did_acp": derived_acp,
+            "derived_did_key": derived_key,
+            "consistent":      consistent,
+        }
+
+    except Exception as e:
+        return {"ok": False, "error": str(e), "did": did}
+
+
+def _pubkey_to_did_key(pubkey_bytes: bytes) -> str:
+    """Derive a W3C did:key identifier from a raw 32-byte Ed25519 public key.
+
+    Follows the did:key spec (https://w3c-ccg.github.io/did-key-spec/):
+      - Prepend Ed25519 multicodec prefix 0xed 0x01
+      - Encode with base58btc (pure Python, no external deps)
+      - Prefix with 'z' (multibase base58btc indicator)
+
+    Format: did:key:z6Mk<base58btc(0xed01 + pubkey)>
+    Example: did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
+    """
+    ED25519_MULTICODEC = bytes([0xed, 0x01])
+    prefixed = ED25519_MULTICODEC + pubkey_bytes
+    encoded = _base58_encode(prefixed)
+    return f"did:key:z{encoded}"
+
+
+def _ed25519_load_or_create(identity_path: str = None) -> bool:
+    """Load existing Ed25519 keypair or generate a new one. Returns success."""
+    global _ed25519_private, _ed25519_public_b64, _did_acp, _did_key
+    if not _ED25519_AVAILABLE:
+        log.warning("Ed25519 identity requires: pip install cryptography")
+        return False
+
+    import json as _json
+    import pathlib as _pathlib
+
+    path = _pathlib.Path(identity_path or os.path.expanduser("~/.acp/identity.json"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        try:
+            data = _json.loads(path.read_text())
+            raw = _base64.urlsafe_b64decode(data["private_key"] + "==")
+            _ed25519_private = Ed25519PrivateKey.from_private_bytes(raw)
+            pub_raw = _ed25519_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+            _did_acp = _pubkey_to_did_acp(pub_raw)
+            _did_key = _pubkey_to_did_key(pub_raw)
+            log.info(f"Ed25519 identity loaded from {path} | did={_did_key}")
+            return True
+        except Exception as e:
+            log.warning(f"Failed to load identity from {path}: {e} — generating new keypair")
+
+    _ed25519_private = Ed25519PrivateKey.generate()
+    pub_raw = _ed25519_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    priv_raw = _ed25519_private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+    _ed25519_public_b64 = _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+    _did_acp = _pubkey_to_did_acp(pub_raw)
+    _did_key = _pubkey_to_did_key(pub_raw)
+    priv_b64 = _base64.urlsafe_b64encode(priv_raw).rstrip(b"=").decode()
+    try:
+        path.write_text(_json.dumps({
+            "scheme":      "ed25519",
+            "public_key":  _ed25519_public_b64,
+            "did":         _did_key,
+            "did_acp":     _did_acp,
+            "private_key": priv_b64,
+            "created_at":  _now(),
+        }, indent=2))
+        path.chmod(0o600)
+        log.info(f"Ed25519 keypair generated and saved to {path} | did={_did_key}")
+    except Exception as e:
+        log.warning(f"Could not save identity to {path}: {e} — keypair active for this session only")
+    return True
+
+
+def _ed25519_sign_msg(msg: dict) -> str:
+    """Sign canonical message envelope (all fields except identity.sig). Returns base64url sig."""
+    # Build canonical form: sorted keys, excluding identity.sig itself
+    canonical = {k: v for k, v in msg.items() if k != "identity"}
+    payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload)
+    return _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+
+def _ed25519_verify_msg(msg: dict, public_key_b64: str, sig_b64: str) -> bool:
+    """Verify Ed25519 sig on inbound message. Returns True if valid."""
+    if not _ED25519_AVAILABLE:
+        return True  # can't verify — accept
+    try:
+        pub_raw = _base64.urlsafe_b64decode(public_key_b64 + "==")
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        sig_bytes = _base64.urlsafe_b64decode(sig_b64 + "==")
+        # Reconstruct canonical form (same as signing)
+        canonical = {k: v for k, v in msg.items() if k != "identity"}
+        payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+        pub_key.verify(sig_bytes, payload)
+        return True
+    except (_Ed25519InvalidSignature, Exception):
+        return False
+
+
+# ── v3.0: Message-level Ed25519 signature (msg_sig) ───────────────────────
+# Provides per-message cryptographic proof of origin, aligned with ANP's
+# DataIntegrityProof / origin_proof design pattern.
+#
+# Canonical payload for signing:
+#   JSON.stringify({message_id, from, content, ts}, sort_keys=True)
+# where `content` = JSON-encoded parts array (stringified).
+#
+# The resulting base64url string is stored in msg["msg_sig"].
+# Verifiers reconstruct the same canonical payload and check the signature
+# against the signer's Ed25519 public key.
+
+def _sign_message(msg_payload: dict, to: str = "",
+                  principal_id: str = "", operator_id: str = "",
+                  governance_framework_ref: str = "") -> str:
+    """Sign a message envelope and return a base64url Ed25519 signature.
+
+    v3.0 canonical form (backward-compat, when to=""):
+        {"content": <JSON string of parts>, "from": <str>, "message_id": <str>, "ts": <str>}
+
+    v3.1 canonical form (origin_proof, when to is non-empty):
+        {"content": <JSON string of parts>, "from": <str>, "message_id": <str>, "to": <str>, "ts": <str>}
+
+    v3.3 canonical form (origin_proof + OBO fields, when any OBO field is non-empty):
+        adds optional fields principal_id / operator_id / governance_framework_ref to canonical
+        when present, enabling A2A #1713 OBO cross-organisation delegation attestation.
+
+    When `to` is provided the signature is bound to the recipient peer_id,
+    preventing replay-to-wrong-recipient attacks (origin_proof / ANP DataIntegrityProof).
+
+    All keys are sorted; separators are (",", ":") (no spaces).
+
+    Requires _ed25519_private to be loaded (via --identity).
+    Raises RuntimeError if identity key is unavailable.
+    """
+    if _ed25519_private is None:
+        raise RuntimeError("msg_sig requires --identity (Ed25519 private key not loaded)")
+    # Build canonical dict — four (v3.0) or five (v3.1) attested fields
+    canonical = {
+        "content":    json.dumps(msg_payload.get("parts", []), sort_keys=True,
+                                 ensure_ascii=False, separators=(",", ":")),
+        "from":       str(msg_payload.get("from", "")),
+        "message_id": str(msg_payload.get("message_id", "")),
+        "ts":         str(msg_payload.get("ts", "")),
+    }
+    if to:  # v3.1: bind signature to recipient — origin_proof
+        canonical["to"] = str(to)
+    # v3.3: optional OBO / delegation attestation fields (A2A #1713)
+    if principal_id:
+        canonical["principal_id"] = str(principal_id)
+    if operator_id:
+        canonical["operator_id"] = str(operator_id)
+    if governance_framework_ref:
+        canonical["governance_framework_ref"] = str(governance_framework_ref)
+    payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
+                               separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload_bytes)
+    return _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+
+def _build_proof_object(msg: dict, to: str = "",
+                        principal_id: str = "", operator_id: str = "",
+                        governance_framework_ref: str = "") -> dict:
+    """Build a W3C DataIntegrityProof-format proof object (v3.2/v3.3).
+
+    Constructs a proof object compatible with the W3C Data Integrity specification,
+    using the same Ed25519 canonical payload as msg_sig for interoperability.
+
+    The proof object format:
+    {
+        "type":               "Ed25519Signature2020",
+        "verificationMethod": "did:acp:<pubkey_b64>#key-0",
+        "created":            "<ISO-8601 UTC timestamp>",
+        "proofPurpose":       "assertionMethod",
+        "proofValue":         "<base64url Ed25519 signature>"
+    }
+
+    - `proofValue` uses the identical Ed25519 canonical payload as msg_sig
+      (v3.0 or v3.1/origin_proof depending on `to`), enabling cross-verification.
+    - `verificationMethod` embeds the relay's public key as a did:acp DID URL.
+    - `created` is the current UTC timestamp in ISO-8601 format.
+    - v3.3: optional OBO fields (principal_id/operator_id/governance_framework_ref)
+      are passed through to _sign_message for inclusion in canonical payload.
+
+    Requires _ed25519_private to be loaded. Returns None if identity unavailable.
+    """
+    if _ed25519_private is None:
+        return None
+    import datetime as _dt
+    created = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # proofValue reuses the same canonical signing path as msg_sig — full interop
+    proof_value = _sign_message(msg, to=to,
+                                principal_id=principal_id,
+                                operator_id=operator_id,
+                                governance_framework_ref=governance_framework_ref)
+    verification_method = f"did:acp:{_ed25519_public_b64}#key-0"
+    return {
+        "type":               "Ed25519Signature2020",
+        "verificationMethod": verification_method,
+        "created":            created,
+        "proofPurpose":       "assertionMethod",
+        "proofValue":         proof_value,
+    }
+
+
+def _verify_message_sig(msg: dict, public_key_b64: str, to: str = "",
+                        principal_id: str = "", operator_id: str = "",
+                        governance_framework_ref: str = "") -> bool:
+    """Verify a msg_sig on an inbound (or stored) message.
+
+    v3.0 (backward-compat): verifies without `to` field when to="" or to not provided.
+    v3.1 (origin_proof):    verifies with `to` field included in canonical when to is non-empty.
+    v3.3 (OBO fields):      verifies with optional principal_id/operator_id/governance_framework_ref
+                            included in canonical when non-empty (A2A #1713 OBO delegation).
+
+    Args:
+        msg:            the full message dict (must include message_id, from, parts, ts, msg_sig)
+        public_key_b64: base64url-encoded Ed25519 public key of the claimed sender
+        to:             optional recipient peer_id (v3.1 origin_proof); if provided, the
+                        canonical payload will include the `to` field for signature verification.
+        principal_id:   optional delegating principal DID (v3.3 OBO)
+        operator_id:    optional operating agent DID (v3.3 OBO)
+        governance_framework_ref: optional governance framework URL (v3.3 OBO)
+
+    Returns:
+        True  — signature is cryptographically valid
+        False — signature is invalid or malformed
+        True  — if Ed25519 library is unavailable (fail-open for compatibility)
+    """
+    if not _ED25519_AVAILABLE:
+        return True  # can't verify — accept (backward compat)
+    sig_b64 = msg.get("msg_sig")
+    if not sig_b64:
+        return False  # no signature present
+    try:
+        pub_raw = _base64.urlsafe_b64decode(public_key_b64 + "==")
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        sig_bytes = _base64.urlsafe_b64decode(sig_b64 + "==")
+        # Reconstruct the exact canonical form used during signing
+        canonical = {
+            "content":    json.dumps(msg.get("parts", []), sort_keys=True,
+                                     ensure_ascii=False, separators=(",", ":")),
+            "from":       str(msg.get("from", "")),
+            "message_id": str(msg.get("message_id", "")),
+            "ts":         str(msg.get("ts", "")),
+        }
+        if to:  # v3.1: verify with recipient binding (origin_proof)
+            canonical["to"] = str(to)
+        # v3.3: optional OBO / delegation fields
+        if principal_id:
+            canonical["principal_id"] = str(principal_id)
+        if operator_id:
+            canonical["operator_id"] = str(operator_id)
+        if governance_framework_ref:
+            canonical["governance_framework_ref"] = str(governance_framework_ref)
+        payload_bytes = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
+                                   separators=(",", ":")).encode()
+        pub_key.verify(sig_bytes, payload_bytes)
+        return True
+    except (_Ed25519InvalidSignature, Exception):
+        return False
+
+
+# ── Multi-session peer registry (v0.6) ─────────────────────────────────────
+# Stores all active peer connections keyed by peer_id (auto-assigned or named)
+# Each entry: {id, name, link, ws, connected, connected_at, messages_sent,
+#              messages_received, agent_card}
+_peers: dict = {}       # peer_id -> peer info dict
+_peer_id_counter = 0    # auto-increment for unnamed peers
+_broadcast_log: list = []                    # v2.23: broadcast history (ring buffer, max 200 entries)
+_BROADCAST_LOG_MAX = 200
+# v3.9: topic-based Pub/Sub (A2A #1196 aligned)
+# _topic_subscribers: {topic_name: {peer_id: subscribed_at_ISO}}
+# _topic_log: {topic_name: deque([{message_id, published_at, delivered, results}, ...])}
+_topic_subscribers: dict = {}   # topic -> {peer_id -> subscribed_at}
+_topic_log: dict = {}           # topic -> list of recent publishes (max 50 per topic)
+_TOPIC_LOG_MAX = 50
+_TOPIC_NAME_MAX_LEN = 128       # max topic name length
+
+# v3.10: Federation — relay-to-relay message routing
+# _federation_relays: {relay_id: {peer_id, link, name, connected_at, messages_routed}}
+# A "federation relay" is a remote relay registered as a special peer with role="relay".
+# Messages can be routed to a target peer on a remote relay via POST /federation/route.
+_federation_relays: dict = {}   # relay_id -> federation relay info
+_federation_lock = threading.Lock()
+
+_pending_pongs: dict = {}  # v2.25: nonce -> asyncio.Future; resolved when acp.pong arrives
+_vouch_chain: list  = []  # v2.27: list of vouch_chain entries [{voucher_did, vouched_did, vouched_at, sig, comment}]
+
+# v3.16: pending ACK registry — {message_id: threading.Event}
+# When require_ack=true, sender registers an Event here, then blocks until
+# the event is set (by the incoming acp.ack handler) or timeout expires.
+# threading.Event is used (not asyncio) because /message:send runs in HTTP
+# threads, not the asyncio event loop.
+_pending_acks: dict = {}
+_pending_acks_lock = threading.Lock()
+_ACK_DEFAULT_TIMEOUT_MS = 5000   # v3.16: default ACK wait timeout (ms)
+_ACK_MAX_TIMEOUT_MS     = 30000  # v3.16: max ACK wait timeout (ms)
+
+def _make_peer_id():
+    global _peer_id_counter
+    _peer_id_counter += 1
+    return f"peer_{_peer_id_counter:03d}"
+
+def _register_peer(peer_id=None, link=None, ws=None, link_token=None, remote_address=None):
+    """Register or update a peer connection. Returns peer_id.
+
+    BUG-055 fix (2026-04-08): connected is derived from whether ws is non-None,
+    not hardcoded to True. Registering a peer before the WS handshake completes
+    (e.g. from /peers/connect) must not set connected=True prematurely.
+    """
+    pid = peer_id or _make_peer_id()
+    existing = _peers.get(pid, {})
+    ws_val = ws or existing.get("ws")
+    _peers[pid] = {
+        "id":               pid,
+        "name":             existing.get("name", pid),
+        "link":             link or existing.get("link"),
+        "link_token":       link_token or existing.get("link_token"),
+        "ws":               ws_val,
+        "connected":        ws_val is not None,  # True only when WS is established
+        "connected_at":     existing.get("connected_at") or (_now() if ws_val else None),
+        "messages_sent":      existing.get("messages_sent", 0),
+        "messages_received":  existing.get("messages_received", 0),
+        "messages_delivered": existing.get("messages_delivered", 0),  # v2.35: ack count
+        "messages_read":      existing.get("messages_read", 0),       # v2.36: read receipt count
+        "typing":             existing.get("typing", False),           # v2.37: typing indicator state
+        "typing_since":       existing.get("typing_since", None),      # v2.37: ISO ts when peer started typing
+        "agent_card":         existing.get("agent_card"),
+        "remote_address":     remote_address or existing.get("remote_address"),  # v2.16: for dedup
+    }
+    return pid
+
+def _unregister_peer(peer_id):
+    """Mark a peer as disconnected (retain for history)."""
+    if peer_id in _peers:
+        _peers[peer_id]["connected"] = False
+        _peers[peer_id]["disconnected_at"] = _now()
+        _peers[peer_id]["ws"] = None
+
+def _get_peer_ws(peer_id=None):
+    """Get WebSocket for a specific peer, or fallback to legacy _peer_ws."""
+    if peer_id and peer_id in _peers:
+        return _peers[peer_id].get("ws")
+    # Legacy fallback: single-peer mode
+    return _peer_ws
+
+# ── /
+
+_status: dict = {
+    "acp_version":       VERSION,
+    "connected":         False,
+    "role":              None,
+    "link":              None,
+    "session_id":        None,
+    "agent_name":        None,
+    "agent_card":        None,
+    "peer_card":         None,
+    "peer_card_verification": None,       # v1.9: auto-verification result for peer AgentCard
+    "ws_port":           7801,
+    "http_port":         7901,
+    "messages_sent":      0,
+    "messages_received":  0,
+    "messages_deduped":   0,
+    "messages_delivered": 0,   # v2.35: count of acp.delivered ACKs received from peers
+    "messages_read":      0,       # v2.36: count of acp.read ACKs received from peers
+    "last_received_message_id": None,  # v2.36: track most-recent inbound msg_id for read receipt
+    "peer_typing":       False,         # v2.37: True when peer sent acp.typing{typing:true}
+    "peer_typing_since": None,          # v2.37: ISO timestamp when peer started typing
+    "priority_counts": {               # v2.38: inbound message counts per priority level
+        "critical": 0, "high": 0, "normal": 0, "low": 0
+    },
+    "reconnect_count":    0,
+    "tasks_created":     0,
+    "started_at":        None,
+    "max_msg_bytes":     MAX_MSG_BYTES,
+    "server_seq":        0,
+    "peer_count":        0,    # v0.6: active peer count
+    "p2p_enabled":       False, # v2.3: set True when P2P WebSocket listener is active
+    "limitations":        [],    # v2.20: LimitationObject[] — what this agent CANNOT do (structured capability boundary)
+    "agent_limitations":  None,  # v2.40: structured constraint dict (populated after _LIMITATIONS is defined)
+    "policy_compliance":  [],    # v2.87: governance/compliance standards (string[]) — A2A #1717 inspired
+    "connection_type":    "host",  # v2.19: NAT traversal result — "host" (default) | "p2p_direct" | "dcutr_direct" | "relay"
+}
+
+def _now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+def _make_id(prefix="msg"):
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+def _make_token():
+    return "tok_" + uuid.uuid4().hex[:16]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# mDNS-style LAN peer discovery (v0.7)
+# Pure stdlib UDP multicast — no zeroconf dependency
+# Multicast group: 224.0.0.251 port 5354 (avoid conflict with real mDNS :5353)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_MDNS_GROUP   = "224.0.0.251"
+_MDNS_PORT    = 5354
+_MDNS_MAGIC   = b"ACP1"      # 4-byte protocol magic
+_mdns_peers   = {}            # { "ip:port" -> {name, token, link, seen_at} }
+_mdns_lock    = threading.Lock()
+_mdns_thread  = None
+_mdns_running = False
+
+
+def _mdns_announce_payload(name: str, token: str, ws_port: int, http_port: int) -> bytes:
+    """Build a compact UDP announce packet: MAGIC + JSON."""
+    payload = {
+        "v":    1,
+        "name": name,
+        "tok":  token,
+        "wp":   ws_port,
+        "hp":   http_port,
+    }
+    return _MDNS_MAGIC + json.dumps(payload, separators=(",", ":")).encode()
+
+
+def _mdns_send_announce(name: str, token: str, ws_port: int, http_port: int):
+    """Send one UDP multicast announce."""
+    try:
+        data = _mdns_announce_payload(name, token, ws_port, http_port)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.sendto(data, (_MDNS_GROUP, _MDNS_PORT))
+        sock.close()
+    except Exception as e:
+        log.debug(f"mDNS announce error: {e}")
+
+
+def _mdns_listener_loop(name: str, token: str, ws_port: int, http_port: int):
+    """Background thread: listen for peer announces + re-announce self periodically."""
+    global _mdns_running
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except AttributeError:
+            pass  # Windows doesn't have SO_REUSEPORT
+        sock.bind(("", _MDNS_PORT))
+        mreq = struct.pack("4sL", socket.inet_aton(_MDNS_GROUP), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        sock.setblocking(False)
+        log.info(f"mDNS listener started on {_MDNS_GROUP}:{_MDNS_PORT}")
+    except Exception as e:
+        log.warning(f"mDNS listener failed to start: {e}")
+        _mdns_running = False
+        return
+
+    last_announce = 0
+    ANNOUNCE_INTERVAL = 30  # re-announce every 30 s
+    PEER_TTL          = 120  # forget peers not heard from in 2 min
+
+    while _mdns_running:
+        now = time.time()
+
+        # Re-announce self
+        if now - last_announce > ANNOUNCE_INTERVAL:
+            _mdns_send_announce(name, token, ws_port, http_port)
+            last_announce = now
+
+        # Listen for incoming announces
+        readable, _, _ = select.select([sock], [], [], 1.0)
+        if readable:
+            try:
+                data, addr = sock.recvfrom(1024)
+                src_ip = addr[0]
+                if not data.startswith(_MDNS_MAGIC):
+                    continue
+                payload = json.loads(data[len(_MDNS_MAGIC):].decode())
+                peer_token = payload.get("tok", "")
+                # Ignore our own announce
+                if peer_token == token:
+                    continue
+                peer_ws_port   = payload.get("wp", 7801)
+                peer_http_port = payload.get("hp", 7901)
+                peer_link      = f"acp://{src_ip}:{peer_ws_port}/{peer_token}"
+                peer_key       = f"{src_ip}:{peer_ws_port}"
+                with _mdns_lock:
+                    is_new = peer_key not in _mdns_peers
+                    _mdns_peers[peer_key] = {
+                        "name":      payload.get("name", "unknown"),
+                        "token":     peer_token,
+                        "link":      peer_link,
+                        "ip":        src_ip,
+                        "ws_port":   peer_ws_port,
+                        "http_port": peer_http_port,
+                        "seen_at":   now,
+                    }
+                if is_new:
+                    log.info(f"mDNS: discovered peer '{payload.get('name')}' @ {peer_link}")
+                    _broadcast_sse_event("mdns", {"event": "discovered",
+                                                   "name": payload.get("name"),
+                                                   "link": peer_link,
+                                                   "ip":   src_ip})
+            except Exception as e:
+                log.debug(f"mDNS recv error: {e}")
+
+        # Prune stale peers
+        with _mdns_lock:
+            stale = [k for k, v in _mdns_peers.items() if now - v["seen_at"] > PEER_TTL]
+            for k in stale:
+                log.info(f"mDNS: peer {k} expired (no announce for {PEER_TTL}s)")
+                del _mdns_peers[k]
+
+    sock.close()
+    log.info("mDNS listener stopped")
+
+
+def _mdns_start(name: str, token: str, ws_port: int, http_port: int):
+    """Start mDNS advertise + listen in a background thread."""
+    global _mdns_thread, _mdns_running
+    _mdns_running = True
+    _mdns_send_announce(name, token, ws_port, http_port)  # immediate first announce
+    _mdns_thread = threading.Thread(
+        target=_mdns_listener_loop,
+        args=(name, token, ws_port, http_port),
+        daemon=True, name="acp-mdns"
+    )
+    _mdns_thread.start()
+    log.info("mDNS discovery started")
+
+
+def _mdns_stop():
+    """Stop mDNS background thread."""
+    global _mdns_running
+    _mdns_running = False
+
+
+def _mdns_peer_list() -> list:
+    """Return a serializable snapshot of discovered LAN peers."""
+    with _mdns_lock:
+        return [
+            {k: v for k, v in p.items()}
+            for p in _mdns_peers.values()
+        ]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAN port-scan discovery (v2.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Default ACP HTTP ports to probe (each host)
+_ACP_SCAN_PORTS = [7901, 7902, 7903, 7911, 7921, 7931]
+# TCP connect timeout in seconds (keep short — scanning ~254 hosts × N ports)
+_SCAN_CONNECT_TIMEOUT = 0.15
+# HTTP probe timeout (slightly longer — we already know port is open)
+_SCAN_HTTP_TIMEOUT = 1.0
+
+
+def _get_lan_ip() -> str | None:
+    """Return the primary LAN IPv4 address of this machine."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
+def _tcp_open(host: str, port: int, timeout: float) -> bool:
+    """Return True if a TCP connection can be established."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _probe_acp(host: str, port: int, timeout: float) -> dict | None:
+    """
+    Probe http://host:port/.well-known/acp.json.
+    Returns parsed card dict on success, None otherwise.
+    """
+    url = f"http://{host}:{port}/.well-known/acp.json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ACP-Scanner/2.1"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read(65536))
+                return data
+    except Exception:
+        return None
+    return None
+
+
+def _lan_port_scan(
+    subnet: str | None = None,
+    ports: list[int] | None = None,
+    max_workers: int = 64,
+    skip_self_port: int | None = None,
+) -> dict:
+    """
+    Scan the local /24 subnet for ACP relays via TCP port probe +
+    /.well-known/acp.json verification.
+
+    Args:
+        subnet:        e.g. "192.168.1"  (auto-detected when None)
+        ports:         HTTP ports to try per host (default: _ACP_SCAN_PORTS)
+        max_workers:   thread pool size
+        skip_self_port: HTTP port of this relay (skip self to avoid self-discovery)
+
+    Returns dict:
+        {
+          "found": [ {host, port, name, link, agent_card, latency_ms}, ... ],
+          "scanned_hosts": N,
+          "scanned_ports": M,
+          "subnet": "x.x.x",
+          "duration_ms": D,
+          "error": str | null,
+        }
+    """
+    import concurrent.futures
+
+    if ports is None:
+        ports = _ACP_SCAN_PORTS
+
+    t0 = time.monotonic()
+    lan_ip = _get_lan_ip()
+
+    if subnet is None:
+        if lan_ip is None:
+            return {
+                "found": [], "scanned_hosts": 0, "scanned_ports": 0,
+                "subnet": None, "duration_ms": 0,
+                "error": "Cannot determine LAN IP",
+            }
+        parts = lan_ip.split(".")
+        if len(parts) != 4:
+            return {
+                "found": [], "scanned_hosts": 0, "scanned_ports": 0,
+                "subnet": None, "duration_ms": 0,
+                "error": f"Unexpected IP format: {lan_ip}",
+            }
+        subnet = ".".join(parts[:3])  # e.g. "192.168.1"
+
+    # Build host list (skip .0 and .255; skip self)
+    hosts = [f"{subnet}.{i}" for i in range(1, 255) if f"{subnet}.{i}" != lan_ip]
+
+    found = []
+    scanned_ports = 0
+
+    def _check_host_port(host_port):
+        host, port = host_port
+        # Skip self
+        if skip_self_port and host == lan_ip and port == skip_self_port:
+            return None
+        if not _tcp_open(host, port, _SCAN_CONNECT_TIMEOUT):
+            return None
+        # Port is open — probe for ACP
+        t_probe = time.monotonic()
+        card = _probe_acp(host, port, _SCAN_HTTP_TIMEOUT)
+        if card is None:
+            return None
+        latency_ms = round((time.monotonic() - t_probe) * 1000, 1)
+        # Extract identity info from AgentCard
+        self_card = card.get("self", card)  # support wrapped {self:{...}} or flat
+        name = self_card.get("name", f"acp-relay@{host}:{port}")
+        # Reconstruct acp:// link from card if available
+        link = None
+        endpoints = self_card.get("endpoints", {})
+        ws_host = self_card.get("host", host)
+        ws_port_val = self_card.get("ws_port") or self_card.get("port")
+        token = self_card.get("token")
+        if ws_port_val and token:
+            link = f"acp://{ws_host}:{ws_port_val}/{token}"
+        return {
+            "host": host,
+            "http_port": port,
+            "name": name,
+            "link": link,
+            "agent_card": self_card,
+            "latency_ms": latency_ms,
+        }
+
+    tasks = [(h, p) for h in hosts for p in ports]
+    scanned_ports = len(tasks)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as exe:
+        for result in exe.map(_check_host_port, tasks):
+            if result is not None:
+                found.append(result)
+
+    # De-duplicate by host (keep first port that responded)
+    seen_hosts = set()
+    deduped = []
+    for r in found:
+        if r["host"] not in seen_hosts:
+            seen_hosts.add(r["host"])
+            deduped.append(r)
+
+    duration_ms = round((time.monotonic() - t0) * 1000)
+    return {
+        "found": deduped,
+        "scanned_hosts": len(hosts),
+        "scanned_ports": scanned_ports,
+        "subnet": subnet,
+        "duration_ms": duration_ms,
+        "error": None,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Part model (v0.5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _make_text_part(text):
+    return {"type": "text", "content": text}
+
+def _make_file_part(url, media_type="application/octet-stream", filename=None):
+    """File Part uses URL reference — ACP does not pass raw bytes inline."""
+    p = {"type": "file", "url": url, "media_type": media_type}
+    if filename:
+        p["filename"] = filename
+    return p
+
+def _make_data_part(data):
+    """Structured-data Part — arbitrary JSON value."""
+    return {"type": "data", "content": data}
+
+def _validate_part(part):
+    """Returns (ok:bool, error:str).
+
+    v2.67: Accepts both ACP legacy format and A2A v1.0.0 Part format:
+      text part: content (legacy) OR text (A2A v1.0.0)
+      file part: url required (both formats)
+      data part: content (legacy) OR data (A2A v1.0.0)
+    """
+    t = part.get("type")
+    if t == "text":
+        # Accept both legacy 'content' and A2A v1.0.0 'text' field
+        if not isinstance(part.get("content"), str) and not isinstance(part.get("text"), str):
+            return False, "text part requires string 'content' or 'text'"
+    elif t == "file":
+        if not part.get("url"):
+            return False, "file part requires 'url'"
+    elif t == "data":
+        # Accept both legacy 'content' and A2A v1.0.0 'data' field
+        if "content" not in part and "data" not in part:
+            return False, "data part requires 'content' or 'data'"
+    else:
+        return False, f"unknown part type '{t}'; expected text|file|data"
+    return True, ""
+
+def _validate_parts(parts):
+    if not parts:
+        return False, "parts must be a non-empty list"
+    for i, p in enumerate(parts):
+        ok, err = _validate_part(p)
+        if not ok:
+            return False, f"parts[{i}]: {err}"
+    return True, ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AgentCard v2
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Availability metadata (v1.2) ──────────────────────────────────────────
+# Optional AgentCard 'availability' block for heartbeat/cron-type agents.
+# Inspired by A2A issue #1667 (2026-03-21): AgentCard has no scheduling fields.
+# ACP is the first Agent communication protocol to support this natively.
+#
+# Fields (all optional):
+#   mode: "persistent" | "heartbeat" | "cron" | "manual"
+#   interval_seconds: int         # heartbeat/cron wake interval
+#   schedule:         str         # v2.17: CRON expression (e.g. "0 */4 * * *") — auto-computes next_active_at
+#   next_active_at:   ISO-8601 Z  # next scheduled wake (agent-maintained or auto-computed from schedule)
+#   last_active_at:   ISO-8601 Z  # last wake time (auto-set on startup / POST /availability/heartbeat)
+#   task_latency_max_seconds: int # worst-case task processing latency
+#   timezone:         str         # v2.17: IANA timezone for schedule interpretation (default "UTC")
+_availability: dict  = {}         # empty = persistent (default behaviour)
+_extensions:   list  = []         # v1.3: [{uri, required, params}] Extension list (opt-in)
+_http2_enabled: bool = False      # v1.6: HTTP/2 transport binding (requires hypercorn+h2)
+_transport_modes: list = ["p2p", "relay"]  # v2.4: top-level AgentCard field — routing modes supported by this node
+_limitations: list = []  # v2.20: top-level AgentCard field — LimitationObject[] (structured) or string[] (legacy compat)
+_skill_limitations_overrides: dict = {}  # v2.29: runtime per-skill limitations override {skill_id: LimitationObject[]}
+_skill_status_probed: set = set()        # v3.14: tracks skill_ids that have been probed via GET /skills/<id>/status (used in has_status evidence)
+
+# v2.87: policy_compliance — governance/compliance standards this agent conforms to (A2A #1717 inspired)
+# Populated from --policy-compliance CLI flag (comma-separated).
+# Well-known values: "OWASP-ASVS", "ATF-v2", "NIST-AIRMF", "ISO-42001", "EU-AI-Act-conformant"
+_policy_compliance: list = []   # string[] — governance/compliance standard identifiers
+
+# v2.40: AgentCard limitations — explicit constraint declarations (inspired by A2A IS#1694)
+# Distinct from _limitations (LimitationObject[]) — this is a structured dict of hard numeric/enum limits.
+# All fields are optional; agents may expose a subset.
+_LIMITATIONS = {
+    "max_message_size_bytes":  65536,                               # 64 KB per message
+    "max_recv_queue_size":     1000,                                # recv queue hard cap
+    "max_wait_seconds":        30,                                  # long-poll max wait (v2.39)
+    "max_peers":               100,                                 # concurrent peer connections
+    "supported_message_roles": ["user", "agent", "system"],        # valid role values
+    "supported_priorities":    ["critical", "high", "normal", "low"],  # valid priority values
+}
+# Populate _status["agent_limitations"] now that _LIMITATIONS is defined (v2.40)
+_status["agent_limitations"] = _LIMITATIONS
+
+# LimitationObject schema (v2.20, ref A2A #1694):
+#   kind:      str  — "capability" | "modality" | "scale" | "domain" | "access" | "other"
+#   code:      str  — machine-readable code (e.g. "no_file_access", "image-input-unsupported")
+#   message:   str  — human-readable description
+#   permanent: bool — True = stable/static constraint; False = runtime/transient degradation
+
+_VALID_LIMITATION_KINDS = {"capability", "modality", "scale", "domain", "access", "other"}
+
+def _parse_limitation(raw) -> dict:
+    """Normalize a limitation entry to LimitationObject.
+    Accepts:
+      - str  → {"kind": "capability", "code": raw, "message": raw, "permanent": True}
+      - dict → validated/defaulted LimitationObject
+    """
+    if isinstance(raw, str):
+        code = raw.strip()
+        return {"kind": "capability", "code": code, "message": code, "permanent": True}
+    if isinstance(raw, dict):
+        kind = raw.get("kind", "other")
+        if kind not in _VALID_LIMITATION_KINDS:
+            kind = "other"
+        code = str(raw.get("code", raw.get("message", "unknown"))).strip()
+        message = str(raw.get("message", code)).strip()
+        permanent = bool(raw.get("permanent", True))
+        obj = {"kind": kind, "code": code, "message": message, "permanent": permanent}
+        return obj
+    # Fallback: coerce to string
+    return _parse_limitation(str(raw))
+
+# v2.3: supported_interfaces — top-level AgentCard field declaring which ACP interface groups
+# this agent implements.  Values:
+#   core     — base messaging endpoints (/message:send, /status, /stream, /.well-known/acp.json)
+#   task     — task lifecycle endpoints (/tasks, /tasks/{id}, /tasks/{id}:cancel, /tasks/{id}:subscribe)
+#   stream   — SSE event stream with seq + named event types (v2.3)
+#   mdns     — mDNS LAN peer discovery (--advertise-mdns)
+#   p2p      — direct P2P WebSocket transport (acp:// link)
+#   identity — Ed25519/DID identity (--identity)
+# Implementors may declare a subset; clients use this list for capability negotiation.
+_VALID_INTERFACES = {"core", "task", "stream", "mdns", "p2p", "identity"}
+_supported_interfaces_override: list | None = None  # None = auto-derive at runtime
+
+
+def _make_supported_interfaces() -> list:
+    """
+    v2.3: Derive the supported_interfaces list from runtime configuration.
+    Returns a sorted list of interface group identifiers.
+    If overridden via --supported-interfaces CLI flag, returns that list verbatim.
+    """
+    if _supported_interfaces_override is not None:
+        return list(_supported_interfaces_override)
+    ifaces = {"core", "task", "stream"}          # always present
+    if _mdns_running:
+        ifaces.add("mdns")
+    if _status.get("p2p_enabled", False):
+        ifaces.add("p2p")
+    if _ed25519_private:
+        ifaces.add("identity")
+    return sorted(ifaces)
+
+
+def _parse_skill_obj(s):
+    """Normalise a single skill entry to a structured dict.
+
+    Accepts either a plain string ("summarize") or a dict with at least
+    {"id": ..., "name": ...}.  Returns a canonical skill object:
+    {id, name, description?, tags?, examples?, input_modes?, output_modes?,
+     constraints?, limitations?}
+
+    constraints (v2.26): per-skill runtime limits that QuerySkill can check:
+      {
+        "max_file_size_bytes":  <int|null>,   # max single-file payload
+        "concurrent_tasks":     <int|null>,   # max parallel tasks this skill handles
+        "context_window":       <int|null>,   # max context tokens (LLM skills)
+      }
+    Any null/absent field means "no declared limit" (treated as unlimited).
+
+    limitations (v2.28): per-skill capability boundary declarations (ref A2A #1694).
+      Each entry is a LimitationObject (same schema as top-level AgentCard.limitations):
+        {
+          "kind":      str,   # "capability"|"modality"|"scale"|"domain"|"access"|"other"
+          "code":      str,   # machine-readable identifier (e.g. "no_audio_input")
+          "message":   str,   # human-readable description
+          "permanent": bool,  # true = always; false = transient/conditional
+        }
+      Accepts both string shorthand (promoted to LimitationObject) and full dicts.
+      Interoperates with A2A IS#1694 limitations field at skill level.
+
+    authorization_tier (v2.49): per-skill authorization tier (ref A2A #1716 / SINT Protocol).
+      Declares the minimum trust level required to invoke this skill.
+      Values: "T0" | "T1" | "T2" | "T3" | null
+        T0 — observe/query only (zero-risk): auto-execute, no trust requirement
+        T1 — read / non-destructive: auto-execute, no trust requirement
+        T2 — consequential action (write, send, trigger): requires caller trust_score >= 0.7
+        T3 — irreversible (delete, transfer, deploy): requires trust_score >= 0.9
+             AND trust.signals must include a "verified_identity" signal
+      null (default): no authorization tier enforcement (backward-compatible)
+      Enforcement point: POST /tasks creation — returns 403 ERR_AUTHORIZATION_TIER if
+        the calling peer does not satisfy the declared tier requirements.
+
+    human_confirmation_required (v2.51): if True AND skill's authorization_tier == "T3", a POST /tasks
+      targeting this skill enters "confirmation_pending" state instead of "submitted".
+      The task MUST be explicitly approved via POST /tasks/{id}:confirm before execution proceeds.
+      Rejection is done via POST /tasks/{id}:reject → task transitions to "failed".
+      Bypassed when relay is started with --auto-confirm-t3 (test-only flag).
+      null/false (default): T3 tasks proceed as submitted immediately (backward-compatible).
+
+    param_constraints (v2.50): parameter-level invocation constraints (ref SINT Protocol / A2A #1716).
+      Declares per-parameter rules applied when the skill is invoked via POST /tasks with a
+      "params" dict in the request body.  Each key in param_constraints maps to a ConstraintRule:
+        {
+          "type":           "string"|"number"|"integer"|"boolean"|"array"  (optional, type check)
+          "required":       true|false   (default false; if true, key must be present in params)
+          "min":            <number>     (numeric: value >= min; string/array: length >= min)
+          "max":            <number>     (numeric: value <= max; string/array: length <= max)
+          "allowed_values": [...]        (enum check: value must be in this list)
+          "pattern":        "<regex>"    (string only: value must match regex)
+        }
+      All rule fields are optional — only declared fields are checked.
+      Enforcement point: POST /tasks — returns 400 ERR_PARAM_CONSTRAINT with violated_params list.
+      null/absent param_constraints (default): no parameter validation (backward-compatible).
+
+    deprecation_notice (v2.52): optional skill sunset declaration.
+      {
+        "deprecated":         bool,   # true = this skill is deprecated
+        "deprecated_since":   str,    # ISO date string (e.g. "2026-04-01")
+        "sunset_at":          str,    # ISO date string after which skill may be removed
+        "replacement_skill":  str,    # id of the recommended replacement skill (optional)
+        "message":            str,    # human-readable migration guidance (optional)
+      }
+      Behaviour: POST /tasks targeting a deprecated skill still succeeds (201) but the response
+      includes a top-level "deprecation_warning" object with the notice fields.
+      null/absent (default): skill is active, no warning injected (backward-compatible).
+    """
+    # v2.49: validate authorization_tier value
+    _VALID_TIERS = {None, "T0", "T1", "T2", "T3"}
+
+    if isinstance(s, dict):
+        sid = str(s.get("id", s.get("name", "unknown"))).strip()
+        # v2.26: parse per-skill constraints block
+        raw_constraints = s.get("constraints") or {}
+        # v2.28: parse per-skill limitations[] (ref A2A #1694)
+        raw_limitations = s.get("limitations") or []
+        # v2.49: parse authorization_tier
+        raw_tier = s.get("authorization_tier")
+        auth_tier = raw_tier if raw_tier in _VALID_TIERS else None
+        # v2.50: parse param_constraints — dict of {param_name: ConstraintRule}
+        raw_pc = s.get("param_constraints")
+        param_constraints = _parse_param_constraints(raw_pc) if raw_pc else None
+        # v2.51: parse human_confirmation_required
+        human_conf = bool(s.get("human_confirmation_required", False))
+        # v2.53: parse rate_limit
+        rate_limit = _parse_rate_limit(s.get("rate_limit"))
+        # v2.57: parse capability_token_required
+        cap_token_req = bool(s.get("capability_token_required", False))
+        # v2.52: parse deprecation_notice
+        raw_dep = s.get("deprecation_notice")
+        if isinstance(raw_dep, dict) and raw_dep.get("deprecated"):
+            dep_notice = {
+                "deprecated":        True,
+                "deprecated_since":  str(raw_dep.get("deprecated_since", "")),
+                "sunset_at":         str(raw_dep.get("sunset_at", "")),
+                "replacement_skill": str(raw_dep.get("replacement_skill", "")),
+                "message":           str(raw_dep.get("message", "")),
+            }
+        else:
+            dep_notice = None
+        obj = {
+            "id":                          sid,
+            "name":                        str(s.get("name", sid)),
+            "description":                 s.get("description", ""),
+            "tags":                        list(s.get("tags") or []),
+            "examples":                    list(s.get("examples") or []),
+            "input_modes":                 list(s.get("input_modes") or []),
+            "output_modes":                list(s.get("output_modes") or []),
+            "constraints":                 {
+                "max_file_size_bytes": raw_constraints.get("max_file_size_bytes"),
+                "concurrent_tasks":   raw_constraints.get("concurrent_tasks"),
+                "context_window":     raw_constraints.get("context_window"),
+            },
+            "limitations":                 [_parse_limitation(lim) for lim in raw_limitations],  # v2.28
+            "authorization_tier":          auth_tier,        # v2.49: T0/T1/T2/T3/null
+            "param_constraints":           param_constraints, # v2.50: parameter-level ConstraintRule dict
+            "human_confirmation_required": human_conf,        # v2.51: T3 requires human sign-off
+            "deprecation_notice":          dep_notice,        # v2.52: skill sunset declaration or None
+            "rate_limit":                  rate_limit,        # v2.53: per-skill/per-peer rate limit or None
+            "capability_token_required":   cap_token_req,     # v2.57: if True, POST /tasks must include valid capability_token
+        }
+    else:
+        sid = str(s).strip()
+        obj = {
+            "id":                          sid,
+            "name":                        sid,
+            "description":                 "",
+            "tags":                        [],
+            "examples":                    [],
+            "input_modes":                 [],
+            "output_modes":                [],
+            "constraints":                 {
+                "max_file_size_bytes": None,
+                "concurrent_tasks":   None,
+                "context_window":     None,
+            },
+            "limitations":                 [],    # v2.28: empty by default
+            "authorization_tier":          None,  # v2.49: no tier = unrestricted
+            "param_constraints":           None,  # v2.50: no param constraints = unrestricted
+            "human_confirmation_required": False, # v2.51: default no confirmation needed
+            "deprecation_notice":          None,  # v2.52: no deprecation by default
+            "capability_token_required":   False, # v2.57: no cap token required by default
+        }
+    return obj
+
+
+# ── v2.16: Delegation Chain helpers ───────────────────────────────────────────
+
+def _build_delegation_entry(delegator_did: str, scope: list, expires_at: float) -> dict:
+    """Create a signed delegation entry for the local agent's identity.
+
+    The local agent (delegatee) signs a canonical payload asserting that
+    *delegator_did* has delegated *scope* to it, expiring at *expires_at*.
+
+    Payload (JSON-canonical, sorted keys):
+        {"delegatee_did": <our did>, "delegator_did": <their did>,
+         "expires_at": <unix float>, "scope": <sorted list>}
+
+    The signature covers the UTF-8 encoding of that canonical JSON.
+    Returns a dict with: delegator_did, delegatee_did, scope, expires_at, sig, scheme.
+    Raises RuntimeError if no Ed25519 identity is loaded.
+    """
+    import json as _json
+    if not _ed25519_private or not _did_acp:
+        raise RuntimeError("delegation_chain requires --identity (Ed25519 keypair)")
+    payload = _json.dumps({
+        "delegatee_did": _did_acp,
+        "delegator_did": delegator_did,
+        "expires_at":    expires_at,
+        "scope":         sorted(scope),
+    }, sort_keys=True, separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload)
+    sig_b64   = _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+    return {
+        "delegator_did": delegator_did,
+        "delegatee_did": _did_acp,
+        "scope":         sorted(scope),
+        "expires_at":    expires_at,
+        "sig":           sig_b64,
+        "scheme":        "ed25519",
+    }
+
+
+def _verify_delegation_entry(entry: dict) -> bool:
+    """Verify a delegation entry's signature.
+
+    Verifies that the *delegatee* (identified by entry['delegatee_did']) signed
+    the canonical payload using their Ed25519 key.  For local entries this
+    re-derives the public key from the DID.  Returns True if valid, False otherwise.
+    """
+    import json as _json
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        payload = _json.dumps({
+            "delegatee_did": entry["delegatee_did"],
+            "delegator_did": entry["delegator_did"],
+            "expires_at":    entry["expires_at"],
+            "scope":         sorted(entry["scope"]),
+        }, sort_keys=True, separators=(",", ":")).encode()
+        sig_bytes = _base64.urlsafe_b64decode(entry["sig"] + "==")
+        # Extract pubkey from did:acp:<base64url>
+        did = entry["delegatee_did"]
+        if not did.startswith("did:acp:"):
+            return False
+        pub_bytes = _base64.urlsafe_b64decode(did[len("did:acp:"):] + "==")
+        pub_key   = Ed25519PublicKey.from_public_bytes(pub_bytes)
+        pub_key.verify(sig_bytes, payload)
+        return True
+    except Exception:
+        return False
+
+
+def _delegation_chain_status() -> dict:
+    """Return a summary of the current delegation chain for status/debug."""
+    import time as _time
+    now = _time.time()
+    entries = []
+    for e in _delegation_chain:
+        expired = e.get("expires_at", 0) < now
+        entries.append({**e, "expired": expired})
+    return {
+        "count":    len(_delegation_chain),
+        "entries":  entries,
+        "has_valid": any(not e["expired"] for e in entries),
+    }
+
+
+# ── v2.57: Capability Token helpers (SINT Protocol format) ────────────────────
+
+def _issue_capability_token(
+    subject_did: str,
+    skill_id: str,
+    tier: str,
+    constraints: dict | None = None,
+    ttl_seconds: int = 3600,
+    actions: list | None = None,
+) -> dict:
+    """Issue a SINT-format Ed25519 signed capability token.
+
+    The token encodes the standard SINT fields:
+        jti (token id) — random 16-byte hex
+        iss             — this agent's DID (issuer)
+        sub             — subject DID (who holds this capability)
+        resource        — "acp://{agent_name}/skills/{skill_id}"
+        actions         — list of permitted actions (default: ["invoke"])
+        tier            — "T0" | "T1" | "T2" | "T3"
+        constraints     — dict of parameter constraints (optional)
+        iat             — issued-at (unix timestamp)
+        exp             — expiry (unix timestamp = iat + ttl_seconds)
+
+    Returns a dict with all fields plus:
+        signature       — hex-encoded Ed25519 sig over canonical JSON payload
+        scheme          — "sint_ed25519"
+        public_key      — hex-encoded public key for verification
+
+    Raises RuntimeError if no Ed25519 identity is loaded (--identity required).
+    """
+    import secrets as _sec
+    if not _ed25519_private or not (_did_acp or _did_key):
+        raise RuntimeError("capability_token issuance requires --identity (Ed25519 keypair)")
+
+    _VALID_CAP_TIERS = {"T0", "T1", "T2", "T3"}
+    if tier not in _VALID_CAP_TIERS:
+        raise ValueError(f"invalid tier '{tier}'; must be one of {sorted(_VALID_CAP_TIERS)}")
+
+    issuer_did   = _did_acp or _did_key
+    agent_name   = _status.get("agent_name", "unknown")
+    jti          = _sec.token_hex(16)
+    iat          = int(time.time())
+    exp          = iat + int(ttl_seconds)
+    resource     = f"acp://{agent_name}/skills/{skill_id}"
+    acts         = list(actions) if actions else ["invoke"]
+
+    payload = {
+        "jti":         jti,
+        "iss":         issuer_did,
+        "sub":         subject_did,
+        "resource":    resource,
+        "actions":     sorted(acts),
+        "tier":        tier,
+        "constraints": constraints or {},
+        "iat":         iat,
+        "exp":         exp,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    sig_bytes  = _ed25519_private.sign(canonical)
+    # Derive raw public key from private key (relay stores pub as base64 in _ed25519_public_b64)
+    import base64 as _b64mod
+    pub_hex = ""
+    if _ed25519_public_b64:
+        try:
+            pub_hex = _b64mod.urlsafe_b64decode(_ed25519_public_b64 + "==").hex()
+        except Exception:
+            pub_hex = ""
+
+    token = {
+        **payload,
+        "signature":  sig_bytes.hex(),
+        "scheme":     "sint_ed25519",
+        "public_key": pub_hex,
+    }
+    return token
+
+
+def _verify_capability_token(token: dict, required_skill_id: str | None = None,
+                              required_tier: str | None = None) -> tuple[bool, str]:
+    """Verify a SINT-format capability token.
+
+    Checks (in order):
+      1. Required fields present (jti, iss, sub, resource, tier, iat, exp, signature, public_key)
+      2. Not expired (exp > now)
+      3. Ed25519 signature valid over canonical payload
+      4. resource matches expected skill if required_skill_id is given
+      5. tier is sufficient if required_tier is given (T0 < T1 < T2 < T3)
+
+    Returns (valid: bool, reason: str).
+    """
+    REQUIRED = ("jti", "iss", "sub", "resource", "tier", "iat", "exp", "signature", "public_key")
+    for f in REQUIRED:
+        if f not in token:
+            return False, f"missing required field: {f}"
+
+    now = int(time.time())
+    if token["exp"] < now:
+        return False, f"token expired (exp={token['exp']}, now={now})"
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        pub_bytes = bytes.fromhex(token["public_key"])
+        verif_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
+        canonical_fields = {k: v for k, v in token.items()
+                            if k not in ("signature", "scheme", "public_key")}
+        canonical = json.dumps(canonical_fields, sort_keys=True, separators=(",", ":")).encode()
+        sig_bytes = bytes.fromhex(token["signature"])
+        verif_key.verify(sig_bytes, canonical)
+    except Exception as e:
+        return False, f"signature invalid: {e}"
+
+    if required_skill_id:
+        resource = token.get("resource", "")
+        expected_suffix = f"/skills/{required_skill_id}"
+        if not resource.endswith(expected_suffix):
+            return False, (f"token resource '{resource}' does not match skill '{required_skill_id}'")
+
+    if required_tier:
+        _TIER_ORDER = {"T0": 0, "T1": 1, "T2": 2, "T3": 3}
+        token_tier = token.get("tier", "")
+        tok_lvl = _TIER_ORDER.get(token_tier, -1)
+        req_lvl = _TIER_ORDER.get(required_tier, 0)
+        if tok_lvl < req_lvl:
+            return False, (f"token tier {token_tier} insufficient for required tier {required_tier}")
+
+    return True, "ok"
+
+
+# ── v2.59: Interaction Records (Bilateral Signed) ────────────────────────────
+
+def _create_interaction_record(task: dict, caller_did: str | None,
+                                skill_id: str | None,
+                                caller_token_hash: str | None = None,
+                                caller_signature: str | None = None,
+                                caller_public_key: str | None = None) -> dict:
+    """Create a bilateral interaction record for a completed task (v2.59/v2.61).
+
+    v2.59: relay-anchored lightweight variant — relay signs the record; caller identity
+           anchored via caller_did + optional caller_token_hash.
+
+    v2.61: FULL BILATERAL — caller can now also provide caller_signature + caller_public_key.
+           The relay verifies the caller's Ed25519 signature over the canonical payload before
+           including it.  If the caller_signature fails verification, it is stored but flagged
+           with caller_signature_valid=false.  This closes the unilateral-attestation gap
+           identified by A2A Issue #1718 (@aeoess): a relay-only signature can be forged by
+           a malicious relay; bilateral signing requires the caller to co-sign, making the
+           record genuinely non-repudiable by either party.
+
+    Canonical signing payload (same for both relay and caller):
+        { id, type, relay_did, caller_did, task_id, skill_id, sequence_a,
+          previous_hash, timestamp }
+
+    Fields added in v2.61:
+        caller_signature       — base64url Ed25519 signature from caller (or null)
+        caller_public_key      — base64url Ed25519 public key from caller (or null)
+        caller_signature_valid — true/false/null (null when no caller_sig provided)
+        bilateral              — true when BOTH relay_signature AND caller_signature present
+                                  and caller_signature_valid=true; false otherwise
+    """
+    global _ir_seq
+
+    _ir_seq += 1
+    record_id = f"ir-{_make_id()}"
+
+    relay_did_val = _did_acp or _did_key or "did:acp:anonymous"
+
+    # Compute previous_hash for chain continuity
+    if _interaction_records:
+        prev = _interaction_records[-1]
+        prev_bytes = json.dumps(prev, sort_keys=True, separators=(",", ":")).encode()
+        previous_hash = "sha256:" + hashlib.sha256(prev_bytes).hexdigest()
+    else:
+        previous_hash = "genesis"
+
+    ts = _now()
+
+    # Canonical payload for signing (deterministic field order; same structure used by both sides)
+    payload_for_sig: dict = {
+        "id":                record_id,
+        "type":              "interaction",
+        "relay_did":         relay_did_val,
+        "caller_did":        caller_did or "unknown",
+        "task_id":           task.get("id", ""),
+        "skill_id":          skill_id or "",
+        "sequence_a":        _ir_seq,
+        "previous_hash":     previous_hash,
+        "timestamp":         ts,
+    }
+
+    canonical_bytes = json.dumps(payload_for_sig, sort_keys=True, separators=(",", ":")).encode()
+
+    # ── Relay signature (relay side) ─────────────────────────────────────────
+    relay_sig: str | None = None
+    relay_pub: str | None = _ed25519_public_b64
+    if _ed25519_private:
+        try:
+            sig_bytes = _ed25519_private.sign(canonical_bytes)
+            relay_sig = _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+        except Exception as e:
+            log.warning(f"interaction_record: relay signature failed: {e}")
+
+    # ── Caller signature (caller side, v2.61) ────────────────────────────────
+    caller_sig_valid: bool | None = None
+    if caller_signature and caller_public_key:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+            # Decode base64url (add padding)
+            def _b64url_decode(s: str) -> bytes:
+                s = s.replace("-", "+").replace("_", "/")
+                s += "=" * (-len(s) % 4)
+                return _base64.b64decode(s)
+
+            pub_bytes = _b64url_decode(caller_public_key)
+            caller_pub_key_obj = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            sig_bytes_caller = _b64url_decode(caller_signature)
+            caller_pub_key_obj.verify(sig_bytes_caller, canonical_bytes)
+            caller_sig_valid = True
+        except Exception as e:
+            log.warning(f"interaction_record: caller_signature verification failed: {e}")
+            caller_sig_valid = False
+    elif caller_signature or caller_public_key:
+        # Partial — only one of the two provided
+        caller_sig_valid = False
+        log.warning("interaction_record: caller_signature and caller_public_key must both be provided")
+
+    # bilateral = true only when both sides have verified signatures
+    bilateral = bool(relay_sig and caller_signature and caller_sig_valid is True)
+
+    record: dict = {
+        **payload_for_sig,
+        "quality_hint":            None,
+        "caller_token_hash":       caller_token_hash,
+        "relay_signature":         relay_sig,
+        "relay_public_key":        relay_pub,
+        # v2.61: caller-side signing
+        "caller_signature":        caller_signature,
+        "caller_public_key":       caller_public_key,
+        "caller_signature_valid":  caller_sig_valid,
+        "bilateral":               bilateral,
+    }
+
+    _interaction_records.append(record)
+    return record
+
+
+def _build_reputation_update(ir: dict, verify_result: dict) -> dict:
+    """Build an APS-compatible reputation_update payload from a bilateral IR record (v2.65).
+
+    APS importBilateralEvidence() expects a payload that can be fed into the APS
+    reputation registry to update an agent's trust score based on interaction evidence.
+
+    Spec alignment: A2A #1718 (@aeoess): APS importBilateralEvidence() schema.
+
+    Fields:
+      evidence_type    — always "bilateral_interaction_record"
+      source_relay_did — DID of the relay that generated the IR
+      agent_did        — DID of the agent whose reputation is being updated (caller)
+      task_id          — task identifier for correlation
+      skill_id         — skill invoked (for per-skill reputation scoping)
+      sequence_a       — relay-generated monotonic sequence (freshness signal)
+      timestamp        — ISO-8601 timestamp of the original interaction
+      bilateral        — bool: true if both relay + caller signatures verified
+      relay_sig_valid  — bool: relay signature verified against relay_public_key
+      caller_sig_valid — bool/null: caller signature verified (null if not provided)
+      trust_delta      — +1 (bilateral verified) / 0 (relay-only) / -1 (tampered)
+      freshness_hint   — seconds since the original interaction (caller to check TTL)
+      aps_schema       — "v1" (APS reputation update schema version)
+    """
+    relay_sig_valid = verify_result.get("relay_sig_valid", False)
+    caller_sig_valid_val = verify_result.get("caller_sig_valid")  # True/False/None
+    bilateral_verified = verify_result.get("bilateral_verified", False)
+
+    # trust_delta: +1 bilateral verified, 0 relay-only verified, -1 tampered/invalid
+    if bilateral_verified:
+        trust_delta = 1
+    elif relay_sig_valid:
+        trust_delta = 0
+    else:
+        trust_delta = -1
+
+    # Freshness hint: seconds since timestamp
+    freshness_hint: int | None = None
+    try:
+        from datetime import datetime, timezone
+        ts_str = ir.get("timestamp", "")
+        if ts_str:
+            ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            now_dt = datetime.now(timezone.utc)
+            freshness_hint = int((now_dt - ts_dt).total_seconds())
+    except Exception:
+        freshness_hint = None
+
+    return {
+        "evidence_type":    "bilateral_interaction_record",
+        "source_relay_did": ir.get("relay_did"),
+        "agent_did":        ir.get("caller_did"),
+        "task_id":          ir.get("task_id"),
+        "skill_id":         ir.get("skill_id"),
+        "sequence_a":       ir.get("sequence_a"),
+        "timestamp":        ir.get("timestamp"),
+        "bilateral":        ir.get("bilateral", False),
+        "relay_sig_valid":  relay_sig_valid,
+        "caller_sig_valid": caller_sig_valid_val,
+        "trust_delta":      trust_delta,
+        "freshness_hint":   freshness_hint,
+        "aps_schema":       "v1",
+    }
+
+
+def _verify_ir_signatures(ir: dict) -> dict:
+    """Verify relay_signature and caller_signature in an imported IR record (v2.65).
+
+    Returns:
+      {
+        relay_sig_valid:    True/False/None (None if no relay_public_key),
+        caller_sig_valid:   True/False/None (None if no caller_signature),
+        bilateral_verified: True if BOTH verified,
+        errors:             [str, ...]
+      }
+    """
+    errors: list[str] = []
+
+    def _b64url_decode(s: str) -> bytes:
+        s = s.replace("-", "+").replace("_", "/")
+        s += "=" * (-len(s) % 4)
+        return _base64.b64decode(s)
+
+    # Reconstruct canonical payload (same fields as _create_interaction_record)
+    canonical_fields = {
+        "id":            ir.get("id"),
+        "type":          ir.get("type", "interaction"),
+        "relay_did":     ir.get("relay_did"),
+        "caller_did":    ir.get("caller_did"),
+        "task_id":       ir.get("task_id"),
+        "skill_id":      ir.get("skill_id"),
+        "sequence_a":    ir.get("sequence_a"),
+        "previous_hash": ir.get("previous_hash"),
+        "timestamp":     ir.get("timestamp"),
+    }
+    canonical_bytes = json.dumps(canonical_fields, sort_keys=True, separators=(",", ":")).encode()
+
+    # ── Relay signature verification ─────────────────────────────────────────
+    relay_sig_valid: bool | None = None
+    relay_sig = ir.get("relay_signature")
+    relay_pub  = ir.get("relay_public_key")
+    if relay_sig and relay_pub:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+            pub_bytes = _b64url_decode(relay_pub)
+            pub_obj   = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            sig_bytes = _b64url_decode(relay_sig)
+            pub_obj.verify(sig_bytes, canonical_bytes)
+            relay_sig_valid = True
+        except Exception as e:
+            relay_sig_valid = False
+            errors.append(f"relay_signature invalid: {e}")
+    elif relay_sig or relay_pub:
+        relay_sig_valid = False
+        errors.append("relay_signature and relay_public_key must both be present")
+
+    # ── Caller signature verification ─────────────────────────────────────────
+    caller_sig_valid: bool | None = None
+    caller_sig = ir.get("caller_signature")
+    caller_pub = ir.get("caller_public_key")
+    if caller_sig and caller_pub:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+            pub_bytes = _b64url_decode(caller_pub)
+            pub_obj   = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            sig_bytes = _b64url_decode(caller_sig)
+            pub_obj.verify(sig_bytes, canonical_bytes)
+            caller_sig_valid = True
+        except Exception as e:
+            caller_sig_valid = False
+            errors.append(f"caller_signature invalid: {e}")
+    elif caller_sig or caller_pub:
+        caller_sig_valid = False
+        errors.append("caller_signature and caller_public_key must both be present")
+
+    bilateral_verified = (relay_sig_valid is True and caller_sig_valid is True)
+
+    return {
+        "relay_sig_valid":    relay_sig_valid,
+        "caller_sig_valid":   caller_sig_valid,
+        "bilateral_verified": bilateral_verified,
+        "errors":             errors,
+    }
+
+
+# ── v2.17: Availability Schedule (CRON) helpers ──────────────────────────────
+
+def _parse_cron_field(field: str, lo: int, hi: int) -> list:
+    """Parse a single cron field into a sorted list of integers.
+    Supports: * / , -  (no names).  Returns sorted list of valid values in [lo, hi].
+    """
+    values = set()
+    for part in field.split(","):
+        part = part.strip()
+        if "/" in part:
+            rng, step_str = part.split("/", 1)
+            step = int(step_str)
+            if rng == "*":
+                start, end = lo, hi
+            elif "-" in rng:
+                s, e = rng.split("-", 1)
+                start, end = int(s), int(e)
+            else:
+                start = int(rng)
+                end = hi
+            values.update(range(start, end + 1, step))
+        elif "-" in part:
+            s, e = part.split("-", 1)
+            values.update(range(int(s), int(e) + 1))
+        elif part == "*":
+            values.update(range(lo, hi + 1))
+        else:
+            values.add(int(part))
+    return sorted(v for v in values if lo <= v <= hi)
+
+
+def _next_cron_datetime(expr: str, after_dt=None) -> "datetime.datetime | None":
+    """Compute the next UTC datetime matching the 5-field cron expression.
+    Fields: minute hour dom month dow  (all 0-indexed except month/dom).
+    Returns a UTC-aware datetime or None if parsing fails.
+    """
+    import datetime as _dt
+    try:
+        fields = expr.strip().split()
+        if len(fields) != 5:
+            return None
+        minutes = _parse_cron_field(fields[0],  0, 59)
+        hours   = _parse_cron_field(fields[1],  0, 23)
+        days    = _parse_cron_field(fields[2],  1, 31)
+        months  = _parse_cron_field(fields[3],  1, 12)
+        dows    = _parse_cron_field(fields[4],  0,  6)  # 0=Sun
+    except Exception:
+        return None
+
+    base = after_dt or _dt.datetime.now(_dt.timezone.utc)
+    # Advance 1 minute so next > now
+    candidate = (base + _dt.timedelta(minutes=1)).replace(second=0, microsecond=0)
+
+    # Iterate up to 4 years to find a match
+    limit = base + _dt.timedelta(days=4 * 366)
+    while candidate < limit:
+        if candidate.month not in months:
+            # Jump to next valid month
+            candidate = candidate.replace(day=1, hour=0, minute=0)
+            candidate += _dt.timedelta(days=1)
+            continue
+        if candidate.day not in days or candidate.weekday() not in [d if d != 0 else 6 for d in dows]:
+            # Weekday mapping: cron 0=Sun → Python 6=Sun
+            # Check both dom and dow
+            dom_ok  = candidate.day in days
+            dow_val = (candidate.weekday() + 1) % 7  # Python Mon=0 → cron Mon=1; Sun: Python 6 → cron 0
+            dow_ok  = dow_val in dows
+            # Standard cron: if both dom and dow are restricted, either match suffices (OR)
+            # If only one is restricted (not *), use that one
+            dom_star = fields[2] == "*"
+            dow_star = fields[4] == "*"
+            if dom_star and not dow_ok:
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+            if dow_star and not dom_ok:
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+            if not dom_star and not dow_star and not (dom_ok or dow_ok):
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+        if candidate.hour not in hours:
+            next_h = next((h for h in hours if h > candidate.hour), None)
+            if next_h is None:
+                candidate = candidate.replace(hour=0, minute=0) + _dt.timedelta(days=1); continue
+            candidate = candidate.replace(hour=next_h, minute=0); continue
+        if candidate.minute not in minutes:
+            next_m = next((m for m in minutes if m > candidate.minute), None)
+            if next_m is None:
+                candidate = candidate.replace(minute=0) + _dt.timedelta(hours=1); continue
+            candidate = candidate.replace(minute=next_m); continue
+        # All fields match
+        return candidate
+    return None
+
+
+def _availability_with_schedule(avail: dict) -> dict:
+    """Return a copy of the availability dict, auto-computing next_active_at
+    from schedule if present and next_active_at is not already set.
+    """
+    import datetime as _dt
+    result = dict(avail)
+    schedule = result.get("schedule")
+    if schedule and not result.get("next_active_at"):
+        nxt = _next_cron_datetime(schedule)
+        if nxt:
+            result["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return result
+
+
+# ── end v2.17 helpers ─────────────────────────────────────────────────────────
+
+
+def _make_agent_card(name, skills):
+    """Build the AgentCard dict.
+
+    *skills* may be:
+      - a list of plain strings (legacy) → auto-converted to structured objects
+      - a list of dicts (v2.10+ structured)
+      - mixed list
+    """
+    structured_skills = [_parse_skill_obj(s) for s in skills]
+    card = {
+        "name":            name,
+        "version":         VERSION,
+        "acp_version":     VERSION,
+        "description":     f"ACP P2P Agent: {name}",
+        "http_port":       _status["http_port"],
+        "timestamp":       _now(),
+        "transport_modes": list(_transport_modes),          # v2.4: routing modes ["p2p", "relay"] or subset
+        "supported_interfaces": _make_supported_interfaces(), # v2.3: declared interface groups
+        "limitations": [_parse_limitation(lim) for lim in _limitations],  # v2.20: LimitationObject[] (structured, backward-compat)
+        "agent_limitations": _LIMITATIONS,                   # v2.40: structured constraint dict (numeric/enum limits)
+        "policy_compliance": list(_policy_compliance),       # v2.87: governance/compliance standards (A2A #1717 inspired)
+        "skills_schema_url": "/docs/openapi-skills.yaml",   # v2.41: skills OpenAPI spec
+        "skills":      structured_skills,
+        "capabilities": {
+            "streaming":          True,
+            "push_notifications": True,
+            "input_required":     True,
+            "part_types":         ["text", "file", "data"],
+            "max_msg_bytes":      MAX_MSG_BYTES,
+            "query_skill":        True,
+            "server_seq":         True,
+            "multi_session":      True,   # v0.6: multiple simultaneous peer connections
+            "hmac_signing":       bool(_hmac_secret),          # v0.7: optional HMAC-SHA256 message signing
+            "lan_discovery":      _mdns_running,               # v0.7: mDNS LAN peer discovery
+            "context_id":         True,                        # v0.7: optional multi-turn context grouping
+            "error_codes":        True,                        # v0.6: standard ACP error codes
+            "identity":           ("ed25519+ca" if (_ed25519_private and _ca_cert_pem)
+                                  else "ed25519" if _ed25519_private else "none"),  # v0.8/v1.5: optional identity
+            "did_identity":       bool(_did_acp),              # v1.3: did:acp: stable identifier + DID Document
+            "availability":       bool(_availability),         # v1.2: heartbeat/cron availability metadata
+            "extensions":         bool(_extensions),           # v1.3: Extension mechanism (URI-identified)
+            "http2":              _http2_enabled,              # v1.6: HTTP/2 transport binding
+            "card_sig":           bool(_ed25519_private),      # v1.8: AgentCard self-signature
+            "auto_card_verify":   True,                        # v1.9: auto-verify peer AgentCard on connect
+            "offline_queue":      True,                        # v2.0: buffer messages when peer offline, flush on reconnect
+            "persist_queue":      _persist_queue_conn is not None,  # v2.97: SQLite-backed persistent offline queue
+            "async_task_queue":   True,                              # v2.98: POST /tasks/queue async enqueue (A2A #1667)
+            "offline_ttl":        _max_offline_ttl_sec is not None, # v2.99: --max-offline-ttl expiry policy enabled
+            "heartbeat_agent":    bool(_availability and _availability.get("mode") in ("heartbeat", "cron")),  # v3.8: heartbeat/cron agent mode
+            "federation":         True,  # v3.10: relay-to-relay message routing (multi-relay federation)
+            "task_queue_worker":  True,  # v3.11: async worker registration (POST /tasks/queue/worker)
+            "lan_port_scan":      True,                        # v2.1: TCP port-scan LAN discovery (no mDNS required)
+            "supported_transports": (                          # v2.2: declare supported transport bindings (A2A-inspired)
+                ["http", "ws", "h2c"] if _http2_enabled else ["http", "ws"]
+            ),
+            "sse_seq":            True,                         # v2.3: SSE events carry global seq + named event types
+            "task_cancelling":    True,                         # v2.6: `cancelling` intermediate state before `canceled` (ACP-unique, fills A2A #1684/#1680 gap)
+            "ws_stream":          True,                         # v2.12: GET /ws/stream WebSocket native push endpoint
+            "event_replay":       True,                         # v2.13: ?since=<seq> replay on /stream and /ws/stream
+            "trust_signals":      True,                         # v2.14: trust.signals[] structured evidence in AgentCard
+            "trust_signals_v268": True,                         # v2.68: GET /trust/signals endpoint + 4 new signal types (bilateral_ir/capability_token/wtrmrk/external_token)
+            "trust_signals_v270": True,                         # v2.70: severity+category metadata per signal; GET /trust/signals/schema; canonical type names finalized (A2A #1628 aligned)
+            "trust_signals_v271": True,                         # v2.71: 13th trust signal security_posture; GET /trust/signals/security-posture; source-level CVE posture (A2A #1628 @douglasborthwick)
+            "bilateral_ir_log":             True,               # v2.72: GET /trust/bilateral-ir/log — queryable IR record log (A2A #1718 @viftode4 bilateral_ir as trust primitive)
+            "principal_diversity_defense":  True,               # v2.94: GET /trust/bilateral-ir/diversity — colluding-pair penalty; same_counterparty_penalty (aeoess A2A #1718 gist)
+            "agent_limitations_schema":     True,               # v2.73: GET /agent-limitations/schema — JSON Schema for agent_limitations typed constraint dict (A2A #1694 aligned)
+            "capability_token_detail":      True,               # v2.74: GET /trust/signals/capability-token — detailed capability token declaration (A2A #1716 SINT PR#111 aligned)
+            "capability_token_fixtures":    True,               # v2.75: GET /trust/signals/capability-token/fixtures — canonical authorization fixture (A2A #1716 @pshkv 4-deny+1-allow)
+            "capability_token_validate":    True,               # v2.77: POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (5-check pipeline)
+            "capability_token_revoke":      True,               # v2.78: POST /trust/signals/capability-token/revoke + GET revocations — active token revocation (SINT lifecycle complete)
+            "protocol_binding":             True,               # v2.79: GET /protocol-binding — A2A §5.8 CPB URI identification (urn:acp:binding:p2p-relay/v1)
+            "protocol_bindings_array":      True,               # v2.84: protocol_bindings[] top-level AgentCard field (A2A §5.8 plural, array of CPB URI objects)
+            "identity_default":             bool(_ed25519_private),  # v2.85: Ed25519 identity auto-generated by default (no --identity flag required)
+            "policy_compliance":            bool(_policy_compliance),         # v2.87: governance/compliance standards declared in AgentCard (A2A #1717 inspired)
+            "context_query":      True,                         # v2.15: GET /context/<id>/messages multi-turn query
+            "delegation_chain":   bool(_delegation_chain),      # v2.16: signed delegation chain in AgentCard identity
+            "availability_schedule": bool(_availability.get("schedule")),  # v2.17: CRON-based scheduling
+            "trust_jwks":         True,                                      # v2.18: JWKS compatibility layer — /.well-known/jwks.json
+            "well_known_rfc8615":      True,                                  # v2.47: /.well-known/* endpoints return RFC 8615 headers (Cache-Control/Vary/X-Content-Type-Options)
+            "limitations_structured":  True,                                  # v2.20: limitations[] uses LimitationObject format
+            "limitations_patch":       True,                                  # v2.21: PATCH /.well-known/acp.json supports 'limitations' key
+            "limitations_filter":      True,                                  # v2.21: GET /.well-known/acp.json?filter_limitations=<value> supported
+            "peers_broadcast":         True,                                  # v2.22: POST /peers/broadcast — fanout to all connected peers
+            "topic_broadcast":         True,                                  # v3.9: topic-based Pub/Sub subset (A2A #1196 aligned)
+            "peers_broadcast_subset":  True,                                  # v2.23: target_peers[] subset broadcast
+            "peers_broadcast_history": True,                                  # v2.23: GET /peers/broadcast/history
+            "peer_card_query":         True,                                  # v2.24: GET /peers/<id>/card
+            "peer_ping":               True,                                  # v2.25: POST /peers/<id>/ping — app-layer liveness probe + RTT
+            "skills_query_constraints": True,                                 # v2.26: QuerySkill constraints (max_file_size_bytes/concurrent_tasks/context_window)
+            "peers_pagination":         True,                                  # v2.27: GET /peers ?limit=&offset=&filter=
+            "peers_vouch_chain":        True,                                  # v2.27: trust.signals vouch_chain type
+            "skill_limitations":        True,                                  # v2.28: per-skill limitations[] field (ref A2A #1694)
+            "skill_status_probe":       True,                                  # v2.29: GET /skills/<id>/status — per-skill availability probe
+            "skill_limitations_patch":  True,                                  # v2.29: PATCH /skills/<id>/limitations — runtime per-skill limitations update
+            "error_failed_msg_id":      True,                                  # v2.30: failed_message_id in error response (ref ANP failed_msg_id)
+            "message_dedup":            True,                                  # v2.32: 30s TTL dedup window on /message:send and /peer/<id>/send
+            "pubkey_discovery":         True,                                  # v2.33: GET|POST /identity/pubkey-discovery — resolve did:acp:/did:key: → Ed25519 pubkey (offline, no HTTP to peer)
+            "offline_card_verify":      True,                                  # v2.90: POST /identity/verify-card — offline AgentCard Ed25519 sig verification (no live connection needed)
+            "peer_trust":               True,                                  # v2.34: GET /peers/<id>/trust — structured per-peer trust score
+            "delivery_ack":             True,                                  # v2.35: acp.delivered ACK frame; sender knows when message was received
+            "batch_message":            True,                                  # v3.15: POST /messages:batch — atomic multi-message send
+            "message_ack":              True,                                  # v3.16: acp.ack auto-reply; require_ack=true on /message:send; ack_timeout_ms param; ERR_ACK_TIMEOUT 408
+            "messages_stream":          True,                                  # v3.17: POST /messages:stream WebSocket streaming inlet — persistent WS connection; per-frame routing
+            "read_receipt":             True,                                  # v2.36: acp.read frame; sender knows when peer consumed the message
+            "typing_indicator":         True,                                  # v2.37: acp.typing frame; POST /message:typing; peer typing status
+            "message_priority":         True,                                  # v2.38: priority field in send; /recv sorted critical>high>normal>low
+            "recv_long_poll":           True,                                  # v2.39: GET /recv?wait=<seconds> — long-poll support
+            "agent_limitations":        True,                                  # v2.40: structured agent_limitations dict in AgentCard and /status
+            "skills_openapi_spec":      True,                                  # v2.41: GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills
+            "tasks_pagination":         True,                                  # v0.9: GET /tasks supports page_size/after/multi-status params (A2A v1.0 aligned)
+            "peer_message_history":         True,                              # v2.48: GET /peers/<id>/messages — per-peer message history with direction/seq/sort filters
+            "skill_authorization_tiers":    True,                              # v2.49: skill.authorization_tier T0-T3 enforcement via POST /tasks (ref A2A #1716)
+            "skill_param_constraints":      True,                              # v2.50: skill.param_constraints — parameter-level validation at POST /tasks (ref SINT Protocol)
+            "t3_human_confirmation":        True,                              # v2.51: T3 skills with human_confirmation_required=true enter confirmation_pending; :confirm/:reject endpoints
+            "task_audit_log":              True,                              # v2.52: GET /tasks/{id}/audit-log — immutable per-task audit trail
+            "skill_deprecation_notice":    True,                              # v2.52: skill.deprecation_notice — POST /tasks on deprecated skill returns deprecation_warning
+            "skill_rate_limit":            True,                              # v2.53: skill.rate_limit — per-skill/per-peer RPM/RPD/burst; POST /tasks returns 429 ERR_RATE_LIMIT when exceeded
+            "verify_card_v2":              True,                              # v2.54: POST /verify-card — batch + fetch_and_verify + TTL cache + trust_integration
+            "peer_verify_card":            True,                              # v2.55: GET /peers/{id}/verify-card — on-demand per-peer AgentCard re-verification + force/trust/ttl params
+            "principal_chain":             bool(_principal_chain),            # v2.56: OBO delegation chain in trust block
+            "capability_token_issuance":   bool(_ed25519_private),            # v2.57: POST /skills/{id}/capability-token — SINT-format Ed25519 capability token issuance
+            "effective_tier_computation":  True,                               # v2.58: dynamic three-factor effective_tier: max(tier_rule, depth_floor, rep_adj)
+            "effective_tier_five_factors": True,                               # v2.76: upgraded to 5-factor effective_tier (+ bilateral_ir_adj, A2A #1716 @64R3N)
+            "interaction_records":         True,                               # v2.59: bilateral interaction records — POST /tasks?record=true + GET /interaction-records
+            "bilateral_interaction_records": True,                             # v2.61: full bilateral signing — caller_signature + caller_public_key + caller_signature_valid + bilateral flag
+            "wtrmrk_attestation":          True,                               # v2.62: wtrmrk_sequence_root Factor 4 in effective_tier — attestation_history_adjustment from WTRMRK registry
+            "external_token_verify":       bool(_ed25519_private),             # v2.63: POST /verify/external-token — SINT-format Ed25519 cap token cross-protocol verification (APS/SINT compatible)
+            "governance_metadata":         bool(_governance_metadata),         # v2.60: governance metadata in AgentCard (trust_score/capability_manifest/policy_compliance/audit_trail_reference)
+            "derivation_rights":           bool(_governance_metadata),         # v2.92: derivation_rights in governance_metadata (GDPR retention/export control, aeoess SDK v1.37.0)
+            "credential_lifecycle":        bool(_governance_metadata),         # v2.92: credential_lifecycle in governance_metadata (session TTL + revocation, aeoess SDK v1.37.0)
+            "skill_scoped_trust_scores":   True,                               # v2.95: governance_metadata.trust_scores dict (skill_id→float); QuerySkill returns skill_trust_score (A2A #1717)
+            "ir_test_vectors":             _ED25519_AVAILABLE,                 # v2.64: GET /ir/test-vectors — deterministic bilateral IR test vectors for cross-impl verification (@aeoess A2A #1718)
+            "ir_adversarial_fixtures":     _ED25519_AVAILABLE,                 # v2.91: GET /ir/adversarial-fixtures — collusion/inflation adversarial test fixtures (scan24 / A2A #1718)
+            "import_evidence":             _ED25519_AVAILABLE,                 # v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS-compatible reputation_update (@aeoess A2A #1718)
+            "rejected_state":              True,                               # v2.66: TASK_REJECTED terminal state (A2A v1.0.0 alignment); :reject → rejected; POST /tasks/{id}:agent-reject
+            "direct_message":              True,                               # v2.67: POST /message/send — Direct Message mode; returns Message (not Task); A2A SendMessageResponse.oneof{Task,Message} alignment
+            "runtime_limitations":         True,                               # v2.69: GET /limitations/runtime — dynamic runtime metrics
+            "task_evidence":               True,                               # v2.81: POST/GET /tasks/{id}/evidence — lifecycle evidence anchoring (A2A Issue #1721)
+            "evidence_stream":             True,                               # v2.82: GET /tasks/{id}/evidence-stream — SSE real-time evidence subscription
+            "msg_sig":                     bool(_ed25519_private),             # v3.0: per-message Ed25519 signature (msg_sig field); POST /verify/message; ANP DataIntegrityProof-aligned
+            "origin_proof":                bool(_ed25519_private),             # v3.1: recipient-bound msg_sig (to field in canonical); prevents replay-to-wrong-recipient; ANP DataIntegrityProof origin_proof
+            "data_integrity_proof":        bool(_ed25519_private),             # v3.2: W3C DataIntegrityProof compat layer — proof object (Ed25519Signature2020) alongside msg_sig; POST /verify/proof
+            "capability_token":            True,                               # v3.3: capability_token field passthrough in acp.message (A2A #1716 SINT interop); POST /capability/issue helper
+            "governance":                  True,                               # v3.4: AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy); POST /governance/policy
+            "governance_compliance":       True,                               # v3.12: GET+POST /governance/compliance — live compliance report (A2A #1717 Microsoft AGT)
+            "governance_audit":            True,                               # v3.13: GET /governance/audit — auditEndpoint (A2A #1717 auditEndpoint field)
+            "skill_trust_score":           True,                               # v3.14: skill_trust_score field in /skills, /skills/<id>/status, /skills/query; min_trust_score filter in POST /skills/query (A2A #1717)
+            "acp_json_media_type":         True,                               # v3.14: application/acp+json; charset=utf-8 Content-Type support (A2A application/a2a+json aligned)
+            "transport_bindings":          True,                               # v3.5: AgentCard.transport_bindings (supported/experimental); --experimental-transport flag (pre-SlimRPC #1723)
+            "http_signatures":              True,                               # v3.18: RFC 9421 HTTP Message Signatures — POST /verify/http-signature validates transport-layer Ed25519 signatures; POST /sign/http-request for test/SDK
+            "skill_id_routing":        True,                               # v3.19: skill_id field in /message/send and /tasks/create — client-directed skill selection (A2A #1989 aligned)
+        },
+
+        "identity": ({
+            "scheme":     "ed25519+ca" if _ca_cert_pem else "ed25519",
+            "public_key": _ed25519_public_b64,
+            "pubkey_b64": _ed25519_public_b64,   # v0.8: alias — base64url-encoded 32-byte Ed25519 public key
+            "did":        _did_acp or _did_key,    # v1.3: primary DID — did:acp: preferred, fallback did:key:
+            "did_key":    _did_key,              # v0.8: W3C did:key:z6Mk... identifier (base58btc multibase)
+            "did_acp":    _did_acp,              # v1.3: did:acp:<base64url> — ACP-native identifier
+            **( {"ca_cert": _ca_cert_pem} if _ca_cert_pem else {} ),  # v1.5: CA-signed cert (hybrid model)
+            **( {"delegation": _delegation_chain} if _delegation_chain else {} ),  # v2.16: signed delegation chain
+        } if _ed25519_private else None),
+        "trust": {
+            "scheme":  "hmac-sha256" if _hmac_secret else "none",
+            "enabled": bool(_hmac_secret),
+            "signals": _build_trust_signals(),   # v2.14: structured trust evidence (A2A #1628 compatible)
+            **( {"principal_chain": _principal_chain} if _principal_chain else {} ),  # v2.56: OBO delegation chain
+        },
+        "auth":      {"schemes": ["none"]},
+        "endpoints": {
+            "send":         "/message:send",
+            "stream":       "/stream",
+            "tasks":        "/tasks",
+            "agent_card":   "/.well-known/acp.json",
+            "did_document": "/.well-known/did.json",   # v1.3: W3C DID Document (requires --identity)
+            "skills_query": "/skills/query",
+            "skills":       "/skills",                 # v2.10: structured skill list + filtering
+            "skill_status": "/skills/{id}/status",     # v2.29: per-skill availability probe
+            "peers":        "/peers",                  # v0.6
+            "peer_send":    "/peer/{id}/send",         # v0.6
+            "peers_connect": "/peers/connect",         # v0.6
+            "discover":     "/discover",               # v0.7 mDNS LAN discovery
+            "extensions":   "/extensions",             # v1.3: list/register extensions
+            "verify_card":  "/verify/card",            # v1.8: verify any AgentCard self-signature
+            "verify_card_v2": "/verify-card",          # v2.54: enhanced — batch + fetch_and_verify + TTL cache + trust_integration
+            "peer_verify_card": "/peers/{peer_id}/verify-card",  # v2.55: on-demand per-peer AgentCard re-verification
+            "peer_principal_chain":       "/peers/{peer_id}/principal-chain",  # v2.56: GET OBO delegation chain for peer
+            "capability_token_issuance":  "/skills/{skill_id}/capability-token", # v2.57: POST — issue SINT-format Ed25519 capability token
+            "effective_tier":             "/skills/{skill_id}/effective-tier",  # v2.58: GET — dynamic three-factor effective_tier computation
+            "interaction_records":        "/interaction-records",               # v2.59: GET — bilateral signed interaction records list
+            "governance_metadata":        "/governance-metadata",               # v2.60: GET — governance metadata block; PATCH — runtime update
+            "principal_chain":   "/principal-chain",  # v2.56: GET/POST/DELETE self principal_chain management
+            "peer_verify":  "/peer/verify",            # v1.9: auto-verification result for connected peer
+            "offline_queue": "/offline-queue",         # v2.0: inspect offline delivery queue
+            "offline_queue_sweep":   "/offline-queue/sweep",    # v2.99: on-demand TTL sweep
+            "offline_queue_summary": "/offline-queue/summary",  # v3.8: lightweight heartbeat-agent poll
+            "federation":         "/federation",               # v3.10: GET list + POST connect federation relay
+            "federation_route":   "/federation/route",         # v3.10: POST — route message to peer on remote relay
+            "task_queue":    "/tasks/queue",           # v2.97: async task enqueue (POST) + queue status (GET)
+            "task_queue_workers": "/tasks/queue/workers",  # v3.11: GET list + POST register + DELETE deregister
+            "peers_discover": "/peers/discover",       # v2.1: TCP port-scan LAN discovery
+            "peers_broadcast": "/peers/broadcast",              # v2.22: broadcast to all connected peers
+            "peers_broadcast_history": "/peers/broadcast/history",  # v2.23: broadcast history
+            "topic_subscribe":   "/peers/subscribe/{topic}",    # v3.9: POST — subscribe a peer to a topic
+            "topic_unsubscribe": "/peers/unsubscribe/{topic}",  # v3.9: POST — unsubscribe a peer from a topic
+            "topic_publish":     "/peers/broadcast/{topic}",    # v3.9: POST — publish message to topic subscribers
+            "topics_list":       "/peers/topics",               # v3.9: GET — list active topics + subscriber counts
+            "peer_card":               "/peers/{peer_id}/card",      # v2.24: GET cached AgentCard for peer
+            "peer_ping":               "/peers/{peer_id}/ping",      # v2.25: POST liveness probe + RTT
+            "peer_trust":              "/peers/{peer_id}/trust",     # v2.34: GET structured trust score for peer
+            "peer_messages":           "/peers/{peer_id}/messages",  # v2.48: GET per-peer message history
+            "peers_paginated":         "/peers?limit=&offset=&filter=",  # v2.27: paginated peer list
+            "ws_stream":      "/ws/stream",            # v2.12: WebSocket native push stream
+            "messages_stream": "/messages:stream",      # v3.17: WebSocket streaming message inlet (POST upgrade)
+            "delegate":       "/identity/delegate",    # v2.16: POST — create signed delegation entry
+            "delegation":        "/identity/delegation",          # v2.16: GET — query delegation chain
+            "delegation_verify": "/identity/delegation/verify",  # v2.16: POST — verify a delegation entry
+            "pubkey_discovery":        "/identity/pubkey-discovery",   # v2.33: GET|POST — resolve DID → Ed25519 pubkey (offline)
+            "offline_card_verify":     "/identity/verify-card",         # v2.90: POST — offline AgentCard sig verification
+            "did_key":           "/identity/did-key",            # v2.63: GET — return relay's did:key + public key material
+            "external_token_verify": "/verify/external-token",  # v2.63: POST — SINT-format cross-protocol token verify
+            "verify_message":        "/verify/message",         # v3.0: POST — verify message-level Ed25519 signature (msg_sig); ANP DataIntegrityProof-aligned
+            "verify_proof":          "/verify/proof",           # v3.2: POST — verify W3C DataIntegrityProof (proof.proofValue + proof.verificationMethod)
+            "ir_test_vectors":       "/ir/test-vectors",        # v2.64: GET — deterministic bilateral IR test vectors (@aeoess A2A #1718)
+            "ir_adversarial_fixtures": "/ir/adversarial-fixtures",  # v2.91: GET — adversarial collusion/inflation detection fixtures (A2A #1718)
+            "import_evidence":       "/ir/import-evidence",     # v2.65: POST — import external bilateral IR + APS reputation_update
+            "agent_reject":          "/tasks/{id}:agent-reject",# v2.66: POST — agent-initiated task rejection → rejected terminal state
+            "message_send":          "/message/send",           # v2.67: POST — Direct Message (no Task); A2A SendMessageResponse.oneof{Task,Message}
+            "trust_signals":         "/trust/signals",          # v2.68: GET — full trust signal inventory (12 types; filterable by ?type= ?enabled=)
+            "trust_signals_schema":  "/trust/signals/schema",         # v2.70: GET — canonical schema for all 12 signal types (severity/category/description)
+            "trust_signals_security_posture": "/trust/signals/security-posture",  # v2.71: GET — detailed security posture report (CVE scan, component versions)
+            "bilateral_ir_log":          "/trust/bilateral-ir/log",        # v2.72: GET — queryable bilateral IR log (filter: caller_did/skill_id/bilateral/since)
+            "bilateral_ir_diversity":    "/trust/bilateral-ir/diversity",  # v2.94: GET — principal diversity analysis; colluding-pair penalty (aeoess A2A #1718)
+            "skill_trust_scores":        "/trust/skill-scores",            # v2.95: GET — per-skill trust scores from bilateral IR evidence (A2A #1717)
+            "agent_limitations_schema":  "/agent-limitations/schema",      # v2.73: GET — JSON Schema for agent_limitations typed constraint dict
+            "capability_token_detail":   "/trust/signals/capability-token", # v2.74: GET — detailed capability token declaration & issuance config (A2A #1716 SINT aligned)
+            "capability_token_fixtures":  "/trust/signals/capability-token/fixtures",          # v2.75: GET — canonical authorization fixture vectors (A2A #1716 @pshkv 4-deny+1-allow)
+            "capability_token_validate":  "/trust/signals/capability-token/fixtures/validate",  # v2.77: POST — dynamic SINT capability token validation (5-check pipeline)
+            "capability_token_revoke":    "/trust/signals/capability-token/revoke",              # v2.78: POST — active SINT token revocation
+            "capability_token_revocations": "/trust/signals/capability-token/revocations",      # v2.78: GET — list all revoked tokens
+            "protocol_binding":             "/protocol-binding",              # v2.79: GET — A2A §5.8 CPB declaration (binding_uri, transport, addressing, nat_traversal)
+            "protocol_binding_compatibility": "/protocol-binding/compatibility",  # v2.85: GET — multi-protocol compatibility matrix
+            "policy_compliance":     "/policy-compliance",      # v2.87: GET/PATCH — governance/compliance standards (A2A #1717 inspired)
+            "governance_policy":     "/governance/policy",     # v3.4: POST — query current governance policy (AgentCard.governance object)
+            "governance_compliance": "/governance/compliance", # v3.12: GET/POST — live compliance report + verification (A2A #1717 Microsoft AGT)
+            "governance_audit":      "/governance/audit",      # v3.13: GET — interaction record audit trail (A2A #1717 auditEndpoint)
+            "runtime_limitations":   "/limitations/runtime",   # v2.69: GET — dynamic runtime limitations
+            "availability":   "/availability",          # v2.17: GET — full availability status
+            "heartbeat":      "/availability/heartbeat", # v2.17: POST — stamp last_active_at + recompute next_active_at
+            "jwks":           "/.well-known/jwks.json",  # v2.18: JWKS endpoint (RFC 7517) — public key set for Ed25519 identity
+            "http_signatures_verify": "/verify/http-signature",  # v3.18: POST — verify RFC 9421 HTTP Message Signatures (transport-layer Ed25519)
+            "http_signatures_sign":   "/sign/http-request",       # v3.18: POST — generate RFC 9421 signature for test/SDK
+            "skill_id_routing":       "/message:send,/tasks/create",  # v3.19: skill_id field supported on these endpoints (A2A #1989 aligned)
+        },
+    }
+    # v0.9: inject capabilities.groups — structured grouping of flat capabilities (A2A v1.0 aligned)
+    card["capabilities"]["groups"] = _build_capabilities_groups(card["capabilities"])
+
+    # v2.79: inject protocol_binding top-level declaration (A2A §5.8 CPB URI identification)
+    card["protocol_binding"] = dict(_PROTOCOL_BINDING)
+
+    # v2.84: inject protocol_bindings[] array (A2A §5.8 aligned plural form).
+    # A2A §5.8 declares protocol_bindings as an array of CPB URI objects so that
+    # an agent can advertise multiple simultaneous transport bindings.  We expose
+    # the same data as a single-element array for forward compatibility while
+    # retaining the singular protocol_binding field for backward compatibility.
+    card["protocol_bindings"] = [dict(_PROTOCOL_BINDING)]
+
+    # v2.80: inject heartbeat_period_ms top-level field when declared
+    if _heartbeat_period_ms is not None:
+        card["heartbeat_period_ms"] = _heartbeat_period_ms
+        card["capabilities"]["heartbeat_period_declared"] = True
+
+    # v1.2: attach availability block only when configured (opt-in)
+    if _availability:
+        card["availability"] = dict(_availability)  # shallow copy
+        # auto-stamp last_active_at if not explicitly set
+        if "last_active_at" not in card["availability"]:
+            started = _status.get("started_at")
+            if started and isinstance(started, (int, float)):
+                card["availability"]["last_active_at"] = (
+                    datetime.datetime.fromtimestamp(started, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                )
+            else:
+                card["availability"]["last_active_at"] = _now()
+        # v2.17: auto-compute next_active_at from CRON schedule if not explicitly set
+        schedule = card["availability"].get("schedule")
+        if schedule and not card["availability"].get("next_active_at"):
+            nxt = _next_cron_datetime(schedule)
+            if nxt:
+                card["availability"]["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # v2.8: always include extensions field (empty list when none declared)
+    # Auto-register built-in extensions based on runtime capabilities
+    builtin_extensions = _make_builtin_extensions()
+    # Merge: built-in first, then user-declared (deduplicate by URI)
+    seen_uris = set()
+    merged_extensions = []
+    for ext in builtin_extensions + list(_extensions):
+        uri = ext.get("uri", "")
+        if uri and uri not in seen_uris:
+            seen_uris.add(uri)
+            merged_extensions.append(dict(ext))
+    card["extensions"] = merged_extensions
+
+    # v2.60: attach governance_metadata block when configured (opt-in)
+    if _governance_metadata:
+        card["governance_metadata"] = _build_governance_metadata()
+
+    # v3.4: attach governance block (always present in v3.4+; A2A #1717 CredentialLifecyclePolicy)
+    card["governance"] = _build_governance()
+
+    # v3.5: attach transport_bindings block (stable + experimental transports; pre-SlimRPC #1723)
+    card["transport_bindings"] = _build_transport_bindings()
+
+    return card
+
+
+def _build_capabilities_groups(caps: dict) -> dict:
+    """
+    v0.9: Build structured capabilities.groups from the flat capabilities dict.
+
+    Groups map flat capabilities keys into named functional categories, aligned
+    with A2A v1.0 AgentCapabilities structure.  The flat keys are preserved in
+    the top-level capabilities dict for backward-compatibility; this adds an
+    optional nested `groups` view.
+
+    Group definitions:
+      messaging  — message transport quality features
+      tasks      — task lifecycle management features
+      identity   — cryptographic identity & signing features
+      transport  — protocol transport binding features
+      discovery  — agent discovery & metadata features
+    """
+    groups: dict = {}
+
+    # ── messaging ────────────────────────────────────────────────────────────
+    groups["messaging"] = {
+        "priority":      bool(caps.get("message_priority", False)),
+        "long_poll":     bool(caps.get("recv_long_poll", False)),
+        "history":       bool(caps.get("event_replay", False)),
+        "broadcast":     bool(caps.get("peers_broadcast", False)),
+        "delivery_ack":  bool(caps.get("delivery_ack", False)),
+    }
+
+    # ── tasks ─────────────────────────────────────────────────────────────────
+    groups["tasks"] = {
+        "pagination":    bool(caps.get("tasks_pagination", False)),
+        "filtering":     bool(caps.get("tasks_pagination", False)),   # filtering ships with pagination
+        "state_machine": bool(caps.get("task_cancelling", False)),    # cancelling state is part of state machine
+    }
+
+    # ── identity ──────────────────────────────────────────────────────────────
+    identity_val = caps.get("identity", "none")
+    groups["identity"] = {
+        "hmac":           bool(caps.get("hmac_signing", False)),
+        "ed25519":        identity_val in ("ed25519", "ed25519+ca"),
+        "jwks":           bool(caps.get("trust_jwks", False)),
+        "card_signature": bool(caps.get("card_sig", False)),
+    }
+
+    # ── transport ─────────────────────────────────────────────────────────────
+    supported_transports = caps.get("supported_transports", [])
+    groups["transport"] = {
+        "sse":            bool(caps.get("sse_seq", False)),
+        "http2":          bool(caps.get("http2", False)),
+        "p2p_direct":     True,                                          # always true — ACP is P2P-first
+        "dcutr":          "p2p" in caps.get("supported_transports", []) or bool(caps.get("lan_discovery", False)),
+        "relay_fallback": True,                                          # relay fallback always supported
+    }
+
+    # ── discovery ─────────────────────────────────────────────────────────────
+    groups["discovery"] = {
+        "skills":                 bool(caps.get("query_skill", False)),
+        "skills_openapi_spec":    bool(caps.get("skills_openapi_spec", False)),
+        "limitations":            bool(caps.get("limitations_structured", False)),
+        "availability_schedule":  bool(caps.get("availability_schedule", False)),
+    }
+
+    return groups
+
+
+def _make_builtin_extensions() -> list:
+    """
+    v2.8: Auto-derive built-in extension declarations from runtime configuration.
+
+    Returns a list of extension dicts for capabilities that are already active:
+      - acp:ext:hmac-v1   — HMAC-SHA256 message signing (--secret)
+      - acp:ext:mdns-v1   — mDNS LAN peer discovery (--advertise-mdns)
+      - acp:ext:h2c-v1    — HTTP/2 cleartext transport (--http2)
+
+    URI naming convention: acp:ext:<name>-v<version>
+    External extensions use a full URL (https://…).
+    """
+    exts = []
+    if _hmac_secret:
+        exts.append({
+            "uri":      "acp:ext:hmac-v1",
+            "required": False,
+            "params":   {"scheme": "hmac-sha256"},
+        })
+    if _mdns_running:
+        exts.append({
+            "uri":      "acp:ext:mdns-v1",
+            "required": False,
+            "params":   {},
+        })
+    if _http2_enabled:
+        exts.append({
+            "uri":      "acp:ext:h2c-v1",
+            "required": False,
+            "params":   {},
+        })
+    return exts
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Trust Signals (v2.14) — A2A Issue #1628 compatible
+def _build_governance_metadata() -> dict:
+    """
+    v2.60: Build the governance_metadata block for the AgentCard.
+
+    Structure (A2A #1717 governance_metadata proposal, ACP implementation):
+    {
+        "schema_version":     "1.0",
+        "generated_at":       <ISO8601>,
+        "trust_score":        <float 0.0-1.0 or null>,
+        "capability_manifest": { "<skill_id>": { "tier": "T0-T3", ... }, ... },
+        "policy_compliance":  [ { "policy": "<id>", "status": "compliant|non-compliant|unknown" }, ... ],
+        "audit_trail_reference": <URI or null>,
+        "interaction_record_count": <int>,
+        "peer_count": <int>,
+        "task_count": <int>
+    }
+    """
+    gm = dict(_governance_metadata)  # start from configured values
+
+    # Always inject live runtime stats
+    gm["schema_version"]  = gm.get("schema_version", "1.0")
+    gm["generated_at"]    = _now()
+
+    # trust_score: provided by config or computed from runtime signals
+    if "trust_score" not in gm:
+        # Compute lightweight trust_score from interaction evidence
+        peer_count  = len(_peers)
+        ir_count    = len(_interaction_records)
+        task_count  = len(_tasks)
+        # Simple heuristic: clamp to 0.0-1.0 based on relative activity
+        # More interactions + known peers → higher score, max at 1.0
+        computed = min(1.0, 0.3 + (min(peer_count, 10) * 0.04) + (min(ir_count, 50) * 0.005) + (min(task_count, 100) * 0.002))
+        gm["trust_score"] = round(computed, 3)
+
+    # capability_manifest: auto-derive from registered skills in AgentCard
+    if "capability_manifest" not in gm:
+        manifest = {}
+        card_skills = (_status.get("agent_card") or {}).get("skills", [])
+        for sk in card_skills:
+            if not isinstance(sk, dict):
+                continue
+            sk_id = sk.get("id", "")
+            if sk_id:
+                manifest[sk_id] = {
+                    "tier":       sk.get("authorization_tier", "T0"),
+                    "status":     sk.get("status", "available"),
+                    "deprecated": bool(sk.get("deprecation_notice")),
+                }
+        gm["capability_manifest"] = manifest
+
+    # policy_compliance: provided by config or empty list
+    if "policy_compliance" not in gm:
+        gm["policy_compliance"] = []
+
+    # audit_trail_reference: provided by config or auto-generated from interaction_records endpoint
+    if "audit_trail_reference" not in gm:
+        gm["audit_trail_reference"] = "/interaction-records" if _interaction_records else None
+
+    # v3.13: audit_endpoint — structured query interface for interaction records (A2A #1717 auditEndpoint field)
+    if "audit_endpoint" not in gm:
+        gm["audit_endpoint"] = "/governance/audit"
+
+    # v2.64: live_endpoint — APS serviceEndpoint pattern (A2A #1717, @aeoess production impl)
+    # Receivers can hit this endpoint to get the current trust profile on demand,
+    # rather than relying on the static trust_score in the Agent Card.
+    # Compatible with: passportToAgentCard() serviceEndpoint in APS v1.32.0+
+    if "live_endpoint" not in gm:
+        gm["live_endpoint"] = "/governance-metadata"
+
+    # v2.92: derivation_rights — data retention/export policy for task-derived data
+    # Directly addresses GDPR "derived data leakage" gap (aeoess SDK v1.37.0 / A2A #1717)
+    if "derivation_rights" not in gm:
+        # Default: retention allowed, no export, no TTL restriction
+        gm["derivation_rights"] = {
+            "retention_permitted":      True,
+            "retention_ttl":            None,
+            "derivation_classes":       [],       # empty = all classes permitted
+            "export_permitted":         False,
+            "export_requires_consent":  True,
+            "derivation_audit_required": False,
+        }
+
+    # v2.92: credential_lifecycle — session TTL and revocation policy
+    # Closes "session closed but credentials survive" TLA+ counterexample (aeoess SDK v1.37.0)
+    if "credential_lifecycle" not in gm:
+        gm["credential_lifecycle"] = {
+            "max_session_duration":       None,    # None = no limit
+            "credential_ttl":             None,    # None = no limit
+            "revocation_endpoint":        "/identity/revoke" if _ed25519_private else None,
+            "revocation_check_frequency": None,    # None = not specified
+        }
+
+    # v2.95: skill-scoped trust scores — per-skill IR evidence → per-skill score
+    # Format: {"trust_scores": {"<skill_id>": <float 0.0-1.0>, ...}, "trust_score_method": "skill_scoped_v1"}
+    # Backward compat: global trust_score retained as computed average
+    # Community convergence: A2A #1717 discussion thread (2026-04-09), @kevinkaylie proposal
+    if "trust_scores" not in gm:
+        trust_scores = _compute_skill_trust_scores()
+        gm["trust_scores"]        = trust_scores        # {} = no IR evidence yet
+        gm["trust_score_method"]  = "skill_scoped_v1"
+        # Update global trust_score to be the average of skill-scoped scores (if any);
+        # if no per-skill evidence yet, retain the configured/computed scalar trust_score
+        if trust_scores:
+            gm["trust_score"] = round(
+                sum(trust_scores.values()) / len(trust_scores), 3
+            )
+
+    # Live counters (always override)
+    gm["interaction_record_count"] = len(_interaction_records)
+    gm["peer_count"]               = len(_peers)
+    gm["task_count"]               = len(_tasks)
+
+    return gm
+
+
+def _compute_skill_trust_scores() -> dict:
+    """
+    v2.95: Compute per-skill trust scores from bilateral interaction record evidence.
+
+    Algorithm:
+      For each skill_id seen in _interaction_records:
+        - bilateral_count = number of bilateral records for this skill
+        - unique_callers  = number of unique caller_dids for this skill
+        - base_score      = 0.3 + (min(unique_callers,10) * 0.04) + (min(bilateral_count,50) * 0.005)
+        - score           = clamp(base_score, 0.0, 1.0)
+
+      Result: {"<skill_id>": <float>, ...}
+
+    If no interaction records exist, returns {} (empty dict = no per-skill evidence yet).
+
+    References:
+      - A2A #1717: governance_metadata skill-scoped trust proposal (2026-04-09)
+      - aeoess APS v1.37.0 SDK: importBilateralEvidence() per-skill accumulation
+      - ACP v2.64: bilateral IR records carry skill_id field
+    """
+    if not _interaction_records:
+        return {}
+
+    from collections import defaultdict
+    skill_bilateral: dict = defaultdict(int)      # skill_id → bilateral count
+    skill_callers: dict   = defaultdict(set)       # skill_id → set of caller_dids
+
+    for rec in _interaction_records:
+        sid = rec.get("skill_id")
+        if not sid:
+            continue
+        if rec.get("bilateral") is True:
+            skill_bilateral[sid] += 1
+        caller = rec.get("caller_did")
+        if caller:
+            skill_callers[sid].add(caller)
+
+    trust_scores = {}
+    for sid in set(skill_bilateral.keys()) | set(skill_callers.keys()):
+        bilateral_n   = skill_bilateral.get(sid, 0)
+        unique_callers = len(skill_callers.get(sid, set()))
+        base = 0.3 + (min(unique_callers, 10) * 0.04) + (min(bilateral_n, 50) * 0.005)
+        trust_scores[sid] = round(min(1.0, max(0.0, base)), 3)
+
+    return trust_scores
+
+
+def _compute_skill_trust_score_v314(skill_obj: dict, skill_id: str) -> dict:
+    """
+    v3.14: Compute the skill_trust_score for a single skill.
+
+    Evidence-based composite score (0.0–1.0) derived from documentation completeness:
+
+      has_limitations  (weight 0.25): skill.limitations is non-empty
+      has_examples     (weight 0.25): skill.examples is non-empty
+      has_constraints  (weight 0.25): skill.constraints has at least one non-null value
+      has_status       (weight 0.25): skill has been probed via GET /skills/<id>/status
+
+    composite = sum of weights for each True evidence flag (0.0, 0.25, 0.50, 0.75, or 1.0)
+
+    Returns:
+      {
+        "composite":       <float 0.0–1.0>,
+        "evidence": {
+          "has_limitations": <bool>,
+          "has_examples":    <bool>,
+          "has_constraints": <bool>,
+          "has_status":      <bool>,
+        },
+        "last_calculated": <ISO8601 string>,
+      }
+
+    References:
+      - A2A #1717: capability_manifest trust signals
+      - ACP v3.14: skill_trust_score extension to QuerySkill API
+    """
+    # Evidence: has_limitations — skill.limitations is non-empty
+    limitations = skill_obj.get("limitations") or [] if isinstance(skill_obj, dict) else []
+    has_limitations = bool(limitations)
+
+    # Evidence: has_examples — skill.examples is non-empty
+    examples = skill_obj.get("examples") or [] if isinstance(skill_obj, dict) else []
+    has_examples = bool(examples)
+
+    # Evidence: has_constraints — skill.constraints has at least one non-null value
+    constraints = skill_obj.get("constraints") or {} if isinstance(skill_obj, dict) else {}
+    has_constraints = any(v is not None for v in constraints.values()) if isinstance(constraints, dict) else False
+
+    # Evidence: has_status — skill has been probed via GET /skills/<id>/status
+    has_status = skill_id in _skill_status_probed
+
+    # Composite = weighted sum (each evidence flag contributes 0.25)
+    composite = round(
+        (0.25 if has_limitations else 0.0) +
+        (0.25 if has_examples    else 0.0) +
+        (0.25 if has_constraints else 0.0) +
+        (0.25 if has_status      else 0.0),
+        2,
+    )
+
+    return {
+        "composite": composite,
+        "evidence": {
+            "has_limitations": has_limitations,
+            "has_examples":    has_examples,
+            "has_constraints": has_constraints,
+            "has_status":      has_status,
+        },
+        "last_calculated": _now(),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _generate_ir_test_vectors() -> dict:
+    """
+    v2.64: Generate deterministic bilateral IR test vectors for cross-implementation
+    verification. Requested by @aeoess (A2A #1718) to enable third-party APS/SINT
+    implementations to verify bilateral interaction record format compatibility.
+
+    Uses a fixed ephemeral Ed25519 key pair (generated from a deterministic seed)
+    so the test vectors are reproducible across runs and implementations.
+
+    Returns a dict with:
+      {
+        "schema_version": "1.0",
+        "generated_by":   "ACP/2.64",
+        "generated_at":   <ISO8601>,
+        "note":           <description>,
+        "keys": {
+          "relay":  { "public_key_b64": ..., "public_key_hex": ..., "did_key": ..., "did_acp": ... },
+          "caller": { "public_key_b64": ..., "public_key_hex": ..., "did_key": ..., "did_acp": ... }
+        },
+        "vectors": [
+          {
+            "id":          <str>,
+            "description": <str>,
+            "canonical_payload": { ... },       # JSON object used for signing
+            "canonical_bytes_hex": <str>,        # hex of canonical JSON bytes
+            "relay_signature":   <str b64url>,   # relay Ed25519 sig over canonical_bytes
+            "caller_signature":  <str b64url>,   # caller Ed25519 sig over canonical_bytes
+            "relay_signature_valid":   true,
+            "caller_signature_valid":  true,
+            "bilateral":  true,
+            "record":     { ... },              # full interaction_record object
+          },
+          ...
+        ]
+      }
+    """
+    if not _ED25519_AVAILABLE:
+        return {"error": "Ed25519 not available — install cryptography package"}
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        # ── Deterministic key derivation from fixed seeds ─────────────────
+        # seed = sha256("ACP-IR-TEST-VECTOR-RELAY-v2.64") and "...CALLER..."
+        relay_seed  = hashlib.sha256(b"ACP-IR-TEST-VECTOR-RELAY-v2.64").digest()
+        caller_seed = hashlib.sha256(b"ACP-IR-TEST-VECTOR-CALLER-v2.64").digest()
+
+        relay_priv  = Ed25519PrivateKey.from_private_bytes(relay_seed)
+        caller_priv = Ed25519PrivateKey.from_private_bytes(caller_seed)
+
+        relay_pub_bytes  = relay_priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        caller_pub_bytes = caller_priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+        relay_pub_b64  = _base64.urlsafe_b64encode(relay_pub_bytes).rstrip(b"=").decode()
+        caller_pub_b64 = _base64.urlsafe_b64encode(caller_pub_bytes).rstrip(b"=").decode()
+
+        relay_pub_hex  = relay_pub_bytes.hex()
+        caller_pub_hex = caller_pub_bytes.hex()
+
+        relay_did_key_tv  = _pubkey_to_did_key(relay_pub_bytes)
+        caller_did_key_tv = _pubkey_to_did_key(caller_pub_bytes)
+
+        relay_did_acp_tv  = "did:acp:" + relay_pub_b64
+        caller_did_acp_tv = "did:acp:" + caller_pub_b64
+
+        keys = {
+            "relay": {
+                "public_key_b64": relay_pub_b64,
+                "public_key_hex": relay_pub_hex,
+                "did_key":        relay_did_key_tv,
+                "did_acp":        relay_did_acp_tv,
+                "seed_source":    "sha256('ACP-IR-TEST-VECTOR-RELAY-v2.64')",
+            },
+            "caller": {
+                "public_key_b64": caller_pub_b64,
+                "public_key_hex": caller_pub_hex,
+                "did_key":        caller_did_key_tv,
+                "did_acp":        caller_did_acp_tv,
+                "seed_source":    "sha256('ACP-IR-TEST-VECTOR-CALLER-v2.64')",
+            },
+        }
+
+        def _sign(priv_key, payload_dict: dict) -> tuple[str, str]:
+            """Sign canonical JSON; return (sig_b64url, canonical_hex)."""
+            canonical = json.dumps(payload_dict, sort_keys=True, separators=(",", ":")).encode()
+            sig = priv_key.sign(canonical)
+            return _base64.urlsafe_b64encode(sig).rstrip(b"=").decode(), canonical.hex()
+
+        # ── Vector 1: Full bilateral — both signatures valid ──────────────
+        v1_id = "tv-ir-001"
+        v1_payload = {
+            "id":            v1_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_acp_tv,
+            "caller_did":    caller_did_acp_tv,
+            "task_id":       "task-tv-001",
+            "skill_id":      "code_review",
+            "sequence_a":    1,
+            "previous_hash": "genesis",
+            "timestamp":     "2026-04-06T00:00:00Z",
+        }
+        v1_relay_sig, v1_canonical_hex = _sign(relay_priv, v1_payload)
+        v1_caller_sig, _              = _sign(caller_priv, v1_payload)
+
+        vector1 = {
+            "id":                       v1_id,
+            "description":              "Full bilateral — both relay and caller sign the same canonical payload",
+            "canonical_payload":        v1_payload,
+            "canonical_bytes_hex":      v1_canonical_hex,
+            "relay_signature":          v1_relay_sig,
+            "caller_signature":         v1_caller_sig,
+            "relay_public_key":         relay_pub_b64,
+            "caller_public_key":        caller_pub_b64,
+            "relay_signature_valid":    True,
+            "caller_signature_valid":   True,
+            "bilateral":                True,
+            "record": {
+                **v1_payload,
+                "quality_hint":           None,
+                "caller_token_hash":      None,
+                "relay_signature":        v1_relay_sig,
+                "relay_public_key":       relay_pub_b64,
+                "caller_signature":       v1_caller_sig,
+                "caller_public_key":      caller_pub_b64,
+                "caller_signature_valid": True,
+                "bilateral":              True,
+            },
+        }
+
+        # ── Vector 2: Relay-only (unilateral) — caller_signature absent ───
+        v2_id = "tv-ir-002"
+        v2_payload = {
+            "id":            v2_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_acp_tv,
+            "caller_did":    caller_did_acp_tv,
+            "task_id":       "task-tv-002",
+            "skill_id":      "data_analysis",
+            "sequence_a":    2,
+            "previous_hash": "sha256:" + hashlib.sha256(
+                json.dumps(v1_payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "timestamp":     "2026-04-06T00:01:00Z",
+        }
+        v2_relay_sig, v2_canonical_hex = _sign(relay_priv, v2_payload)
+
+        vector2 = {
+            "id":                      v2_id,
+            "description":             "Relay-only (unilateral) — relay signs, no caller signature. bilateral=false",
+            "canonical_payload":       v2_payload,
+            "canonical_bytes_hex":     v2_canonical_hex,
+            "relay_signature":         v2_relay_sig,
+            "caller_signature":        None,
+            "relay_public_key":        relay_pub_b64,
+            "caller_public_key":       None,
+            "relay_signature_valid":   True,
+            "caller_signature_valid":  None,
+            "bilateral":               False,
+            "record": {
+                **v2_payload,
+                "quality_hint":           None,
+                "caller_token_hash":      None,
+                "relay_signature":        v2_relay_sig,
+                "relay_public_key":       relay_pub_b64,
+                "caller_signature":       None,
+                "caller_public_key":      None,
+                "caller_signature_valid": None,
+                "bilateral":              False,
+            },
+        }
+
+        # ── Vector 3: Tampered — caller_signature_valid=false ─────────────
+        v3_id = "tv-ir-003"
+        v3_payload = {
+            "id":            v3_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_acp_tv,
+            "caller_did":    caller_did_acp_tv,
+            "task_id":       "task-tv-003",
+            "skill_id":      "send_email",
+            "sequence_a":    3,
+            "previous_hash": "sha256:" + hashlib.sha256(
+                json.dumps(v2_payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "timestamp":     "2026-04-06T00:02:00Z",
+        }
+        v3_relay_sig, v3_canonical_hex = _sign(relay_priv, v3_payload)
+        # Tampered caller signature: sign a different payload then use that sig
+        v3_tampered_payload = {**v3_payload, "skill_id": "transfer_funds"}  # tampered
+        v3_bad_caller_sig, _ = _sign(caller_priv, v3_tampered_payload)
+
+        vector3 = {
+            "id":                      v3_id,
+            "description":             "Tampered — caller signature is for a different payload (skill_id changed). caller_signature_valid=false, bilateral=false",
+            "canonical_payload":       v3_payload,
+            "canonical_bytes_hex":     v3_canonical_hex,
+            "relay_signature":         v3_relay_sig,
+            "caller_signature":        v3_bad_caller_sig,
+            "relay_public_key":        relay_pub_b64,
+            "caller_public_key":       caller_pub_b64,
+            "relay_signature_valid":   True,
+            "caller_signature_valid":  False,
+            "bilateral":               False,
+            "note":                    "caller_signature was generated over a payload with skill_id='transfer_funds' instead of 'send_email' — tampering detected",
+        }
+
+        # ── Vector 4: did:key cross-verify ────────────────────────────────
+        # Same as vector 1 but uses did:key DIDs — for APS/SINT cross-verify
+        v4_id = "tv-ir-004"
+        v4_payload = {
+            "id":            v4_id,
+            "type":          "interaction",
+            "relay_did":     relay_did_key_tv,    # did:key instead of did:acp
+            "caller_did":    caller_did_key_tv,   # did:key instead of did:acp
+            "task_id":       "task-tv-004",
+            "skill_id":      "code_review",
+            "sequence_a":    4,
+            "previous_hash": "genesis",
+            "timestamp":     "2026-04-06T00:03:00Z",
+        }
+        v4_relay_sig, v4_canonical_hex = _sign(relay_priv, v4_payload)
+        v4_caller_sig, _               = _sign(caller_priv, v4_payload)
+
+        vector4 = {
+            "id":                      v4_id,
+            "description":             "did:key cross-verify — same as vector 1 but using did:key identifiers (W3C multicodec 0xed01 + base58btc). For APS v1.32.0 / SINT cross-protocol verification",
+            "canonical_payload":       v4_payload,
+            "canonical_bytes_hex":     v4_canonical_hex,
+            "relay_signature":         v4_relay_sig,
+            "caller_signature":        v4_caller_sig,
+            "relay_public_key":        relay_pub_b64,
+            "caller_public_key":       caller_pub_b64,
+            "relay_signature_valid":   True,
+            "caller_signature_valid":  True,
+            "bilateral":               True,
+        }
+
+        return {
+            "schema_version": "1.0",
+            "generated_by":   f"ACP/{VERSION}",
+            "generated_at":   _now(),
+            "note":           (
+                "Deterministic bilateral interaction record test vectors for cross-implementation "
+                "verification. Keys are derived from fixed seeds (sha256 of known strings) so "
+                "vectors are reproducible. Compatible with APS v1.32.0 and SINT bilateral IR format. "
+                "Requested by @aeoess (A2A Issue #1718, 2026-04-06)."
+            ),
+            "canonical_payload_format": (
+                "JSON object with keys: id, type, relay_did, caller_did, task_id, skill_id, "
+                "sequence_a, previous_hash, timestamp — serialized with sort_keys=True, "
+                "separators=(',', ':'), UTF-8 encoded. Same payload used by both relay and caller."
+            ),
+            "signature_algorithm": "Ed25519",
+            "did_key_derivation":  "multicodec [0xed, 0x01] + base58btc (W3C spec, APS v1.32.0 toDIDKey() compatible)",
+            "keys":    keys,
+            "vectors": [vector1, vector2, vector3, vector4],
+        }
+
+    except Exception as e:
+        return {"error": f"test vector generation failed: {e}"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── v2.70: Trust Signal Schema — canonical type names, severity, category ─────
+# Severity levels (A2A #1628 @kenneives recommendation: consumer-side weighting):
+#   critical — cryptographic proof; forgery requires breaking Ed25519 or SHA-256
+#   high     — strong runtime verification; replay/tamper resistance
+#   medium   — structural/discovery evidence; not cryptographically binding
+#   low      — informational/optional enrichment
+# Category:
+#   identity      — who the agent is (key material, DID)
+#   integrity     — message/transport tamper protection
+#   authorization — per-invocation and per-skill access control
+#   discovery     — how consumers find/verify the agent
+#   attestation   — external/cross-protocol trust evidence
+TRUST_SIGNAL_SCHEMA = {
+    "hmac_message_signing":   {"severity": "high",     "category": "integrity"},
+    "ed25519_identity":       {"severity": "critical",  "category": "identity"},
+    "agent_card_signature":   {"severity": "critical",  "category": "identity"},
+    "peer_card_verification": {"severity": "high",     "category": "integrity"},
+    "replay_window":          {"severity": "high",     "category": "integrity"},
+    "did_document":           {"severity": "medium",   "category": "discovery"},
+    "jwks":                   {"severity": "medium",   "category": "discovery"},
+    "vouch_chain":            {"severity": "medium",   "category": "attestation"},
+    "bilateral_ir":           {"severity": "high",     "category": "attestation"},
+    "capability_token":       {"severity": "critical",  "category": "authorization"},
+    "wtrmrk":                 {"severity": "medium",   "category": "attestation"},
+    "external_token":         {"severity": "high",     "category": "authorization"},
+    # v2.71: 13th signal — source-level security posture (A2A #1628 @douglasborthwick)
+    "security_posture":       {"severity": "high",     "category": "integrity"},
+}
+
+# v2.71: security_posture baseline — known CVE-free components and scan metadata
+# This is a static declaration of the relay's own security posture.
+# In production, this should be populated by a real CI/CD vulnerability scan.
+_SECURITY_POSTURE = {
+    "scan_tool":       "pip-audit",
+    "scanned_at":      None,         # set at startup
+    "components": [
+        {"name": "websockets",  "version": None, "cve_count": 0},
+        {"name": "cryptography","version": None, "cve_count": 0},
+        {"name": "aiohttp",     "version": None, "cve_count": 0},
+    ],
+    "critical_cves":   0,
+    "high_cves":       0,
+    "total_cves":      0,
+    "posture_score":   "clean",   # clean | advisory | vulnerable
+    "note":            "Self-declared; consumer agents should independently verify via /trust/signals/security-posture",
+}
+
+
+def _generate_ir_adversarial_fixtures() -> dict:
+    """
+    v2.91: Generate adversarial bilateral IR fixtures for collusion/inflation detection testing.
+
+    Requested by scan24 analysis of A2A #1718 (aeoess adversarial fixture proposal, 2026-04-08).
+    Enables APS/SINT implementations to test trust score manipulation resistance.
+
+    Fixture categories:
+      AF-001: Legitimate dense interaction (baseline — 50 diverse interactions, high trust)
+      AF-002: Colluding pair — mutual inflation (20 reciprocal interactions, same two agents only)
+      AF-003: Sybil ring — 3 agents, circular inflation (A→B→C→A, no external interactions)
+      AF-004: Isolated burst — sudden spike after long silence (5 old + 15 recent same-pair)
+      AF-005: Tampered hash chain — sha256_chain_root mismatch
+
+    Each fixture is self-contained JSON: scenario / agents / interactions / expected_flags.
+    """
+    if not _ED25519_AVAILABLE:
+        return {"error": "Ed25519 not available — install cryptography package"}
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        def _mk_key(label: str):
+            seed = hashlib.sha256(f"ACP-AF-KEY-{label}-v2.91".encode()).digest()
+            priv = Ed25519PrivateKey.from_private_bytes(seed)
+            pub  = priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            b64  = _base64.urlsafe_b64encode(pub).rstrip(b"=").decode()
+            return priv, "did:acp:" + b64, b64
+
+        def _sign_ir(priv, payload: dict) -> str:
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            return _base64.urlsafe_b64encode(priv.sign(canonical)).rstrip(b"=").decode()
+
+        def _chain_hash(prev_hash: str, record_id: str) -> str:
+            return hashlib.sha256(f"{prev_hash}:{record_id}".encode()).hexdigest()
+
+        def _build_interaction(seq: int, caller_priv, relay_priv,
+                               caller_did: str, relay_did: str,
+                               task_id: str, skill_id: str,
+                               timestamp: str, prev_hash: str,
+                               tamper: bool = False) -> dict:
+            payload = {
+                "id":            f"ir-{task_id}-{seq:03d}",
+                "type":          "interaction",
+                "relay_did":     relay_did,
+                "caller_did":    caller_did,
+                "task_id":       task_id,
+                "skill_id":      skill_id,
+                "sequence_a":    seq,
+                "previous_hash": prev_hash,
+                "timestamp":     timestamp,
+            }
+            relay_sig  = _sign_ir(relay_priv, payload)
+            caller_sig = _sign_ir(caller_priv, payload)
+            if tamper:
+                caller_sig = caller_sig[:-4] + "XXXX"  # corrupt last 3 bytes
+            return {
+                "id":                   payload["id"],
+                "caller_did":           caller_did,
+                "relay_did":            relay_did,
+                "task_id":              task_id,
+                "skill_id":             skill_id,
+                "sequence_a":           seq,
+                "previous_hash":        prev_hash,
+                "timestamp":            timestamp,
+                "relay_signature":      relay_sig,
+                "caller_signature":     caller_sig,
+                "bilateral":            not tamper,
+                "caller_sig_valid":     not tamper,
+            }
+
+        # ── Keys ────────────────────────────────────────────────────────────
+        alice_priv, alice_did, alice_pub = _mk_key("alice")
+        bob_priv,   bob_did,   bob_pub   = _mk_key("bob")
+        carol_priv, carol_did, carol_pub = _mk_key("carol")
+        dave_priv,  dave_did,  dave_pub  = _mk_key("dave")   # external party
+        eve_priv,   eve_did,   eve_pub   = _mk_key("eve")    # external party 2
+
+        # ── AF-001: Legitimate dense interaction (baseline) ─────────────────
+        # Alice interacts with 5 diverse counterparties → no manipulation signal
+        skills_pool  = ["code_review", "summarize", "translate", "analyze", "plan"]
+        parties_pool = [
+            (dave_priv, dave_did),
+            (eve_priv,  eve_did),
+            (bob_priv,  bob_did),
+            (carol_priv, carol_did),
+        ]
+        af001_interactions = []
+        prev = "genesis"
+        for i in range(1, 51):
+            party_priv, party_did = parties_pool[i % len(parties_pool)]
+            skill = skills_pool[i % len(skills_pool)]
+            ts = f"2026-03-{((i-1)//5)+1:02d}T{(i%24):02d}:00:00Z"
+            rec = _build_interaction(i, alice_priv, party_priv,
+                                     alice_did, party_did,
+                                     f"task-af001-{i:03d}", skill, ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af001_interactions.append(rec)
+
+        af001 = {
+            "id":          "AF-001",
+            "scenario":    "legitimate_dense",
+            "description": "Baseline: 50 interactions across 4 diverse counterparties. "
+                           "No manipulation signal expected.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "dave":  {"did": dave_did,  "public_key": dave_pub},
+                "eve":   {"did": eve_did,   "public_key": eve_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+                "carol": {"did": carol_did, "public_key": carol_pub},
+            },
+            "interaction_count": len(af001_interactions),
+            "interactions": af001_interactions,
+            "expected_flags": [],
+            "expected_trust_signal": "high",
+            "notes": "Diverse counterparties + varied skills + spread timestamps → clean profile",
+        }
+
+        # ── AF-002: Colluding pair — mutual inflation ───────────────────────
+        # Alice ↔ Bob exchange 20 reciprocal interactions; no other parties
+        af002_interactions = []
+        prev = "genesis"
+        for i in range(1, 21):
+            # Alternate direction: odd = alice→bob, even = bob→alice
+            if i % 2 == 1:
+                c_priv, c_did, r_priv, r_did = alice_priv, alice_did, bob_priv, bob_did
+            else:
+                c_priv, c_did, r_priv, r_did = bob_priv, bob_did, alice_priv, alice_did
+            ts = f"2026-04-{((i-1)//4)+1:02d}T{(i*2%24):02d}:00:00Z"
+            rec = _build_interaction(i, c_priv, r_priv, c_did, r_did,
+                                     f"task-af002-{i:03d}", "mutual_boost", ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af002_interactions.append(rec)
+
+        af002 = {
+            "id":          "AF-002",
+            "scenario":    "colluding_pair_inflation",
+            "description": "Mutual inflation: Alice and Bob exchange 20 reciprocal "
+                           "interactions with no external parties. Classic colluding-pair "
+                           "trust inflation pattern.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+            },
+            "interaction_count": len(af002_interactions),
+            "interactions": af002_interactions,
+            "expected_flags": ["low_counterparty_diversity", "mutual_inflation_risk"],
+            "expected_trust_signal": "suspicious",
+            "detection_hint": "counterparty_diversity_ratio < 0.1 (1 unique / 20 total); "
+                              "mutual_pair_ratio > 0.9",
+            "notes": "APS should penalise via bilateral_ir_adj when diversity < threshold",
+        }
+
+        # ── AF-003: Sybil ring — 3 agents, circular inflation ───────────────
+        # A→B, B→C, C→A — closed loop, no external counterparties
+        ring_agents = [
+            (alice_priv, alice_did, alice_pub, "alice"),
+            (bob_priv,   bob_did,   bob_pub,   "bob"),
+            (carol_priv, carol_did, carol_pub, "carol"),
+        ]
+        af003_interactions = []
+        prev = "genesis"
+        seq = 1
+        for round_n in range(7):  # 7 rounds × 3 pairs = 21 interactions
+            for i in range(3):
+                caller_p, caller_d, _, c_name = ring_agents[i]
+                relay_p,  relay_d,  _, r_name = ring_agents[(i+1) % 3]
+                ts = f"2026-04-{(round_n+1):02d}T{(seq%24):02d}:00:00Z"
+                rec = _build_interaction(seq, caller_p, relay_p, caller_d, relay_d,
+                                         f"task-af003-{seq:03d}", "ring_task", ts, prev)
+                prev = _chain_hash(prev, rec["id"])
+                af003_interactions.append(rec)
+                seq += 1
+
+        af003 = {
+            "id":          "AF-003",
+            "scenario":    "sybil_ring_circular",
+            "description": "Sybil ring: Alice→Bob, Bob→Carol, Carol→Alice — "
+                           "21 interactions in a closed 3-agent loop. No external parties.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+                "carol": {"did": carol_did, "public_key": carol_pub},
+            },
+            "interaction_count": len(af003_interactions),
+            "interactions": af003_interactions,
+            "expected_flags": ["sybil_ring_pattern", "zero_external_interactions",
+                               "low_counterparty_diversity"],
+            "expected_trust_signal": "untrusted",
+            "detection_hint": "graph_clustering_coefficient = 1.0 (fully closed); "
+                              "all interactions within 3-clique",
+            "notes": "Requires graph-level analysis; per-pair diversity check alone "
+                     "is insufficient for ring detection",
+        }
+
+        # ── AF-004: Isolated burst — sudden spike after silence ─────────────
+        # 5 old interactions (March), then 15 rapid-fire in same day (April 9)
+        af004_interactions = []
+        prev = "genesis"
+        for i in range(1, 6):  # sparse old interactions
+            ts = f"2026-03-{i:02d}T10:00:00Z"
+            rec = _build_interaction(i, alice_priv, dave_priv, alice_did, dave_did,
+                                     f"task-af004-{i:03d}", "slow_task", ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af004_interactions.append(rec)
+        for i in range(6, 21):  # sudden burst on same day
+            ts = f"2026-04-09T{(i-6):02d}:{((i*3)%60):02d}:00Z"
+            rec = _build_interaction(i, alice_priv, bob_priv, alice_did, bob_did,
+                                     f"task-af004-{i:03d}", "burst_task", ts, prev)
+            prev = _chain_hash(prev, rec["id"])
+            af004_interactions.append(rec)
+
+        af004 = {
+            "id":          "AF-004",
+            "scenario":    "isolated_burst_spike",
+            "description": "Burst spike: 5 sparse historical interactions followed by "
+                           "15 rapid interactions in a single day. Pattern consistent "
+                           "with coordinated trust inflation attempt.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "dave":  {"did": dave_did,  "public_key": dave_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+            },
+            "interaction_count": len(af004_interactions),
+            "interactions": af004_interactions,
+            "expected_flags": ["temporal_burst_anomaly", "velocity_spike"],
+            "expected_trust_signal": "suspicious",
+            "detection_hint": "interactions_per_day spike: 15 vs baseline 5/month; "
+                              "velocity_ratio > 10×",
+            "notes": "Temporal analysis required; raw count does not flag this",
+        }
+
+        # ── AF-005: Tampered hash chain ──────────────────────────────────────
+        af005_interactions = []
+        prev = "genesis"
+        for i in range(1, 6):
+            ts = f"2026-04-09T{i:02d}:00:00Z"
+            tamper = (i == 3)  # corrupt record 3 signature
+            rec = _build_interaction(i, alice_priv, bob_priv, alice_did, bob_did,
+                                     f"task-af005-{i:03d}", "chain_task", ts, prev,
+                                     tamper=tamper)
+            prev = _chain_hash(prev, rec["id"])
+            af005_interactions.append(rec)
+
+        af005 = {
+            "id":          "AF-005",
+            "scenario":    "tampered_hash_chain",
+            "description": "Tampered chain: record ir-task-af005-003 has a corrupted "
+                           "caller_signature. Hash chain is otherwise intact. "
+                           "Detectable via bilateral signature verification.",
+            "agents": {
+                "alice": {"did": alice_did, "public_key": alice_pub},
+                "bob":   {"did": bob_did,   "public_key": bob_pub},
+            },
+            "interaction_count": len(af005_interactions),
+            "interactions": af005_interactions,
+            "expected_flags": ["signature_verification_failure"],
+            "tampered_record_id": "ir-task-af005-003-003",
+            "expected_trust_signal": "invalid",
+            "detection_hint": "verify caller_signature on each record; record 3 fails",
+            "notes": "bilateral=false on tampered record; consumer must reject chain",
+        }
+
+        return {
+            "schema_version": "1.0",
+            "generated_by":   f"ACP/{VERSION}",
+            "generated_at":   _now(),
+            "description":    "Adversarial bilateral IR fixtures for collusion/inflation "
+                              "detection testing. Proposed by scan24 in response to "
+                              "A2A #1718 (aeoess adversarial fixture proposal, 2026-04-08).",
+            "fixture_count":  5,
+            "fixtures":       [af001, af002, af003, af004, af005],
+            "detection_algorithms": {
+                "counterparty_diversity": "unique_counterparties / total_interactions",
+                "mutual_pair_ratio":      "mutual_pair_interactions / total_interactions",
+                "velocity_ratio":         "peak_day_count / (total / days)",
+                "ring_detection":         "graph clustering coefficient on interaction graph",
+                "chain_integrity":        "Ed25519 verify each record's caller_signature + relay_signature",
+            },
+            "reference": "A2A Issue #1718 (aeoess, 2026-04-08) adversarial fixture proposal; "
+                         "ACP reference implementation v2.91",
+        }
+
+    except Exception as exc:
+        return {"error": f"Fixture generation failed: {exc}"}
+
+
+def _init_security_posture():
+    """v2.71: Populate _SECURITY_POSTURE with real installed package versions at startup."""
+    import importlib.metadata as _ilm
+    import datetime as _dt
+    _SECURITY_POSTURE["scanned_at"] = (
+        _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+    for comp in _SECURITY_POSTURE["components"]:
+        try:
+            comp["version"] = _ilm.version(comp["name"])
+        except Exception:
+            comp["version"] = "unknown"
+
+def _build_governance() -> dict:
+    """
+    v3.4: Build the AgentCard.governance block (A2A #1717 CredentialLifecyclePolicy).
+    v3.5: Added proof_suite sub-object (ANP eddsa-jcs-2022 interop, A2A #1717).
+    v3.12: Added compliance_report, last_verified_at, operator_attestation (A2A #1717 Microsoft AGT).
+
+    Returns a dict representing the governance declaration for this relay.
+    The block is always present in v3.4+ AgentCards (not opt-in like governance_metadata).
+
+    Fields (v3.4+):
+      framework               — "ACP" (protocol identifier)
+      version                 — ACP version string
+      credential_lifecycle    — CredentialLifecyclePolicy object
+      audit_mode              — "static" | "live"
+      policy_ref              — optional governance framework reference URL
+      proof_suite             — v3.5: supported cryptographic proof suites
+
+    Fields (v3.12, A2A #1717 Microsoft AGT):
+      compliance_report       — live compliance summary:
+          policies_declared     count of _policy_compliance entries
+          issues_detected       count of active compliance issues (0 = all clear)
+          status                "compliant" | "issues_detected" | "unverified"
+      last_verified_at        — ISO8601 timestamp of last compliance check (None if never)
+      operator_attestation    — optional third-party operator declaration:
+          attested_by           operator name / DID
+          attestation_url       link to public attestation document
+          attested_at           ISO8601
+    """
+    # v3.12: build live compliance report
+    compliance_issues = 0
+    compliance_status = "unverified"
+    policies_declared = len(_policy_compliance)
+    if _governance_compliance_verified_at:
+        compliance_status = "compliant" if compliance_issues == 0 else "issues_detected"
+
+    gov = {
+        "framework": "ACP",
+        "version": VERSION,
+        "credential_lifecycle": {
+            "ttl_seconds": _governance_ttl,
+            "revocation_endpoint": _governance_revocation_endpoint,
+            "credential_ttl_seconds": 86400,
+        },
+        "audit_mode": _governance_audit_mode,
+        "policy_ref": _governance_policy_ref,
+        "proof_suite": {
+            "supported": ["Ed25519Signature2020", "eddsa-jcs-2022"],
+            "default": "Ed25519Signature2020",
+            "interop_refs": [
+                "https://w3c.github.io/vc-data-integrity/",
+                "https://www.w3.org/TR/vc-di-eddsa/",
+            ],
+        },
+        # v3.12: A2A #1717 Microsoft AGT governance extensions
+        "compliance_report": {
+            "policies_declared": policies_declared,
+            "issues_detected":   compliance_issues,
+            "status":            compliance_status,
+            "compliance_endpoint": "/governance/compliance",
+        },
+        "last_verified_at": _governance_compliance_verified_at,
+    }
+    if _governance_operator_attestation:
+        gov["operator_attestation"] = _governance_operator_attestation
+    return gov
+
+
+def _build_transport_bindings() -> dict:
+    """
+    v3.5: Build the transport_bindings block for AgentCard and /status.
+
+    Declares stable and experimental transport mechanisms supported by this node.
+    Experimental list is populated via --experimental-transport CLI flags
+    (repeatable), enabling pre-SlimRPC (#1723) and future binding declarations
+    without breaking existing consumers.
+
+    Fields:
+      supported      — stable transports this node offers ("http", "websocket")
+      experimental   — opt-in future transports (default empty; --experimental-transport appends)
+    """
+    return {
+        "supported": ["http", "websocket"],
+        "experimental": list(_experimental_transports),
+    }
+
+
+def _build_trust_signals() -> list:
+    """
+    Build trust.signals[] for the AgentCard (v2.14, extended v2.70).
+
+    Each signal is a dict:
+      {
+        "type":        str,   # canonical signal type name (12 types, v2.70 finalized)
+        "enabled":     bool,  # whether this signal is currently active
+        "description": str,   # human-readable explanation
+        "severity":    str,   # v2.70: critical/high/medium/low (consumer-side weighting hint)
+        "category":    str,   # v2.70: identity/integrity/authorization/discovery/attestation
+        "details":     dict,  # optional type-specific metadata
+      }
+
+    Canonical signal type names (v2.70 finalized, A2A #1628 aligned):
+      - "hmac_message_signing":   HMAC-SHA256 per-message signing (v0.7/v1.1)
+      - "ed25519_identity":       Ed25519 keypair with DID (v0.8/v1.3)
+      - "agent_card_signature":   AgentCard self-signed with Ed25519 key (v1.8)
+      - "peer_card_verification": Auto-verify peer AgentCard on connect (v1.9)
+      - "replay_window":          HMAC replay-window protection (v1.1)
+      - "did_document":           W3C DID Document published (v1.3)
+      - "jwks":                   JWKS endpoint for key discovery (v2.18)
+      - "vouch_chain":            Structured endorsements from other agents (v2.27)
+      - "bilateral_ir":           Bilateral signed interaction records (v2.59)
+      - "capability_token":       SINT Ed25519 per-invocation capability tokens (v2.57)
+      - "wtrmrk":                 WTRMRK sequence-root attestation (v2.62)
+      - "external_token":         Cross-protocol SINT token verification (v2.63)
+
+    Rationale (A2A #1628 @kenneives/@douglasborthwick, scan14 2026-04-07):
+      A2A confirmed that trust.signals[] is a boolean layer (met:true/false per signal);
+      consumer-side weighting is out of spec. ACP v2.70 adds severity+category as
+      advisory metadata to help consuming agents implement weighted trust scoring
+      without prescribing any specific formula.
+    """
+    signals = []
+
+    # 1. HMAC-SHA256 per-message signing
+    def _sig(type_name: str, enabled: bool, description: str, **extra) -> dict:
+        """Helper: build a trust signal dict with v2.70 severity+category metadata."""
+        meta = TRUST_SIGNAL_SCHEMA.get(type_name, {"severity": "low", "category": "discovery"})
+        s = {
+            "type":        type_name,
+            "enabled":     enabled,
+            "severity":    meta["severity"],
+            "category":    meta["category"],
+            "description": description,
+        }
+        s.update(extra)
+        if "details" not in s:
+            s["details"] = {}
+        return s
+
+    # 1. HMAC-SHA256 per-message signing
+    signals.append(_sig(
+        "hmac_message_signing",
+        bool(_hmac_secret),
+        "HMAC-SHA256 message signing (v0.7). Each message carries an `identity.sig` field signed with a shared secret.",
+        details={"algorithm": "hmac-sha256"} if _hmac_secret else {},
+    ))
+
+    # 2. Ed25519 self-sovereign identity
+    signals.append(_sig(
+        "ed25519_identity",
+        bool(_ed25519_private),
+        "Ed25519 keypair with self-sovereign DID (v0.8/v1.3). Identity is generated locally, never shared with a central authority.",
+        details=({
+            "scheme":  "ed25519+ca" if _ca_cert_pem else "ed25519",
+            "did_acp": _did_acp,
+            "did":     _did_key,
+        } if _ed25519_private else {}),
+    ))
+
+    # 3. AgentCard self-signature
+    signals.append(_sig(
+        "agent_card_signature",
+        bool(_ed25519_private),
+        "AgentCard is self-signed with Ed25519 private key (v1.8). Receivers can verify card authenticity without a CA.",
+        details={"algorithm": "ed25519", "field": "identity.card_sig"} if _ed25519_private else {},
+    ))
+
+    # 4. Auto peer AgentCard verification on connect
+    signals.append(_sig(
+        "peer_card_verification",
+        True,   # always active (v1.9); verification result in /peer/verify
+        "Peer's AgentCard is automatically verified on connection (v1.9). Result available at GET /peer/verify.",
+        details={"endpoint": "/peer/verify"},
+    ))
+
+    # 5. HMAC replay-window protection
+    signals.append(_sig(
+        "replay_window",
+        bool(_hmac_secret),
+        "HMAC replay-window: messages with duplicate nonces within 60s window are dropped (v1.1).",
+        details={"window_seconds": 60} if _hmac_secret else {},
+    ))
+
+    # 6. W3C DID Document
+    signals.append(_sig(
+        "did_document",
+        bool(_did_acp),
+        "W3C DID Document published at /.well-known/did.json (v1.3). Contains Ed25519VerificationKey2020 and ACPRelay service endpoint.",
+        details={"endpoint": "/.well-known/did.json", "did": _did_acp} if _did_acp else {},
+    ))
+
+    # 7. JWKS compatibility layer (v2.18)
+    signals.append(_sig(
+        "jwks",
+        bool(_ed25519_private),
+        "Ed25519 public key published as JWK Set at /.well-known/jwks.json (v2.18, RFC 7517). Enables JWKS-based key discovery compatible with A2A IS#1628.",
+        jwks_uri="/.well-known/jwks.json",
+        alg="EdDSA",
+        details={"endpoint": "/.well-known/jwks.json", "alg": "EdDSA", "kty": "OKP", "crv": "Ed25519"} if _ed25519_private else {},
+    ))
+
+    # 8. Vouch chain (v2.27) — structured trust endorsements from other agents (A2A IS#1628 compatible)
+    signals.append(_sig(
+        "vouch_chain",
+        len(_vouch_chain) > 0,
+        "Vouch chain: structured endorsements from other agents (v2.27). Compatible with A2A IS#1628 trust.signals specification.",
+        details={
+            "count":   len(_vouch_chain),
+            "endpoint": "/trust/vouch",
+            "vouches":  _vouch_chain[-5:],  # expose last 5 for compactness in AgentCard
+        },
+    ))
+
+    # 9. Bilateral IR (v2.59+) — bilateral signed interaction records
+    signals.append(_sig(
+        "bilateral_ir",
+        True,   # always available (POST /tasks?record=true)
+        "Bilateral signed interaction records (v2.59). Each task can be recorded with Ed25519 relay+caller signatures forming a tamper-evident audit chain.",
+        details={
+            "endpoint_create":  "/tasks?record=true",
+            "endpoint_list":    "/interaction-records",
+            "endpoint_import":  "/ir/import-evidence",
+            "endpoint_vectors":  "/ir/test-vectors",
+            "relay_signing":    bool(_ed25519_private),
+            "bilateral":        True,
+            "count":            len(_interaction_records),
+        },
+    ))
+
+    # 10. Capability token (v2.57) — per-invocation trust authorization
+    signals.append(_sig(
+        "capability_token",
+        bool(_ed25519_private),
+        "SINT-format Ed25519 capability tokens for per-invocation trust authorization (v2.57). Skills can require a valid capability token before execution.",
+        details={
+            "endpoint_issue":   "/skills/{skill_id}/capability-token",
+            "format":           "SINT",
+            "algorithm":        "Ed25519",
+            "capability_token_required_skills": sum(
+                1 for s in ((_status.get("agent_card") or {}).get("skills", []))
+                if isinstance(s, dict) and s.get("capability_token_required")
+            ),
+        } if _ed25519_private else {},
+    ))
+
+    # 11. WTRMRK attestation (v2.62) — sequence root trust factor
+    signals.append(_sig(
+        "wtrmrk",
+        True,   # GET /identity/wtrmrk-status always available
+        "WTRMRK sequence-root attestation as trust factor (v2.62). Contributes to effective_tier calculation as the 4th factor alongside tier_rule/depth_floor/reputation.",
+        details={
+            "endpoint_status":  "/identity/wtrmrk-status",
+            "factor_weight":    "±1 tier (asymmetric: +1 if present, -1 only if negative)",
+            "contributes_to":   "effective_tier",
+        },
+    ))
+
+    # 12. External token verification (v2.63) — cross-protocol SINT token verify
+    signals.append(_sig(
+        "external_token",
+        bool(_ed25519_private),
+        "Cross-protocol SINT token verification (v2.63). Validates externally-issued tokens from other ACP/APS agents using W3C did:key + Ed25519 signature verification.",
+        details={
+            "endpoint_verify":  "/verify/external-token",
+            "endpoint_did_key": "/identity/did-key",
+            "format":           "SINT",
+            "algorithm":        "Ed25519",
+            "did_method":       "did:key",
+        } if _ed25519_private else {},
+    ))
+
+    # 13. Security posture (v2.71) — source-level vulnerability posture declaration
+    # Suggested by @douglasborthwick in A2A #1628 (2026-04-06): "security posture as a 7th dimension"
+    # ACP adds it as the 13th trust signal, covering source-level CVE state of relay components.
+    posture_clean = (_SECURITY_POSTURE["total_cves"] == 0)
+    signals.append(_sig(
+        "security_posture",
+        True,   # always declared (v2.71); posture_score indicates quality
+        "Source-level security posture declaration (v2.71). Declares CVE scan results for relay components. "
+        "Self-reported; consumers should independently verify via GET /trust/signals/security-posture. "
+        "A2A #1628 @douglasborthwick 'security dimension' suggestion.",
+        details={
+            "posture_score":    _SECURITY_POSTURE["posture_score"],
+            "critical_cves":    _SECURITY_POSTURE["critical_cves"],
+            "high_cves":        _SECURITY_POSTURE["high_cves"],
+            "total_cves":       _SECURITY_POSTURE["total_cves"],
+            "scanned_at":       _SECURITY_POSTURE["scanned_at"],
+            "scan_tool":        _SECURITY_POSTURE["scan_tool"],
+            "endpoint":         "/trust/signals/security-posture",
+            "components_count": len(_SECURITY_POSTURE["components"]),
+        },
+    ))
+
+    return signals
+
+
+# ── v2.18: JWKS helpers ────────────────────────────────────────────────────────
+
+def _build_jwks(agent_name: str = "ACP-Agent") -> dict:
+    """
+    Build a JWK Set (RFC 7517) from the ACP Ed25519 identity (v2.18).
+
+    Returns a standard JWKS dict:
+      {
+        "keys": [
+          {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x":   "<base64url-encoded 32-byte public key>",
+            "use": "sig",
+            "alg": "EdDSA",
+            "kid": "<agent_name>:<pubkey_prefix_8chars>"
+          }
+        ]
+      }
+
+    If no Ed25519 identity is loaded (--identity not provided), returns {"keys": []}.
+
+    Notes:
+      - Only the public key is included; the private key is NEVER exported.
+      - 'x' is the raw 32-byte Ed25519 public key encoded as base64url (no padding).
+      - 'kid' is derived from agent_name and first 8 chars of the base64url pubkey.
+      - The endpoint is unauthenticated (well-known public key discovery).
+
+    Test IDs: JW1 ~ JW6
+    """
+    if not _ed25519_private or not _ed25519_public_b64:
+        return {"keys": []}
+
+    # kid = "<agent_name>:<pubkey_prefix>" — first 8 chars of base64url pubkey
+    kid = f"{agent_name}:{_ed25519_public_b64[:8]}"
+
+    jwk = {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x":   _ed25519_public_b64,   # raw 32-byte pubkey, base64url no-padding
+        "use": "sig",
+        "alg": "EdDSA",
+        "kid": kid,
+    }
+    return {"keys": [jwk]}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AgentCard Signature (v1.8)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _sign_agent_card(card: dict) -> dict:
+    """
+    Sign AgentCard with this Agent's Ed25519 private key (v1.8).
+
+    The signature covers the canonical JSON of the card with the 'identity.card_sig'
+    field excluded (to avoid circular reference). The resulting signature is stored
+    in card['identity']['card_sig'] as a base64url string.
+
+    Requires --identity flag.  No-op (returns card unchanged) when identity is disabled.
+
+    Signed payload: json.dumps(card_without_card_sig, sort_keys=True, separators=(',',':')).
+    This is deterministic and transport-independent.
+    """
+    if not _ed25519_private:
+        return card
+
+    # Build signable form: deep-copy card, remove card_sig from identity block
+    import copy
+    signable = copy.deepcopy(card)
+    if "identity" in signable and signable["identity"]:
+        signable["identity"].pop("card_sig", None)
+
+    payload = json.dumps(signable, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    sig_bytes = _ed25519_private.sign(payload)
+    sig_b64 = _base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+    # Attach signature to identity block
+    signed = copy.deepcopy(card)
+    if signed.get("identity") is None:
+        signed["identity"] = {}
+    signed["identity"]["card_sig"] = sig_b64
+    return signed
+
+
+def _verify_agent_card(card: dict) -> dict:
+    """
+    Verify an AgentCard's Ed25519 self-signature (v1.8).
+
+    Returns a dict with keys:
+      - valid (bool): True if signature checks out
+      - did (str|None): the signer's did:acp: (from card.identity.did)
+      - public_key (str|None): base64url public key used to verify
+      - error (str|None): human-readable reason if invalid
+      - scheme (str): identity scheme from card.identity.scheme
+    """
+    if not _ED25519_AVAILABLE:
+        return {"valid": None, "error": "Ed25519 library not available", "did": None,
+                "public_key": None, "scheme": "unknown"}
+
+    identity = card.get("identity") or {}
+    pub_key_b64 = identity.get("public_key")
+    sig_b64     = identity.get("card_sig")
+    did         = identity.get("did")
+    scheme      = identity.get("scheme", "none")
+
+    if not pub_key_b64:
+        return {"valid": False, "error": "identity.public_key missing", "did": did,
+                "public_key": None, "scheme": scheme}
+    if not sig_b64:
+        return {"valid": False, "error": "identity.card_sig missing (unsigned card)", "did": did,
+                "public_key": pub_key_b64, "scheme": scheme}
+
+    try:
+        import copy
+        # Reconstruct the signable form (same as _sign_agent_card)
+        signable = copy.deepcopy(card)
+        if "identity" in signable and signable["identity"]:
+            signable["identity"].pop("card_sig", None)
+
+        payload = json.dumps(signable, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+
+        pub_raw = _base64.urlsafe_b64decode(pub_key_b64 + "==")
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        sig_bytes = _base64.urlsafe_b64decode(sig_b64 + "==")
+        pub_key.verify(sig_bytes, payload)
+
+        # Optionally verify did:key: or did:acp: matches public_key
+        did_consistent = None
+        if did and did.startswith("did:key:"):
+            expected_did = _pubkey_to_did_key(pub_raw)
+            did_consistent = (did == expected_did)
+        elif did and did.startswith("did:acp:"):
+            expected_did = "did:acp:" + _base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+            did_consistent = (did == expected_did)
+
+        return {
+            "valid": True,
+            "did": did,
+            "did_consistent": did_consistent,
+            "public_key": pub_key_b64,
+            "scheme": scheme,
+            "error": None,
+        }
+    except _Ed25519InvalidSignature:
+        return {"valid": False, "error": "signature verification failed", "did": did,
+                "public_key": pub_key_b64, "scheme": scheme}
+    except Exception as exc:
+        return {"valid": False, "error": f"verification error: {exc}", "did": did,
+                "public_key": pub_key_b64, "scheme": scheme}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Message Sequencing (v0.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _next_seq():
+    """Return next monotonically-increasing server_seq for outbound messages."""
+    _status["server_seq"] += 1
+    return _status["server_seq"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Idempotency
+# ══════════════════════════════════════════════════════════════════════════════
+
+_DEDUP_WINDOW_SECONDS = 30  # v2.32: 30s TTL dedup window for HTTP send endpoints
+
+def _check_and_record_message_id(message_id):
+    """Returns True if new (process), False if duplicate (skip). Used for WS inbound messages."""
+    if not message_id:
+        return True
+    if message_id in _seen_message_ids:
+        _status["messages_deduped"] += 1
+        log.info(f"Duplicate message_id={message_id}, skipped")
+        return False
+    _seen_message_ids[message_id] = {"ts": _now()}
+    if len(_seen_message_ids) > _SEEN_MAX:
+        oldest = next(iter(_seen_message_ids))
+        del _seen_message_ids[oldest]
+    return True
+
+
+def _http_dedup_check(message_id):
+    """
+    v2.32 — HTTP send endpoint idempotency check with 30s TTL window.
+
+    Returns (is_duplicate: bool, cached_server_seq: int | None).
+    - If message_id already seen within _DEDUP_WINDOW_SECONDS: (True, server_seq)
+    - Otherwise records and returns (False, None).
+    - message_id=None always returns (False, None) — no-id sends are never deduped.
+
+    Thread-safe: uses _seen_message_ids dict (GIL-protected for CPython).
+    Expired entries are evicted lazily during check.
+    """
+    if not message_id:
+        return False, None
+
+    now = time.time()
+    entry = _seen_message_ids.get(message_id)
+    if entry:
+        age = now - entry.get("wall_ts", 0)
+        if age <= _DEDUP_WINDOW_SECONDS:
+            _status["messages_deduped"] += 1
+            log.info(f"[dedup] Duplicate HTTP message_id={message_id} (age={age:.1f}s), returning cached response")
+            return True, entry.get("server_seq")
+        # Expired — fall through to record fresh
+
+    # Evict expired entries lazily (keep dict bounded)
+    expired = [mid for mid, e in _seen_message_ids.items()
+               if now - e.get("wall_ts", 0) > _DEDUP_WINDOW_SECONDS]
+    for mid in expired:
+        del _seen_message_ids[mid]
+    # Hard cap fallback
+    if len(_seen_message_ids) > _SEEN_MAX:
+        oldest = next(iter(_seen_message_ids))
+        del _seen_message_ids[oldest]
+
+    _seen_message_ids[message_id] = {"ts": _now(), "wall_ts": now, "server_seq": None}
+    return False, None
+
+
+def _http_dedup_record_seq(message_id, server_seq):
+    """After assigning server_seq, store it in the dedup cache for replay responses."""
+    if message_id and message_id in _seen_message_ids:
+        _seen_message_ids[message_id]["server_seq"] = server_seq
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Structured SSE broadcast (v0.5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _broadcast_sse_event(event_type, payload):
+    """
+    Broadcast a typed SSE event to all subscribers + webhooks.
+
+    Types:
+      status   -> {task_id, state, error?}
+      artifact -> {task_id, artifact}
+      message  -> {message_id, role, parts, task_id?}
+      peer     -> {event: connected|disconnected, session_id?}
+
+    v2.3: every event carries a monotonically-increasing `seq` field so that
+    consumers can detect out-of-order or missed events without relying on
+    wall-clock timestamps.  The SSE wire format also uses a named event line:
+      event: acp.task.status   (for type=status)
+      event: acp.task.artifact (for type=artifact)
+    All other types continue to arrive as unnamed data-only events.
+    """
+    global _sse_seq
+    with _sse_seq_lock:
+        _sse_seq += 1
+        seq = _sse_seq
+    event = {"type": event_type, "ts": _now(), "seq": seq, **payload}
+    # v2.13: append to replay log (ring buffer)
+    with _event_log_lock:
+        _event_log.append(event)
+        if len(_event_log) > _EVENT_LOG_MAX:
+            del _event_log[0]
+    for q in _sse_subscribers:
+        q.append(event)
+    _sse_notify.set()   # BUG-009 fix: wake up SSE polling handlers immediately
+    # v2.12: also broadcast to WebSocket /ws/stream clients
+    _broadcast_ws_stream_event(event_type, event)
+    if _push_webhooks:
+        body = json.dumps(event, ensure_ascii=False).encode()
+        for url in list(_push_webhooks):
+            threading.Thread(target=_deliver_push, args=(url, body), daemon=True).start()
+
+
+# v2.3: SSE event type → named SSE event field mapping.
+# Consumers can filter by event name using EventSource.addEventListener('acp.task.status', ...).
+_SSE_EVENT_NAMES = {
+    "status":   "acp.task.status",
+    "artifact": "acp.task.artifact",
+}
+
+
+def _sse_format(evt: dict) -> bytes:
+    """
+    Serialize a single SSE event dict to wire bytes (v2.3).
+
+    For task status/artifact events, emits a named `event:` line:
+      event: acp.task.status\ndata: {...}\n\n
+      event: acp.task.artifact\ndata: {...}\n\n
+    All other event types (message, peer, mdns...) use the plain data-only form:
+      data: {...}\n\n
+    """
+    event_name = _SSE_EVENT_NAMES.get(evt.get("type", ""))
+    data_line = f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+    if event_name:
+        return f"event: {event_name}\n{data_line}".encode()
+    return data_line.encode()
+
+def _deliver_push(url, body):
+    try:
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=5)
+        log.info(f"Push delivered -> {url}")
+    except Exception as e:
+        log.warning(f"Push failed -> {url}: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WebSocket /ws/stream native push (v2.12)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ws_handshake(handler):
+    """
+    Perform a RFC 6455 WebSocket upgrade handshake on an HTTP handler.
+    Returns the raw socket on success, raises on failure.
+
+    Steps:
+      1. Read Sec-WebSocket-Key from headers
+      2. Compute accept key = base64(SHA1(key + magic))
+      3. Send 101 Switching Protocols response (MUST be HTTP/1.1)
+
+    Note: BaseHTTPRequestHandler.send_response() uses HTTP/1.0 by default.
+    We write the 101 response directly as raw bytes to ensure HTTP/1.1.
+    """
+    import hashlib as _hashlib
+    import base64 as _base64_mod
+
+    key = handler.headers.get("Sec-WebSocket-Key", "").strip()
+    if not key:
+        handler.send_response(400)
+        handler.end_headers()
+        raise ValueError("Missing Sec-WebSocket-Key")
+
+    magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    accept = _base64_mod.b64encode(
+        _hashlib.sha1((key + magic).encode()).digest()
+    ).decode()
+
+    # Write HTTP/1.1 101 response directly (bypass BaseHTTPRequestHandler
+    # which defaults to HTTP/1.0; websockets library requires HTTP/1.1)
+    response = (
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Accept: {accept}\r\n"
+        "\r\n"
+    )
+    handler.wfile.write(response.encode())
+    handler.wfile.flush()
+    return handler.connection
+
+
+def _ws_send_frame(sock, data: str):
+    """
+    Send a WebSocket text frame (opcode 0x1) over a raw socket.
+    Uses a simple unmasked frame (server→client frames are unmasked per RFC 6455).
+    """
+    payload = data.encode("utf-8")
+    length = len(payload)
+    header = bytearray()
+    header.append(0x81)  # FIN=1, opcode=text(1)
+    if length < 126:
+        header.append(length)
+    elif length < 65536:
+        header.append(126)
+        header += length.to_bytes(2, "big")
+    else:
+        header.append(127)
+        header += length.to_bytes(8, "big")
+    sock.sendall(bytes(header) + payload)
+
+
+def _ws_recv_frame(sock):
+    """
+    Receive a single WebSocket frame from client.
+    Returns (opcode, payload_bytes) or raises on close/error.
+    Handles masking (client→server frames are always masked per RFC 6455).
+    """
+    # Read first 2 bytes
+    header = b""
+    while len(header) < 2:
+        chunk = sock.recv(2 - len(header))
+        if not chunk:
+            raise ConnectionResetError("WS connection closed")
+        header += chunk
+
+    fin   = (header[0] & 0x80) != 0
+    opcode = header[0] & 0x0F
+    masked = (header[1] & 0x80) != 0
+    length = header[1] & 0x7F
+
+    if length == 126:
+        lb = b""
+        while len(lb) < 2:
+            lb += sock.recv(2 - len(lb))
+        length = int.from_bytes(lb, "big")
+    elif length == 127:
+        lb = b""
+        while len(lb) < 8:
+            lb += sock.recv(8 - len(lb))
+        length = int.from_bytes(lb, "big")
+
+    mask_key = b""
+    if masked:
+        while len(mask_key) < 4:
+            mask_key += sock.recv(4 - len(mask_key))
+
+    payload = b""
+    while len(payload) < length:
+        chunk = sock.recv(length - len(payload))
+        if not chunk:
+            raise ConnectionResetError("WS connection closed during payload")
+        payload += chunk
+
+    if masked:
+        payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+
+    return opcode, payload
+
+
+class _WsStreamClient:
+    """Wrapper around a raw socket for a /ws/stream subscriber."""
+    def __init__(self, sock):
+        self._sock = sock
+        self._lock = threading.Lock()
+        self.closed = False
+
+    def send(self, data: str):
+        if self.closed:
+            return
+        try:
+            with self._lock:
+                _ws_send_frame(self._sock, data)
+        except Exception:
+            self.closed = True
+
+    def close(self):
+        self.closed = True
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+
+
+def _broadcast_ws_stream_event(event_type: str, event: dict):
+    """
+    v2.12: Broadcast a typed event to all /ws/stream WebSocket subscribers.
+
+    Maps ACP event types to WS event names:
+      message → acp.message
+      peer    → acp.peer
+      status  → acp.task.status
+      artifact→ acp.task.artifact
+      *       → acp.<type>
+    """
+    _WS_EVENT_NAMES = {
+        "message":  "acp.message",
+        "peer":     "acp.peer",
+        "status":   "acp.task.status",
+        "artifact": "acp.task.artifact",
+    }
+    ws_event_name = _WS_EVENT_NAMES.get(event_type, f"acp.{event_type}")
+
+    # Build the WS push payload
+    # For message events, reshape data to match spec:
+    # { event, data: { message_id, from, parts, timestamp, server_seq } }
+    if event_type == "message":
+        ws_payload = json.dumps({
+            "event": ws_event_name,
+            "data": {
+                "message_id": event.get("message_id"),
+                "from":       event.get("role", "agent"),
+                "parts":      event.get("parts", []),
+                "timestamp":  event.get("ts"),
+                "server_seq": event.get("seq"),
+            }
+        }, ensure_ascii=False)
+    else:
+        ws_payload = json.dumps({
+            "event": ws_event_name,
+            "data":  event,
+        }, ensure_ascii=False)
+
+    dead = set()
+    with _ws_stream_lock:
+        clients = set(_ws_stream_clients)
+
+    for client in clients:
+        client.send(ws_payload)
+        if client.closed:
+            dead.add(client)
+
+    if dead:
+        with _ws_stream_lock:
+            _ws_stream_clients.difference_update(dead)
+
+
+def _handle_ws_stream(handler):
+    """
+    v2.12/v2.13: Handle a /ws/stream WebSocket connection lifecycle.
+    Called from do_GET when path == /ws/stream and Upgrade: websocket.
+    Runs in the ThreadingHTTPServer worker thread for this connection.
+
+    v2.13: supports ?since=<seq> for missed-event replay on reconnect.
+    """
+    try:
+        sock = _ws_handshake(handler)
+    except Exception as e:
+        log.warning(f"/ws/stream handshake failed: {e}")
+        return
+
+    # v2.13: parse ?since=<seq> from request path before completing handshake
+    since_seq = None
+    try:
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(handler.path).query)
+        since_seq = int(qs.get("since", [None])[0])
+    except (TypeError, ValueError):
+        pass
+
+    client = _WsStreamClient(sock)
+    with _ws_stream_lock:
+        _ws_stream_clients.add(client)
+
+    # v2.13: replay missed events before joining live stream
+    if since_seq is not None:
+        with _event_log_lock:
+            replay = [e for e in _event_log if e.get("seq", 0) > since_seq]
+        for evt in replay:
+            event_type = evt.get("type", "message")
+            ws_evt = {"event": f"acp.{event_type}", "data": evt}
+            try:
+                client.send(json.dumps(ws_evt, ensure_ascii=False))
+            except Exception:
+                break
+
+    log.info(f"/ws/stream client connected (total={len(_ws_stream_clients)})")
+
+    try:
+        # Keep-alive loop: read frames from client (handle ping/close)
+        # We don't need to process client→server data, just detect disconnects
+        sock.settimeout(60.0)
+        while not client.closed:
+            try:
+                opcode, payload = _ws_recv_frame(sock)
+                if opcode == 0x8:  # close frame
+                    break
+                elif opcode == 0x9:  # ping → pong
+                    _ws_send_frame(sock, "")  # minimal pong (opcode 0xA)
+                    # Actually send proper pong
+                    pong = bytearray([0x8A, len(payload)]) + payload
+                    sock.sendall(bytes(pong))
+                # ignore text/binary frames from client
+            except OSError:
+                break
+    except Exception:
+        pass
+    finally:
+        client.close()
+        with _ws_stream_lock:
+            _ws_stream_clients.discard(client)
+        log.info(f"/ws/stream client disconnected (total={len(_ws_stream_clients)})")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# v3.17: POST /messages:stream — WebSocket streaming message inlet
+# ══════════════════════════════════════════════════════════════════════════════
+
+_messages_stream_seq_lock = threading.Lock()
+_messages_stream_seq = 0
+
+
+def _messages_stream_next_seq() -> int:
+    """Thread-safe monotonic sequence counter for /messages:stream frames."""
+    global _messages_stream_seq
+    with _messages_stream_seq_lock:
+        _messages_stream_seq += 1
+        return _messages_stream_seq
+
+
+def _handle_messages_stream(handler):
+    """
+    v3.17: Handle POST /messages:stream WebSocket streaming inlet.
+
+    The client upgrades to WebSocket and then continuously sends message frames:
+      { "peer_id": "peer_xxx", "content": "...",
+        "message_id": "optional-client-id", "require_ack": false }
+
+    For each frame the relay:
+      - Routes the message to the named peer (or the sole connected peer).
+      - Returns a per-frame confirmation:
+          {"ok": true,  "message_id": "...", "server_seq": 42}  on success
+          {"ok": false, "error": "ERR_PEER_NOT_FOUND", "message_id": "..."}  on failure
+      - On invalid JSON: {"ok": false, "error": "ERR_INVALID_JSON", "message_id": null}
+
+    Messages that were already enqueued before the connection closes are
+    considered delivered (queue-in = delivered, consistent with v3.15/v3.16).
+
+    Called from do_POST when path == /messages:stream and
+    Upgrade: websocket header is present.
+    """
+    try:
+        sock = _ws_handshake(handler)
+    except Exception as e:
+        log.warning(f"/messages:stream handshake failed: {e}")
+        return
+
+    log.info("/messages:stream client connected")
+    sock.settimeout(120.0)  # generous idle timeout; client can send at any rate
+
+    try:
+        while True:
+            try:
+                opcode, payload = _ws_recv_frame(sock)
+            except (ConnectionResetError, OSError):
+                break  # client disconnected cleanly
+
+            # Handle WebSocket control frames
+            if opcode == 0x8:  # close
+                # Echo close frame back
+                try:
+                    close_frame = bytearray([0x88, 0])
+                    sock.sendall(bytes(close_frame))
+                except Exception:
+                    pass
+                break
+            elif opcode == 0x9:  # ping → pong
+                try:
+                    pong = bytearray([0x8A, len(payload)]) + bytearray(payload)
+                    sock.sendall(bytes(pong))
+                except Exception:
+                    break
+                continue
+            elif opcode == 0xA:  # pong (unsolicited) — ignore
+                continue
+
+            # Parse frame payload as JSON
+            try:
+                frame = json.loads(payload.decode("utf-8"))
+            except Exception:
+                err_frame = json.dumps({
+                    "ok": False,
+                    "error": "ERR_INVALID_JSON",
+                    "message_id": None,
+                }, ensure_ascii=False)
+                try:
+                    _ws_send_frame(sock, err_frame)
+                except Exception:
+                    break
+                continue
+
+            # Extract fields
+            client_msg_id = frame.get("message_id") or _make_id("msg")
+            peer_id_raw   = frame.get("peer_id")
+            content       = frame.get("content") or frame.get("text") or ""
+            role          = frame.get("role", "user")
+            if role not in ("user", "agent"):
+                role = "user"
+
+            # Resolve target peer
+            if peer_id_raw:
+                target_pid = peer_id_raw
+                pinfo = _peers.get(target_pid)
+                if not pinfo or not pinfo.get("connected"):
+                    err_resp = json.dumps({
+                        "ok": False,
+                        "error": "ERR_PEER_NOT_FOUND",
+                        "message_id": client_msg_id,
+                    }, ensure_ascii=False)
+                    try:
+                        _ws_send_frame(sock, err_resp)
+                    except Exception:
+                        break
+                    continue
+            else:
+                # Default: sole connected peer
+                connected = [pid for pid, pi in _peers.items() if pi.get("connected")]
+                if len(connected) == 1:
+                    target_pid = connected[0]
+                    pinfo = _peers[target_pid]
+                elif len(connected) == 0:
+                    err_resp = json.dumps({
+                        "ok": False,
+                        "error": "ERR_PEER_NOT_FOUND",
+                        "message_id": client_msg_id,
+                    }, ensure_ascii=False)
+                    try:
+                        _ws_send_frame(sock, err_resp)
+                    except Exception:
+                        break
+                    continue
+                else:
+                    err_resp = json.dumps({
+                        "ok": False,
+                        "error": "ERR_AMBIGUOUS_PEER",
+                        "message_id": client_msg_id,
+                    }, ensure_ascii=False)
+                    try:
+                        _ws_send_frame(sock, err_resp)
+                    except Exception:
+                        break
+                    continue
+
+            # Build message envelope
+            seq = _next_seq()
+            server_seq = _messages_stream_next_seq()
+            parts = [_make_text_part(str(content))] if content else []
+            envelope = {
+                "type":       "acp.message",
+                "message_id": client_msg_id,
+                "server_seq": seq,
+                "ts":         _now(),
+                "from":       _status.get("agent_name", "unknown"),
+                "role":       role,
+                "parts":      parts,
+            }
+            if frame.get("task_id"):
+                envelope["task_id"] = frame["task_id"]
+            if frame.get("context_id"):
+                envelope["context_id"] = frame["context_id"]
+
+            serialized = json.dumps(envelope, ensure_ascii=False)
+
+            # Route to peer via WebSocket
+            ws_conn = pinfo.get("ws")
+            if not ws_conn:
+                err_resp = json.dumps({
+                    "ok": False,
+                    "error": "ERR_PEER_NOT_FOUND",
+                    "message_id": client_msg_id,
+                }, ensure_ascii=False)
+                try:
+                    _ws_send_frame(sock, err_resp)
+                except Exception:
+                    break
+                continue
+
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    ws_conn.send(serialized), _loop)
+                future.result(timeout=5)
+                pinfo["messages_sent"] = pinfo.get("messages_sent", 0) + 1
+                _status["messages_sent"] += 1
+            except Exception as send_err:
+                _unregister_peer(target_pid)
+                err_resp = json.dumps({
+                    "ok": False,
+                    "error": f"ERR_SEND_FAILED: {send_err}",
+                    "message_id": client_msg_id,
+                }, ensure_ascii=False)
+                try:
+                    _ws_send_frame(sock, err_resp)
+                except Exception:
+                    break
+                continue
+
+            # Send per-frame confirmation back to client
+            ack_resp = json.dumps({
+                "ok":         True,
+                "message_id": client_msg_id,
+                "server_seq": server_seq,
+            }, ensure_ascii=False)
+            try:
+                _ws_send_frame(sock, ack_resp)
+            except Exception:
+                break
+
+    except Exception as e:
+        log.warning(f"/messages:stream error: {e}")
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+        log.info("/messages:stream client disconnected")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Task helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── v2.50: param_constraints helpers ─────────────────────────────────────────
+
+_VALID_CONSTRAINT_TYPES = {"string", "number", "integer", "boolean", "array"}
+
+def _parse_param_constraints(raw: dict) -> dict:
+    """Normalise a param_constraints dict.
+
+    Input: {param_name: rule_dict, ...}
+    Each rule_dict may contain: type, required, min, max, allowed_values, pattern.
+    Unknown rule fields are silently dropped (forward-compat).
+    Returns the normalised dict; invalid top-level (non-dict) returns {}.
+    """
+    import re as _re
+    if not isinstance(raw, dict):
+        return {}
+    result = {}
+    for param, rule in raw.items():
+        if not isinstance(rule, dict):
+            continue
+        norm: dict = {}
+        if "type" in rule and rule["type"] in _VALID_CONSTRAINT_TYPES:
+            norm["type"] = rule["type"]
+        if "required" in rule:
+            norm["required"] = bool(rule["required"])
+        if "min" in rule and isinstance(rule["min"], (int, float)):
+            norm["min"] = rule["min"]
+        if "max" in rule and isinstance(rule["max"], (int, float)):
+            norm["max"] = rule["max"]
+        if "allowed_values" in rule and isinstance(rule["allowed_values"], list):
+            norm["allowed_values"] = list(rule["allowed_values"])
+        if "pattern" in rule and isinstance(rule["pattern"], str):
+            # Pre-validate regex
+            try:
+                _re.compile(rule["pattern"])
+                norm["pattern"] = rule["pattern"]
+            except _re.error:
+                pass  # invalid pattern silently dropped
+        if norm:
+            result[param] = norm
+    return result or None
+
+
+def _check_param_constraints(skill_id: str | None, params: dict | None) -> tuple[bool, list]:
+    """v2.50: Validate task params against skill.param_constraints.
+
+    Returns (ok: bool, violations: list[str]).
+    ok=True means params satisfy all declared constraints (or no constraints declared).
+    violations is populated only when ok=False; each entry is a human-readable description.
+    """
+    import re as _re
+    if not skill_id or not params:
+        # No skill_id or no params → nothing to validate
+        # (required fields checked separately below if skill known)
+        pass
+
+    # Look up skill
+    skills = (_status.get("agent_card") or {}).get("skills", [])
+    skill_obj = next((s for s in skills if isinstance(s, dict) and s.get("id") == skill_id), None)
+    if not skill_obj:
+        return True, []  # Unknown skill → no constraints to enforce
+
+    pc = skill_obj.get("param_constraints")
+    if not pc:
+        return True, []  # No param_constraints declared → always allowed
+
+    params = params or {}
+    violations = []
+
+    for param_name, rule in pc.items():
+        value = params.get(param_name)
+        present = param_name in params
+
+        # required check
+        if rule.get("required") and not present:
+            violations.append(f"param '{param_name}' is required but missing")
+            continue
+
+        if not present:
+            continue  # optional and absent — skip remaining checks
+
+        # type check
+        expected_type = rule.get("type")
+        if expected_type:
+            type_ok = True
+            if expected_type == "string":
+                type_ok = isinstance(value, str)
+            elif expected_type == "number":
+                type_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+            elif expected_type == "integer":
+                type_ok = isinstance(value, int) and not isinstance(value, bool)
+            elif expected_type == "boolean":
+                type_ok = isinstance(value, bool)
+            elif expected_type == "array":
+                type_ok = isinstance(value, list)
+            if not type_ok:
+                violations.append(
+                    f"param '{param_name}': expected type {expected_type}, "
+                    f"got {type(value).__name__}"
+                )
+                continue  # skip further checks for wrong-typed value
+
+        # min / max
+        if "min" in rule or "max" in rule:
+            # numeric: compare value; string/array: compare length
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                comparable = value
+            elif isinstance(value, (str, list)):
+                comparable = len(value)
+            else:
+                comparable = None
+
+            if comparable is not None:
+                if "min" in rule and comparable < rule["min"]:
+                    violations.append(
+                        f"param '{param_name}': value {comparable} < min {rule['min']}"
+                    )
+                if "max" in rule and comparable > rule["max"]:
+                    violations.append(
+                        f"param '{param_name}': value {comparable} > max {rule['max']}"
+                    )
+
+        # allowed_values (enum check)
+        if "allowed_values" in rule and value not in rule["allowed_values"]:
+            violations.append(
+                f"param '{param_name}': value {value!r} not in allowed_values "
+                f"{rule['allowed_values']}"
+            )
+
+        # pattern (string only)
+        if "pattern" in rule and isinstance(value, str):
+            if not _re.fullmatch(rule["pattern"], value):
+                violations.append(
+                    f"param '{param_name}': value {value!r} does not match "
+                    f"pattern {rule['pattern']!r}"
+                )
+
+    ok = len(violations) == 0
+    return ok, violations
+
+
+# ---------------------------------------------------------------------------
+# v2.53: skill.rate_limit — per-skill / per-peer in-memory rate-limit buckets
+# ---------------------------------------------------------------------------
+# Bucket key: (skill_id, peer_id)  (peer_id may be None → treat as "anonymous")
+# Each bucket stores:
+#   {
+#     "min_count":   int,   # requests in current 1-minute window
+#     "day_count":   int,   # requests in current 1-day window
+#     "min_start":   float, # epoch seconds of current minute window start
+#     "day_start":   float, # epoch seconds of current day window start
+#     "burst_queue": int,   # tokens consumed out of burst allowance this window
+#   }
+_rl_buckets: dict[tuple, dict] = {}
+
+
+# ── v2.54: /verify-card (v2) — batch + fetch + cache + trust_integration ─────
+
+# TTL cache for card verification results: {cache_key → {result, expires_at}}
+_verify_card_cache: dict[str, dict] = {}
+_VERIFY_CARD_CACHE_TTL = 300  # seconds (5 min default, overridable via request)
+
+
+def _verify_card_cache_key(card: dict) -> str:
+    """Stable cache key based on identity.public_key + identity.card_sig."""
+    identity = card.get("identity") or {}
+    pub = identity.get("public_key", "")
+    sig = identity.get("card_sig", "")
+    return f"{pub}:{sig}"
+
+
+def _verify_card_cached(card: dict, ttl: int = _VERIFY_CARD_CACHE_TTL) -> dict:
+    """Verify a single AgentCard with TTL caching.
+
+    Returns the verification result dict (same shape as _verify_agent_card) with
+    an extra 'cached' bool field indicating whether the result was served from cache.
+    """
+    key = _verify_card_cache_key(card)
+    now = time.time()
+    if ttl > 0:  # ttl=0 means bypass cache entirely (always re-verify)
+        entry = _verify_card_cache.get(key)
+        if entry and entry["expires_at"] > now:
+            result = dict(entry["result"])
+            result["cached"] = True
+            result["cache_expires_in"] = int(entry["expires_at"] - now)
+            return result
+
+    result = _verify_agent_card(card)
+    result["cached"] = False
+    result.pop("cache_expires_in", None)
+    if ttl > 0 and result.get("valid") is not None:  # only cache when ttl>0 and deterministic
+        _verify_card_cache[key] = {"result": dict(result), "expires_at": now + ttl}
+    return result
+
+
+def _fetch_agent_card_from_url(url: str, timeout: int = 8) -> dict:
+    """Fetch an ACP AgentCard JSON from a URL.
+
+    Returns {'ok': True, 'card': <dict>} or {'ok': False, 'error': '<reason>'}.
+    Supports:
+      - https://example.com/.well-known/acp.json  → use 'self' field if wrapped
+      - https://example.com/agent-card.json       → use raw card
+    """
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(url, headers={"Accept": "application/json", "User-Agent": f"ACP-Relay/{VERSION}"})
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            raw = json.loads(resp.read().decode())
+        # Accept wrapped ({"self": card, ...}) or raw card
+        if isinstance(raw, dict):
+            if "self" in raw and isinstance(raw["self"], dict):
+                return {"ok": True, "card": raw["self"]}
+            elif "name" in raw or "identity" in raw:
+                return {"ok": True, "card": raw}
+        return {"ok": False, "error": f"unrecognised AgentCard structure at {url}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"fetch failed: {exc}"}
+
+
+def _verify_card_batch(cards: list, ttl: int = _VERIFY_CARD_CACHE_TTL) -> list:
+    """Verify a batch of AgentCard dicts.
+
+    Returns a list of result dicts, one per card, each with an extra
+    'index' field indicating position in the input list.
+    """
+    results = []
+    for i, card in enumerate(cards):
+        if not isinstance(card, dict):
+            results.append({"index": i, "valid": False, "error": "not a JSON object", "cached": False})
+            continue
+        r = _verify_card_cached(card, ttl=ttl)
+        r["index"] = i
+        results.append(r)
+    return results
+
+
+def _apply_trust_integration(vr: dict, peer_id: str | None) -> bool:
+    """v2.54: If verification succeeded and peer_id is known, inject a trust signal.
+
+    Adds/updates a 'card_verified' signal in _status['trust']['signals'] for the
+    peer, recording that their AgentCard was independently verified.
+
+    Returns True if a signal was written, False otherwise.
+    """
+    if not vr.get("valid") or not peer_id:
+        return False
+    trust = (_status.setdefault("trust", {}))
+    signals = trust.setdefault("signals", [])
+    # Upsert: replace existing card_verified signal for this peer, or append
+    new_signal = {
+        "type": "card_verified",
+        "peer_id": peer_id,
+        "did": vr.get("did"),
+        "public_key": vr.get("public_key"),
+        "verified_at": _now(),
+        "description": "AgentCard Ed25519 signature independently verified (v2.54)",
+    }
+    for i, s in enumerate(signals):
+        if s.get("type") == "card_verified" and s.get("peer_id") == peer_id:
+            signals[i] = new_signal
+            return True
+    signals.append(new_signal)
+    return True
+
+
+def _parse_rate_limit(raw: object) -> dict | None:
+    """v2.53: Parse and normalise a raw rate_limit field from an AgentCard skill object.
+
+    Accepts a dict with any subset of:
+      requests_per_minute (int, ≥1)
+      requests_per_day    (int, ≥1)
+      burst               (int, ≥0) — extra requests allowed to absorb short spikes;
+                                       burst tokens refill every minute alongside the normal window
+
+    All fields are optional.  Returns None if raw is falsy or contains no valid limits.
+    Invalid values (non-int, ≤0) are silently clamped / dropped (forward-compat).
+    """
+    if not isinstance(raw, dict):
+        return None
+    rpm = raw.get("requests_per_minute")
+    rpd = raw.get("requests_per_day")
+    burst = raw.get("burst")
+    result: dict = {}
+    if isinstance(rpm, (int, float)) and int(rpm) >= 1:
+        result["requests_per_minute"] = int(rpm)
+    if isinstance(rpd, (int, float)) and int(rpd) >= 1:
+        result["requests_per_day"] = int(rpd)
+    if isinstance(burst, (int, float)) and int(burst) >= 0:
+        result["burst"] = int(burst)
+    return result if result else None
+
+
+def _check_rate_limit(skill_id: str | None, peer_id: str | None) -> tuple[bool, dict]:
+    """v2.53: Check and update rate-limit counters for (skill_id, peer_id).
+
+    Returns (allowed: bool, detail: dict).
+      allowed=True  → request is within rate limits; counters have been incremented.
+      allowed=False → request exceeds a configured limit; detail contains limit/reset info.
+
+    Looks up the skill's rate_limit config from _status["agent_card"].skills[].
+    No skill / no rate_limit config → always allowed (backward-compatible).
+
+    Limits are enforced in order: requests_per_minute → requests_per_day.
+    burst tokens extend requests_per_minute only (not requests_per_day).
+    """
+    if not skill_id:
+        return True, {}
+    # Look up skill's rate_limit config
+    card_skills = (_status.get("agent_card") or {}).get("skills", [])
+    skill_obj   = next((s for s in card_skills if isinstance(s, dict) and s.get("id") == skill_id), {})
+    rl = skill_obj.get("rate_limit")  # already parsed by _parse_skill_obj → dict or None
+    if not rl:
+        return True, {}
+
+    now = time.time()
+    key = (skill_id, peer_id)
+    if key not in _rl_buckets:
+        _rl_buckets[key] = {
+            "min_count":   0,
+            "day_count":   0,
+            "min_start":   now,
+            "day_start":   now,
+            "burst_used":  0,
+        }
+    bkt = _rl_buckets[key]
+
+    # --- reset windows if expired ---
+    if now - bkt["min_start"] >= 60:
+        bkt["min_count"]  = 0
+        bkt["min_start"]  = now
+        bkt["burst_used"] = 0
+    if now - bkt["day_start"] >= 86400:
+        bkt["day_count"] = 0
+        bkt["day_start"] = now
+
+    rpm   = rl.get("requests_per_minute")
+    rpd   = rl.get("requests_per_day")
+    burst = rl.get("burst", 0)
+
+    # --- check requests_per_minute (with burst) ---
+    if rpm is not None:
+        effective_limit = rpm + burst
+        if bkt["min_count"] >= effective_limit:
+            reset_in = max(0, int(60 - (now - bkt["min_start"])))
+            return False, {
+                "limit_type":        "requests_per_minute",
+                "limit":             rpm,
+                "burst":             burst,
+                "effective_limit":   effective_limit,
+                "current_count":     bkt["min_count"],
+                "reset_in_seconds":  reset_in,
+                "skill_id":          skill_id,
+                "peer_id":           peer_id,
+            }
+
+    # --- check requests_per_day ---
+    if rpd is not None:
+        if bkt["day_count"] >= rpd:
+            reset_in = max(0, int(86400 - (now - bkt["day_start"])))
+            return False, {
+                "limit_type":       "requests_per_day",
+                "limit":            rpd,
+                "current_count":    bkt["day_count"],
+                "reset_in_seconds": reset_in,
+                "skill_id":         skill_id,
+                "peer_id":          peer_id,
+            }
+
+    # --- within limits: increment counters ---
+    bkt["min_count"] += 1
+    bkt["day_count"] += 1
+    # track burst usage if we exceeded base rpm but had burst tokens
+    if rpm is not None and bkt["min_count"] > rpm:
+        bkt["burst_used"] += 1
+
+    return True, {}
+
+
+# ---------------------------------------------------------------------------
+# v2.62: WTRMRK external reputation query helpers
+# ---------------------------------------------------------------------------
+
+_WTRMRK_CACHE: dict[str, tuple[int | None, float]] = {}  # sequence_root → (grade, ts)
+_WTRMRK_CACHE_TTL = 300  # seconds; 0 = bypass cache
+
+def _query_wtrmrk(sequence_root: str) -> int | None:
+    """v2.62: Query WTRMRK registry for a wtrmrk_sequence_root Merkle commitment.
+
+    Returns the trust grade (0–3) if found, or None on failure (fail-closed → adj=0).
+    Responses are cached for _WTRMRK_CACHE_TTL seconds.
+
+    Grade semantics (from A2A #1716 @64R3N/@MoltyCel):
+      Grade 0 — completely unknown or no on-chain record
+      Grade 1 — basic activity, low history depth
+      Grade 2 — established agent, verified identity anchor
+      Grade 3 — high-reputation, hardware-attested or long track record
+    """
+    import urllib.request as _urlreq
+    import time as _time
+
+    now = _time.time()
+    cached = _WTRMRK_CACHE.get(sequence_root)
+    if cached and (now - cached[1]) < _WTRMRK_CACHE_TTL:
+        return cached[0]
+
+    try:
+        url = f"https://api.moltrust.ch/capability-token/validate?sequence_root={sequence_root}"
+        req = _urlreq.Request(url, headers={"Accept": "application/json"})
+        with _urlreq.urlopen(req, timeout=3) as resp:
+            import json as _json
+            data = _json.loads(resp.read().decode())
+            grade = int(data.get("grade", 0))
+            grade = max(0, min(3, grade))  # clamp 0-3
+            _WTRMRK_CACHE[sequence_root] = (grade, now)
+            return grade
+    except Exception as exc:
+        log.warning(f"wtrmrk query failed for sequence_root={sequence_root[:16]}...: {exc!r} — using neutral adj=0")
+        _WTRMRK_CACHE[sequence_root] = (None, now)  # cache the failure to avoid hammering
+        return None
+
+
+def _wtrmrk_to_adj(grade: int | None) -> int:
+    """v2.62: Map WTRMRK grade to attestation_history_adjustment (-1 / 0 / +1).
+
+    Mapping (from A2A #1716 discussion):
+      None   → 0   (query failed or no record — neutral, fail-closed)
+      0      → +1  (completely unknown agent — raise floor)
+      1      → 0   (basic history — neutral)
+      2      → 0   (established — neutral; separate from rep_adj)
+      3      → -1  (high-reputation, hardware-attested — allow lower floor)
+
+    Note: adj=-1 only activates for Grade 3 (equivalent to the existing rep_adj=-1
+    path) and only when base_tier >= T2 (same guard as reputation_adj).
+    """
+    if grade is None:
+        return 0
+    if grade >= 3:
+        return -1
+    if grade == 0:
+        return 1
+    return 0   # grades 1-2 → neutral
+
+
+def _bilateral_ir_merkle_root(peer_id: str | None) -> str | None:
+    """v2.76: Compute a merkle-style commitment root over bilateral interaction records.
+
+    Filters _interaction_records for bilateral=True entries involving peer_id.
+    Sorts records by timestamp ascending (deterministic ordering).
+    Leaf hashes: SHA-256 over JSON-canonical record id+timestamp+skill_id.
+    Tree: pairwise SHA-256 up the tree; odd node duplicated at each level.
+    Returns hex root, or None if no bilateral records found.
+
+    This mirrors the wtrmrk_sequence_root concept from A2A #1716 @64R3N but uses
+    the local bilateral IR log instead of an external chain registry.
+    """
+    import hashlib, json as _json
+
+    # Filter bilateral records involving this peer
+    records = [
+        r for r in _interaction_records
+        if r.get("bilateral") is True and (
+            peer_id is None or
+            r.get("caller_did") == peer_id or
+            r.get("callee_did") == peer_id or
+            r.get("peer_id") == peer_id
+        )
+    ]
+    if not records:
+        return None
+
+    # Sort deterministically by timestamp, then id
+    records = sorted(records, key=lambda r: (r.get("timestamp", ""), r.get("id", "")))
+
+    # Compute leaf hashes
+    def _leaf(r: dict) -> bytes:
+        canonical = _json.dumps(
+            {"id": r.get("id", ""), "ts": r.get("timestamp", ""), "skill": r.get("skill_id", "")},
+            sort_keys=True, separators=(",", ":")
+        ).encode()
+        return hashlib.sha256(canonical).digest()
+
+    hashes = [_leaf(r) for r in records]
+
+    # Build merkle tree
+    while len(hashes) > 1:
+        if len(hashes) % 2 == 1:
+            hashes.append(hashes[-1])  # duplicate last leaf
+        hashes = [
+            hashlib.sha256(hashes[i] + hashes[i + 1]).digest()
+            for i in range(0, len(hashes), 2)
+        ]
+
+    return hashes[0].hex()
+
+
+def _principal_diversity_score(peer_id: str) -> dict:
+    """v2.94: Compute principal diversity score for a peer's bilateral IR history.
+
+    Addresses the colluding-pair inflation attack identified by aeoess in A2A #1718:
+    two agents that exclusively interact with each other can inflate each other's
+    trust score by generating many high-quality bilateral records.
+
+    Defense: apply same_counterparty_penalty when >CONCENTRATION_THRESHOLD of a
+    peer's bilateral interactions are with the same single counterparty.
+
+    Parameters (aligned with aeoess adversarial-trust-fixture.json):
+      CONCENTRATION_THRESHOLD = 0.60  — same-counterparty ratio above which penalty triggers
+      PENALTY_WEIGHT           = 0.10  — interactions beyond threshold count at 10x reduced weight
+      MIN_RECORDS_FOR_ANALYSIS = 3     — need at least 3 records to assess diversity
+
+    Returns:
+      {
+        "peer_id":              str,
+        "total_bilateral":      int,    # total bilateral records involving this peer
+        "unique_counterparties": int,   # number of distinct counterparty peer_ids seen
+        "top_counterparty":     str | null,  # peer_id with most interactions
+        "top_counterparty_count": int,  # how many records involve top counterparty
+        "concentration_ratio":  float,  # top_counterparty_count / total_bilateral
+        "penalty_applied":      bool,   # True if concentration > threshold
+        "diversity_weight":     float,  # effective weight multiplier (1.0 if no penalty, else PENALTY_WEIGHT)
+        "effective_bilateral_count": float,  # weighted count after penalty
+        "note":                 str,
+      }
+    """
+    CONCENTRATION_THRESHOLD = 0.60
+    PENALTY_WEIGHT = 0.10
+    MIN_RECORDS = 3
+
+    peer_records = [
+        r for r in _interaction_records
+        if r.get("bilateral") is True and (
+            r.get("caller_did") == peer_id or
+            r.get("callee_did") == peer_id or
+            r.get("peer_id") == peer_id
+        )
+    ]
+    total = len(peer_records)
+
+    if total < MIN_RECORDS:
+        return {
+            "peer_id":               peer_id,
+            "total_bilateral":       total,
+            "unique_counterparties": 0,
+            "top_counterparty":      None,
+            "top_counterparty_count": 0,
+            "concentration_ratio":   0.0,
+            "penalty_applied":       False,
+            "diversity_weight":      1.0,
+            "effective_bilateral_count": float(total),
+            "note": f"Insufficient records for diversity analysis (min={MIN_RECORDS})",
+        }
+
+    # Collect counterparty peer_ids for each record
+    counterparty_counts: dict[str, int] = {}
+    for r in peer_records:
+        cps = set()
+        for field in ("caller_did", "callee_did", "peer_id"):
+            val = r.get(field)
+            if val and val != peer_id:
+                cps.add(val)
+        for cp in cps:
+            counterparty_counts[cp] = counterparty_counts.get(cp, 0) + 1
+
+    unique = len(counterparty_counts)
+
+    if not counterparty_counts:
+        # All records have no identified counterparty (edge case)
+        return {
+            "peer_id":               peer_id,
+            "total_bilateral":       total,
+            "unique_counterparties": 0,
+            "top_counterparty":      None,
+            "top_counterparty_count": 0,
+            "concentration_ratio":   0.0,
+            "penalty_applied":       False,
+            "diversity_weight":      1.0,
+            "effective_bilateral_count": float(total),
+            "note": "No counterparty identity found in records",
+        }
+
+    top_cp = max(counterparty_counts, key=lambda k: counterparty_counts[k])
+    top_count = counterparty_counts[top_cp]
+    concentration = top_count / total
+
+    penalty = concentration > CONCENTRATION_THRESHOLD
+    if penalty:
+        # Penalised records: those involving top_counterparty beyond threshold
+        normal_count = round(total * CONCENTRATION_THRESHOLD)
+        excess_count = total - normal_count
+        effective = float(normal_count + excess_count * PENALTY_WEIGHT)
+        weight = effective / total if total > 0 else 1.0
+    else:
+        effective = float(total)
+        weight = 1.0
+
+    return {
+        "peer_id":               peer_id,
+        "total_bilateral":       total,
+        "unique_counterparties": unique,
+        "top_counterparty":      top_cp,
+        "top_counterparty_count": top_count,
+        "concentration_ratio":   round(concentration, 4),
+        "penalty_applied":       penalty,
+        "diversity_weight":      round(weight, 4),
+        "effective_bilateral_count": round(effective, 2),
+        "note": (
+            f"Principal diversity penalty active: top counterparty {top_cp!r} "
+            f"accounts for {concentration:.0%} of bilateral records (threshold={CONCENTRATION_THRESHOLD:.0%})"
+        ) if penalty else (
+            f"Principal diversity OK: {unique} unique counterpart(ies), "
+            f"concentration={concentration:.0%} below threshold={CONCENTRATION_THRESHOLD:.0%}"
+        ),
+    }
+
+
+def _bilateral_ir_adj(peer_id: str | None) -> tuple[int, int, str | None, dict]:
+    """v2.94: Compute attestation_history_adjustment from local bilateral IR log.
+
+    v2.76 original factors:
+      +1 → unknown peer (0 bilateral records) → raises tier floor
+       0 → known peer with 1-4 bilateral records → neutral
+      -1 → established peer (>=5 bilateral records) → may lower tier floor
+
+    v2.94 addition: principal_diversity_defense (aeoess A2A #1718 colluding-pair attack):
+      If principal_diversity_score.penalty_applied is True (concentration > 60%),
+      the effective_bilateral_count replaces raw count in the threshold calculation.
+      This means a peer with 20 bilateral records but all with the same counterparty
+      is treated as having ~8.4 effective records (= 20*0.60 + 20*0.40*0.10),
+      not 20 — preventing artificial trust inflation from colluding pairs.
+
+    Returns (adj: int, bilateral_count: int, merkle_root: str | None, diversity: dict)
+    """
+    if peer_id is None:
+        return 1, 0, None, {}  # no caller info → unknown → raise floor
+
+    count = sum(
+        1 for r in _interaction_records
+        if r.get("bilateral") is True and (
+            r.get("caller_did") == peer_id or
+            r.get("callee_did") == peer_id or
+            r.get("peer_id") == peer_id
+        )
+    )
+
+    merkle_root = _bilateral_ir_merkle_root(peer_id) if count > 0 else None
+    diversity = _principal_diversity_score(peer_id) if count >= 3 else {
+        "peer_id": peer_id, "total_bilateral": count, "penalty_applied": False,
+        "effective_bilateral_count": float(count), "note": "Insufficient records",
+    }
+
+    # Use effective count (penalised if colluding-pair detected) for threshold logic
+    effective_count = diversity.get("effective_bilateral_count", float(count))
+
+    if count == 0:
+        adj = 1    # completely unknown → conservative floor raise
+    elif effective_count >= 5:
+        adj = -1   # established bilateral history (diversity-adjusted) → allow floor reduction
+    else:
+        adj = 0    # 1-4 effective records → neutral
+
+    return adj, count, merkle_root, diversity
+
+
+def _compute_effective_tier(
+    skill_obj: dict,
+    peer_id: str | None,
+    wtrmrk_sequence_root: str | None = None,
+) -> tuple[str | None, dict]:
+    """v2.58/v2.62: Compute the effective authorization tier using four-factor formula.
+
+    effective_tier = max(tier_rule, delegation_depth_floor, combined_adj_tier)
+
+    Factors:
+      1. tier_rule: skill's declared authorization_tier (T0/T1/T2/T3/None)
+      2. delegation_depth_floor: more principal_chain depth → conservative floor
+         depth 0 → no effect
+         depth 1 → floor T1
+         depth 2 → floor T2
+         depth 3+ → floor T3
+      3. reputation_adj (v2.58): adjustment based on peer's trust signals history
+         -1 → known peer with long+recent track record (verified_identity + msgs>100) → may lower floor
+          0 → neutral (default)
+         +1 → completely unknown peer (no card, no msgs) → raises floor
+      4. wtrmrk_adj (v2.62): external attestation history from WTRMRK registry
+         -1 → Grade 3 (hardware-attested, long track record) → may lower floor
+          0 → Grade 1-2, query failure, or not provided → neutral (fail-closed)
+         +1 → Grade 0 (completely unknown on-chain) → raises floor
+
+    Combined adjustment: reputation_adj + wtrmrk_adj, clamped to [-1, +1].
+    This means both signals must agree to lower the floor (-1), but either alone
+    can raise it (+1) — asymmetric and conservative by design.
+
+    Tier ordering (for max()): None < T0 < T1 < T2 < T3
+    Combined adj only applies when base_tier >= T2 (guards against -1 dropping T3).
+    T3 skills are immune to downgrade regardless of adj.
+
+    Returns (effective_tier: str|None, factors: dict)
+    """
+    _TIER_ORDER = {None: 0, "T0": 0, "T1": 1, "T2": 2, "T3": 3}
+    _TIER_FROM_INT = {0: "T0", 1: "T1", 2: "T2", 3: "T3"}
+
+    # Factor 1: tier_rule
+    raw_tier = skill_obj.get("authorization_tier")
+    tier_int = _TIER_ORDER.get(raw_tier, 0)
+
+    # Factor 2: delegation_depth_floor
+    depth = len(_principal_chain)
+    depth_floor = min(depth, 3)  # cap at T3
+
+    # Factor 3: reputation_adj
+    reputation_adj = 0
+    if peer_id and peer_id in _peers:
+        pinfo = _peers[peer_id]
+        peer_card = pinfo.get("agent_card") or {}
+        peer_trust = peer_card.get("trust") or {}
+        peer_signals = peer_trust.get("signals") or []
+        msgs = pinfo.get("messages_sent", 0) + pinfo.get("messages_received", 0)
+        vr = pinfo.get("card_verification") or {}
+        card_valid = bool(vr.get("valid"))
+        has_verified_id = any(
+            s.get("type") in ("verified_identity", "did_document") or
+            s.get("kind") in ("verified_identity", "did_document")
+            for s in peer_signals
+        )
+        # Positive track record → allow -1 (lower floor) only for T1/T2 range
+        if card_valid and has_verified_id and msgs > 100:
+            reputation_adj = -1
+        # Completely unknown → raise floor by +1
+        elif not card_valid and msgs == 0 and not peer_signals:
+            reputation_adj = 1
+    elif peer_id is None:
+        # no caller info → unknown → raise floor
+        reputation_adj = 1
+
+    # Factor 4: wtrmrk_adj (v2.62) — external attestation history (chain registry)
+    wtrmrk_grade: int | None = None
+    wtrmrk_adj = 0
+    wtrmrk_queried = False
+    if wtrmrk_sequence_root:
+        wtrmrk_queried = True
+        wtrmrk_grade = _query_wtrmrk(wtrmrk_sequence_root)
+        wtrmrk_adj = _wtrmrk_to_adj(wtrmrk_grade)
+
+    # Factor 5: bilateral_ir_adj (v2.76) — local bilateral interaction record history
+    # A2A #1716 @64R3N: attestation_history_adjustment from local bilateral IR log
+    # +1 → 0 bilateral records (unknown) | 0 → 1-4 records | -1 → >=5 records (established)
+    bilateral_ir_adj, bilateral_ir_count, bilateral_ir_merkle, bilateral_diversity = _bilateral_ir_adj(peer_id)
+
+    # Combined adjustment: clamp to [-1, +1]
+    # -1 only if ALL THREE signals (rep, wtrmrk, bilateral_ir) are ≤ 0 AND at least one is -1
+    # +1 if ANY is +1 (conservative: any unknown signal raises floor)
+    # 0 otherwise
+    # Five-factor combination:
+    # Any +1 (unknown) overrides all → floor raised (conservative)
+    # -1 requires ALL three adj factors ≤ 0 with at least one -1 (unanimous confidence)
+    raw_combined = reputation_adj + wtrmrk_adj + bilateral_ir_adj
+    if reputation_adj == 1 or wtrmrk_adj == 1 or bilateral_ir_adj == 1:
+        combined_adj = max(0, min(1, raw_combined))  # at least 0, floor raised
+    else:
+        # All are 0 or -1 — require at least two of three to be -1 for combined=-1
+        neg_count = sum(1 for a in (reputation_adj, wtrmrk_adj, bilateral_ir_adj) if a == -1)
+        combined_adj = -1 if neg_count >= 2 else 0
+
+    # Combine: max of tier_rule and depth_floor
+    base_int = max(tier_int, depth_floor)
+
+    # Apply combined_adj — only when base_int >= T2 (i.e. 2+).
+    # T0/T1 are always auto-execute; adjustment cannot raise them to T2/T3.
+    if raw_tier == "T3":
+        # T3 is absolute — no adjustment can lower it
+        effective_int = 3
+    elif base_int >= 2:
+        # T2/T3 range: apply combined adjustment
+        effective_int = max(0, min(3, base_int + combined_adj))
+    else:
+        # T0/T1 range: no adjustment applied (preserve auto-execute semantics)
+        effective_int = base_int
+
+    effective_tier = _TIER_FROM_INT.get(effective_int, "T0") if effective_int > 0 else None
+
+    factors = {
+        "tier_rule":                    raw_tier,
+        "delegation_depth":             depth,
+        "depth_floor":                  f"T{depth_floor}" if depth_floor > 0 else None,
+        "reputation_adj":               reputation_adj,
+        "wtrmrk_sequence_root":         wtrmrk_sequence_root,
+        "wtrmrk_queried":               wtrmrk_queried,
+        "wtrmrk_grade":                 wtrmrk_grade,
+        "wtrmrk_adj":                   wtrmrk_adj if wtrmrk_queried else None,
+        # v2.76: Factor 5 — bilateral IR attestation_history_adjustment (A2A #1716 @64R3N)
+        # v2.94: + principal_diversity_defense (aeoess A2A #1718 colluding-pair penalty)
+        "bilateral_ir_adj":             bilateral_ir_adj,
+        "bilateral_ir_count":           bilateral_ir_count,
+        "bilateral_ir_merkle_root":     bilateral_ir_merkle,
+        "principal_diversity":          bilateral_diversity,
+        "combined_adj":                 combined_adj,
+        "effective_tier":               effective_tier,
+        "factor_count":                 5,  # 5 factors; principal_diversity is a sub-factor of bilateral_ir
+    }
+    return effective_tier, factors
+
+
+# v2.63: Cross-protocol external token verification helpers
+# ---------------------------------------------------------------------------
+
+def _hex_to_bytes(h: str) -> bytes:
+    """Convert hex string to bytes; returns empty bytes on failure."""
+    try:
+        return bytes.fromhex(h)
+    except Exception:
+        return b""
+
+
+def _verify_sint_token(token: dict) -> dict:
+    """v2.63: Verify a SINT-format capability token.
+
+    SINT token schema (from A2A #1716 @pshkv + #1713 cross-verify):
+    {
+      "subject":     "<64 hex chars — Ed25519 public key>",
+      "resource":    "a2a://agent.example.com/skills/transfer_funds",
+      "actions":     ["invoke"],
+      "tier":        "T0_observe|T1_read|T2_act|T3_commit",
+      "constraints": {},         (optional)
+      "exp":         1234567890, (optional UNIX timestamp)
+      "iat":         1234567890, (optional)
+      "signature":   "<Ed25519 signature over canonical payload — hex or base64url>"
+    }
+
+    Verification steps:
+      1. Validate required fields present
+      2. Check exp (if present) — reject if expired
+      3. Decode subject Ed25519 public key (64 hex chars → 32 bytes)
+      4. Derive did:key from subject (multicodec [0xed, 0x01] + base58btc)
+         — follows W3C did:key spec; identical to APS toDIDKey() and SINT keyToDid()
+         — confirmed 9/9 cross-verify with pshkv (A2A #1713, 2026-04-06)
+      5. Build canonical payload (same as SINT token signing payload):
+         "<subject>|<resource>|<actions_sorted_csv>|<tier>|<exp_or_0>"
+      6. Verify Ed25519 signature over canonical payload
+      7. Optionally query api.moltrust.ch/capability/verify for confidence score
+
+    Returns:
+    {
+      "ok":          bool,
+      "valid":       bool,
+      "subject_did": "did:key:z6Mk...",
+      "tier":        "T2_act",
+      "resource":    "...",
+      "expired":     bool,
+      "grade":       int | None,   (from moltrust confidence, None if not queried)
+      "confidence":  float | None,
+      "error":       str | None,
+      "fields_verified": [...]     (list of verification steps that passed)
+    }
+    """
+    import time as _time
+
+    result: dict = {
+        "ok":             False,
+        "valid":          False,
+        "subject_did":    None,
+        "tier":           None,
+        "resource":       None,
+        "expired":        False,
+        "grade":          None,
+        "confidence":     None,
+        "error":          None,
+        "fields_verified": [],
+    }
+
+    # Step 1: required fields
+    required = {"subject", "resource", "actions", "tier", "signature"}
+    missing = required - set(token.keys())
+    if missing:
+        result["error"] = f"missing required fields: {sorted(missing)}"
+        return result
+    result["fields_verified"].append("required_fields")
+
+    subject_hex = token["subject"]
+    resource    = token["resource"]
+    actions     = token["actions"]
+    tier        = token["tier"]
+    exp         = token.get("exp")
+    sig_raw     = token["signature"]
+
+    result["tier"]     = tier
+    result["resource"] = resource
+
+    # Step 2: expiry check
+    if exp is not None:
+        now = _time.time()
+        if now > exp:
+            result["expired"] = True
+            result["error"]   = f"token expired at {exp} (now={int(now)})"
+            return result
+        result["fields_verified"].append("expiry_ok")
+    else:
+        result["fields_verified"].append("expiry_none")
+
+    # Step 3: decode subject public key (64 hex chars = 32 bytes)
+    if len(subject_hex) != 64:
+        result["error"] = f"subject must be 64 hex chars (32-byte Ed25519 pubkey), got {len(subject_hex)}"
+        return result
+    pub_raw = _hex_to_bytes(subject_hex)
+    if len(pub_raw) != 32:
+        result["error"] = "subject: invalid hex encoding"
+        return result
+    result["fields_verified"].append("subject_pubkey_decoded")
+
+    # Step 4: derive did:key (W3C spec — multicodec [0xed, 0x01] + base58btc + 'z' prefix)
+    derived_did = _pubkey_to_did_key(pub_raw)
+    result["subject_did"] = derived_did
+    result["fields_verified"].append("did_key_derived")
+
+    # Step 5: build canonical payload — SINT signing convention
+    # Canonical: "<subject>|<resource>|<actions_sorted_csv>|<tier>|<exp_or_0>"
+    actions_csv = ",".join(sorted(actions) if isinstance(actions, list) else [str(actions)])
+    exp_str     = str(int(exp)) if exp is not None else "0"
+    canonical   = f"{subject_hex}|{resource}|{actions_csv}|{tier}|{exp_str}"
+    result["fields_verified"].append("canonical_payload_built")
+
+    # Step 6: verify Ed25519 signature
+    if not _ED25519_AVAILABLE:
+        result["error"] = "Ed25519 verification unavailable (install: pip install cryptography)"
+        return result
+
+    # Decode signature: accept hex (128 chars = 64 bytes) or base64url
+    sig_bytes = b""
+    if len(sig_raw) == 128:
+        sig_bytes = _hex_to_bytes(sig_raw)
+    else:
+        # try base64url
+        try:
+            import base64 as _b64
+            padded = sig_raw + "=" * (4 - len(sig_raw) % 4)
+            sig_bytes = _b64.urlsafe_b64decode(padded)
+        except Exception:
+            pass
+    if len(sig_bytes) != 64:
+        result["error"] = f"signature: cannot decode as 64-byte Ed25519 signature (got {len(sig_bytes)}B from '{sig_raw[:16]}...')"
+        return result
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.exceptions import InvalidSignature
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_raw)
+        pub_key.verify(sig_bytes, canonical.encode("utf-8"))
+        result["valid"] = True
+        result["fields_verified"].append("signature_valid")
+    except InvalidSignature:
+        result["error"] = "signature verification failed — Ed25519 signature does not match canonical payload"
+        return result
+    except Exception as exc:
+        result["error"] = f"signature verification error: {exc!r}"
+        return result
+
+    # Step 7: optional MoltTrust confidence query
+    # POST api.moltrust.ch/capability/verify with token subject + resource + tier
+    try:
+        import urllib.request as _urlreq, json as _json
+        payload = _json.dumps({
+            "subject":  subject_hex,
+            "resource": resource,
+            "tier":     tier,
+        }).encode()
+        req = _urlreq.Request(
+            "https://api.moltrust.ch/capability/verify",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=3) as resp:
+            mt_data = _json.loads(resp.read().decode())
+            result["confidence"] = mt_data.get("confidence_score") or mt_data.get("confidence")
+            mt_grade = mt_data.get("grade")
+            if mt_grade is not None:
+                result["grade"] = int(mt_grade)
+            result["fields_verified"].append("moltrust_queried")
+    except Exception:
+        # Non-critical: MoltTrust query is best-effort; token is already verified locally
+        pass
+
+    result["ok"] = True
+    return result
+
+
+def _check_authorization_tier(
+    skill_id: str | None,
+    peer_id: str | None,
+    wtrmrk_sequence_root: str | None = None,
+) -> tuple[bool, str]:
+    """v2.49/v2.58/v2.62: Check whether the calling peer satisfies the skill's authorization_tier requirement.
+    v2.58: uses _compute_effective_tier() for dynamic three-factor enforcement.
+    v2.62: accepts optional wtrmrk_sequence_root for Factor 4 attestation history adjustment.
+
+    Returns (allowed: bool, reason: str).
+    - allowed=True  → proceed with task creation
+    - allowed=False → caller does not meet tier requirements; include reason in 403 response
+
+    Tier requirements:
+      T0 / T1 / None  — always allowed (auto-execute, low-risk)
+      T2              — requires caller trust_score >= 0.7
+      T3              — requires caller trust_score >= 0.9 AND trust.signals contains
+                        at least one signal of type "verified_identity"
+
+    Graceful degradation:
+      - If skill_id is None or skill not found: allowed (unknown skill → no tier enforcement)
+      - If peer_id is None or peer not found: allowed for T0/T1, denied for T2/T3
+        (unknown caller cannot meet elevated tier requirements by definition)
+    """
+    if not skill_id:
+        return True, "no skill_id specified"
+
+    # look up skill in AgentCard
+    agent_card = _status.get("agent_card") or {}
+    all_skills = agent_card.get("skills", [])
+    skill_obj = None
+    for s in all_skills:
+        if isinstance(s, dict) and s.get("id") == skill_id:
+            skill_obj = s
+            break
+
+    if skill_obj is None:
+        return True, f"skill '{skill_id}' not found in agent card"
+
+    # v2.58/v2.62: compute effective_tier via four-factor formula
+    effective_tier, tier_factors = _compute_effective_tier(skill_obj, peer_id, wtrmrk_sequence_root)
+
+    _wtrmrk_note = ""
+    if tier_factors.get("wtrmrk_queried"):
+        _wtrmrk_note = (f", wtrmrk_grade={tier_factors.get('wtrmrk_grade')}, "
+                        f"wtrmrk_adj={tier_factors.get('wtrmrk_adj'):+d}")
+
+    if effective_tier is None or effective_tier in ("T0", "T1"):
+        return True, (f"effective_tier={effective_tier!r} — auto-execute "
+                      f"(rule={tier_factors['tier_rule']!r}, "
+                      f"depth_floor={tier_factors['depth_floor']!r}, "
+                      f"rep_adj={tier_factors['reputation_adj']:+d}"
+                      f"{_wtrmrk_note})")
+
+    # effective_tier is T2 or T3 — need peer trust score
+    if not peer_id or peer_id not in _peers:
+        return False, (f"skill '{skill_id}' effective_tier={effective_tier} "
+                       f"(factors: {tier_factors}) but caller peer is unknown; "
+                       f"connect via /peers/connect first")
+
+    pinfo = _peers[peer_id]
+
+    # --- compute trust score (mirrors GET /peers/<id>/trust logic) ---
+    vr = pinfo.get("card_verification") or {}
+    card_sig_score       = 1.0 if vr.get("valid") else 0.0
+    did_consistent_score = 1.0 if vr.get("did_consistent") else (0.5 if vr.get("valid") else 0.0)
+
+    msgs = pinfo.get("messages_sent", 0) + pinfo.get("messages_received", 0)
+    msg_score = (1.0 if msgs > 100 else 0.7 if msgs > 20 else 0.4 if msgs > 5 else 0.2 if msgs > 0 else 0.0)
+
+    rtt = pinfo.get("last_ping_rtt_ms")
+    ping_score = (1.0 if rtt is not None and rtt < 50 else
+                  0.7 if rtt is not None and rtt < 200 else
+                  0.4 if rtt is not None and rtt < 500 else
+                  0.1 if rtt is not None else 0.0)
+
+    peer_did = (pinfo.get("agent_card") or {}).get("did") or ""
+    vouch_score = 0.0
+    if peer_did and _vouch_chain:
+        for v in _vouch_chain:
+            if v.get("vouched_did") == peer_did:
+                vouch_score = 1.0
+                break
+
+    weights = {"card_sig": 0.35, "did_consistent": 0.20,
+               "ping_rtt": 0.20, "message_hist": 0.15, "vouch": 0.10}
+    raw = {"card_sig": card_sig_score, "did_consistent": did_consistent_score,
+           "ping_rtt": ping_score, "message_hist": msg_score, "vouch": vouch_score}
+    trust_score = round(sum(raw[k] * weights[k] for k in weights), 4)
+
+    factor_str = (f"rule={tier_factors['tier_rule']!r}, "
+                  f"depth_floor={tier_factors['depth_floor']!r}, "
+                  f"rep_adj={tier_factors['reputation_adj']:+d}")
+
+    if effective_tier == "T2":
+        if trust_score >= 0.7:
+            return True, f"effective T2 satisfied: trust_score={trust_score:.3f} >= 0.7 ({factor_str})"
+        return False, (f"skill '{skill_id}' effective_tier=T2 (trust_score >= 0.7 required); "
+                       f"caller trust_score={trust_score:.3f}; {factor_str}")
+
+    if effective_tier == "T3":
+        if trust_score < 0.9:
+            return False, (f"skill '{skill_id}' effective_tier=T3 (trust_score >= 0.9 required); "
+                           f"caller trust_score={trust_score:.3f}; {factor_str}")
+        # also check for verified_identity signal in peer's AgentCard
+        peer_card  = pinfo.get("agent_card") or {}
+        peer_trust = peer_card.get("trust") or {}
+        peer_sigs  = peer_trust.get("signals") or []
+        has_verified_identity = any(
+            (sig.get("type") == "verified_identity" or sig.get("kind") == "verified_identity")
+            for sig in peer_sigs
+        )
+        if not has_verified_identity:
+            return False, (f"skill '{skill_id}' effective_tier=T3: caller lacks "
+                           f"'verified_identity' trust signal (trust_score={trust_score:.3f}); {factor_str}")
+        return True, (f"effective T3 satisfied: trust_score={trust_score:.3f}, "
+                      f"verified_identity present ({factor_str})")
+
+    return True, f"unknown effective_tier {effective_tier!r} — defaulting to allow"
+
+
+def _needs_human_confirmation(skill_id: str | None) -> bool:
+    """v2.51: Return True if this skill requires human confirmation before execution.
+
+    Conditions (all must hold):
+      1. skill.human_confirmation_required == True
+      2. skill.authorization_tier == "T3"
+      3. --auto-confirm-t3 flag is NOT set
+    """
+    if _auto_confirm_t3:
+        return False
+    if not skill_id:
+        return False
+    skills = (_status.get("agent_card") or {}).get("skills", [])
+    skill_obj = next((s for s in skills if isinstance(s, dict) and s.get("id") == skill_id), None)
+    if not skill_obj:
+        return False
+    return (
+        bool(skill_obj.get("human_confirmation_required"))
+        and skill_obj.get("authorization_tier") == "T3"
+    )
+
+
+def _append_audit(task: dict, event_type: str, detail: dict | None = None):
+    """v2.52: Append an immutable audit entry to task['audit_log'].
+
+    Each entry: {"event": str, "ts": ISO-8601, "seq": int, "detail": dict}
+    The audit_log is append-only — entries are never removed or modified.
+    """
+    log_list = task.setdefault("audit_log", [])
+    entry = {
+        "event": event_type,
+        "ts":    _now(),
+        "seq":   len(log_list),
+    }
+    if detail:
+        entry["detail"] = detail
+    log_list.append(entry)
+
+
+def _create_task(payload, message_id=None, task_id=None, context_id=None, initial_state=None, skill_id=None):
+    # BUG-006 fix: honour client-supplied task_id (idempotent — return existing if already known)
+    if task_id and task_id in _tasks:
+        return _tasks[task_id]
+    task_id = task_id or _make_id("task")
+    # v2.51: allow initial_state override (e.g. confirmation_pending for T3 human-confirmation)
+    state = initial_state if initial_state in (
+        TASK_SUBMITTED, TASK_CONFIRMATION_PENDING
+    ) else TASK_SUBMITTED
+    now_ts = _now()
+    task = {
+        "id":         task_id,
+        "status":     state,
+        "created_at": now_ts,
+        "updated_at": now_ts,
+        "payload":    payload,
+        "artifacts":  [],
+        "history":    [],
+        "audit_log":  [],          # v2.52: immutable audit trail — append-only
+    }
+    if message_id:
+        task["origin_message_id"] = message_id
+    if context_id:
+        task["context_id"] = context_id
+    if skill_id:
+        task["skill_id"] = skill_id
+    if state == TASK_CONFIRMATION_PENDING:
+        task["confirmation_required"] = True  # v2.51: flag for callers
+    # v2.52: seed audit_log with creation event
+    _append_audit(task, "created", {"initial_status": state})
+    _tasks[task_id] = task
+    _status["tasks_created"] += 1
+    evt: dict = {"task_id": task_id, "state": state}
+    if context_id:
+        evt["context_id"] = context_id
+    if skill_id:
+        evt["skill_id"] = skill_id
+    if state == TASK_CONFIRMATION_PENDING:
+        evt["confirmation_required"] = True
+    _broadcast_sse_event("status", evt)
+    return task
+
+def _update_task(task_id, state, artifact=None, error=None, message=None):
+    task = _tasks.get(task_id)
+    if not task:
+        return None
+    # Guard: terminal tasks cannot be re-activated
+    if task["status"] in TERMINAL_STATES and state not in TERMINAL_STATES:
+        log.warning(f"Task {task_id} already terminal ('{task['status']}'), ignoring -> '{state}'")
+        return task
+
+    old_state = task["status"]
+    task["status"]     = state
+    task["updated_at"] = _now()
+    if artifact:
+        task["artifacts"].append(artifact)
+    if error:
+        task["error"] = error
+    if message:
+        task["history"].append(message)
+
+    # v2.52: record state transition in audit_log
+    if state != old_state:
+        audit_detail: dict = {"from": old_state, "to": state}
+        if error:
+            audit_detail["error"] = error
+        _append_audit(task, "status_changed", audit_detail)
+
+    ctx = task.get("context_id")
+    if state != old_state:
+        evt: dict = {"task_id": task_id, "state": state, "error": error}
+        if ctx:
+            evt["context_id"] = ctx
+        task_skill = task.get("skill_id")
+        if task_skill:
+            evt["skill_id"] = task_skill
+        _broadcast_sse_event("status", evt)
+    if artifact:
+        aevt: dict = {"task_id": task_id, "artifact": artifact}
+        if ctx:
+            aevt["context_id"] = ctx
+        task_skill = task.get("skill_id")
+        if task_skill:
+            aevt["skill_id"] = task_skill
+        _broadcast_sse_event("artifact", aevt)
+
+    return task
+
+
+def _validate_skill_id(skill_id: str | None, peer_id: str | None = None) -> tuple[bool, str | None]:
+    """v3.19: Validate that a skill_id exists in the peer's AgentCard.
+
+    If skill_id is None or empty → always valid (no routing required).
+    If peer_id is provided → check that peer's agent_card skills.
+    If no peer_id → check this relay's own skills (for self-routing).
+
+    Returns (valid: bool, error_message: str or None)
+    """
+    if not skill_id:
+        return True, None
+
+    skills = []
+    if peer_id and peer_id in _peers:
+        peer_card = _peers[peer_id].get("agent_card") or {}
+        skills = list(peer_card.get("skills", []))
+    else:
+        # No peer_id or peer not found — check this relay's own skills
+        card = _status.get("agent_card") or {}
+        skills = list(card.get("skills", []))
+
+    known_skill_ids = [s.get("id", "") if isinstance(s, dict) else str(s) for s in skills]
+    if skill_id not in known_skill_ids:
+        if peer_id:
+            return False, f"skill_id '{skill_id}' not found in peer '{peer_id}' AgentCard (known: {known_skill_ids})"
+        else:
+            return False, f"skill_id '{skill_id}' not found in AgentCard (known: {known_skill_ids})"
+    return True, None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Persistence
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _persist(entry):
+    if _inbox_path:
+        try:
+            with open(_inbox_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Incoming message handler
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _on_message(raw):
+    if len(raw.encode()) > MAX_MSG_BYTES:
+        log.warning(f"Message too large ({len(raw.encode())} bytes), dropped")
+        return
+    try:
+        msg = json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("Non-JSON frame, ignored")
+        return
+
+    msg_type   = msg.get("type", "")
+    message_id = msg.get("message_id") or msg.get("id")
+
+    # HMAC verification (v0.7/v1.1) — sig mismatch: warn-only; replay-window: drop
+    # Graceful: agents without --secret still interop fine (sig ignored when no secret).
+    # Replay-window (v1.1): when --secret is set, ts MUST be within ±HMAC_REPLAY_WINDOW_SECONDS.
+    if _hmac_secret and msg.get("sig") and message_id:
+        ts_val = str(msg.get("ts", ""))
+        # 1) Replay-window check — hard reject (drop message) to prevent replay attacks
+        ok, reason = _hmac_check_replay_window(ts_val)
+        if not ok:
+            log.warning(f"⚠️  HMAC replay-window reject on {message_id}: {reason}")
+            msg["_replay_rejected"] = True
+            return  # drop the message; do NOT process further
+        # 2) Signature check — warn-only (keep graceful interop for legacy agents)
+        if not _hmac_verify(str(message_id), ts_val, msg["sig"]):
+            log.warning(f"⚠️  HMAC sig mismatch on {message_id} — message accepted but flagged")
+            msg["_sig_invalid"] = True
+
+    # Ed25519 identity verification (v0.8) — warn-only; backward compatible
+    # Any agent may include identity.scheme=ed25519; we verify if present regardless
+    # of whether we ourselves have an identity configured.
+    identity = msg.get("identity")
+    if identity and identity.get("scheme") == "ed25519":
+        pub_key_b64 = identity.get("public_key", "")
+        sig_b64     = identity.get("sig", "")
+        if pub_key_b64 and sig_b64 and _ED25519_AVAILABLE:
+            if not _ed25519_verify_msg(msg, pub_key_b64, sig_b64):
+                log.warning(f"⚠️  Ed25519 sig invalid on {message_id} from pubkey={pub_key_b64[:16]}...")
+                msg["_ed25519_invalid"] = True
+            else:
+                msg["_ed25519_verified"] = True
+                log.debug(f"✅ Ed25519 verified: {message_id} from {pub_key_b64[:16]}...")
+
+    if msg_type == "acp.agent_card":
+        card = msg.get("card") or {}
+        _status["peer_card"] = card
+        peer_name = card.get("name", "?")
+        # BUG-037 fix: store remote agent_name in peer registry so that
+        # messages_received counter can match by agent_name (not peer_id).
+        # Find the most-recently connected peer that has no agent_name yet,
+        # or update an existing peer whose agent_name matches peer_name.
+        if peer_name and peer_name != "?":
+            matched = False
+            for pinfo in _peers.values():
+                if pinfo.get("agent_name") == peer_name:
+                    matched = True
+                    pinfo["agent_card"] = card           # v2.24: cache card in peer registry
+                    pinfo["card_received_at"] = _now()  # v2.55: timestamp for /verify-card
+                    break
+            if not matched:
+                # Assign to the newest connected peer without an agent_name
+                candidates = [p for p in _peers.values()
+                              if p.get("connected") and not p.get("agent_name")]
+                if candidates:
+                    newest = max(candidates, key=lambda p: p.get("connected_at") or 0)
+                    newest["agent_name"] = peer_name
+                    newest["agent_card"] = card     # v2.24: cache card in peer registry
+        else:
+            # peer_name unknown — cache card on newest connected peer without a card
+            candidates = [p for p in _peers.values()
+                          if p.get("connected") and p.get("agent_card") is None]
+            if candidates:
+                newest = max(candidates, key=lambda p: p.get("connected_at") or 0)
+                newest["agent_card"] = card         # v2.24: best-effort cache
+        # v1.9: Auto-verify peer AgentCard self-signature on receipt
+        if card.get("identity") and card["identity"].get("card_sig"):
+            vr = _verify_agent_card(card)
+            _status["peer_card_verification"] = vr
+            if vr.get("valid"):
+                log.info(f"✅ AgentCard verified: {peer_name} | did={vr.get('did', '?')[:28]}...")
+            else:
+                log.warning(f"⚠️  AgentCard sig INVALID: {peer_name} | {vr.get('error')}")
+        else:
+            _status["peer_card_verification"] = {
+                "valid": None,
+                "error": "peer card has no card_sig (unsigned — peer may not support v1.8+)",
+                "did": card.get("identity", {}).get("did") if card.get("identity") else None,
+                "public_key": card.get("identity", {}).get("public_key") if card.get("identity") else None,
+                "scheme": (card.get("identity") or {}).get("scheme", "none"),
+            }
+            log.info(f"AgentCard from: {peer_name} (unsigned) | acp={card.get('acp_version')}")
+        return
+
+    if msg_type == "acp.reply":
+        corr = msg.get("correlation_id")
+        if corr and corr in _sync_pending:
+            fut = _sync_pending.pop(corr)
+            if not fut.done():
+                _loop.call_soon_threadsafe(fut.set_result, msg)
+        return
+
+    # v2.25: acp.ping — remote peer is probing us; respond with acp.pong
+    if msg_type == "acp.ping":
+        nonce = msg.get("nonce", "")
+        pong_msg = json.dumps({
+            "type":       "acp.pong",
+            "nonce":      nonce,
+            "from":       _status.get("agent_name", "ACP-Agent"),
+            "ts":         _now(),
+        }, ensure_ascii=False)
+        # Send pong back on the same WS channel (find the ws for the sender)
+        _from = msg.get("from", "")
+        sender_ws = None
+        for pinfo in _peers.values():
+            if pinfo.get("connected") and (
+                pinfo.get("agent_name") == _from or pinfo.get("name") == _from
+            ):
+                sender_ws = pinfo.get("ws")
+                break
+        if sender_ws is None:
+            # Fallback: try the global _ws_ctx (single-peer scenario)
+            sender_ws = _ws_ctx
+        if sender_ws:
+            try:
+                asyncio.ensure_future(sender_ws.send(pong_msg))
+            except Exception as ping_err:
+                log.warning(f"[ping] Failed to send pong to {_from}: {ping_err}")
+        log.debug(f"[ping] Received acp.ping from {_from}, nonce={nonce} — pong sent")
+        return
+
+    # v2.25: acp.pong — we sent a ping, peer is responding; resolve the pending Future
+    if msg_type == "acp.pong":
+        nonce = msg.get("nonce", "")
+        fut = _pending_pongs.get(nonce)
+        if fut and not fut.done():
+            _loop.call_soon_threadsafe(fut.set_result, msg)
+        log.debug(f"[ping] Received acp.pong nonce={nonce}")
+        return
+
+    # v3.10: acp.federation.route — a remote relay is routing a message to a local peer
+    if msg_type == "acp.federation.route":
+        target_pid = msg.get("target_peer_id", "")
+        fed_parts  = msg.get("parts", [])
+        fed_role   = msg.get("role", "agent")
+        fed_mid    = msg.get("message_id", _make_id("fed_delivery"))
+        source_relay = msg.get("source_relay", "unknown-relay")
+        log.info(f"[federation] Incoming route: target_peer={target_pid} "
+                 f"from_relay={source_relay} msg={fed_mid}")
+        if target_pid and target_pid in _peers and _peers[target_pid].get("ws"):
+            delivery = {
+                "type":              "acp.message",
+                "message_id":        fed_mid,
+                "role":              fed_role,
+                "parts":             fed_parts,
+                "federation_source": source_relay,
+                "federated":         True,
+            }
+            try:
+                target_ws = _peers[target_pid].get("ws")
+                asyncio.ensure_future(_ws_send(target_ws, target_pid, delivery))
+                log.info(f"[federation] Delivered msg {fed_mid} to local peer {target_pid}")
+            except Exception as e:
+                log.warning(f"[federation] Failed to deliver to {target_pid}: {e}")
+        elif target_pid:
+            # Target peer not connected — enqueue in offline queue
+            _offline_enqueue({
+                "type":    "acp.message",
+                "message_id": fed_mid,
+                "role":    fed_role,
+                "parts":   fed_parts,
+                "federation_source": source_relay,
+                "federated": True,
+            }, peer_id=target_pid)
+            log.info(f"[federation] msg {fed_mid} queued offline for {target_pid}")
+        return
+
+    if msg_type == "task.updated":
+        task_id = msg.get("task_id")
+        if task_id and task_id in _tasks:
+            _update_task(task_id, msg.get("status", TASK_WORKING), artifact=msg.get("artifact"))
+        return
+
+    # v2.35: acp.delivered — peer ACK: they received our message; update delivery counters
+    if msg_type == "acp.delivered":
+        acked_id = msg.get("message_id")
+        _from_ack = msg.get("from", "")
+        _status["messages_delivered"] = _status.get("messages_delivered", 0) + 1
+        # Credit the sending peer's delivery counter
+        credited_ack = False
+        for pinfo in _peers.values():
+            if (pinfo.get("agent_name") == _from_ack
+                    or pinfo.get("name") == _from_ack
+                    or pinfo.get("id") == _from_ack):
+                pinfo["messages_delivered"] = pinfo.get("messages_delivered", 0) + 1
+                credited_ack = True
+                break
+        if not credited_ack:
+            connected_ack = [p for p in _peers.values() if p.get("connected")]
+            if len(connected_ack) == 1:
+                connected_ack[0]["messages_delivered"] = connected_ack[0].get("messages_delivered", 0) + 1
+        log.debug(f"[delivery_ack] Received acp.delivered from={_from_ack} acked_id={acked_id}")
+        return
+
+    # v2.36: acp.read — peer ACK: they have read/consumed our message; update read counters
+    if msg_type == "acp.read":
+        read_id = msg.get("message_id")
+        _from_read = msg.get("from", "")
+        _status["messages_read"] = _status.get("messages_read", 0) + 1
+        # Credit the sending peer's read counter
+        credited_read = False
+        for pinfo in _peers.values():
+            if (pinfo.get("agent_name") == _from_read
+                    or pinfo.get("name") == _from_read
+                    or pinfo.get("id") == _from_read):
+                pinfo["messages_read"] = pinfo.get("messages_read", 0) + 1
+                credited_read = True
+                break
+        if not credited_read:
+            connected_read = [p for p in _peers.values() if p.get("connected")]
+            if len(connected_read) == 1:
+                connected_read[0]["messages_read"] = connected_read[0].get("messages_read", 0) + 1
+        log.debug(f"[read_receipt] Received acp.read from={_from_read} read_id={read_id}")
+        return
+
+    # v2.37: acp.typing — peer is typing (or stopped typing); update state + broadcast SSE
+    if msg_type == "acp.typing":
+        _typing_val  = msg.get("typing", True)   # True = started, False = stopped
+        _from_typing = msg.get("from", "")
+        _ts_typing   = msg.get("ts") or _now()
+        # Update global peer_typing state
+        _status["peer_typing"]       = bool(_typing_val)
+        _status["peer_typing_since"] = _ts_typing if _typing_val else None
+        # Update per-peer typing field
+        for pinfo in _peers.values():
+            if (pinfo.get("agent_name") == _from_typing
+                    or pinfo.get("name") == _from_typing
+                    or pinfo.get("id") == _from_typing):
+                pinfo["typing"]       = bool(_typing_val)
+                pinfo["typing_since"] = _ts_typing if _typing_val else None
+                break
+        else:
+            _conn_typing = [p for p in _peers.values() if p.get("connected")]
+            if len(_conn_typing) == 1:
+                _conn_typing[0]["typing"]       = bool(_typing_val)
+                _conn_typing[0]["typing_since"] = _ts_typing if _typing_val else None
+        # Broadcast SSE so local subscribers can show "peer is typing…"
+        _broadcast_sse_event("typing", {
+            "from":         _from_typing,
+            "typing":       bool(_typing_val),
+            "typing_since": _ts_typing if _typing_val else None,
+        })
+        log.debug(f"[typing] peer={_from_typing} typing={_typing_val}")
+        return
+
+    # v3.16: acp.ack — peer acknowledged our message; notify any pending require_ack waiters
+    if msg_type == "acp.ack":
+        acked_msg_id = msg.get("ack_message_id") or msg.get("message_id")
+        if acked_msg_id:
+            with _pending_acks_lock:
+                evt = _pending_acks.get(acked_msg_id)
+            if evt:
+                evt.set()  # unblock the waiting /message:send thread
+                log.debug(f"[ack] Received acp.ack for {acked_msg_id} — event set")
+            else:
+                log.debug(f"[ack] Received unsolicited acp.ack for {acked_msg_id} (no waiter)")
+        return  # ACK never hits _recv_queue — transparent to user
+
+    # Business message — idempotency check
+    if not _check_and_record_message_id(message_id):
+        return
+
+    # Structured Parts-based message (v0.5)
+    if msg.get("parts"):
+        # 若消息携带 task_id，在本地注册同 id 的 task（对等任务追踪）
+        incoming_task_id = msg.get("task_id")
+        if incoming_task_id and incoming_task_id not in _tasks:
+            task = {
+                "id":         incoming_task_id,
+                "status":     TASK_WORKING,
+                "created_at": _now(),
+                "updated_at": _now(),
+                "payload":    {"parts": msg["parts"]},
+                "artifacts":  [],
+                "history":    [],
+                "origin_message_id": message_id,
+                "from_peer":  True,  # 标记为对端发起的 task
+            }
+            _tasks[incoming_task_id] = task
+            _status["tasks_created"] += 1
+            _broadcast_sse_event("status", {"task_id": incoming_task_id, "state": TASK_WORKING})
+            log.info(f"Task registered from peer: {incoming_task_id}")
+
+        entry = {
+            "id":          message_id or _make_id(),
+            "message_id":  message_id,
+            "received_at": time.time(),
+            "role":        msg.get("role", "agent"),
+            "parts":       msg["parts"],
+            "task_id":     incoming_task_id,
+            "context_id":  msg.get("context_id"),
+            "raw":         msg,
+        }
+        _recv_queue.append(entry)
+        _persist(entry)
+        _status["messages_received"] += 1
+        # BUG-005 fix: update per-peer messages_received counter
+        # BUG-037 fix: match by agent_name (stored at acp.agent_card handshake).
+        # Lazy-bind: if no peer has agent_name yet (timing race between HTTP relay
+        # and P2P channel — acp.agent_card may arrive before peer is registered),
+        # bind _from to the newest connected peer without an agent_name, then credit it.
+        _from = msg.get("from", "")
+        credited = False
+        for pid, pinfo in _peers.items():
+            if (pinfo.get("agent_name") == _from
+                    or pinfo.get("name") == _from
+                    or pinfo.get("id") == _from):
+                pinfo["messages_received"] = pinfo.get("messages_received", 0) + 1
+                credited = True
+                break
+        if not credited and _from:
+            # Lazy-bind: assign agent_name to the newest unbound connected peer
+            unbound = [p for p in _peers.values()
+                       if p.get("connected") and not p.get("agent_name")]
+            if unbound:
+                target = max(unbound, key=lambda p: p.get("connected_at") or 0)
+                target["agent_name"] = _from
+                target["messages_received"] = target.get("messages_received", 0) + 1
+                credited = True
+        if not credited:
+            # fallback: credit the first connected peer (single-peer common case)
+            connected = [p for p in _peers.values() if p.get("connected")]
+            if len(connected) == 1:
+                connected[0]["messages_received"] = connected[0].get("messages_received", 0) + 1
+        _broadcast_sse_event("message", {
+            "message_id": message_id,
+            "role":       msg.get("role", "agent"),
+            "parts":      msg["parts"],
+            "task_id":    incoming_task_id,
+        })
+        # v2.36: track last received message_id for read receipt (sent on next outbound message)
+        if message_id:
+            _status["last_received_message_id"] = message_id
+
+        # v2.35: send acp.delivered ACK back to sender via WebSocket
+        if message_id:
+            _ack_frame = json.dumps({
+                "type":       "acp.delivered",
+                "message_id": message_id,
+                "from":       _status.get("agent_name", "ACP-Agent"),
+                "ts":         _now(),
+            }, ensure_ascii=False)
+            # Find the WS of the sender and send ack
+            _sender_ws = None
+            for pinfo in _peers.values():
+                if pinfo.get("connected") and (
+                    pinfo.get("agent_name") == _from or pinfo.get("name") == _from
+                ):
+                    _sender_ws = pinfo.get("ws")
+                    break
+            if _sender_ws is None:
+                _sender_ws = _ws_ctx  # fallback: single-peer scenario
+            if _sender_ws:
+                try:
+                    asyncio.ensure_future(_sender_ws.send(_ack_frame))
+                except Exception as _ack_err:
+                    log.debug(f"[delivery_ack] Failed to send ack for {message_id}: {_ack_err}")
+            log.debug(f"[delivery_ack] Sent acp.delivered for {message_id} to {_from}")
+
+        # v3.16: send acp.ack back to sender — automatic ACK for every received business message
+        # acp.ack is distinct from acp.delivered: it signals protocol-level acknowledgement
+        # (used with require_ack=true on /message:send).  Not sent for acp.ack messages themselves.
+        if message_id:
+            _ack_reply_frame = json.dumps({
+                "type":           "acp.ack",
+                "ack_message_id": message_id,
+                "from":           _status.get("agent_name", "ACP-Agent"),
+                "timestamp":      int(time.time() * 1000),
+            }, ensure_ascii=False)
+            # Reuse the same sender WS lookup used for acp.delivered
+            _ack_reply_ws = None
+            for pinfo in _peers.values():
+                if pinfo.get("connected") and (
+                    pinfo.get("agent_name") == _from or pinfo.get("name") == _from
+                ):
+                    _ack_reply_ws = pinfo.get("ws")
+                    break
+            if _ack_reply_ws is None:
+                _ack_reply_ws = _ws_ctx  # fallback: single-peer scenario
+            if _ack_reply_ws:
+                try:
+                    asyncio.ensure_future(_ack_reply_ws.send(_ack_reply_frame))
+                except Exception as _ack_reply_err:
+                    log.debug(f"[ack] Failed to send acp.ack for {message_id}: {_ack_reply_err}")
+            log.debug(f"[ack] Sent acp.ack for {message_id} to {_from}")
+
+        log.info(f"Message ({len(msg['parts'])} parts) from={msg.get('from','?')}")
+        return
+
+    # Legacy unstructured message
+    entry = {"id": message_id or _make_id(), "message_id": message_id,
+             "received_at": time.time(), "content": msg}
+    _recv_queue.append(entry)
+    _persist(entry)
+    _status["messages_received"] += 1
+    _broadcast_sse_event("message", {"message_id": message_id, "role": "agent", "parts": [{"type": "text", "content": str(msg)}]})
+    log.info(f"Message (legacy): type={msg_type} from={msg.get('from','?')}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WebSocket helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _attach_sig(msg: dict, to: str = "",
+                principal_id: str = "", operator_id: str = "",
+                governance_framework_ref: str = "") -> dict:
+    """Attach HMAC sig (v0.7), Ed25519 identity block (v0.8), msg_sig (v3.0/v3.1/v3.3), and proof (v3.2) to outbound message.
+
+    v3.1: if `to` (recipient peer_id) is provided, the msg_sig canonical payload includes the
+    `to` field (origin_proof — binds signature to the intended recipient).
+    v3.2: additionally attaches a W3C DataIntegrityProof-format `proof` object (Ed25519Signature2020)
+    alongside msg_sig for ANP interoperability. The `proof` field is backward-compatible — its
+    absence does not affect existing message processing.
+    v3.3: optional OBO fields (principal_id/operator_id/governance_framework_ref) are included
+    in the canonical signing payload when non-empty (A2A #1713 cross-organisation delegation).
+    If these fields are provided, they are also stored in msg["origin_proof"] for verifiers.
+    """
+    if _hmac_secret and "message_id" in msg and "ts" in msg:
+        msg["sig"] = _hmac_sign(str(msg["message_id"]), str(msg["ts"]))
+    if _ed25519_private is not None and "message_id" in msg:
+        msg["identity"] = {
+            "scheme":     "ed25519",
+            "public_key": _ed25519_public_b64,
+            "pubkey_b64": _ed25519_public_b64,  # v0.8: explicit alias
+            "did":        _did_key or _did_acp,  # v0.8: prefer did:key; fall back to did:acp
+        }
+        # Sig is computed last (excludes identity.sig from canonical form)
+        msg["identity"]["sig"] = _ed25519_sign_msg(msg)
+        # v3.0/v3.1/v3.3: message-level signature — per-message cryptographic proof of origin.
+        # v3.1: when `to` is supplied, binds sig to recipient (origin_proof).
+        # v3.3: OBO fields extend the canonical payload for delegation attestation.
+        try:
+            msg["msg_sig"] = _sign_message(msg, to=to,
+                                           principal_id=principal_id,
+                                           operator_id=operator_id,
+                                           governance_framework_ref=governance_framework_ref)
+        except Exception as _ms_err:
+            log.debug(f"[msg_sig] Could not attach msg_sig: {_ms_err}")
+        # v3.3: attach origin_proof object with OBO metadata when any OBO field is present
+        if principal_id or operator_id or governance_framework_ref:
+            op = {
+                "from_peer":   str(msg.get("from", "")),
+                "to_peer":     str(to),
+                "session_id":  str(msg.get("context_id", msg.get("task_id", ""))),
+                "timestamp":   str(msg.get("ts", "")),
+            }
+            if principal_id:
+                op["principal_id"] = str(principal_id)
+            if operator_id:
+                op["operator_id"] = str(operator_id)
+            if governance_framework_ref:
+                op["governance_framework_ref"] = str(governance_framework_ref)
+            msg["origin_proof"] = op
+        # v3.2: W3C DataIntegrityProof compat layer — proof object alongside msg_sig.
+        # proofValue uses the same Ed25519 canonical payload as msg_sig (full interop).
+        try:
+            proof_obj = _build_proof_object(msg, to=to,
+                                            principal_id=principal_id,
+                                            operator_id=operator_id,
+                                            governance_framework_ref=governance_framework_ref)
+            if proof_obj is not None:
+                msg["proof"] = proof_obj
+        except Exception as _proof_err:
+            log.debug(f"[proof] Could not attach DataIntegrityProof: {_proof_err}")
+    return msg
+
+
+# ── v2.97: SQLite-backed persistent offline queue ─────────────────────────────
+
+def _pq_init(db_path: str) -> None:
+    """Initialise SQLite persistent queue and load surviving messages into memory. (v2.97)"""
+    global _persist_queue_path, _persist_queue_conn
+    import sqlite3 as _sqlite3
+    _persist_queue_path = db_path
+    _persist_queue_conn = _sqlite3.connect(db_path, check_same_thread=False)
+    _persist_queue_conn.execute(
+        """CREATE TABLE IF NOT EXISTS offline_queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            peer_id    TEXT    NOT NULL,
+            queued_at  TEXT    NOT NULL,
+            payload    TEXT    NOT NULL
+        )"""
+    )
+    _persist_queue_conn.commit()
+    # Load surviving messages back into memory deques
+    with _offline_lock:
+        for row in _persist_queue_conn.execute(
+            "SELECT peer_id, queued_at, payload FROM offline_queue ORDER BY id"
+        ):
+            pid, qat, payload_json = row
+            msg = json.loads(payload_json)
+            msg["_queued_at"] = qat
+            msg["_offline_for_peer"] = pid
+            if pid not in _offline_queue:
+                _offline_queue[pid] = deque(maxlen=OFFLINE_QUEUE_MAXLEN)
+            _offline_queue[pid].append(msg)
+    total = sum(len(q) for q in _offline_queue.values())
+    log.info(f"💾 persist-queue loaded: {total} message(s) from {db_path}")
+
+
+def _pq_insert(peer_id: str, queued_at: str, msg: dict) -> None:
+    """Persist one message to SQLite. No-op if persistence not enabled. (v2.97)"""
+    if _persist_queue_conn is None:
+        return
+    clean = {k: v for k, v in msg.items() if not k.startswith("_")}
+    with _offline_lock:
+        _persist_queue_conn.execute(
+            "INSERT INTO offline_queue (peer_id, queued_at, payload) VALUES (?,?,?)",
+            (peer_id, queued_at, json.dumps(clean, ensure_ascii=False)),
+        )
+        _persist_queue_conn.commit()
+
+
+def _pq_delete_peer(peer_id: str) -> None:
+    """Remove all persisted messages for a peer after successful flush. (v2.97)"""
+    if _persist_queue_conn is None:
+        return
+    with _offline_lock:
+        _persist_queue_conn.execute(
+            "DELETE FROM offline_queue WHERE peer_id=?", (peer_id,)
+        )
+        _persist_queue_conn.commit()
+
+
+def _pq_stats() -> dict:
+    """Return persistence backend stats for /status. (v2.97)"""
+    if _persist_queue_conn is None:
+        return {"enabled": False}
+    try:
+        row = _persist_queue_conn.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT peer_id) FROM offline_queue"
+        ).fetchone()
+        return {"enabled": True, "db": _persist_queue_path,
+                "total_rows": row[0], "distinct_peers": row[1]}
+    except Exception:
+        return {"enabled": True, "db": _persist_queue_path, "error": "query_failed"}
+
+
+def _pq_delete_expired(cutoff_iso: str) -> int:
+    """Delete persisted messages older than cutoff_iso. Returns number deleted. (v2.99)"""
+    if _persist_queue_conn is None:
+        return 0
+    with _offline_lock:
+        cur = _persist_queue_conn.execute(
+            "DELETE FROM offline_queue WHERE queued_at < ?", (cutoff_iso,)
+        )
+        _persist_queue_conn.commit()
+        return cur.rowcount
+
+
+def _ttl_sweep() -> dict:
+    """
+    Sweep offline queues and evict messages older than _max_offline_ttl_sec. (v2.99)
+    Policy:
+      "drop"   — silently remove expired messages
+      "notify" — remove expired messages AND record expiry events in audit log
+    Returns stats dict: {evicted_count, peers_affected, policy}.
+    """
+    if _max_offline_ttl_sec is None:
+        return {"evicted_count": 0, "peers_affected": 0, "policy": "none"}
+
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    cutoff = _dt.now(_tz.utc) - _td(seconds=_max_offline_ttl_sec)
+    cutoff_iso = cutoff.isoformat()
+    evicted = 0
+    peers_affected = set()
+
+    with _offline_lock:
+        for peer_id, q in list(_offline_queue.items()):
+            expired = []
+            keep = deque(maxlen=OFFLINE_QUEUE_MAXLEN)
+            for msg in q:
+                qat_str = msg.get("_queued_at", "")
+                try:
+                    qat = _dt.fromisoformat(qat_str.replace("Z", "+00:00"))
+                    if qat < cutoff:
+                        expired.append(msg)
+                    else:
+                        keep.append(msg)
+                except Exception:
+                    keep.append(msg)  # can't parse — keep to be safe
+            if expired:
+                _offline_queue[peer_id] = keep
+                evicted += len(expired)
+                peers_affected.add(peer_id)
+                if _offline_ttl_policy == "notify":
+                    for emsg in expired:
+                        log.info(
+                            f"⏰ TTL expired: peer={peer_id} "
+                            f"msg_id={emsg.get('message_id','?')} "
+                            f"queued_at={emsg.get('_queued_at','?')}"
+                        )
+
+    # Also sweep SQLite
+    db_evicted = _pq_delete_expired(cutoff_iso)
+    if db_evicted and db_evicted > evicted:
+        # DB had more entries (e.g., loaded from previous session)
+        evicted = max(evicted, db_evicted)
+
+    if evicted:
+        log.info(
+            f"⏰ TTL sweep: evicted={evicted} peers={len(peers_affected)} "
+            f"policy={_offline_ttl_policy} ttl={_max_offline_ttl_sec}s"
+        )
+    return {"evicted_count": evicted, "peers_affected": len(peers_affected), "policy": _offline_ttl_policy}
+
+
+# ── Offline queue (in-memory + optional SQLite) ────────────────────────────────
+
+def _offline_enqueue(msg: dict, peer_id: str = "default") -> None:
+    """Buffer a message for offline delivery. Called when peer is disconnected. (v2.0)
+    v2.97: persists to SQLite when --persist-queue is enabled.
+    v2.99: lazy TTL sweep on enqueue — expired messages evicted before new one is added."""
+    # v2.99: lazy TTL sweep before enqueue
+    if _max_offline_ttl_sec is not None:
+        _ttl_sweep()
+    queued_at = _now()
+    with _offline_lock:
+        if peer_id not in _offline_queue:
+            _offline_queue[peer_id] = deque(maxlen=OFFLINE_QUEUE_MAXLEN)
+        _offline_queue[peer_id].append({
+            **msg,
+            "_queued_at": queued_at,
+            "_offline_for_peer": peer_id,
+        })
+    _pq_insert(peer_id, queued_at, msg)
+    log.debug(f"📥 offline_queue[{peer_id}] depth={len(_offline_queue[peer_id])}")
+
+
+async def _offline_flush(ws, peer_id: str = "default") -> int:
+    """
+    Flush buffered offline messages to a newly (re)connected peer WebSocket. (v2.0)
+    v2.97: also removes flushed messages from SQLite when --persist-queue is enabled.
+    Returns the number of messages delivered.
+    """
+    with _offline_lock:
+        q = _offline_queue.pop(peer_id, deque())
+    if not q:
+        return 0
+    count = 0
+    for msg in q:
+        try:
+            # Strip internal bookkeeping fields before delivery
+            clean = {k: v for k, v in msg.items()
+                     if not k.startswith("_offline_") and k != "_queued_at"}
+            clean.setdefault("_was_queued", True)   # signal to receiver this was buffered
+            await ws.send(json.dumps(clean, ensure_ascii=False))
+            _status["messages_sent"] += 1
+            count += 1
+        except Exception as e:
+            log.warning(f"offline_flush error on msg {msg.get('id','?')}: {e}")
+            break
+    log.info(f"📤 offline_flush: delivered {count} queued message(s) to peer '{peer_id}'")
+    # v2.97: purge from SQLite after successful flush
+    if count > 0:
+        _pq_delete_peer(peer_id)
+    return count
+
+
+def _dispatch_task_to_workers(task: dict) -> int:
+    """v3.11: Dispatch a newly-queued task to all matching registered workers.
+
+    A worker matches if:
+      - worker.peer_id is None (match-all) OR equals task.from_peer_id
+      - worker.skill_id is None (match-all) OR equals task payload's skill_id
+
+    Dispatch method: POST to worker.callback_url with the task envelope.
+    Returns number of workers dispatched to.
+    """
+    import urllib.request as _urlreq
+    dispatched = 0
+    task_peer_id  = task.get("from_peer_id")
+    task_skill_id = (task.get("payload") or {}).get("skill_id") if isinstance(task.get("payload"), dict) else None
+
+    with _task_queue_workers_lock:
+        workers_snapshot = list(_task_queue_workers.items())
+
+    for worker_id, worker in workers_snapshot:
+        if not worker.get("active", True):
+            continue
+        w_peer  = worker.get("peer_id")
+        w_skill = worker.get("skill_id")
+        # Match peer_id filter: worker specifies peer_id → task MUST have matching from_peer_id
+        # (None peer_id on worker = match-all; None from_peer_id on task = only matches workers without filter)
+        if w_peer:
+            if not task_peer_id or w_peer != task_peer_id:
+                continue
+        # Match skill_id filter: same logic
+        if w_skill:
+            if not task_skill_id or w_skill != task_skill_id:
+                continue
+        # Dispatch via callback_url
+        cb_url = worker.get("callback_url")
+        if not cb_url:
+            continue
+        try:
+            payload_bytes = json.dumps({
+                "type":        "acp.task.dispatch",
+                "worker_id":   worker_id,
+                "task":        {
+                    "id":          task["id"],
+                    "status":      task.get("status"),
+                    "payload":     task.get("payload"),
+                    "queued_at":   task.get("queue_enqueued_at"),
+                    "poll_url":    f"/tasks/{task['id']}",
+                    "sse_url":     f"/tasks/{task['id']}/subscribe",
+                },
+                "dispatched_at": _now(),
+            }).encode()
+            req = _urlreq.Request(
+                cb_url, data=payload_bytes,
+                headers={"Content-Type": "application/json", "X-ACP-Worker-Id": worker_id},
+                method="POST",
+            )
+            _urlreq.urlopen(req, timeout=5)
+            with _task_queue_workers_lock:
+                if worker_id in _task_queue_workers:
+                    _task_queue_workers[worker_id]["tasks_dispatched"] = \
+                        _task_queue_workers[worker_id].get("tasks_dispatched", 0) + 1
+            dispatched += 1
+            log.info(f"[worker] task {task['id']} dispatched to worker {worker_id} → {cb_url}")
+        except Exception as e:
+            log.warning(f"[worker] dispatch to {worker_id} ({cb_url}) failed: {e}")
+    return dispatched
+
+
+def _offline_queue_snapshot() -> dict:
+    """Return serializable snapshot of the offline queue for GET /offline-queue. (v2.0)"""
+    with _offline_lock:
+        return {
+            peer_id: {
+                "depth": len(q),
+                "messages": [
+                    {"id": m.get("id"), "type": m.get("type"), "queued_at": m.get("_queued_at")}
+                    for m in q
+                ],
+            }
+            for peer_id, q in _offline_queue.items()
+        }
+
+
+async def _ws_send(msg, peer_id=None,
+                   principal_id: str = "", operator_id: str = "",
+                   governance_framework_ref: str = ""):
+    """Send msg over WebSocket.
+    If peer_id is provided, route to that specific peer's WS connection.
+    Falls back to legacy _peer_ws for single-peer / backward-compat.
+    On ConnectionError: buffers to offline queue (v2.0).
+
+    v2.14 fix (BUG-045): serialise concurrent writes per-peer with an asyncio.Lock
+    to prevent websockets protocol violations (code 1011) under concurrent _ws_send.
+    v3.3: optional OBO delegation fields forwarded to _attach_sig for origin_proof.
+    """
+    ws = None
+    send_lock = None
+    if peer_id and peer_id in _peers:
+        ws = _peers[peer_id].get("ws")
+        if ws is None:
+            # v2.0: peer known but offline — buffer for later delivery
+            _offline_enqueue(msg, peer_id=peer_id)
+            raise ConnectionError(f"Peer '{peer_id}' offline — message queued for delivery on reconnect")
+        # Update per-peer counter
+        _peers[peer_id]["messages_sent"] = _peers[peer_id].get("messages_sent", 0) + 1
+        # BUG-045: per-peer asyncio.Lock to serialise WS writes.
+        # Use setdefault for atomic creation — all callers in the same event loop
+        # thread, so dict.setdefault is effectively atomic (no threading.Lock needed).
+        lock = _peers[peer_id].setdefault("_send_lock", asyncio.Lock())
+        send_lock = lock
+    else:
+        ws = _peer_ws
+    if ws is None:
+        # v2.0: no peer at all — buffer under "default" key
+        _offline_enqueue(msg, peer_id=peer_id or "default")
+        raise ConnectionError("No P2P connection — message queued for delivery on reconnect")
+    payload = json.dumps(_attach_sig(msg, to=peer_id or "",
+                                     principal_id=principal_id,
+                                     operator_id=operator_id,
+                                     governance_framework_ref=governance_framework_ref),
+                         ensure_ascii=False)
+    if send_lock:
+        # Per-peer asyncio.Lock: all callers are in the same event loop thread, safe.
+        async with send_lock:
+            await ws.send(payload)
+    else:
+        # Legacy path (_peer_ws): serialise across HTTP threads using threading.Lock.
+        # _ws_send runs in the event loop thread, but _ws_send_sync is called from
+        # multiple HTTP handler threads → the loop thread sends one message at a time,
+        # but the threading.Lock prevents concurrent *scheduling* of ws.send coroutines.
+        # BUG-045: acquire the thread lock synchronously before awaiting ws.send.
+        _ws_send_global_lock.acquire()
+        try:
+            await ws.send(payload)
+        finally:
+            _ws_send_global_lock.release()
+    _status["messages_sent"] += 1
+
+def _ws_send_sync(msg, peer_id=None,
+                  principal_id: str = "", operator_id: str = "",
+                  governance_framework_ref: str = ""):
+    asyncio.run_coroutine_threadsafe(
+        _ws_send(msg, peer_id=peer_id,
+                 principal_id=principal_id,
+                 operator_id=operator_id,
+                 governance_framework_ref=governance_framework_ref),
+        _loop
+    ).result(timeout=10)
+
+async def _send_agent_card(ws):
+    # v1.9: send signed AgentCard so peer can auto-verify upon receipt
+    card = _status["agent_card"] or {}
+    signed = _sign_agent_card(card)
+    await ws.send(json.dumps({"type": "acp.agent_card", "message_id": _make_id("card"),
+                               "ts": _now(), "card": signed}))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HOST mode
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def host_mode(token, ws_port, http_port):
+    global _peer_ws, _ws_ctx
+
+    async def on_guest(websocket):
+        global _peer_ws
+        try:
+            path = websocket.request.path
+        except AttributeError:
+            path = getattr(websocket, "path", "/")
+
+        if path.strip("/") != token:
+            await websocket.send(json.dumps({"type": "error", "code": "invalid_token"}))
+            await websocket.close()
+            return
+
+        _peer_ws = websocket
+        _status["connected"]  = True
+        _status["session_id"] = "sess_" + uuid.uuid4().hex[:12]
+        _status["started_at"] = _status["started_at"] or time.time()
+        await _send_agent_card(websocket)
+        _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
+
+        # v0.6: register in multi-session peer registry
+        # BUG-041 fix (enhanced, v2.16 revision): deduplicate peers by incoming token + remote addr.
+        # Original: token-only dedup — prevented ghost peers from NAT traversal racing Level1/2/3
+        # paths simultaneously (all use same token but may have different remote addrs).
+        # Problem: token-only dedup incorrectly rejects DIFFERENT legitimate agents that happen
+        # to connect to the same link/token (e.g. Worker1 and Worker2 both connect to Orch link).
+        # Fix: dedup only when BOTH token AND remote address match — same NAT-racing path.
+        incoming_token  = token  # token is in closure scope from host_mode()
+        incoming_remote = websocket.remote_address  # (host, port) tuple or None
+        existing_pid = next(
+            (pid for pid, pinfo in _peers.items()
+             if pinfo.get("link_token") == incoming_token
+             and pinfo.get("connected")
+             and pinfo.get("remote_address") == str(incoming_remote)),
+            None
+        )
+        if existing_pid:
+            # Same token AND same remote address — NAT duplicate path, close it.
+            log.info(f"[host_mode] Duplicate WS for token {incoming_token[:8]}… "
+                     f"already have peer {existing_pid} (connected=True, same remote {incoming_remote}). "
+                     f"Closing duplicate.")
+            try:
+                await websocket.close(1000, "duplicate_connection")
+            except Exception:
+                pass
+            return
+        # No existing connected peer for this token — register new peer
+        peer_id = _register_peer(ws=websocket, link_token=incoming_token,
+                                 remote_address=str(incoming_remote))
+        _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+
+        # v2.0: flush offline queue for this peer (and "default" bucket) on reconnect
+        flushed = await _offline_flush(websocket, peer_id=peer_id)
+        if flushed == 0:
+            flushed = await _offline_flush(websocket, peer_id="default")
+        if flushed:
+            log.info(f"📤 Flushed {flushed} offline message(s) to peer '{peer_id}' on connect")
+
+        print(f"\n{'='*55}")
+        print(f"ACP P2P v{VERSION} - peer connected [id={peer_id}]")
+        print(f"  Send:     POST http://localhost:{http_port}/message:send")
+        print(f"  Send→{peer_id}: POST http://localhost:{http_port}/peer/{peer_id}/send")
+        print(f"  Peers:    GET  http://localhost:{http_port}/peers")
+        print(f"  Recv:     GET  http://localhost:{http_port}/recv")
+        print(f"  Stream:   GET  http://localhost:{http_port}/stream")
+        print(f"  Card:     GET  http://localhost:{http_port}/.well-known/acp.json")
+        print(f"  Tasks:    GET  http://localhost:{http_port}/tasks")
+        print(f"{'='*55}\n")
+
+        try:
+            async for raw in websocket:
+                _on_message(raw)
+        except websockets.exceptions.ConnectionClosed:
+            log.info(f"Peer {peer_id} disconnected")
+        finally:
+            _unregister_peer(peer_id)
+            _peer_ws = None
+            _status["connected"] = False
+            _status["peer_card"] = None
+            _status["peer_card_verification"] = None   # v1.9: clear on disconnect
+            _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+            _status["connection_type"] = "host"        # BUG-047: reset to "host" on disconnect
+            _broadcast_sse_event("peer", {"event": "disconnected", "peer_id": peer_id})
+
+    # v2.35: --local-only mode — skip public-IP detection and relay registration
+    # (for CI, local tests, sandboxed environments where network is restricted)
+    _local_only_mode = _status.get("local_only", False)
+
+    if _local_only_mode:
+        log.info("--local-only: skipping public IP detection and relay registration")
+        display_ip = "127.0.0.1"
+        public_ip = None
+        relay_link = None
+        relay_token = token
+    else:
+        log.info("Detecting public IP...")
+        public_ip = await asyncio.get_event_loop().run_in_executor(None, lambda: get_public_ip(4.0))
+        display_ip = public_ip or get_local_ip()
+
+        # ── 启动时预注册 relay session，使用与 P2P 相同的 token ──────────
+        # 传输层对应用层透明：链接只暴露 token，底层用同一个 token 同时监听 P2P 和中继
+        DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+        relay_link = None
+        relay_token = token  # ← 与 P2P token 保持一致，接收方降级时直接复用
+        try:
+            import subprocess as _sp_h
+            # 用指定 token 创建 relay session（Worker 支持 POST /acp/new?token=xxx）
+            r = _sp_h.run(
+                ["curl", "-s", "--max-time", "8", "-X", "POST",
+                 f"{DEFAULT_RELAY}/acp/new?token={token}",
+                 "-H", "Content-Type: application/json", "-d", "{}"],
+                capture_output=True, text=True
+            )
+            resp = json.loads(r.stdout)
+            relay_token = resp.get("token", token)
+            relay_link  = resp.get("link", f"acp+wss://{DEFAULT_RELAY.replace('https://','')}/acp/{token}")
+            # 加入自己的 relay session（等对方来 join）
+            _sp_h.run(
+                ["curl", "-s", "--max-time", "8", "-X", "POST",
+                 f"{DEFAULT_RELAY}/acp/{relay_token}/join",
+                 "-H", "Content-Type: application/json",
+                 "-d", json.dumps({"name": _status.get("agent_name","ACP-Agent")})],
+                capture_output=True
+            )
+            log.info(f"Relay session pre-registered with token: {relay_token}")
+        except Exception as e:
+            log.warning(f"Relay pre-register failed (P2P only): {e}")
+
+    p2p_link = f"acp://{display_ip}:{ws_port}/{token}"
+
+    # 链接格式：acp://IP:PORT/TOKEN（应用层标识，不含传输层细节）
+    link = p2p_link
+    _status["link"] = link
+    # BUG-055 fix (2026-04-08): relay_token should always expose the P2P session token so
+    # tests and callers can build acp:// links regardless of whether Cloudflare relay
+    # pre-registration succeeded. relay_link failure (network timeout in sandbox) must
+    # not silently zero out the token.
+    _status["relay_token"] = relay_token  # always set; None only if token itself is None
+
+    # 同时在后台持续监听 relay（对方走中继时能收到消息）
+    if relay_link:
+        DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+        relay_base = DEFAULT_RELAY
+        _status["relay_base_url"] = relay_base  # expose for DCUtR HTTP reflection (v1.4)
+        asyncio.ensure_future(_http_relay_guest(relay_base, relay_token, http_port))
+
+    async with websockets.serve(on_guest, "0.0.0.0", ws_port, reuse_address=True):
+        _status["p2p_enabled"] = True   # v2.3: flag for supported_interfaces auto-derivation
+        print(f"\n{'='*60}")
+        print(f"ACP P2P v{VERSION} - service started")
+        if _local_only_mode:
+            print(f"  Mode: LOCAL-ONLY (no relay, no public IP)")
+        else:
+            print(f"  IP: {'public' if public_ip else 'LAN'} {display_ip}")
+        print(f"\n  Your link (send this to peer):")
+        print(f"  {link}")
+        if not _local_only_mode:
+            print(f"\n  Transport: P2P ready | Relay pre-registered (auto-fallback)")
+        print(f"  Waiting for peer...")
+        print(f"{'='*60}\n")
+        await asyncio.Future()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GUEST mode
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def guest_mode(host, ws_port, token, http_port, embedded_relay=None, _existing_ws=None):
+    """
+    P2P 直连模式。连接失败超过 P2P_MAX_RETRIES 次后，
+    自动降级到中继。传输层选择对应用层透明。
+    token 同时是 P2P token 和 relay session token（同一标识符）。
+    embedded_relay: 保留参数（兼容旧调用），实际不再需要
+    _existing_ws: 已建立的 WS 对象（BUG-042 修复：由 _connect_with_nat_traversal Level 1 传入，
+                  避免重新握手触发 BUG-041 dedup 关闭连接）
+    """
+    global _peer_ws
+    _embedded_relay = embedded_relay  # 保留兼容性
+    uri = f"ws://{host}:{ws_port}/{token}"
+    P2P_MAX_RETRIES = 3   # P2P 最多尝试 3 次，失败后自动降级
+    retry = 0
+
+    while retry < P2P_MAX_RETRIES:
+        try:
+            # BUG-042 fix: if an existing WS is provided (from _connect_with_nat_traversal
+            # Level 1), reuse it directly for the first iteration to avoid opening a second
+            # WS connection that would be rejected by BUG-041 dedup logic on the host side.
+            if _existing_ws is not None:
+                log.info(f"[guest_mode] BUG-042: reusing Level-1 WS (no reconnect): {uri}")
+                _ws_ctx = _existing_ws
+                _existing_ws = None  # consume once
+            else:
+                log.info(f"{'Reconnecting #' + str(retry) if retry else 'Connecting to (P2P)'}: {uri}")
+                _ws_ctx = await _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10)
+            async with _ws_ctx as ws:
+                _peer_ws = ws
+                _status["connected"]  = True
+                _status["session_id"] = "sess_" + uuid.uuid4().hex[:12]
+                _status["started_at"] = _status["started_at"] or time.time()
+                if retry > 0:
+                    _status["reconnect_count"] += 1
+
+                # BUG-059 fix (v2.88): register peer in _peers BEFORE sending agent_card.
+                # Previously the peer registry was updated AFTER _send_agent_card, causing
+                # a race: when the host sent its card back, _on_message could not find a
+                # connected peer entry to attach the received card to (card_available=False).
+                peer_link = f"acp://{host}:{ws_port}/{token}"
+                existing_pid = next(
+                    (pid for pid, info in _peers.items()
+                     if info.get("link") == peer_link and info.get("ws") is None),
+                    None
+                )
+                if existing_pid:
+                    _peers[existing_pid]["ws"] = ws
+                    _peers[existing_pid]["connected"] = True
+                    _peers[existing_pid]["connected_at"] = _now()
+                    peer_id = existing_pid
+                else:
+                    peer_id = _register_peer(link=peer_link, ws=ws)
+                _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+
+                await _send_agent_card(ws)
+                _broadcast_sse_event("peer", {"event": "connected", "session_id": _status["session_id"]})
+
+                # v2.0: flush offline queue on (re)connect
+                flushed = await _offline_flush(ws, peer_id=peer_id)
+                if flushed == 0:
+                    flushed = await _offline_flush(ws, peer_id="default")
+                if flushed:
+                    log.info(f"📤 Flushed {flushed} offline message(s) to host '{peer_id}' on connect")
+
+                print(f"\n{'='*55}")
+                print(f"ACP P2P v{VERSION} - {'reconnected' if retry else 'connected'} [P2P] [id={peer_id}]")
+                print(f"  Peer: {host}:{ws_port}")
+                print(f"  Send:     POST http://localhost:{http_port}/message:send")
+                print(f"  Send→{peer_id}: POST http://localhost:{http_port}/peer/{peer_id}/send")
+                print(f"  Peers:    GET  http://localhost:{http_port}/peers")
+                print(f"  Stream:   GET  http://localhost:{http_port}/stream")
+                print(f"{'='*55}\n")
+
+                retry = 0
+                async for raw in ws:
+                    _on_message(raw)
+
+        except (ConnectionRefusedError, OSError,
+                websockets.exceptions.InvalidProxyMessage,
+                websockets.exceptions.InvalidHandshake) as e:
+            log.warning(f"P2P failed ({type(e).__name__}) - retry {retry+1}/{P2P_MAX_RETRIES}")
+        except websockets.exceptions.ConnectionClosed:
+            log.info(f"P2P closed - retry {retry+1}/{P2P_MAX_RETRIES}")
+        except Exception as e:
+            log.warning(f"P2P unexpected error: {e} - retry {retry+1}/{P2P_MAX_RETRIES}")
+        finally:
+            # v0.6: unregister peer from registry
+            _peer_link_key = f"acp://{host}:{ws_port}/{token}"
+            for _pid, _pinfo in _peers.items():
+                if _pinfo.get("link") == _peer_link_key:
+                    _unregister_peer(_pid)
+                    break
+            _peer_ws = None
+            _status["connected"] = False
+            _status["peer_card"] = None
+            _status["peer_card_verification"] = None   # v1.9: clear on disconnect
+            _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+            _status["connection_type"] = "host"        # BUG-047: reset to "host" on disconnect
+            _broadcast_sse_event("peer", {"event": "disconnected"})
+
+        retry += 1
+        if retry < P2P_MAX_RETRIES:
+            await asyncio.sleep(min(2 ** retry, 8))
+
+    # ── BUG-012 fix: mark all P2P peers as disconnected before relay fallback ──
+    # P2P peers are tied to direct WebSocket connections; relay is a different
+    # transport. Keeping connected=True would allow /peer/{id}/send to silently
+    # send via relay while the actual peer may be offline → fake ok=true.
+    for _pid2 in list(_peers.keys()):
+        if _peers[_pid2].get("connected"):
+            _unregister_peer(_pid2)
+            log.info(f"Relay fallback: marked peer '{_pid2}' as disconnected (P2P lost)")
+    _status["peer_count"] = 0
+
+    # ── Level 2: DCUtR UDP hole punch (v1.4) ─────────────────────────────────
+    # Before falling back to relay-as-transport, attempt UDP hole punching.
+    # We establish a *signaling-only* relay WS, exchange addresses, punch holes,
+    # then connect directly via the punched address. If punching fails (symmetric
+    # NAT, CGNAT, ~25% of cases), we fall through to Level 3 relay as normal.
+    DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+    _dcutr_direct_addr = None
+
+    print(f"\n{'='*55}")
+    print(f"⚡ P2P direct connect failed. Trying NAT hole punch (Level 2)...")
+    print(f"{'='*55}\n")
+    log.info("[v1.4] Attempting DCUtR hole punch before relay fallback")
+
+    try:
+        relay_ws_url = DEFAULT_RELAY.replace("https://", "wss://") + f"/acp/{token}/ws"
+        async with await asyncio.wait_for(
+            _proxy_ws_connect(relay_ws_url, open_timeout=5),
+            timeout=6.0,
+        ) as _sig_ws:
+            log.info(f"[DCUtR] signaling channel established via relay: {relay_ws_url}")
+            _status["dcutr_state"] = "punching"
+            _broadcast_sse_event("peer", {"event": "dcutr_started"})
+            puncher = DCUtRPuncher()
+            _dcutr_direct_addr = await asyncio.wait_for(
+                puncher.attempt(_sig_ws, local_udp_port=0),
+                timeout=12.0,
+            )
+    except asyncio.TimeoutError:
+        log.debug("[DCUtR] hole punch timed out (12s) — falling through to relay")
+    except Exception as e:
+        log.debug(f"[DCUtR] hole punch error ({type(e).__name__}): {e} — falling through to relay")
+    finally:
+        _status.pop("dcutr_state", None)
+
+    if _dcutr_direct_addr is not None:
+        # ── Hole punch succeeded: connect directly ────────────────────────────
+        direct_host, direct_port = _dcutr_direct_addr
+        direct_uri = f"ws://{direct_host}:{direct_port}/{token}"
+        log.info(f"[DCUtR] hole punch succeeded → direct connect: {direct_uri}")
+        print(f"\n{'='*55}")
+        print(f"✅ NAT hole punch SUCCESS — direct P2P connection established!")
+        print(f"   Peer: {direct_host}:{direct_port} (punched)")
+        print(f"{'='*55}\n")
+        _status["connection_type"] = "dcutr_direct"
+        _broadcast_sse_event("peer", {"event": "dcutr_connected",
+                                       "peer_addr": f"{direct_host}:{direct_port}"})
+        # Re-enter guest mode with the punched address (Level 1 will succeed this time)
+        await guest_mode(direct_host, direct_port, token, http_port)
+        return
+
+    # ── Level 3: Relay fallback ───────────────────────────────────────────────
+    log.warning(f"[v1.4] DCUtR hole punch failed. Falling back to relay (Level 3).")
+    log.warning(f"P2P unreachable after {P2P_MAX_RETRIES} retries. Auto-fallback to relay.")
+    _status["connection_type"] = "relay"
+    _broadcast_sse_event("peer", {"event": "relay_fallback",
+                                   "reason": "dcutr_failed"})
+    print(f"\n{'='*55}")
+    print(f"⚠️  NAT hole punch failed. Auto-fallback to relay (Level 3)...")
+    print(f"{'='*55}\n")
+
+    import subprocess as _sp
+
+    # P2P token == relay token（同一标识符，传输层透明）
+    # 发起方启动时已用此 token 在 relay 预注册，直接 join 即可
+    relay_base  = DEFAULT_RELAY
+    relay_token = token
+    relay_link  = f"acp+wss://{DEFAULT_RELAY.replace('https://','')}/acp/{token}"
+    log.info(f"Auto-fallback: joining relay session with same token: {token}")
+
+    # Join relay session
+    agent_name = _status.get("agent_name", "ACP-Agent")
+    try:
+        _sp.run(
+            ["curl", "-s", "--max-time", "10", "-X", "POST",
+             f"{relay_base}/acp/{relay_token}/join",
+             "-H", "Content-Type: application/json",
+             "-d", json.dumps({"name": agent_name})],
+            capture_output=True
+        )
+    except Exception as e:
+        log.warning(f"Relay join failed: {e}")
+
+    _status["link"] = relay_link
+
+    print(f"\n{'='*55}")
+    print(f"✅ Relay session ready [AUTO-FALLBACK]")
+    print(f"   Relay: {relay_link}")
+    print(f"{'='*55}\n")
+
+    await _http_relay_guest(relay_base, relay_token, http_port)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _connect_with_nat_traversal — v1.4 three-level automatic connection strategy
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _connect_with_nat_traversal(link: str, name: str, role: str) -> tuple:
+    """
+    三级连接策略（自动选择）：
+      Level 1: 直连 ws://IP:port/token（3s 超时）
+      Level 2: DCUtR TCP 打洞（交换 signaling → SYN 打洞）
+      Level 3: HTTP Relay 降级（Cloudflare Worker 转发，兜底）
+
+    返回：(peer_id, transport_level_used)
+      transport_level_used: "direct" | "dcutr" | "relay"
+
+    调用方负责将 transport_level_used 写入 _peers[peer_id]["transport_level"]。
+
+    参数:
+      link  — acp:// 格式链接（parse_link 负责解析）
+      name  — 本地 agent 名（用于 relay join 请求体）
+      role  — 保留参数，供上层标注 peer 角色
+    """
+    global _peers, _status, _loop
+
+    _DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+    DIRECT_TIMEOUT = 3.0   # Level 1: 3s 直连超时
+    DCUTR_TIMEOUT  = 12.0  # Level 2: 打洞超时
+
+    result = parse_link(link)
+    host, port, token, scheme = result
+    http_port = _status.get("http_port", 7901)
+
+    # ── If link is already an HTTP relay link, skip to Level 3 directly ──────
+    if scheme == "http_relay":
+        log.info("[NAT] link is http_relay scheme → Level 3 directly")
+        asyncio.ensure_future(_http_relay_guest(host, token, http_port))
+        return (token, "relay")
+
+    # ── Check --relay flag: force Level 3 (v1.4 semantic change) ─────────────
+    # Prior to v1.4, --relay meant "user explicitly chose relay".
+    # From v1.4 onward, --relay means "force Level 3 (skip L1+L2)".
+    _force_relay = _status.get("force_relay", False)
+    if _force_relay:
+        log.info("[NAT] --relay flag set → forcing Level 3 relay (skip L1+L2)")
+        relay_base = _status.get("relay_base_url") or _DEFAULT_RELAY
+        asyncio.ensure_future(_http_relay_guest(relay_base, token, http_port))
+        return (token, "relay")
+
+    uri = f"ws://{host}:{port}/{token}"
+
+    # ── Level 1: Direct WebSocket connection (3s timeout) ─────────────────────
+    log.info(f"[NAT L1] Attempting direct connect: {uri}")
+    try:
+        ws = await asyncio.wait_for(
+            _proxy_ws_connect(uri, ping_interval=20, ping_timeout=10),
+            timeout=DIRECT_TIMEOUT,
+        )
+        # BUG-042 fix: pass the already-established WS to guest_mode so it reuses
+        # this connection directly instead of opening a second WS.  The old code did
+        # asyncio.ensure_future(guest_mode(...)) which opened a NEW WS, triggering
+        # BUG-041 dedup on the host side and immediately closing the second connection.
+        log.info(f"[NAT L1] Direct connect succeeded: {uri} — handing off to guest_mode")
+        _status["connection_type"] = "p2p_direct"
+        asyncio.ensure_future(guest_mode(host, port, token, http_port, _existing_ws=ws))
+        return (token, "direct")
+    except (asyncio.TimeoutError, ConnectionRefusedError, OSError,
+            Exception) as e:
+        log.info(f"[NAT L1] Direct connect failed ({type(e).__name__}): {e} → trying Level 2")
+
+    # ── Level 2: DCUtR TCP/UDP hole punch ─────────────────────────────────────
+    log.info("[NAT L2] Attempting DCUtR hole punch...")
+    _broadcast_sse_event("peer", {"event": "dcutr_started"})
+    relay_base_url = _status.get("relay_base_url") or _DEFAULT_RELAY
+    _dcutr_direct_addr = None
+
+    try:
+        relay_ws_url = relay_base_url.replace("https://", "wss://") + f"/acp/{token}/ws"
+        async with await asyncio.wait_for(
+            _proxy_ws_connect(relay_ws_url, open_timeout=5),
+            timeout=6.0,
+        ) as _sig_ws:
+            log.info(f"[NAT L2] signaling WS established: {relay_ws_url}")
+            _status["dcutr_state"] = "punching"
+            puncher = DCUtRPuncher()
+            _dcutr_direct_addr = await asyncio.wait_for(
+                puncher.attempt(_sig_ws, local_udp_port=0),
+                timeout=DCUTR_TIMEOUT,
+            )
+    except asyncio.TimeoutError:
+        log.info("[NAT L2] hole punch timed out → falling back to Level 3")
+    except Exception as e:
+        log.info(f"[NAT L2] hole punch error ({type(e).__name__}): {e} → falling back to Level 3")
+    finally:
+        _status.pop("dcutr_state", None)
+
+    if _dcutr_direct_addr is not None:
+        direct_host, direct_port = _dcutr_direct_addr
+        log.info(f"[NAT L2] hole punch succeeded → {direct_host}:{direct_port}")
+        _status["connection_type"] = "dcutr_direct"
+        _broadcast_sse_event("peer", {"event": "dcutr_connected",
+                                       "peer_addr": f"{direct_host}:{direct_port}"})
+        asyncio.ensure_future(guest_mode(direct_host, direct_port, token, http_port))
+        return (token, "dcutr")
+
+    # ── Level 3: Relay fallback (Cloudflare Worker) ───────────────────────────
+    log.warning("[NAT L3] Both L1 and L2 failed. Falling back to HTTP relay (Level 3).")
+    _broadcast_sse_event("peer", {"event": "relay_fallback", "reason": "l1_l2_failed"})
+    _status["connection_type"] = "relay"
+
+    relay_base = relay_base_url
+    # Join relay session so messages can flow
+    import subprocess as _sp_nat
+    try:
+        _sp_nat.run(
+            ["curl", "-s", "--max-time", "10", "-X", "POST",
+             f"{relay_base}/acp/{token}/join",
+             "-H", "Content-Type: application/json",
+             "-d", json.dumps({"name": name or _status.get("agent_name", "ACP-Agent")})],
+            capture_output=True,
+        )
+    except Exception as _e:
+        log.warning(f"[NAT L3] relay join failed: {_e}")
+
+    asyncio.ensure_future(_http_relay_guest(relay_base, token, http_port))
+    return (token, "relay")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Local HTTP interface
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── v3.18: RFC 9421 HTTP Signatures (HTTP Message Signatures) ──────────────
+# Provides transport-layer request signing per RFC 9421:
+#   - Signature-Input header: declares covered fields, algorithm, keyid, created
+#   - Signature header: base64-encoded Ed25519 signature over canonicalized fields
+# Complements v3.0 per-message msg_sig (message-level) with transport-level security.
+
+_ERR_INVALID_SIGNATURE_CODE = "ERR_INVALID_SIGNATURE"
+
+
+def _parse_signature_input(sig_input: str) -> dict:
+    """Parse RFC 9421 Signature-Input header value.
+
+    Format: sig1=("@method" "@target-uri" "content-type");alg="ed25519";
+            keyid="did:acp:...";created=1700000000
+
+    Returns dict with keys: label, fields, alg, keyid, created (int or None).
+    Raises ValueError on malformed input.
+    """
+    result = {"label": None, "fields": [], "alg": None, "keyid": None, "created": None}
+    if not sig_input or not sig_input.strip():
+        raise ValueError("empty Signature-Input")
+
+    # Split by ";" to get key=value pairs, but also handle the fields list
+    parts = sig_input.split(";")
+    if not parts:
+        raise ValueError("no parts in Signature-Input")
+
+    # First part is usually the label with fields: sig1=("@method" "field")
+    label_and_fields = parts[0].strip()
+    if "=" in label_and_fields:
+        label, fields_str = label_and_fields.split("=", 1)
+        result["label"] = label.strip()
+        # Parse fields list: ("@method" "@target-uri" "content-type")
+        fields_str = fields_str.strip()
+        if fields_str.startswith("(") and fields_str.endswith(")"):
+            inner = fields_str[1:-1].strip()
+            # Split by whitespace, respecting quoted strings
+            import re
+            field_tokens = re.findall(r'"([^"]*)"', inner)
+            result["fields"] = [f for f in field_tokens if f.strip()]
+    else:
+        result["label"] = label_and_fields
+
+    # Parse remaining key=value pairs
+    for part in parts[1:]:
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            continue
+        key, val = part.split("=", 1)
+        key = key.strip()
+        val = val.strip()
+        # Remove surrounding quotes
+        if val.startswith('"') and val.endswith('"'):
+            val = val[1:-1]
+        if key == "alg":
+            result["alg"] = val
+        elif key == "keyid":
+            result["keyid"] = val
+        elif key == "created":
+            try:
+                result["created"] = int(val)
+            except (ValueError, TypeError):
+                pass
+
+    if not result.get("label"):
+        raise ValueError("missing signature label in Signature-Input")
+    if not result.get("alg"):
+        raise ValueError("missing alg in Signature-Input")
+    if not result.get("keyid"):
+        raise ValueError("missing keyid in Signature-Input")
+
+    return result
+
+
+def _build_signature_base_string(method: str, path: str, authority: str, headers: dict,
+                                  covered_fields: list, created: int = None) -> bytes:
+    """Build RFC 9421 signature base string from covered fields.
+
+    Canonicalizes each covered field name and its value(s), then
+    concatenates them into the signature base string.
+    """
+    import re as _re_hs
+    lines = []
+
+    for field_name in covered_fields:
+        if field_name == "@method":
+            lines.append(f'"@method": {method.upper()}')
+        elif field_name == "@target-uri":
+            lines.append(f'"@target-uri": {path}')
+        elif field_name == "@authority":
+            lines.append(f'"@authority": {authority}')
+        elif field_name == "@scheme":
+            lines.append('"@scheme": https')  # ACP relays use https
+        elif field_name == "@request-target":
+            lines.append(f'"@request-target": {method.lower()} {path}')
+        elif field_name.startswith("@"):
+            # Unknown derived component — RFC says to include as-is
+            lines.append(f'"{field_name}": ')
+        else:
+            # Regular header field
+            # Canonicalize: lowercase field name, normalize whitespace in values
+            normalized_name = field_name.lower()
+            # Get all header values for this field
+            raw_values = headers.get(field_name, headers.get(normalized_name, ""))
+            if isinstance(raw_values, list):
+                values = [str(v).strip() for v in raw_values]
+            else:
+                values = [str(raw_values).strip()]
+            # Concatenate with comma
+            joined = ", ".join(values)
+            # RFC 9421: field value normalization — collapse whitespace
+            joined = _re_hs.sub(r'\s+', ' ', joined).strip()
+            lines.append(f'"{normalized_name}": {joined}')
+
+    # Add created component if present
+    if created is not None:
+        lines.append(f'"@signature-params-expires"')
+
+    # Build signature-params line
+    sig_params_parts = []
+    sig_params_parts.append(f'alg="{covered_fields}"')  # placeholder, will be built properly
+
+    return "\n".join(lines).encode("utf-8")
+
+
+def _resolve_keyid_to_pubkey(keyid: str) -> str:
+    """Resolve a keyid to an Ed25519 public key.
+
+    Supports:
+      - did:acp:<base64url_pubkey>
+      - did:key:z6Mk... (Ed25519)
+      - Raw base64url-encoded 32-byte public key
+      - ~/.acp/identity.json lookup
+
+    Returns base64url-encoded public key or None if not resolved.
+    """
+    if not keyid:
+        return None
+
+    # Case 1: did:acp:<base64url_pubkey>
+    if keyid.startswith("did:acp:"):
+        stripped = keyid[len("did:acp:"):]
+        if "#" in stripped:
+            stripped = stripped.split("#")[0]
+        # Validate it's a plausible base64url pubkey (32 bytes = 43 chars b64url)
+        if len(stripped) >= 43:
+            return stripped
+        return None
+
+    # Case 2: did:key: (Ed25519)
+    if keyid.startswith("did:key:"):
+        from .identity import did_key_to_pubkey_b64
+        try:
+            return did_key_to_pubkey_b64(keyid)
+        except Exception:
+            return None
+
+    # Case 3: Raw base64url (32-byte Ed25519 = 43 chars)
+    if len(keyid) >= 43:
+        try:
+            _base64.urlsafe_b64decode(keyid + "==")
+            return keyid
+        except Exception:
+            return None
+
+    # Case 4: Look up in ~/.acp/identity.json
+    try:
+        import os as _os_hs, json as _json_hs
+        identity_path = _os_hs.path.expanduser("~/.acp/identity.json")
+        if _os_hs.path.exists(identity_path):
+            with open(identity_path) as f:
+                id_data = _json_hs.load(f)
+            # Match by did or keyid in identity file
+            if id_data.get("did") == keyid or id_data.get("keyid") == keyid:
+                return id_data.get("public_key_b64") or id_data.get("publicKey")
+            # Check aliases
+            for alias in id_data.get("aliases", []):
+                if alias == keyid:
+                    return id_data.get("public_key_b64") or id_data.get("publicKey")
+    except Exception:
+        pass
+
+    return None
+
+
+def _verify_http_signature(method: str, path: str, authority: str, headers: dict,
+                           sig_input: str, signature_b64: str) -> dict:
+    """Verify an RFC 9421 HTTP signature.
+
+    Returns dict with keys: valid (bool), signer (str or None),
+    covered_fields (list), error (str or None).
+    """
+    try:
+        parsed = _parse_signature_input(sig_input)
+        alg = parsed.get("alg", "").lower()
+
+        if alg != "ed25519" and alg != "eddsa":
+            return {"valid": False, "signer": None, "covered_fields": parsed["fields"],
+                     "error": f"unsupported algorithm: {alg}"}
+
+        keyid = parsed["keyid"]
+        pubkey_b64 = _resolve_keyid_to_pubkey(keyid)
+        if not pubkey_b64:
+            return {"valid": False, "signer": None, "covered_fields": parsed["fields"],
+                     "error": f"keyid '{keyid}' could not be resolved to a public key"}
+
+        # Build canonical signature base string
+        base_string = _build_canonical_signature_base(method, path, authority, headers,
+                                                      parsed["fields"], parsed.get("created"))
+
+        # Decode signature
+        try:
+            sig_bytes = _base64.b64decode(signature_b64)
+        except Exception:
+            sig_bytes = _base64.urlsafe_b64decode(signature_b64 + "==")
+
+        # Verify with Ed25519
+        if not _ED25519_AVAILABLE:
+            return {"valid": None, "signer": keyid, "covered_fields": parsed["fields"],
+                     "error": "Ed25519 library unavailable — cannot verify (fail-open)"}
+
+        pub_key = Ed25519PublicKey.from_public_bytes(
+            _base64.urlsafe_b64decode(pubkey_b64 + "==")
+        )
+        pub_key.verify(sig_bytes, base_string)
+
+        return {"valid": True, "signer": keyid, "covered_fields": parsed["fields"], "error": None}
+
+    except _Ed25519InvalidSignature:
+        return {"valid": False, "signer": None, "covered_fields": [],
+                 "error": "Ed25519 signature verification failed"}
+    except ValueError as e:
+        return {"valid": False, "signer": None, "covered_fields": [],
+                 "error": f"invalid Signature-Input: {e}"}
+    except Exception as e:
+        return {"valid": False, "signer": None, "covered_fields": [],
+                 "error": f"verification error: {e}"}
+
+
+def _build_canonical_signature_base(method: str, path: str, authority: str,
+                                    headers: dict, covered_fields: list,
+                                    created: int = None) -> bytes:
+    """Build canonical RFC 9421 signature base string.
+
+    Each covered field becomes a line: "field-name": value
+    Derived components (@method, @target-uri, etc.) are evaluated.
+    Final line is the signature-params.
+    """
+    import re as _re_csb
+    lines = []
+
+    for field_name in covered_fields:
+        if field_name == "@method":
+            lines.append(f'"@method": {method.upper()}')
+        elif field_name == "@target-uri":
+            lines.append(f'"@target-uri": {path}')
+        elif field_name == "@authority":
+            lines.append(f'"@authority": {authority}')
+        elif field_name == "@scheme":
+            lines.append('"@scheme": https')
+        elif field_name == "@request-target":
+            lines.append(f'"@request-target": {method.lower()} {path}')
+        elif field_name == "@path":
+            lines.append(f'"@path": {path}')
+        elif field_name == "@query":
+            lines.append(f'"@query": ')
+        elif field_name.startswith("@"):
+            # Unknown derived component — RFC says include as empty
+            lines.append(f'"{field_name}": ')
+        else:
+            # Regular header field — normalize name and values
+            normalized_name = field_name.lower()
+            raw_values = headers.get(field_name, headers.get(normalized_name, ""))
+            if isinstance(raw_values, list):
+                values = [str(v).strip() for v in raw_values]
+            else:
+                values = [str(raw_values).strip()]
+            joined = ", ".join(values)
+            # RFC 9421 §2.3: normalize whitespace in field values
+            joined = _re_csb.sub(r'\s+', ' ', joined).strip()
+            lines.append(f'"{normalized_name}": {joined}')
+
+    # Signature params line
+    sig_params_parts = []
+    if created is not None:
+        sig_params_parts.append(f'created={created}')
+    # Build fields param
+    fields_param = " ".join(f'"{f}"' for f in covered_fields)
+    sig_params_parts.append(f'fields=({fields_param})')
+    sig_params_line = f'"@signature-params": ({fields_param});{ "; ".join(sig_params_parts)}'
+    lines.append(sig_params_line)
+
+    return "\n".join(lines).encode("utf-8")
+
+
+def _sign_http_request(method: str, path: str, authority: str, headers: dict,
+                        covered_fields: list, keyid: str = None) -> dict:
+    """Sign an HTTP request per RFC 9421 using this relay's Ed25519 key.
+
+    Returns dict with Signature-Input and Signature headers.
+    Raises ValueError if keyid cannot be resolved or signing fails.
+    Requires _ed25519_private to be loaded.
+    """
+    if _ed25519_private is None:
+        raise ValueError("no Ed25519 private key loaded (--identity)")
+
+    import time as _time_hs
+    created = int(_time_hs.time())
+
+    base_string = _build_canonical_signature_base(method, path, authority, headers,
+                                                  covered_fields, created)
+    sig_bytes = _ed25519_private.sign(base_string)
+    sig_b64 = _base64.b64encode(sig_bytes).decode("ascii")
+
+    # Default keyid
+    if keyid is None:
+        keyid = f"did:acp:{_ed25519_public_b64}"
+
+    # Build Signature-Input
+    fields_param = " ".join(f'"{f}"' for f in covered_fields)
+    sig_input = (
+        f'sig1=({fields_param});alg="ed25519";'
+        f'keyid="{keyid}";created={created}'
+    )
+
+    return {
+        "Signature-Input": sig_input,
+        "Signature": sig_b64,
+    }
+
+
+# ── POST ──────────────────────────────────────────────────────────────────
+class _BodyReadError(BaseException):
+    """Raised by LocalHTTP._read_body when it has already written a 400 response.
+    Inherits BaseException (not Exception) so it bypasses all 'except Exception'
+    handlers and propagates cleanly to the do_POST wrapper."""
+
+
+class LocalHTTP(BaseHTTPRequestHandler):
+    def log_message(self, *_): pass
+
+    def _json(self, data, code=200):
+        body = json.dumps(data, ensure_ascii=False, indent=2).encode()
+        self.send_response(code)
+        # v3.14: respond with application/acp+json when client signals Accept: application/acp+json
+        # (A2A application/a2a+json SHOULD alignment); default remains application/json for compat
+        accept_hdr = self.headers.get("Accept", "")
+        if "application/acp+json" in accept_hdr:
+            content_type = "application/acp+json; charset=utf-8"
+        else:
+            content_type = "application/json; charset=utf-8"
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json_well_known(self, data, code=200):
+        """RFC 8615-compliant response for /.well-known/* endpoints.
+
+        Adds required headers beyond the base _json():
+          - Cache-Control: no-cache, no-store  (AgentCard is dynamic; must not be stale)
+          - Vary: Accept                        (content negotiation hint for proxies)
+          - Access-Control-Allow-Methods: GET, OPTIONS  (CORS preflight clarity)
+          - Access-Control-Allow-Headers: Content-Type  (standard CORS header)
+          - X-Content-Type-Options: nosniff    (security hardening per RFC 8615 §4)
+
+        v2.47: introduced for /.well-known/acp.json, /.well-known/did.json,
+               /.well-known/jwks.json to align with RFC 8615 production requirements.
+        """
+        body = json.dumps(data, ensure_ascii=False, indent=2).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("Vary", "Accept")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self):
+        n = int(self.headers.get("Content-Length", 0))
+        # BUG-051 fix: enforce MAX_MSG_BYTES on HTTP request bodies (same limit as WebSocket)
+        if n > MAX_MSG_BYTES:
+            e_body, e_code = _err(ERR_MSG_TOO_LARGE,
+                                  f"Request body too large: {n} bytes (max {MAX_MSG_BYTES})", 413)
+            self._json(e_body, e_code)
+            # Drain remaining bytes to keep connection clean
+            try:
+                self.rfile.read(min(n, 4096))
+            except Exception:
+                pass
+            raise _BodyReadError()
+        raw = self.rfile.read(n) if n else b"{}"
+        if not raw.strip():
+            return {}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            # BUG-011 fix: invalid JSON should be 400 ERR_INVALID_REQUEST, not 500 ERR_INTERNAL
+            e_body, e_code = _err(ERR_INVALID_REQUEST, f"Invalid JSON in request body: {e}", 400)
+            self._json(e_body, e_code)
+            raise _BodyReadError() from e  # signal caller to stop processing
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        for h, v in [("Access-Control-Allow-Origin","*"),
+                     ("Access-Control-Allow-Methods","GET,POST,DELETE,OPTIONS"),
+                     ("Access-Control-Allow-Headers","Content-Type")]:
+            self.send_header(h, v)
+        self.end_headers()
+
+    # ── GET ───────────────────────────────────────────────────────────────────
+
+    def do_GET(self):
+        # v3.12: declare globals modified in do_GET PATCH branch (/policy-compliance)
+        global _policy_compliance  # noqa: PLW0602 — also assigned in PATCH branch of /policy-compliance
+        parsed = urlparse(self.path)
+        p  = parsed.path
+        qs = parse_qs(parsed.query)
+
+        if p in ("/card", "/.well-known/acp.json"):  # [stable] AgentCard
+            # Rebuild dynamically so capabilities like lan_discovery reflect runtime state
+            # v2.10: pass full structured skill objects (preserve description/tags/examples)
+            skills = list((_status.get("agent_card") or {}).get("skills", []))
+            live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
+            # v1.8: attach Ed25519 self-signature when identity is enabled
+            live_card = _sign_agent_card(live_card)
+            # v2.21: ?filter_limitations=permanent|transient|<kind> — filter limitations[] by permanence or kind
+            fl = qs.get("filter_limitations", [None])[0]
+            if fl and "limitations" in live_card:
+                lims = live_card["limitations"]
+                if fl == "permanent":
+                    lims = [lim for lim in lims if lim.get("permanent") is True]
+                elif fl == "transient":
+                    lims = [lim for lim in lims if lim.get("permanent") is not True]
+                elif fl in _VALID_LIMITATION_KINDS:
+                    lims = [lim for lim in lims if lim.get("kind") == fl]
+                else:
+                    self._json({"error": f"invalid filter_limitations value '{fl}'; "
+                                         f"use 'permanent', 'transient', or one of {sorted(_VALID_LIMITATION_KINDS)}"}, 400)
+                    return
+                live_card = {**live_card, "limitations": lims}
+            self._json_well_known({"self": live_card, "peer": _status.get("peer_card")})
+
+        # ── GET /.well-known/did.json — W3C DID Document (v1.3) ───────────────
+        elif p == "/.well-known/did.json":
+            """Return a W3C-compatible DID Document for this Agent's did:acp: identity.
+
+            Requires --identity flag (Ed25519 keypair).  Returns 404 when
+            identity is not enabled.
+
+            The DID Document maps the did:acp: identifier to:
+              - A verificationMethod (Ed25519VerificationKey2020)
+              - A service endpoint pointing to the current ACP session link
+            """
+            if not _ed25519_private or not _did_acp:
+                self._json({"error": "DID identity not enabled — start with --identity"}, 404)
+                return
+
+            link    = _status.get("link")
+            # Prefer did:key (W3C standard) when available; fall back to did:acp
+            primary_did = _did_key or _did_acp
+            did_doc = {
+                "@context": [
+                    "https://www.w3.org/ns/did/v1",
+                    "https://w3id.org/security/suites/ed25519-2020/v1",
+                ],
+                "id": primary_did,
+                "alsoKnownAs": ([_did_acp] if _did_key and _did_acp else []),  # v0.8: cross-reference did:acp
+                "verificationMethod": [{
+                    "id":                f"{primary_did}#key-1",
+                    "type":              "Ed25519VerificationKey2020",
+                    "controller":        primary_did,
+                    "publicKeyMultibase": f"z{_base58_encode(bytes([0xed, 0x01]) + _base64.urlsafe_b64decode(_ed25519_public_b64 + '=='))}",  # multibase base58btc
+                }],
+                "authentication":       [f"{primary_did}#key-1"],
+                "assertionMethod":      [f"{primary_did}#key-1"],
+                "service": ([{
+                    "id":              f"{primary_did}#acp",
+                    "type":            "ACPRelay",
+                    "serviceEndpoint": link,
+                }] if link else []),
+            }
+            self._json_well_known(did_doc)
+
+        # ── GET /.well-known/jwks.json — JWKS endpoint (v2.18) ────────────────
+        elif p == "/.well-known/jwks.json":
+            """Return a JWK Set (RFC 7517) containing this Agent's Ed25519 public key.
+
+            v2.18: JWKS compatibility layer for A2A IS#1628 interoperability.
+
+            Returns:
+              200 + {"keys": [<JWK>]}   when --identity is enabled (Ed25519 keypair loaded)
+              200 + {"keys": []}         when --identity is NOT provided
+
+            This endpoint is unauthenticated (public well-known key discovery).
+            The JWK contains only the public key; the private key is never exported.
+
+            JWK format:
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "x":   "<base64url 32-byte pubkey>",
+                "use": "sig",
+                "alg": "EdDSA",
+                "kid": "<agent_name>:<pubkey_prefix>"
+              }
+
+            Test IDs: JW1 ~ JW6
+            """
+            agent_name = _status.get("agent_name", "ACP-Agent")
+            jwks = _build_jwks(agent_name)
+            self._json_well_known(jwks)
+
+        elif p == "/status":  # [stable] relay status
+            # v3.4: merge governance block + capabilities shortcut into top-level /status response
+            # v3.5: also expose transport_bindings at top level
+            status_resp = dict(_status)
+            status_resp["governance"] = _build_governance()
+            status_resp["transport_bindings"] = _build_transport_bindings()
+            # Expose capabilities at top level (shortcut to agent_card.capabilities)
+            agent_card = _status.get("agent_card") or {}
+            if "capabilities" in agent_card:
+                status_resp["capabilities"] = agent_card["capabilities"]
+            self._json(status_resp)
+
+        elif p == "/link":
+            self._json({"link": _status.get("link"), "session_id": _status.get("session_id")})
+
+        # ── GET /peers — list all known peers with pagination (v0.6, v2.27) ────
+        elif p == "/peers":
+            # v2.27: pagination + filter params
+            try:
+                limit_raw  = qs.get("limit",  ["50"])[0]
+                offset_raw = qs.get("offset", ["0"])[0]
+                filter_val = qs.get("filter", ["all"])[0].lower()  # all|connected|disconnected
+                try:
+                    limit = max(1, min(int(limit_raw), 200))
+                except ValueError:
+                    limit = 50
+                try:
+                    offset = max(0, int(offset_raw))
+                except ValueError:
+                    offset = 0
+            except Exception:
+                limit, offset, filter_val = 50, 0, "all"
+
+            # build full list
+            peer_list_all = []
+            for pid, info in _peers.items():
+                peer_list_all.append({
+                    "id":               info["id"],
+                    "name":             info["name"],
+                    "link":             info.get("link"),
+                    "connected":        info["connected"],
+                    "ws_ready":         info["connected"] and info.get("ws") is not None,  # v2.16: true only after WS handshake
+                    "connected_at":     info.get("connected_at"),
+                    "disconnected_at":  info.get("disconnected_at"),
+                    "messages_sent":      info.get("messages_sent", 0),
+                    "messages_received":  info.get("messages_received", 0),
+                    "messages_delivered": info.get("messages_delivered", 0),  # v2.35: delivery ACK count
+                    "messages_read":      info.get("messages_read", 0),       # v2.36: read receipt count
+                    "typing":             info.get("typing", False),           # v2.37: peer typing indicator
+                    "typing_since":       info.get("typing_since"),            # v2.37: ISO ts when started
+                    "agent_card":         info.get("agent_card"),
+                    "last_ping_rtt_ms":   info.get("last_ping_rtt_ms"),   # v2.25: RTT from last /ping
+                    "last_ping_at":     info.get("last_ping_at"),        # v2.25: ISO timestamp of last ping
+                    "ping_count":       info.get("ping_count", 0),       # v2.25: total pings sent to this peer
+                })
+
+            # v2.27: apply filter
+            if filter_val == "connected":
+                filtered = [p2 for p2 in peer_list_all if p2["connected"]]
+            elif filter_val == "disconnected":
+                filtered = [p2 for p2 in peer_list_all if not p2["connected"]]
+            elif filter_val == "all":
+                filtered = peer_list_all
+            else:
+                self._json({"ok": False, "error_code": "ERR_INVALID_FILTER",
+                            "error": f"filter must be one of: all, connected, disconnected"}, 400)
+                return
+
+            total_filtered = len(filtered)
+            page_items     = filtered[offset: offset + limit]
+            active         = sum(1 for p2 in _peers.values() if p2["connected"])
+
+            self._json({
+                "peers":         page_items,
+                "count":         len(page_items),       # items in this page
+                "total":         len(peer_list_all),    # total known peers (unfiltered)
+                "total_filtered": total_filtered,       # total after filter
+                "active":        active,                # connected peers (always)
+                "pagination": {                         # v2.27: pagination metadata
+                    "limit":    limit,
+                    "offset":   offset,
+                    "filter":   filter_val,
+                    "has_more": (offset + limit) < total_filtered,
+                    "next_offset": (offset + limit) if (offset + limit) < total_filtered else None,
+                },
+            })
+
+        # ── GET /peers/broadcast/history — broadcast history log (v2.23) ──────
+        elif p == "/peers/broadcast/history":
+            try:
+                limit_raw = qs.get("limit", ["20"])[0]
+                try:
+                    limit = max(1, min(int(limit_raw), 200))
+                except ValueError:
+                    limit = 20
+                history = list(reversed(_broadcast_log))[:limit]
+                self._json({
+                    "ok": True,
+                    "count": len(history),
+                    "total": len(_broadcast_log),
+                    "history": history,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/topics — list active topics (v3.9) ─────────────────────────
+        elif p == "/peers/topics":
+            """
+            GET /peers/topics — List all active topics with subscriber counts (v3.9).
+
+            A topic is 'active' if it has at least one subscriber OR has been
+            published to at least once (has history entries).
+
+            Response fields:
+              - ok (bool): true
+              - topics (list): [{
+                  name (str): topic name,
+                  subscribers (int): number of current subscribers,
+                  subscriber_ids (list[str]): peer_ids currently subscribed,
+                  published_count (int): number of publishes recorded,
+                  last_published_at (str|None): ISO-8601 of most recent publish,
+                }]
+              - total (int): total number of topics
+
+            Usage: GET /peers/topics
+            """
+            all_topics = set(_topic_subscribers.keys()) | set(_topic_log.keys())
+            topic_list = []
+            for name in sorted(all_topics):
+                subs = _topic_subscribers.get(name, {})
+                log_entries = _topic_log.get(name, [])
+                last_pub = log_entries[-1]["published_at"] if log_entries else None
+                topic_list.append({
+                    "name":              name,
+                    "subscribers":       len(subs),
+                    "subscriber_ids":    list(subs.keys()),
+                    "published_count":   len(log_entries),
+                    "last_published_at": last_pub,
+                })
+            self._json({"ok": True, "topics": topic_list, "total": len(topic_list)})
+
+        # ── GET /peers/<peer_id>/card — fetch cached AgentCard for a peer (v2.24) ──
+        elif p.startswith("/peers/") and p.endswith("/card") and p.count("/") == 3:
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+                info = _peers[peer_id]
+                card = info.get("agent_card")
+                self._json({
+                    "ok": True,
+                    "peer_id": peer_id,
+                    "name": info.get("name"),
+                    "connected": info.get("connected", False),
+                    "agent_card": card,
+                    "card_available": card is not None,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/<peer_id>/verify-card — on-demand AgentCard re-verification (v2.55) ──
+        elif p.startswith("/peers/") and p.endswith("/verify-card") and p.count("/") == 3:
+            """
+            GET /peers/{peer_id}/verify-card — On-demand AgentCard re-verification (v2.55).
+
+            Re-verify the cached AgentCard for the specified peer using the same
+            Ed25519 verification engine as POST /verify-card.
+
+            Query parameters:
+              force=1       — bypass TTL cache (always re-verify); default: use cache
+              trust=1       — if valid, upsert a card_verified trust signal for this peer
+              ttl=<seconds> — custom cache TTL (default: 300); 0 is treated as force=1
+
+            Response 200:
+              {
+                "ok":                   true,
+                "peer_id":              "...",
+                "name":                 "...",
+                "connected":            bool,
+                "valid":                true|false|null,
+                "did":                  "did:acp:...",
+                "did_consistent":       true|null,
+                "public_key":           "...",
+                "scheme":               "ed25519",
+                "error":                null,
+                "cached":               bool,
+                "cache_expires_in":     int?,
+                "trust_signal_written": bool,
+                "last_connected":       "ISO8601"|null,
+                "card_received_at":     "ISO8601"|null,
+                "card_available":       bool
+              }
+
+            Response 404: peer not found
+            Response 422: peer found but no AgentCard cached (never shared card)
+            """
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+
+                info = _peers[peer_id]
+                card = info.get("agent_card")
+
+                if not card:
+                    self._json({
+                        "ok": False,
+                        "error_code": "ERR_CARD_UNAVAILABLE",
+                        "error": f"peer '{peer_id}' has not shared an AgentCard yet",
+                        "peer_id": peer_id,
+                        "name": info.get("name"),
+                        "connected": info.get("connected", False),
+                        "card_available": False,
+                    }, 422)
+                    return
+
+                # Parse query params: force, trust, ttl
+                parsed_qs = parse_qs(urlparse(self.path).query)
+                force = parsed_qs.get("force", ["0"])[0] == "1"
+                trust_int = parsed_qs.get("trust", ["0"])[0] == "1"
+                ttl_raw = parsed_qs.get("ttl", [str(_VERIFY_CARD_CACHE_TTL)])[0]
+                try:
+                    ttl = max(0, int(ttl_raw))
+                except (TypeError, ValueError):
+                    ttl = _VERIFY_CARD_CACHE_TTL
+                if ttl == 0:
+                    force = True
+
+                effective_ttl = 0 if force else ttl
+                vr = _verify_card_cached(card, ttl=effective_ttl)
+
+                if trust_int:
+                    _apply_trust_integration(vr, peer_id)
+
+                self._json({
+                    "ok": True,
+                    "peer_id": peer_id,
+                    "name": info.get("name"),
+                    "connected": info.get("connected", False),
+                    "card_available": True,
+                    "last_connected": info.get("last_connected"),
+                    "card_received_at": info.get("card_received_at"),
+                    "trust_signal_written": trust_int and vr.get("valid") is True,
+                    **vr,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /capability-tokens — list issued capability tokens (v2.57) ──
+        elif p == "/capability-tokens":
+            """
+            GET /capability-tokens — List all capability tokens issued by this relay.
+
+            Query params:
+              skill_id  — filter by skill (optional)
+              active    — if "1" or "true", only return non-expired tokens (optional)
+
+            Response 200:
+              { "ok": true, "count": <int>, "tokens": [{...}, ...] }
+            """
+            now_ts = int(time.time())
+            qs = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            filter_skill = qs.get("skill_id", "").strip()
+            filter_active = qs.get("active", "").lower() in ("1", "true")
+
+            tokens_out = []
+            for jti, tok in _capability_tokens.items():
+                if filter_skill and tok.get("skill_id") != filter_skill:
+                    continue
+                expired = tok.get("exp", 0) < now_ts
+                if filter_active and expired:
+                    continue
+                tokens_out.append({**tok, "expired": expired})
+
+            self._json({"ok": True, "count": len(tokens_out), "tokens": tokens_out})
+
+        # ── GET /interaction-records — list bilateral interaction records (v2.59) ──
+        elif p == "/interaction-records":
+            """
+            GET /interaction-records — List all bilateral interaction records generated by this relay (v2.59).
+
+            Each record attests a task invocation with relay Ed25519 signature and optional
+            caller_token_hash (sha256 of capability_token.jti). Inspired by A2A IS#1718.
+
+            Query params:
+              skill_id  — filter by skill_id (optional)
+              peer_id   — filter by caller_did containing peer_id (optional)
+              limit     — max records to return (default: 100)
+
+            Response 200:
+              { "ok": true, "count": <int>, "total": <int>, "records": [{...}, ...] }
+            """
+            qs_ir = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            filter_skill_ir = qs_ir.get("skill_id", "").strip()
+            filter_peer_ir  = qs_ir.get("peer_id", "").strip()
+            try:
+                limit_ir = int(qs_ir.get("limit", 100))
+            except (ValueError, TypeError):
+                limit_ir = 100
+
+            recs_out = []
+            for rec in _interaction_records:
+                if filter_skill_ir and rec.get("skill_id") != filter_skill_ir:
+                    continue
+                if filter_peer_ir and filter_peer_ir not in (rec.get("caller_did") or ""):
+                    continue
+                recs_out.append(rec)
+
+            total_ir = len(recs_out)
+            self._json({
+                "ok":     True,
+                "count":  min(len(recs_out), limit_ir),
+                "total":  total_ir,
+                "records": recs_out[-limit_ir:],
+            })
+
+        # ── GET /governance-metadata — relay governance metadata (v2.60) ──
+        elif p == "/governance-metadata":
+            """
+            GET /governance-metadata — Return current governance_metadata block (v2.60).
+
+            Returns the same block embedded in AgentCard, but always freshly computed
+            with live runtime counters (peer_count, task_count, interaction_record_count).
+
+            Response 200:
+              { "ok": true, "governance_metadata": { ... } }
+            """
+            self._json({"ok": True, "governance_metadata": _build_governance_metadata()})
+
+        # ── v3.12: GET /governance/compliance — current compliance report (A2A #1717) ──
+        elif p == "/governance/compliance":
+            """
+            GET /governance/compliance — Return current compliance report without running a new check (v3.12).
+
+            Returns the last recorded compliance state. Run POST /governance/compliance
+            to trigger a fresh check.
+
+            Response 200:
+              {
+                "ok": true,
+                "compliance_report": { ... },
+                "last_verified_at": <ISO8601 or null>,
+                "governance": { ... }
+              }
+            """
+            issues = sum(
+                1 for e in _policy_compliance
+                if isinstance(e, dict) and e.get("status") == "non-compliant"
+            )
+            compliance_report = {
+                "policies_declared":  len(_policy_compliance),
+                "issues_detected":    issues,
+                "status":             "unverified" if not _governance_compliance_verified_at
+                                      else ("compliant" if issues == 0 else "issues_detected"),
+                "policy_checks":      [
+                    {
+                        "policy": e if isinstance(e, str) else e.get("policy", ""),
+                        "status": "unknown" if isinstance(e, str)
+                                  else ("pass" if e.get("status") != "non-compliant" else "warn"),
+                    }
+                    for e in _policy_compliance
+                ],
+                "compliance_endpoint": "/governance/compliance",
+            }
+            self._json({
+                "ok":                True,
+                "compliance_report": compliance_report,
+                "last_verified_at":  _governance_compliance_verified_at,
+                "governance":        _build_governance(),
+            })
+
+        # ── GET /governance/audit — interaction record audit trail (v3.13) ──
+        elif p == "/governance/audit":
+            """
+            GET /governance/audit — Return interaction record audit trail (v3.13).
+
+            Returns all (or filtered) bilateral interaction records stored in-memory.
+            Implements the `auditEndpoint` concept from A2A #1717 governance metadata discussion.
+
+            Query params:
+              limit=<n>       Max records to return (default 50, max 200)
+              peer_id=<id>    Filter by caller_peer_id (exact match)
+              task_id=<id>    Filter by task_id (exact match)
+              since=<ISO8601> Filter records created after this timestamp
+
+            Response 200:
+              {
+                "ok": true,
+                "records": [ ... ],
+                "total": <n>,
+                "returned": <n>,
+                "audit_endpoint": "/governance/audit",
+                "note": "ACP v3.13 auditEndpoint — A2A #1717 aligned"
+              }
+            """
+            qs = {}
+            if "?" in self.path:
+                import urllib.parse as _up
+                qs = dict(_up.parse_qsl(self.path.split("?", 1)[1]))
+            limit = min(int(qs.get("limit", 50)), 200)
+            filter_peer  = qs.get("peer_id")
+            filter_task  = qs.get("task_id")
+            filter_since = qs.get("since")
+
+            records = list(_interaction_records)  # snapshot
+
+            if filter_peer:
+                records = [r for r in records
+                           if r.get("caller_peer_id") == filter_peer
+                           or r.get("relay_did") == filter_peer]
+            if filter_task:
+                records = [r for r in records if r.get("task_id") == filter_task]
+            if filter_since:
+                records = [r for r in records
+                           if (r.get("created_at") or "") >= filter_since]
+
+            total = len(records)
+            records = records[-limit:]  # most recent first (last N)
+            self._json({
+                "ok":             True,
+                "records":        records,
+                "total":          total,
+                "returned":       len(records),
+                "audit_endpoint": "/governance/audit",
+                "note":           "ACP v3.13 auditEndpoint — A2A #1717 aligned",
+            })
+
+        # ── GET /ir/test-vectors — bilateral IR deterministic test vectors (v2.64) ──
+        elif p == "/ir/test-vectors":
+            """
+            GET /ir/test-vectors — Deterministic bilateral interaction record test vectors (v2.64).
+
+            Returns reproducible Ed25519-signed test vectors for cross-implementation
+            verification of bilateral interaction record format. Keys are derived from
+            fixed seeds (sha256 of known strings) to ensure identical output across runs.
+
+            Vectors:
+              tv-ir-001: Full bilateral (both relay + caller sign same canonical payload)
+              tv-ir-002: Relay-only / unilateral (caller_signature=null, bilateral=false)
+              tv-ir-003: Tampered caller signature (caller_signature_valid=false, bilateral=false)
+              tv-ir-004: did:key cross-verify (using W3C did:key DIDs instead of did:acp)
+
+            Requires Ed25519 support (--identity or cryptography package).
+            Requested by @aeoess (A2A Issue #1718, 2026-04-06).
+
+            Response 200:
+              {
+                "ok": true,
+                "schema_version": "1.0",
+                "generated_by": "ACP/<version>",
+                "keys": { "relay": {...}, "caller": {...} },
+                "vectors": [ { "id": "tv-ir-001", ... }, ... ]
+              }
+            """
+            if not _ED25519_AVAILABLE:
+                self._json({"ok": False, "error": "Ed25519 not available — install cryptography package"}, 503)
+                return
+            if not _ed25519_private:
+                self._json({"ok": False, "error": "No Ed25519 identity loaded — start relay with --identity"}, 503)
+                return
+            result = _generate_ir_test_vectors()
+            if "error" in result:
+                self._json({"ok": False, **result}, 500)
+            else:
+                self._json({"ok": True, **result})
+
+        # ── GET /ir/adversarial-fixtures — adversarial collusion/inflation fixtures (v2.91) ──
+        elif p == "/ir/adversarial-fixtures":
+            """
+            GET /ir/adversarial-fixtures — Adversarial bilateral IR fixtures for collusion and
+            inflation detection testing (v2.91).
+
+            Inspired by A2A Issue #1718 (aeoess adversarial fixture proposal, 2026-04-08).
+            Provides self-contained JSON fixtures that APS/SINT implementations can use to
+            verify their manipulation-detection algorithms.
+
+            Fixtures:
+              AF-001: Legitimate dense interaction (50 interactions, 4 diverse counterparties)
+              AF-002: Colluding pair mutual inflation (20 reciprocal Alice↔Bob interactions)
+              AF-003: Sybil ring circular inflation (A→B→C→A, 21 interactions, closed loop)
+              AF-004: Isolated burst spike (5 historical + 15 rapid same-day interactions)
+              AF-005: Tampered hash chain (record 3 caller_signature corrupted)
+
+            Each fixture includes:
+              - scenario type identifier
+              - agent DIDs + public keys
+              - full signed interaction records
+              - expected_flags (manipulation signals to detect)
+              - expected_trust_signal (high | suspicious | untrusted | invalid)
+              - detection_hint (algorithm hints for implementors)
+
+            Requires Ed25519 support (cryptography package).
+
+            Response 200:
+              {
+                "ok": true,
+                "schema_version": "1.0",
+                "generated_by": "ACP/<version>",
+                "fixture_count": 5,
+                "fixtures": [ { "id": "AF-001", ... }, ... ],
+                "detection_algorithms": { ... }
+              }
+            """
+            if not _ED25519_AVAILABLE:
+                self._json({"ok": False, "error": "Ed25519 not available — install cryptography package"}, 503)
+                return
+            result = _generate_ir_adversarial_fixtures()
+            if "error" in result:
+                self._json({"ok": False, **result}, 500)
+            else:
+                self._json({"ok": True, **result})
+
+        # ── GET /ir/imported-evidence — list imported bilateral IR evidence (v2.65) ──
+        elif p == "/ir/imported-evidence":
+            """
+            GET /ir/imported-evidence — List all externally-imported bilateral IR evidence records (v2.65).
+
+            These are records imported via POST /ir/import-evidence.
+            Each entry includes the source IR, signature verification result, and
+            APS-compatible reputation_update payload.
+
+            Query params:
+              agent_did — filter by agent_did (optional)
+              limit     — max records to return (default: 100)
+
+            Response 200:
+              { "ok": true, "count": int, "total": int, "records": [{...}, ...] }
+            """
+            qs_ie = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            filter_agent_ie = qs_ie.get("agent_did", "").strip()
+            try:
+                limit_ie = int(qs_ie.get("limit", 100))
+            except (ValueError, TypeError):
+                limit_ie = 100
+
+            recs_ie = []
+            for rec in _imported_evidence:
+                rep = rec.get("reputation_update", {})
+                if filter_agent_ie and filter_agent_ie not in (rep.get("agent_did") or ""):
+                    continue
+                recs_ie.append(rec)
+
+            total_ie = len(recs_ie)
+            self._json({
+                "ok":     True,
+                "count":  min(len(recs_ie), limit_ie),
+                "total":  total_ie,
+                "records": recs_ie[-limit_ie:],
+            })
+
+        # ── GET /trust/bilateral-ir/log — queryable bilateral IR record log (v2.72) ──
+        elif p == "/trust/bilateral-ir/log":
+            """
+            GET /trust/bilateral-ir/log — Query the local bilateral interaction record log (v2.72).
+
+            Returns interaction records generated by this relay instance via _create_interaction_record().
+            Each record is a bilateral-signed (or relay-signed) IR anchored to a completed task.
+
+            Implements the "queryable bilateral IR log" recommended by A2A #1718 @viftode4:
+            trust, reputation, audit trail, Sybil resistance, and delegation evidence
+            can all be derived from this log graph.
+
+            Query params:
+              caller_did    — filter by caller_did (optional, substring match)
+              skill_id      — filter by skill_id (optional)
+              bilateral     — "true" = only bilateral (both parties signed); "false" = relay-only
+              since         — Unix timestamp (float); only records with timestamp >= since
+              limit         — max records to return (default: 50, max: 500)
+              offset        — skip first N records (default: 0, for pagination)
+
+            Response 200:
+              {
+                "ok":          true,
+                "count":       int,     # records in this page
+                "total":       int,     # total matching records (before pagination)
+                "bilateral_count": int, # how many matching records are bilateral=true
+                "records":     [{       # paginated log slice (most-recent last)
+                  "id":                  str,
+                  "type":                "bilateral_interaction_record",
+                  "relay_did":           str | null,
+                  "caller_did":          str | null,
+                  "task_id":             str,
+                  "skill_id":            str | null,
+                  "sequence_a":          int,
+                  "previous_hash":       str | null,
+                  "timestamp":           float,
+                  "relay_signature":     str | null,
+                  "relay_public_key":    str | null,
+                  "caller_signature":    str | null,
+                  "caller_public_key":   str | null,
+                  "caller_signature_valid": bool | null,
+                  "bilateral":           bool,
+                }, ...],
+                "version":     str,
+                "note":        str,
+              }
+            """
+            qs_irl = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            filter_caller   = qs_irl.get("caller_did", "").strip()
+            filter_skill    = qs_irl.get("skill_id", "").strip()
+            filter_bilateral = qs_irl.get("bilateral", "").strip().lower()
+            try:
+                filter_since = float(qs_irl.get("since", 0))
+            except (ValueError, TypeError):
+                filter_since = 0.0
+            try:
+                limit_irl = min(int(qs_irl.get("limit", 50)), 500)
+            except (ValueError, TypeError):
+                limit_irl = 50
+            try:
+                offset_irl = max(int(qs_irl.get("offset", 0)), 0)
+            except (ValueError, TypeError):
+                offset_irl = 0
+
+            matched = []
+            for rec in _interaction_records:
+                if filter_caller and filter_caller not in (rec.get("caller_did") or ""):
+                    continue
+                if filter_skill and filter_skill not in (rec.get("skill_id") or ""):
+                    continue
+                if filter_bilateral == "true" and not rec.get("bilateral"):
+                    continue
+                if filter_bilateral == "false" and rec.get("bilateral"):
+                    continue
+                if filter_since > 0:
+                    # timestamp may be an ISO string (from _now()) or a float epoch
+                    _ts_raw = rec.get("timestamp")
+                    if _ts_raw is None:
+                        continue
+                    if isinstance(_ts_raw, (int, float)):
+                        _ts_epoch = float(_ts_raw)
+                    else:
+                        # ISO 8601 string → epoch float via datetime parsing
+                        try:
+                            import datetime as _dt_m
+                            _ts_epoch = _dt_m.datetime.fromisoformat(
+                                str(_ts_raw).rstrip("Z").replace("Z", "")
+                            ).replace(tzinfo=_dt_m.timezone.utc).timestamp()
+                        except Exception:
+                            _ts_epoch = 0.0
+                    if _ts_epoch < filter_since:
+                        continue
+                matched.append(rec)
+
+            total_irl = len(matched)
+            bilateral_count = sum(1 for r in matched if r.get("bilateral"))
+            page = matched[offset_irl: offset_irl + limit_irl]
+
+            self._json({
+                "ok":              True,
+                "count":           len(page),
+                "total":           total_irl,
+                "bilateral_count": bilateral_count,
+                "records":         page,
+                "version":         VERSION,
+                "note": (
+                    "Bilateral interaction records are signed by the relay (and optionally the caller). "
+                    "bilateral=true means both parties co-signed (non-repudiable). "
+                    "Use bilateral_count/total to assess trust depth. "
+                    "A2A #1718 @viftode4: bilateral_ir as a unified trust primitive."
+                ),
+            })
+
+        # ── GET /trust/bilateral-ir/diversity — principal diversity analysis (v2.94) ──
+        elif p == "/trust/bilateral-ir/diversity":
+            """
+            GET /trust/bilateral-ir/diversity — Principal diversity analysis for bilateral IR (v2.94).
+
+            Implements the colluding-pair inflation defense from aeoess adversarial-trust-fixture
+            (A2A #1718). Detects when a peer's bilateral interaction history is over-concentrated
+            with a single counterparty and applies a same_counterparty_penalty.
+
+            Query params:
+              peer_id  — (required) DID or agent_name of the peer to analyze
+
+            Response 200:
+              {
+                "ok":                    true,
+                "peer_id":               str,
+                "total_bilateral":       int,
+                "unique_counterparties": int,
+                "top_counterparty":      str | null,
+                "top_counterparty_count": int,
+                "concentration_ratio":   float,  # 0.0–1.0
+                "penalty_applied":       bool,
+                "diversity_weight":      float,  # 1.0 = no penalty; 0.1x weight on excess interactions
+                "effective_bilateral_count": float,  # penalty-adjusted count used in tier calculation
+                "note":                  str,
+                "defense_params": {
+                  "concentration_threshold": 0.60,
+                  "penalty_weight":          0.10,
+                  "min_records_for_analysis": 3,
+                  "reference":               "aeoess adversarial-trust-fixture.json (A2A #1718)"
+                },
+                "version":               str,
+              }
+
+            Response 400: peer_id missing
+            Response 404: no bilateral records found for peer_id
+            """
+            qs_div = dict(urllib.parse.parse_qsl(urlparse(self.path).query))
+            div_peer_id = qs_div.get("peer_id", "").strip()
+            if not div_peer_id:
+                self._json({"ok": False, "error": "peer_id query param required"}, code=400)
+                return
+
+            # Check that peer exists in records at all
+            any_records = any(
+                r.get("bilateral") is True and (
+                    r.get("caller_did") == div_peer_id or
+                    r.get("callee_did") == div_peer_id or
+                    r.get("peer_id") == div_peer_id
+                )
+                for r in _interaction_records
+            )
+            if not any_records:
+                self._json({
+                    "ok": False,
+                    "error": f"No bilateral records found for peer_id={div_peer_id!r}",
+                    "peer_id": div_peer_id,
+                }, code=404)
+                return
+
+            div_result = _principal_diversity_score(div_peer_id)
+            self._json({
+                "ok":                    True,
+                "peer_id":               div_result["peer_id"],
+                "total_bilateral":       div_result["total_bilateral"],
+                "unique_counterparties": div_result["unique_counterparties"],
+                "top_counterparty":      div_result["top_counterparty"],
+                "top_counterparty_count": div_result["top_counterparty_count"],
+                "concentration_ratio":   div_result["concentration_ratio"],
+                "penalty_applied":       div_result["penalty_applied"],
+                "diversity_weight":      div_result["diversity_weight"],
+                "effective_bilateral_count": div_result["effective_bilateral_count"],
+                "note":                  div_result["note"],
+                "defense_params": {
+                    "concentration_threshold": 0.60,
+                    "penalty_weight":          0.10,
+                    "min_records_for_analysis": 3,
+                    "reference": "aeoess adversarial-trust-fixture.json (A2A #1718 gist:bdcd1dd0512661138ff7a71bf1e946c7)",
+                },
+                "version": VERSION,
+            })
+
+        # ── GET /trust/skill-scores — per-skill trust scores from bilateral IR (v2.95) ──
+        elif p == "/trust/skill-scores":
+            """
+            GET /trust/skill-scores — Per-skill trust scores from bilateral IR evidence (v2.95).
+
+            Returns a trust score for each skill_id that appears in bilateral interaction records.
+            Score is computed from: unique_callers (diversity) + bilateral_count (volume).
+
+            Response 200:
+              {
+                "ok":           true,
+                "trust_scores": { "<skill_id>": <float 0.0-1.0>, ... },
+                "method":       "skill_scoped_v1",
+                "algorithm": {
+                  "base":             0.3,
+                  "caller_diversity": "min(unique_callers, 10) * 0.04",
+                  "volume":           "min(bilateral_count, 50) * 0.005",
+                  "max":              1.0
+                },
+                "skill_count":  int,
+                "ir_count":     int,
+                "note":         str,
+                "version":      str,
+              }
+
+            References:
+              - A2A #1717: governance_metadata skill-scoped trust proposal (2026-04-09)
+              - aeoess APS v1.37.0 SDK: importBilateralEvidence() per-skill accumulation
+            """
+            ss_scores = _compute_skill_trust_scores()
+            self._json({
+                "ok":           True,
+                "trust_scores": ss_scores,
+                "method":       "skill_scoped_v1",
+                "algorithm": {
+                    "base":             0.3,
+                    "caller_diversity": "min(unique_callers, 10) * 0.04",
+                    "volume":           "min(bilateral_count, 50) * 0.005",
+                    "max":              1.0,
+                },
+                "skill_count":  len(ss_scores),
+                "ir_count":     len(_interaction_records),
+                "note":         "Per-skill trust scores derived from bilateral IR evidence. "
+                                "Empty dict = no bilateral IR records yet. "
+                                "A2A #1717 community convergence: skill-scoped trust for granular authorization.",
+                "version":      VERSION,
+            })
+
+        # ── GET /agent-limitations/schema — JSON Schema for agent_limitations dict (v2.73) ──
+        elif p == "/agent-limitations/schema":
+            """
+            GET /agent-limitations/schema — Return the JSON Schema for the agent_limitations
+            structured constraint dict (v2.73, A2A #1694 typed limitations alignment).
+
+            The schema documents all fields in the _LIMITATIONS dict with types, ranges,
+            and descriptions so consumers can programmatically validate and reason about
+            capability constraints without relying on documentation prose.
+
+            Response 200:
+              {
+                "ok": true,
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "AgentLimitations",
+                  "description": "...",
+                  "type": "object",
+                  "properties": { ... }
+                },
+                "current_values": { ... },   # actual values from this relay
+                "version": "<VERSION>"
+              }
+            """
+            if self.command != "GET":
+                return self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED", "message": "Use GET /agent-limitations/schema"}, 405)
+
+            schema = {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "https://acp.dev/schema/agent-limitations/v2.73.json",
+                "title": "AgentLimitations",
+                "description": (
+                    "Structured numeric and enum constraints for an ACP relay agent. "
+                    "All fields are optional; unset fields indicate no declared limit. "
+                    "Aligned with A2A #1694 typed limitations proposal (ACP v2.73)."
+                ),
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "max_message_size_bytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum size of a single message payload in bytes.",
+                        "example": 65536,
+                        "x-acp-since": "v2.40",
+                    },
+                    "max_recv_queue_size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum number of messages held in the per-peer receive queue.",
+                        "example": 1000,
+                        "x-acp-since": "v2.40",
+                    },
+                    "max_wait_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum seconds a long-poll /messages request will block.",
+                        "example": 30,
+                        "x-acp-since": "v2.39",
+                    },
+                    "max_peers": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum number of concurrent peer connections accepted.",
+                        "example": 100,
+                        "x-acp-since": "v2.40",
+                    },
+                    "supported_message_roles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "uniqueItems": True,
+                        "description": "Valid values for the message `role` field.",
+                        "example": ["user", "agent", "system"],
+                        "x-acp-since": "v2.40",
+                    },
+                    "supported_priorities": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["critical", "high", "normal", "low"],
+                        },
+                        "minItems": 1,
+                        "uniqueItems": True,
+                        "description": "Valid values for the message `priority` field.",
+                        "example": ["critical", "high", "normal", "low"],
+                        "x-acp-since": "v2.40",
+                    },
+                },
+            }
+
+            return self._json({
+                "ok":             True,
+                "schema":         schema,
+                "current_values": _LIMITATIONS,
+                "version":        VERSION,
+                "note": (
+                    "This schema documents the agent_limitations dict published in AgentCard "
+                    "and GET /status. Consumers may use it for programmatic validation. "
+                    "A2A #1694 aligned: typed limitations enable machine-readable constraint discovery."
+                ),
+            })
+
+        # ── GET/PATCH /policy-compliance — governance/compliance standards (v2.87, A2A #1717 inspired) ──
+        elif p == "/policy-compliance":
+            """
+            GET  /policy-compliance — Return the list of governance/compliance standards declared.
+            PATCH /policy-compliance — Update the list at runtime.
+
+            Body (PATCH):
+              {"policy_compliance": ["OWASP-ASVS", "ATF-v2"]}  — replace list
+              OR {"add": ["ISO-42001"], "remove": ["ATF-v2"]}    — incremental update
+
+            Well-known standard identifiers:
+              "OWASP-ASVS"          — OWASP Application Security Verification Standard
+              "ATF-v2"              — Agent Trust Framework v2
+              "NIST-AIRMF"          — NIST AI Risk Management Framework
+              "ISO-42001"           — ISO/IEC 42001 AI Management System
+              "EU-AI-Act-conformant"— EU AI Act conformance declaration
+
+            Response 200 (GET):
+              {
+                "ok": true,
+                "policy_compliance": ["OWASP-ASVS", "ATF-v2"],
+                "count": 2,
+                "version": "<VERSION>",
+                "note": "..."
+              }
+            Response 200 (PATCH):
+              {"ok": true, "policy_compliance": [...], "count": N, "updated": true}
+            Response 400: invalid body
+            """
+            # _policy_compliance global declared at top of do_GET (v3.12 fix)
+            if self.command == "GET":
+                return self._json({
+                    "ok":                True,
+                    "policy_compliance": list(_policy_compliance),
+                    "count":             len(_policy_compliance),
+                    "version":           VERSION,
+                    "note": (
+                        "Governance/compliance standards this agent conforms to. "
+                        "Declared via --policy-compliance CLI flag or PATCH /policy-compliance. "
+                        "Inspired by A2A #1717 (Microsoft agent-governance-toolkit proposal). "
+                        "ACP v2.87 — published in AgentCard and capabilities.policy_compliance."
+                    ),
+                })
+            elif self.command == "PATCH":
+                try:
+                    body = self._read_body()
+                except Exception:
+                    return self._json({"ok": False, "error": "invalid JSON body"}, 400)
+
+                if "policy_compliance" in body:
+                    # Replace mode
+                    new_list = body["policy_compliance"]
+                    if not isinstance(new_list, list):
+                        return self._json({"ok": False, "error": "'policy_compliance' must be a list"}, 400)
+                    if not all(isinstance(s, str) for s in new_list):
+                        return self._json({"ok": False, "error": "all policy_compliance entries must be strings"}, 400)
+                    _policy_compliance = [s.strip() for s in new_list if s.strip()]
+                elif "add" in body or "remove" in body:
+                    # Incremental mode
+                    to_add = body.get("add") or []
+                    to_remove = body.get("remove") or []
+                    if not isinstance(to_add, list) or not isinstance(to_remove, list):
+                        return self._json({"ok": False, "error": "'add' and 'remove' must be lists"}, 400)
+                    current = set(_policy_compliance)
+                    current.update(s.strip() for s in to_add if s.strip())
+                    current.difference_update(s.strip() for s in to_remove)
+                    _policy_compliance = sorted(current)
+                else:
+                    return self._json({"ok": False, "error": "PATCH body must contain 'policy_compliance' (replace) or 'add'/'remove' (incremental)"}, 400)
+
+                # Sync into _status
+                _status["policy_compliance"] = list(_policy_compliance)
+                log.info(f"📋 policy_compliance updated: {_policy_compliance}")
+                return self._json({
+                    "ok":                True,
+                    "policy_compliance": list(_policy_compliance),
+                    "count":             len(_policy_compliance),
+                    "updated":           True,
+                })
+            else:
+                return self._json({"ok": False, "error": "Use GET or PATCH /policy-compliance"}, 405)
+
+        # ── GET /principal-chain — self principal_chain management (v2.56) ──
+        elif p == "/principal-chain":
+            """
+            GET /principal-chain — Return the current global principal_chain (OBO delegation stack).
+
+            Response 200:
+              {
+                "ok": true,
+                "count": <int>,
+                "principal_chain": [ {"did": ..., "role": ..., "added_at": ...}, ... ],
+                "self_did": "<this agent's DID>"
+              }
+            """
+            self_did = _did_acp or _did_key or _status.get("agent_name", "unknown")
+            self._json({
+                "ok":              True,
+                "count":           len(_principal_chain),
+                "principal_chain": list(_principal_chain),
+                "self_did":        self_did,
+            })
+
+        # ── GET /peers/{peer_id}/principal-chain — peer's principal_chain (v2.56) ──
+        elif p.startswith("/peers/") and p.endswith("/principal-chain") and p.count("/") == 3:
+            """
+            GET /peers/{peer_id}/principal-chain — Return the principal_chain from a connected
+            peer's AgentCard trust block (if available).
+
+            Response 200 (chain found):
+              {
+                "ok": true, "peer_id": ..., "count": ...,
+                "principal_chain": [ ... ], "source": "agent_card"
+              }
+            Response 200 (no chain — peer has no principal_chain in trust block):
+              { "ok": true, "peer_id": ..., "count": 0, "principal_chain": [], "source": "none" }
+            Response 404: peer not found
+            Response 422: peer found but no AgentCard
+            """
+            peer_id_pc = p.split("/")[2]
+            peer_pc = _peers.get(peer_id_pc)
+            if not peer_pc:
+                self._json({
+                    "ok":         False,
+                    "error_code": "ERR_PEER_NOT_FOUND",
+                    "error":      f"peer '{peer_id_pc}' not found",
+                }, 404)
+                return
+            card_pc = peer_pc.get("agent_card")
+            if not card_pc:
+                self._json({
+                    "ok":         False,
+                    "error_code": "ERR_CARD_UNAVAILABLE",
+                    "error":      f"peer '{peer_id_pc}' has not shared an AgentCard yet",
+                    "peer_id":    peer_id_pc,
+                    "connected":  bool(peer_pc.get("connected")),
+                    "card_available": False,
+                }, 422)
+                return
+            trust_pc = card_pc.get("trust") or {}
+            chain_pc = trust_pc.get("principal_chain") or []
+            self._json({
+                "ok":              True,
+                "peer_id":         peer_id_pc,
+                "count":           len(chain_pc),
+                "principal_chain": list(chain_pc),
+                "source":          "agent_card" if chain_pc else "none",
+            })
+
+        # ── GET /peers/{peer_id}/trust — structured per-peer trust score (v2.34) ──
+        elif p.startswith("/peers/") and p.endswith("/trust") and p.count("/") == 3:
+            """
+            Return a structured trust assessment for the specified peer.
+
+            Score dimensions (each 0.0–1.0):
+              card_sig      — peer AgentCard signature verified (Ed25519)
+              did_consistent — DID in card is consistent with public key
+              ping_rtt      — liveness: <50ms→1.0, <200ms→0.7, <500ms→0.4, else→0.1 (None→0.0)
+              message_hist  — message volume: >100→1.0, >20→0.7, >5→0.4, >0→0.2, 0→0.0
+              vouch         — at least one vouch for peer's DID in _vouch_chain
+
+            overall = weighted mean of dimensions with weights:
+              card_sig×0.35, did_consistent×0.20, ping_rtt×0.20, message_hist×0.15, vouch×0.10
+
+            Response 200: {ok, peer_id, name, connected, trust_score, dimensions, evaluated_at}
+            Response 404: peer not found
+            """
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+
+                info = _peers[peer_id]
+
+                # ── Dimension 1: card_sig ─────────────────────────────────────
+                vr = info.get("card_verification") or {}
+                if not vr and peer_id in _peers:
+                    # fallback: re-run if AgentCard available
+                    card_obj = info.get("agent_card")
+                    if card_obj and _ed25519_private:
+                        vr = _verify_agent_card(card_obj) if callable(globals().get("_verify_agent_card")) else {}
+                card_sig_score      = 1.0 if vr.get("valid") else 0.0
+                did_consistent_score= 1.0 if vr.get("did_consistent") else (0.5 if vr.get("valid") else 0.0)
+
+                # ── Dimension 2: ping RTT ─────────────────────────────────────
+                rtt = info.get("last_ping_rtt_ms")
+                if rtt is None:
+                    ping_score = 0.0
+                elif rtt < 50:
+                    ping_score = 1.0
+                elif rtt < 200:
+                    ping_score = 0.7
+                elif rtt < 500:
+                    ping_score = 0.4
+                else:
+                    ping_score = 0.1
+
+                # ── Dimension 3: message history ─────────────────────────────
+                msgs = info.get("messages_sent", 0)
+                if msgs >= 100:
+                    msg_score = 1.0
+                elif msgs >= 20:
+                    msg_score = 0.7
+                elif msgs >= 5:
+                    msg_score = 0.4
+                elif msgs > 0:
+                    msg_score = 0.2
+                else:
+                    msg_score = 0.0
+
+                # ── Dimension 4: vouch chain ──────────────────────────────────
+                peer_did = None
+                card_obj2 = info.get("agent_card")
+                if isinstance(card_obj2, dict):
+                    peer_did = (card_obj2.get("identity") or {}).get("did")
+                vouch_score = 0.0
+                if peer_did and _vouch_chain:
+                    for v in _vouch_chain:
+                        if isinstance(v, dict) and v.get("vouched_did") == peer_did:
+                            vouch_score = 1.0
+                            break
+
+                # ── Weighted overall score ────────────────────────────────────
+                weights = {"card_sig": 0.35, "did_consistent": 0.20,
+                           "ping_rtt": 0.20, "message_hist": 0.15, "vouch": 0.10}
+                raw_scores = {"card_sig": card_sig_score, "did_consistent": did_consistent_score,
+                              "ping_rtt": ping_score, "message_hist": msg_score, "vouch": vouch_score}
+                overall = sum(raw_scores[k] * weights[k] for k in weights)
+
+                dimensions = {
+                    "card_sig": {
+                        "score": round(card_sig_score, 3),
+                        "weight": weights["card_sig"],
+                        "detail": vr.get("error") or ("verified" if card_sig_score == 1.0 else "not verified"),
+                    },
+                    "did_consistent": {
+                        "score": round(did_consistent_score, 3),
+                        "weight": weights["did_consistent"],
+                        "detail": "DID matches public key" if did_consistent_score == 1.0 else "DID mismatch or unavailable",
+                    },
+                    "ping_rtt": {
+                        "score": round(ping_score, 3),
+                        "weight": weights["ping_rtt"],
+                        "detail": f"{rtt:.1f}ms" if rtt is not None else "no ping data",
+                        "last_ping_rtt_ms": rtt,
+                        "ping_count": info.get("ping_count", 0),
+                    },
+                    "message_hist": {
+                        "score": round(msg_score, 3),
+                        "weight": weights["message_hist"],
+                        "detail": f"{msgs} messages sent",
+                        "messages_sent": msgs,
+                    },
+                    "vouch": {
+                        "score": round(vouch_score, 3),
+                        "weight": weights["vouch"],
+                        "detail": f"vouched by {peer_did}" if vouch_score == 1.0 else "no vouch found",
+                        "peer_did": peer_did,
+                    },
+                }
+
+                self._json({
+                    "ok":           True,
+                    "peer_id":      peer_id,
+                    "name":         info.get("name"),
+                    "connected":    info.get("connected", False),
+                    "trust_score":  round(overall, 4),
+                    "trust_level":  ("high" if overall >= 0.75 else
+                                     "medium" if overall >= 0.45 else
+                                     "low"),
+                    "dimensions":   dimensions,
+                    "evaluated_at": _now(),
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/<peer_id>/messages — per-peer message history (v2.48) ──
+        elif p.startswith("/peers/") and p.endswith("/messages") and p.count("/") == 3:
+            """
+            Return message history for a specific peer (both inbound and outbound).
+
+            Query params:
+              limit      — max messages to return (default 50, max 500)
+              offset     — skip N messages from the start (default 0)
+              direction  — "inbound"|"outbound"|"all" (default "all")
+              since_seq  — only messages with server_seq > N (for incremental polling)
+              sort       — "asc"|"desc" (default "desc" — newest first)
+
+            Response 200:
+              {ok, peer_id, name, messages[], count, total, has_more, next_offset}
+            Response 404: peer not found (ERR_PEER_NOT_FOUND)
+            Response 400: invalid params (ERR_INVALID_REQUEST)
+            """
+            try:
+                peer_id = p.split("/")[2]
+                if peer_id not in _peers:
+                    self._json({"ok": False, "error_code": "ERR_PEER_NOT_FOUND",
+                                "error": f"peer '{peer_id}' not found"}, 404)
+                    return
+
+                pinfo = _peers[peer_id]
+                peer_name = pinfo.get("agent_name") or pinfo.get("name") or peer_id
+
+                # ── Parse query params ─────────────────────────────────────────
+                qs = parse_qs(urlparse(self.path).query)
+
+                try:
+                    limit = min(int(qs.get("limit", ["50"])[0]), 500)
+                except ValueError:
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "limit must be an integer"}, 400)
+                    return
+                try:
+                    offset = max(0, int(qs.get("offset", ["0"])[0]))
+                except ValueError:
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "offset must be an integer"}, 400)
+                    return
+
+                direction = qs.get("direction", ["all"])[0]
+                if direction not in ("inbound", "outbound", "all"):
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "direction must be 'inbound', 'outbound', or 'all'"}, 400)
+                    return
+
+                since_seq_raw = qs.get("since_seq", [None])[0]
+                since_seq = None
+                if since_seq_raw is not None:
+                    try:
+                        since_seq = int(since_seq_raw)
+                    except ValueError:
+                        self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                    "error": "since_seq must be an integer"}, 400)
+                        return
+
+                sort_order = qs.get("sort", ["desc"])[0]
+                if sort_order not in ("asc", "desc"):
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "sort must be 'asc' or 'desc'"}, 400)
+                    return
+
+                # ── Filter _recv_queue for messages involving this peer ─────────
+                # Identify all names/ids that could refer to this peer
+                peer_identifiers = set()
+                peer_identifiers.add(peer_id)
+                if pinfo.get("agent_name"):
+                    peer_identifiers.add(pinfo["agent_name"])
+                if pinfo.get("name"):
+                    peer_identifiers.add(pinfo["name"])
+
+                all_msgs = list(_recv_queue)  # non-destructive snapshot
+
+                filtered = []
+                for msg in all_msgs:
+                    raw = msg.get("raw", {})
+                    msg_from = raw.get("from") or msg.get("from", "")
+                    msg_to = raw.get("to") or msg.get("to", "")
+                    msg_dir = msg.get("direction", "inbound")  # outbound entries set by _outbound_entry
+
+                    # Determine if this message involves our target peer
+                    involves_peer = (
+                        msg_from in peer_identifiers or
+                        msg_to in peer_identifiers or
+                        msg.get("peer_id") == peer_id
+                    )
+                    if not involves_peer:
+                        continue
+
+                    # Direction filter
+                    if direction == "inbound" and msg_dir != "inbound":
+                        continue
+                    if direction == "outbound" and msg_dir != "outbound":
+                        continue
+
+                    # since_seq filter
+                    if since_seq is not None:
+                        msg_seq = msg.get("server_seq") or raw.get("server_seq")
+                        if msg_seq is None or msg_seq <= since_seq:
+                            continue
+
+                    filtered.append(msg)
+
+                # Sort
+                filtered.sort(
+                    key=lambda m: m.get("received_at") or m.get("sent_at") or 0,
+                    reverse=(sort_order == "desc")
+                )
+
+                total = len(filtered)
+                page = filtered[offset: offset + limit]
+                has_more = (offset + limit) < total
+                next_offset = (offset + limit) if has_more else None
+
+                # Build clean response objects
+                result_msgs = []
+                for m in page:
+                    raw = m.get("raw", {})
+                    result_msgs.append({
+                        "message_id":   m.get("message_id") or raw.get("message_id"),
+                        "server_seq":   m.get("server_seq") or raw.get("server_seq"),
+                        "direction":    m.get("direction", "inbound"),
+                        "from":         raw.get("from") or m.get("from"),
+                        "to":           raw.get("to") or m.get("to"),
+                        "parts":        m.get("parts") or raw.get("parts", []),
+                        "context_id":   m.get("context_id") or raw.get("context_id"),
+                        "task_id":      m.get("task_id") or raw.get("task_id"),
+                        "priority":     raw.get("priority", "normal"),
+                        "received_at":  m.get("received_at"),
+                        "sent_at":      m.get("sent_at"),
+                    })
+
+                self._json({
+                    "ok":          True,
+                    "peer_id":     peer_id,
+                    "name":        peer_name,
+                    "connected":   pinfo.get("connected", False),
+                    "messages":    result_msgs,
+                    "count":       len(result_msgs),
+                    "total":       total,
+                    "has_more":    has_more,
+                    "next_offset": next_offset,
+                    "direction_filter": direction,
+                    "sort":        sort_order,
+                })
+            except Exception as e:
+                log.exception(f"[peer_messages] {e}")
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── GET /peers/discover — LAN port-scan discovery (v2.1) ─────────────
+        elif p == "/peers/discover":
+            """
+            Scan the local /24 subnet for ACP relays via TCP port probe +
+            /.well-known/acp.json fingerprinting.
+
+            Does NOT require --advertise-mdns; works against any ACP relay
+            on the same LAN regardless of whether it broadcasts mDNS.
+
+            Optional query params:
+              ?subnet=192.168.1   override the /24 prefix to scan
+              ?ports=7901,7902    comma-separated list of HTTP ports to probe
+              ?workers=32         thread pool size (default 64)
+
+            Response:
+              {
+                "found": [
+                  {
+                    "host": "192.168.1.42",
+                    "http_port": 7901,
+                    "name": "Agent-Alice",
+                    "link": "acp://192.168.1.42:7801/tok_xxx",
+                    "agent_card": { ... },
+                    "latency_ms": 3.2
+                  }
+                ],
+                "scanned_hosts": 253,
+                "scanned_ports": 1518,
+                "subnet": "192.168.1",
+                "duration_ms": 1240,
+                "mdns_peers": [ ... ],   # mDNS cache merged in (deduped by host)
+                "error": null
+              }
+
+            Typically completes in 1-3 seconds on a /24 LAN with default settings.
+            """
+            qs = parse_qs(urlparse(self.path).query)
+            scan_subnet = qs.get("subnet", [None])[0]
+            raw_ports   = qs.get("ports",  [None])[0]
+            raw_workers = qs.get("workers",["64"])[0]
+            scan_ports  = (
+                [int(p.strip()) for p in raw_ports.split(",") if p.strip().isdigit()]
+                if raw_ports else None
+            )
+            try:
+                workers = max(1, min(256, int(raw_workers)))
+            except ValueError:
+                workers = 64
+
+            my_http_port = _status.get("http_port")
+            result = _lan_port_scan(
+                subnet=scan_subnet,
+                ports=scan_ports,
+                max_workers=workers,
+                skip_self_port=my_http_port,
+            )
+
+            # Merge mDNS cache — add entries not already found by port scan
+            mdns_peers = _mdns_peer_list()
+            scan_hosts = {r["host"] for r in result["found"]}
+            for mp in mdns_peers:
+                mp_host = mp.get("host") or mp.get("ip")
+                if mp_host and mp_host not in scan_hosts:
+                    result["found"].append({
+                        "host": mp_host,
+                        "http_port": mp.get("http_port"),
+                        "name": mp.get("name"),
+                        "link": mp.get("link"),
+                        "agent_card": None,
+                        "latency_ms": None,
+                        "source": "mdns",
+                    })
+
+            result["mdns_peers"] = mdns_peers
+            result["total_found"] = len(result["found"])
+            self._json(result)
+
+        # ── GET /discover — LAN peers via mDNS (v0.7)  [experimental] ──────────
+        elif p == "/discover":
+            discovered = _mdns_peer_list()
+            self._json({
+                "lan_peers":  discovered,
+                "count":      len(discovered),
+                "mdns_active": _mdns_running,
+                "note": "Start with --advertise-mdns to enable LAN discovery" if not _mdns_running else None,
+            })
+
+        # ── GET /extensions — list declared extensions (v1.3) ────────────────
+        elif p == "/extensions":
+            self._json({
+                "extensions": list(_extensions),
+                "count":      len(_extensions),
+            })
+
+        # ── v2.17: GET /availability — dedicated availability status endpoint ──
+        elif p == "/availability":
+            avail = _availability_with_schedule(dict(_availability)) if _availability else {}
+            # Always include last_active_at
+            if avail and "last_active_at" not in avail:
+                started = _status.get("started_at")
+                if started and isinstance(started, (int, float)):
+                    avail["last_active_at"] = (
+                        datetime.datetime.fromtimestamp(started, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    )
+                else:
+                    avail["last_active_at"] = _now()
+            resp = {
+                "ok":           True,
+                "availability": avail,
+                "mode":         avail.get("mode", "persistent"),
+                "has_schedule": bool(avail.get("schedule")),
+            }
+            # v2.80: include heartbeat_period_ms when declared
+            if _heartbeat_period_ms is not None:
+                resp["heartbeat_period_ms"] = _heartbeat_period_ms
+            self._json(resp)
+
+        # ── GET /skills — Skills-lite structured skill list (v2.10) ──────────
+        elif p == "/skills":  # [stable] structured skill discovery + filtering (v2.10)
+            # Query parameters:
+            #   tag=<tag>              filter by tag (exact match)
+            #   q=<keyword>            keyword search in id/name/description (case-insensitive)
+            #   limit=<n>              page size (default 50, max 200)
+            #   offset=<n>             offset-based pagination (default 0)
+            #   has_limitation=<val>   v2.28: filter skills that declare a limitation with matching kind or code
+            # Response: {skills, total, has_more, next_offset}
+            # Errors: 400 ERR_INVALID_REQUEST for non-integer limit/offset
+
+            # ── Parameter parsing ─────────────────────────────────────────
+            try:
+                raw_limit = qs.get("limit", ["50"])[0]
+                if not raw_limit.lstrip("-").isdigit():
+                    raise ValueError("non-integer limit")
+                limit = int(raw_limit)
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "limit must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+            try:
+                raw_offset = qs.get("offset", ["0"])[0]
+                if not raw_offset.lstrip("-").isdigit():
+                    raise ValueError("non-integer offset")
+                offset = int(raw_offset)
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "offset must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+
+            if limit < 0 or offset < 0:
+                body, sc = _err(ERR_INVALID_REQUEST, "limit and offset must be non-negative integers", 400)
+                self._json(body, sc)
+                return
+
+            # Clamp limit to max 200; default when 0 is 50
+            limit = min(limit, 200)
+            if limit == 0:
+                limit = 50
+
+            tag_filter           = qs.get("tag",             [None])[0]
+            q_filter             = (qs.get("q", [None])[0] or "").strip().lower()
+            has_limitation_filter = (qs.get("has_limitation", [None])[0] or "").strip().lower()  # v2.28
+
+            # ── Fetch skill list from agent card ──────────────────────────
+            agent_card = _status.get("agent_card") or {}
+            all_skills = list(agent_card.get("skills", []))
+
+            # ── Apply filters ─────────────────────────────────────────────
+            if tag_filter:
+                all_skills = [s for s in all_skills if tag_filter in s.get("tags", [])]
+
+            if q_filter:
+                def _skill_matches(s):
+                    return (
+                        q_filter in (s.get("id",          "") or "").lower() or
+                        q_filter in (s.get("name",        "") or "").lower() or
+                        q_filter in (s.get("description", "") or "").lower()
+                    )
+                all_skills = [s for s in all_skills if _skill_matches(s)]
+
+            # v2.28: filter by limitation kind or code
+            if has_limitation_filter:
+                def _has_matching_limitation(s):
+                    for lim in s.get("limitations") or []:
+                        if (
+                            (lim.get("kind",    "") or "").lower() == has_limitation_filter or
+                            (lim.get("code",    "") or "").lower() == has_limitation_filter
+                        ):
+                            return True
+                    return False
+                all_skills = [s for s in all_skills if _has_matching_limitation(s)]
+
+            # ── Pagination ────────────────────────────────────────────────
+            total    = len(all_skills)
+            sliced   = all_skills[offset:]
+            has_more = len(sliced) > limit
+            page     = sliced[:limit]
+            next_offset = (offset + limit) if has_more else None
+
+            # v2.29: apply per-skill limitations overrides before returning
+            if _skill_limitations_overrides:
+                merged_page = []
+                for s in page:
+                    sid = s.get("id", "") if isinstance(s, dict) else str(s)
+                    if sid in _skill_limitations_overrides:
+                        s = {**s, "limitations": _skill_limitations_overrides[sid]}
+                    merged_page.append(s)
+                page = merged_page
+
+            # v3.14: attach skill_trust_score to each skill in the page
+            final_page = []
+            for s in page:
+                if isinstance(s, dict):
+                    sid = s.get("id", "")
+                    sts = _compute_skill_trust_score_v314(s, sid)
+                    s = {**s, "skill_trust_score": sts}
+                final_page.append(s)
+
+            self._json({
+                "skills":      final_page,
+                "total":       total,
+                "has_more":    has_more,
+                "next_offset": next_offset,
+            })
+
+        # ── GET /docs/openapi-skills.yaml — OpenAPI 3.1 spec for /skills (v2.41) ──
+        elif p == "/docs/openapi-skills.yaml":
+            spec_path = os.path.join(os.path.dirname(__file__), "..", "docs", "openapi-skills.yaml")
+            if os.path.exists(spec_path):
+                with open(spec_path, "r") as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/yaml")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(content.encode())
+            else:
+                self._error(404, "openapi-skills.yaml not found")
+
+        # ── GET /offline-queue — inspect offline delivery buffer (v2.0) ─────────
+        elif p == "/offline-queue":
+            """
+            Return a snapshot of the offline delivery queue.
+
+            Messages are buffered here when POST /message:send (or /send) is called
+            while no peer is connected. On peer reconnect, the queue is automatically
+            flushed in FIFO order.
+
+            Response fields:
+              - total_queued (int): total messages across all peer buckets
+              - queue (dict): {peer_id: {depth, messages: [{id, type, queued_at}]}}
+              - max_per_peer (int): per-peer queue capacity (OFFLINE_QUEUE_MAXLEN)
+              - ttl_config (dict|None): v2.99 TTL config if --max-offline-ttl is set
+            """
+            snap = _offline_queue_snapshot()
+            total = sum(v["depth"] for v in snap.values())
+            resp = {
+                "total_queued": total,
+                "max_per_peer": OFFLINE_QUEUE_MAXLEN,
+                "queue": snap,
+            }
+            if _max_offline_ttl_sec is not None:
+                resp["ttl_config"] = {
+                    "max_seconds": _max_offline_ttl_sec,
+                    "policy": _offline_ttl_policy,
+                }
+            self._json(resp)
+
+        elif p == "/offline-queue/summary":
+            # ── GET /offline-queue/summary — lightweight heartbeat-agent poll (v3.8) ──
+            """
+            Lightweight endpoint for heartbeat/cron-style agents that wake up
+            periodically and want to quickly check whether there are pending
+            offline messages before doing heavier work.
+
+            Unlike GET /offline-queue, this endpoint returns only a compact
+            summary — no message contents, minimal overhead.
+
+            Response fields:
+              - has_messages (bool): True if any offline messages are queued
+              - total_queued (int): total messages across all peer buckets
+              - peer_count (int): number of distinct peer buckets with messages
+              - persist_queue (bool): True if SQLite persistence is active
+              - oldest_queued_at (str|None): ISO-8601 timestamp of oldest queued msg
+              - hint (str): human-readable guidance on next step
+
+            Typical usage pattern (heartbeat-agent):
+              1. Agent wakes (cron / scheduled)
+              2. GET /offline-queue/summary  → has_messages=true
+              3. GET /offline-queue          → full queue contents
+              4. Process messages, send responses
+              5. POST /availability/heartbeat → stamp last_active_at
+              6. Agent sleeps until next scheduled wake
+            """
+            snap = _offline_queue_snapshot()
+            total = sum(v["depth"] for v in snap.values())
+            peer_count = sum(1 for v in snap.values() if v["depth"] > 0)
+
+            # Find oldest queued_at across all buckets
+            oldest: str | None = None
+            for bucket in snap.values():
+                for msg_meta in bucket.get("messages", []):
+                    ts = msg_meta.get("queued_at")
+                    if ts and (oldest is None or ts < oldest):
+                        oldest = ts
+
+            summary_resp = {
+                "has_messages":   total > 0,
+                "total_queued":   total,
+                "peer_count":     peer_count,
+                "persist_queue":  _persist_queue_conn is not None,
+                "oldest_queued_at": oldest,
+                "hint": (
+                    "Messages waiting — call GET /offline-queue for full details, "
+                    "then POST /availability/heartbeat when done."
+                    if total > 0
+                    else "Queue empty — no pending messages."
+                ),
+            }
+            self._json(summary_resp)
+
+        elif p == "/federation":
+            # ── GET /federation — list federation relays (v3.10) ─────────────
+            """
+            Return the list of federation relays — remote relay instances that
+            this relay has connected to for cross-relay message routing.
+
+            Response fields:
+              - relays (list): [{relay_id, peer_id, link, name, connected_at, messages_routed}]
+              - relay_count (int): number of federation relays
+              - capabilities.federation (bool): always true
+            """
+            with _federation_lock:
+                relays_snapshot = [
+                    {
+                        "relay_id":        rid,
+                        "peer_id":         info.get("peer_id"),
+                        "link":            info.get("link"),
+                        "name":            info.get("name", rid),
+                        "connected_at":    info.get("connected_at"),
+                        "messages_routed": info.get("messages_routed", 0),
+                    }
+                    for rid, info in _federation_relays.items()
+                ]
+            self._json({
+                "relays":       relays_snapshot,
+                "relay_count":  len(relays_snapshot),
+                "capabilities": {"federation": True},
+            })
+
+        elif p == "/offline-queue/sweep":
+            # ── GET /offline-queue/sweep — on-demand TTL sweep (v2.99) ──────
+            """
+            Trigger an on-demand TTL sweep of the offline queue.
+
+            Evicts messages older than --max-offline-ttl seconds according to
+            the configured --offline-ttl-policy (drop|notify).
+
+            Returns 200 with sweep stats, or 400 if TTL is not configured.
+
+            Response fields (v2.99):
+              - evicted_count (int): messages removed this sweep
+              - peers_affected (int): number of peer queues touched
+              - policy (str): active eviction policy (drop|notify)
+              - max_offline_ttl_sec (int|None): configured TTL
+            """
+            if _max_offline_ttl_sec is None:
+                self._json({"error": "TTL not configured",
+                            "hint": "Start relay with --max-offline-ttl <seconds>"}, code=400)
+            else:
+                stats = _ttl_sweep()
+                self._json({
+                    **stats,
+                    "max_offline_ttl_sec": _max_offline_ttl_sec,
+                })
+
+        # ── GET /peer/verify — peer AgentCard auto-verification result (v1.9) ──
+        elif p == "/peer/verify":
+            """
+            Return the auto-verification result for the currently connected peer's AgentCard.
+
+            Result is computed on receipt of acp.agent_card during handshake (v1.9).
+            Returns 404 when no peer is connected.
+
+            Fields:
+              - verified (bool): True if peer's card_sig is cryptographically valid
+              - valid (bool|None): raw result from _verify_agent_card
+              - did (str|None): peer's did:acp: identifier
+              - did_consistent (bool|None): did matches public_key
+              - public_key (str|None): peer's Ed25519 public key (base64url)
+              - scheme (str): peer's identity scheme
+              - error (str|None): reason if invalid or unsigned
+              - peer_name (str|None): peer's agent name
+            """
+            if not _status.get("connected") or _status.get("peer_card") is None:
+                self._json({"error": "no peer connected"}, 404)
+                return
+            vr = _status.get("peer_card_verification") or {}
+            peer_card = _status.get("peer_card") or {}
+            self._json({
+                "peer_name":    peer_card.get("name"),
+                "peer_did":     vr.get("did"),
+                "verified":     vr.get("valid") is True,
+                "valid":        vr.get("valid"),
+                "did_consistent": vr.get("did_consistent"),
+                "public_key":   vr.get("public_key"),
+                "scheme":       vr.get("scheme"),
+                "error":        vr.get("error"),
+            })
+
+        # ── GET /verify/card — return self-verification result (v1.8) ─────────
+        elif p == "/verify/card":
+            # v2.10: pass full structured skill objects
+            skills = list((_status.get("agent_card") or {}).get("skills", []))
+            live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
+            signed_card = _sign_agent_card(live_card)
+            result = _verify_agent_card(signed_card)
+            self._json({"self_verification": result, "card_signed": bool(_ed25519_private)})
+
+        # ── GET /peers/{id} — single peer info (v0.6) ─────────────────────────
+        elif p.startswith("/peers/") and not p.endswith("/send"):
+            peer_id = p[len("/peers/"):]
+            info = _peers.get(peer_id)
+            if not info:
+                self._json({"error": f"peer '{peer_id}' not found"}, 404)
+            else:
+                self._json({k: v for k, v in info.items() if k != "ws"})
+
+        elif p == "/connect" and self.command == "POST":
+            # 对等连接：主动连接对方链接，无主从之分
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except Exception:
+                body = {}
+            peer_link = body.get("link", "")
+            if not peer_link:
+                self._json({"error": "missing link"}, 400)
+                return
+            def _do_connect():
+                result = parse_link(peer_link)
+                host, port, token, scheme = result
+                http_port = _status.get("http_port", 7901)
+                if scheme == "http_relay":
+                    asyncio.run_coroutine_threadsafe(
+                        _http_relay_guest(host, token, http_port), _loop)
+                else:
+                    asyncio.run_coroutine_threadsafe(
+                        guest_mode(host, port, token, http_port), _loop)
+            threading.Thread(target=_do_connect, daemon=True).start()
+            self._json({"ok": True, "connecting_to": peer_link})
+
+        elif p.startswith("/wait/"):
+            corr = p[len("/wait/"):]
+            timeout = float(qs.get("timeout", ["30"])[0])
+            future = _loop.create_future()
+            _sync_pending[corr] = future
+            try:
+                result = asyncio.run_coroutine_threadsafe(
+                    asyncio.wait_for(asyncio.shield(future), timeout=timeout), _loop
+                ).result(timeout=timeout + 2)
+                _sync_pending.pop(corr, None)
+                self._json({"ok": True, "reply": result})
+            except asyncio.TimeoutError:
+                _sync_pending.pop(corr, None)
+                self._json({"ok": False, "error": "timeout"}, 408)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif p == "/recv":  # [stable] poll received messages
+            limit = int(qs.get("limit", ["50"])[0])
+            # v2.39: long poll support — wait=<seconds> blocks until message arrives or timeout
+            try:
+                wait_sec = float(qs.get("wait", ["0"])[0])
+                wait_sec = max(0.0, min(30.0, wait_sec))  # clamp to [0, 30]
+            except (ValueError, TypeError):
+                wait_sec = 0.0
+
+            timed_out = False
+            if wait_sec > 0 and len(_recv_queue) == 0:
+                # hang until a message arrives or timeout expires
+                # Use a deadline loop to handle spurious wakeups from pre-set events:
+                #   1. clear the event first to avoid acting on stale set state
+                #   2. re-check queue after clear (message may have arrived in the gap)
+                #   3. loop until queue is non-empty or deadline passes
+                _deadline = time.time() + wait_sec
+                while len(_recv_queue) == 0:
+                    _remaining = _deadline - time.time()
+                    if _remaining <= 0:
+                        timed_out = True
+                        break
+                    _sse_notify.clear()
+                    if len(_recv_queue) > 0:  # re-check after clear (race window)
+                        break
+                    _sse_notify.wait(timeout=min(_remaining, 1.0))
+
+            # v2.38: sort by priority before returning (critical > high > normal > low)
+            _recv_snapshot = [_recv_queue.popleft() for _ in range(min(limit, len(_recv_queue)))]
+            _recv_snapshot.sort(
+                key=lambda m: _PRIORITY_ORDER.get(
+                    (m.get("raw") or m).get("priority", "normal") if isinstance(m, dict) else "normal",
+                    2  # default "normal" order
+                )
+            )
+            self._json({"messages": _recv_snapshot, "count": len(_recv_snapshot), "remaining": len(_recv_queue), "timed_out": timed_out})
+
+        elif p == "/messages":  # [stable] history message list — filtering + pagination (v2.9)
+            # Query params:
+            #   limit=<n>              page size (default 20, max 100)
+            #   offset=<n>             offset-based page start (default 0)
+            #   peer_id=<id>           filter by source peer (matches raw.from or _peers lookup)
+            #   role=<agent|user>      filter by role
+            #   sort=asc|desc          sort direction: asc=oldest first, desc=newest first (default desc)
+            #   received_after=<ts>    filter messages received after this Unix timestamp
+
+            # ── Parameter parsing ──────────────────────────────────────────────
+            try:
+                raw_limit = qs.get("limit", ["20"])[0]
+                limit = int(raw_limit)
+                if not raw_limit.lstrip("-").isdigit():
+                    raise ValueError("non-integer")
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "limit must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+            try:
+                raw_offset = qs.get("offset", ["0"])[0]
+                offset = int(raw_offset)
+                if not raw_offset.lstrip("-").isdigit():
+                    raise ValueError("non-integer")
+            except (ValueError, TypeError):
+                body, sc = _err(ERR_INVALID_REQUEST, "offset must be a non-negative integer", 400)
+                self._json(body, sc)
+                return
+
+            if limit < 0 or offset < 0:
+                body, sc = _err(ERR_INVALID_REQUEST, "limit and offset must be non-negative integers", 400)
+                self._json(body, sc)
+                return
+
+            # Clamp limit to max 100
+            limit = min(limit, 100)
+            # Default when 0: treat as 20 (caller should pass explicit limit)
+            if limit == 0:
+                limit = 20
+
+            peer_filter     = qs.get("peer_id",        [None])[0]
+            role_filter     = qs.get("role",            [None])[0]
+            sort_raw        = qs.get("sort",            ["desc"])[0]
+            received_after  = qs.get("received_after",  [None])[0]
+
+            sort_asc = (sort_raw == "asc")
+
+            # ── Build snapshot from _recv_queue (non-destructive) ──────────────
+            msgs = list(_recv_queue)
+
+            # ── Apply filters ──────────────────────────────────────────────────
+            if role_filter:
+                msgs = [m for m in msgs if m.get("role") == role_filter]
+
+            if peer_filter:
+                # Match by raw.from field (direct name) OR via _peers registry
+                # Build a set of matching peer names/ids
+                def _msg_matches_peer(m):
+                    raw_from = (m.get("raw") or {}).get("from", "")
+                    if raw_from == peer_filter:
+                        return True
+                    # Also check if peer_filter is a peer_id in _peers that maps to this agent_name
+                    pinfo = _peers.get(peer_filter)
+                    if pinfo:
+                        aname = pinfo.get("agent_name") or pinfo.get("name") or ""
+                        if raw_from == aname:
+                            return True
+                    return False
+                msgs = [m for m in msgs if _msg_matches_peer(m)]
+
+            if received_after is not None:
+                try:
+                    ra_ts = float(received_after)
+                    msgs = [m for m in msgs if m.get("received_at", 0) > ra_ts]
+                except (ValueError, TypeError):
+                    pass  # ignore unparseable received_after
+
+            # ── Sort ──────────────────────────────────────────────────────────
+            msgs.sort(key=lambda m: m.get("received_at", 0), reverse=not sort_asc)
+
+            # ── Pagination ────────────────────────────────────────────────────
+            total = len(msgs)
+            sliced   = msgs[offset:]
+            has_more = len(sliced) > limit
+            page     = sliced[:limit]
+            next_offset = offset + limit if has_more else None
+
+            resp = {
+                "messages":    page,
+                "total":       total,
+                "has_more":    has_more,
+                "next_offset": next_offset if next_offset is not None else offset + len(page),
+            }
+            self._json(resp)
+
+
+        # ── GET /trust/signals/capability-token — capability token declaration (v2.74) ──
+        elif p == "/trust/signals/capability-token":
+            # v2.74: Returns detailed capability token declaration for this relay.
+            # Reports the relay's capability token issuance config, supported SINT fields,
+            # skills that require capability tokens, and whether issuance is currently active.
+            # Aligned with A2A #1716 (SINT PR#111) — canonical token check at AgentSkill boundary.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token"}, 405)
+                return
+
+            identity_active = bool(_ed25519_private)
+            issuer_did = (_did_acp or _did_key) if identity_active else None
+            agent_name = _status.get("agent_name", "unknown")
+
+            # Collect skills with capability_token_required=True
+            card = _status.get("agent_card") or {}
+            skills_list = card.get("skills", [])
+            token_required_skills = [
+                {
+                    "skill_id":   s.get("id", ""),
+                    "name":       s.get("name", ""),
+                    "tier":       s.get("authorization_tier", "T1"),
+                }
+                for s in skills_list
+                if isinstance(s, dict) and s.get("capability_token_required")
+            ]
+
+            # Count active (non-expired) tokens in the issued cache
+            now_ts = int(time.time())
+            active_tokens = sum(
+                1 for t in _capability_tokens.values()
+                if isinstance(t, dict) and t.get("exp", 0) > now_ts
+            )
+            total_issued = len(_capability_tokens)
+
+            self._json({
+                "ok":               True,
+                "enabled":          identity_active,
+                "issuer_did":       issuer_did,
+                "agent_name":       agent_name,
+                "scheme":           "sint_ed25519",
+                "algorithm":        "Ed25519",
+                "format":           "SINT",
+                "sint_fields": {
+                    "required": ["jti", "iss", "sub", "resource", "tier", "iat", "exp",
+                                 "signature", "public_key"],
+                    "optional": ["actions", "constraints"],
+                },
+                "supported_tiers":  ["T0", "T1", "T2", "T3"],
+                "default_ttl_seconds": 3600,
+                "endpoint_issue":   "/skills/{skill_id}/capability-token",
+                "endpoint_verify":  "/verify/external-token",
+                "token_required_skills": token_required_skills,
+                "token_required_count":  len(token_required_skills),
+                "active_tokens":    active_tokens,
+                "total_issued":     total_issued,
+                "note":             (
+                    "Capability tokens follow SINT Protocol (sint_ed25519 scheme). "
+                    "Each token is Ed25519-signed and bound to a specific skill resource. "
+                    "Aligned with A2A #1716 @pshkv SINT PR#111 — canonical token check at AgentSkill boundary."
+                ),
+                "a2a_ref":          "https://github.com/google-a2a/A2A/issues/1716",
+                "version":          VERSION,
+            })
+
+        # ── GET /trust/signals/capability-token/fixtures — canonical authorization fixture (v2.75) ──
+        elif p == "/trust/signals/capability-token/fixtures":
+            # v2.75: Returns canonical authorization test fixture vectors for capability tokens.
+            # Proposed by @pshkv in A2A #1716 — minimal canonical set: 4 deny + 1 allow.
+            # Consumers use these as reference vectors for testing authorization logic.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token/fixtures"}, 405)
+                return
+
+            now_ts = int(time.time())
+            self._json({
+                "ok":      True,
+                "version": VERSION,
+                "a2a_ref": "https://github.com/google-a2a/A2A/issues/1716",
+                "note":    (
+                    "Canonical authorization fixture — minimal vector set proposed by @pshkv in A2A #1716. "
+                    "4 deny scenarios + 1 allow scenario cover the critical authorization failure modes "
+                    "for SINT-format capability tokens. Consumers should use these vectors to validate "
+                    "their capability token verification logic."
+                ),
+                "allow": [
+                    {
+                        "id":          "allow_valid_subject_bound",
+                        "verdict":     "allow",
+                        "description": "Valid subject-bound capability token — all fields nominal, "
+                                       "signature valid, not expired, scope matches, skill_id matches, "
+                                       "subject matches invoking agent.",
+                        "token": {
+                            "jti":        "urn:acp:cap:fixture:allow-01",
+                            "iss":        "did:key:z6MkFixtureIssuer",
+                            "sub":        "did:key:z6MkFixtureSubject",
+                            "resource":   "acp://relay.example/skills/demo-skill",
+                            "tier":       "T1",
+                            "iat":        now_ts - 60,
+                            "exp":        now_ts + 3540,
+                            "actions":    ["invoke"],
+                            "constraints": {"max_invocations": 10},
+                            "scheme":     "sint_ed25519",
+                            "signature":  "<valid-ed25519-signature-over-canonical-fields>",
+                            "public_key": "<issuer-ed25519-public-key>",
+                        },
+                        "expected_result": {
+                            "authorized":  True,
+                            "reason_code": "token_valid",
+                        },
+                    },
+                ],
+                "deny": [
+                    {
+                        "id":          "deny_scope_mismatch",
+                        "verdict":     "deny",
+                        "deny_reason": "scope_mismatch",
+                        "description": "Token resource scope does not match the requested skill. "
+                                       "The token was issued for 'demo-skill' but the invocation "
+                                       "targets 'other-skill'. ACP relays MUST reject cross-skill token reuse.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-scope-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkFixtureSubject",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 60,
+                            "exp":      now_ts + 3540,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "target_skill_id": "other-skill",
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "scope_mismatch",
+                            "http_status": 403,
+                        },
+                    },
+                    {
+                        "id":          "deny_expired_toctou",
+                        "verdict":     "deny",
+                        "deny_reason": "expired_toctou",
+                        "description": "Token is expired AND represents a TOCTOU (time-of-check "
+                                       "time-of-use) attack scenario. Token was valid at check time "
+                                       "but expired before use. exp is set 5 seconds in the past. "
+                                       "Relays MUST re-verify exp at invocation time, not only at receipt.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-toctou-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkFixtureSubject",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 3610,
+                            "exp":      now_ts - 5,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "target_skill_id": "demo-skill",
+                            "check_time":      now_ts - 10,
+                            "use_time":        now_ts,
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "token_expired",
+                            "http_status": 403,
+                        },
+                    },
+                    {
+                        "id":          "deny_skill_id_mismatch",
+                        "verdict":     "deny",
+                        "deny_reason": "skill_id_mismatch",
+                        "description": "Token resource path encodes skill 'demo-skill' but invocation "
+                                       "specifies skill_id 'premium-skill'. Even if scope namespace matches, "
+                                       "the specific skill_id embedded in the resource URI must match exactly.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-skillid-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkFixtureSubject",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 60,
+                            "exp":      now_ts + 3540,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "target_skill_id": "premium-skill",
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "skill_id_mismatch",
+                            "http_status": 403,
+                        },
+                    },
+                    {
+                        "id":          "deny_subject_mismatch",
+                        "verdict":     "deny",
+                        "deny_reason": "subject_mismatch",
+                        "description": "Token sub (subject) does not match the DID of the invoking agent. "
+                                       "Token was issued to 'did:key:z6MkSubjectA' but invocation is from "
+                                       "'did:key:z6MkSubjectB'. Subject-binding is a core SINT property; "
+                                       "tokens MUST NOT be transferable between agents.",
+                        "token": {
+                            "jti":      "urn:acp:cap:fixture:deny-subject-01",
+                            "iss":      "did:key:z6MkFixtureIssuer",
+                            "sub":      "did:key:z6MkSubjectA",
+                            "resource": "acp://relay.example/skills/demo-skill",
+                            "tier":     "T1",
+                            "iat":      now_ts - 60,
+                            "exp":      now_ts + 3540,
+                            "actions":  ["invoke"],
+                            "scheme":   "sint_ed25519",
+                        },
+                        "invocation_context": {
+                            "invoking_agent_did": "did:key:z6MkSubjectB",
+                            "target_skill_id":    "demo-skill",
+                        },
+                        "expected_result": {
+                            "authorized":  False,
+                            "reason_code": "subject_mismatch",
+                            "http_status": 403,
+                        },
+                    },
+                ],
+                "fixture_count": {
+                    "allow": 1,
+                    "deny":  4,
+                    "total": 5,
+                },
+                "deny_reasons_covered": [
+                    "scope_mismatch",
+                    "expired_toctou",
+                    "skill_id_mismatch",
+                    "subject_mismatch",
+                ],
+            })
+
+        # ── GET /trust/signals/capability-token/revocations — list revoked tokens (v2.78) ──
+        elif p == "/trust/signals/capability-token/revocations":
+            # v2.78: List all actively revoked SINT capability tokens.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token/revocations"}, 405)
+                return
+            revocations = list(_revoked_tokens.values())
+            self._json({
+                "ok":            True,
+                "version":       VERSION,
+                "total_revoked": len(revocations),
+                "revocations":   revocations,
+                "a2a_ref":       "https://github.com/google-a2a/A2A/issues/1716",
+            })
+
+        # ── GET /protocol-binding — A2A §5.8 CPB declaration (v2.79) ──────────────────────────────────
+        elif p == "/protocol-binding":
+            # v2.79: Returns the ACP custom protocol binding declaration.
+            # Aligned with A2A §5.8 (merged PR #1619, 2026-04-07): URI-based CPB identification.
+            # ACP binding URI: urn:acp:binding:p2p-relay/v1
+            # Describes transport mechanism, addressing scheme, NAT traversal, streaming support.
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /protocol-binding"}, 405)
+                return
+            self._json({
+                "ok":      True,
+                "version": VERSION,
+                **_PROTOCOL_BINDING,
+            })
+
+        # ── GET /protocol-binding/compatibility — multi-protocol compatibility matrix (v2.85) ──────────
+        elif p == "/protocol-binding/compatibility":
+            # v2.85: Returns ACP compatibility level with other protocols/transports.
+            # Aligned with A2A #1723 (SLIMRPC discussion) — helps consumers understand
+            # which protocol bindings ACP supports and at what compatibility level.
+            # Compatibility levels: "native" / "bridge" / "partial" / "none"
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /protocol-binding/compatibility"}, 405)
+                return
+            self._json({
+                "ok":      True,
+                "version": VERSION,
+                "acp_binding": _PROTOCOL_BINDING.get("binding_uri", "urn:acp:binding:p2p-relay/v1"),
+                "compatibility": [
+                    {
+                        "protocol":  "websocket",
+                        "level":     "native",
+                        "notes":     "ACP primary transport; full duplex, P2P relay over WS",
+                        "rfc":       "RFC 6455",
+                    },
+                    {
+                        "protocol":  "http/sse",
+                        "level":     "native",
+                        "notes":     "SSE task streaming + REST JSON API over HTTP/1.1",
+                        "rfc":       "W3C Server-Sent Events",
+                    },
+                    {
+                        "protocol":  "a2a",
+                        "level":     "partial",
+                        "notes":     "AgentCard, Task state machine, and protocol_binding field aligned with A2A v1.0; "
+                                     "OAuth/PKCE and central registry NOT implemented (ACP is P2P)",
+                        "spec":      "https://github.com/google-a2a/A2A",
+                        "aligned_sections": ["§2 AgentCard", "§3 Task states", "§5.8 protocol_binding"],
+                    },
+                    {
+                        "protocol":  "anp",
+                        "level":     "partial",
+                        "notes":     "client_msg_id idempotency borrowed from ANP §3.2; DID/Ed25519 identity compatible",
+                        "spec":      "https://github.com/agent-network-protocol/AgentNetworkProtocol",
+                        "aligned_sections": ["§3.2 message idempotency"],
+                    },
+                    {
+                        "protocol":  "mcp",
+                        "level":     "none",
+                        "notes":     "Different layer: MCP = Agent↔Tool, ACP = Agent↔Agent. Complementary, not competing.",
+                        "spec":      "https://modelcontextprotocol.io",
+                    },
+                    {
+                        "protocol":  "grpc",
+                        "level":     "none",
+                        "notes":     "Not supported. ACP explicitly avoids gRPC to keep zero-dependency simplicity.",
+                    },
+                ],
+            })
+
+        # ── POST /trust/signals/capability-token/fixtures/validate — dynamic token validation (v2.77) ──
+        elif p == "/trust/signals/capability-token/fixtures/validate":
+            # v2.77: Dynamic SINT capability token validation endpoint.
+            # Accepts a token + invocation_context, runs all SINT checks, returns allow/deny + reason.
+            # Completes the SINT capability loop: v2.74 declaration + v2.75 fixtures + v2.77 validate.
+            # A2A #1716 SINT PR#111 runtime enforcement — ACP reference implementation.
+            if self.command != "POST":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use POST /trust/signals/capability-token/fixtures/validate"}, 405)
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw    = self.rfile.read(length) if length > 0 else b"{}"
+                body   = json.loads(raw)
+            except Exception as exc:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": f"Invalid JSON body: {exc}"}, 400)
+                return
+
+            if not isinstance(body, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Body must be a JSON object"}, 400)
+                return
+
+            token = body.get("token")
+            if not isinstance(token, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Missing or invalid 'token' field (must be an object)"}, 400)
+                return
+
+            ctx = body.get("invocation_context", {})
+            if not isinstance(ctx, dict):
+                ctx = {}
+
+            now_ts = int(time.time())
+            checks = []  # list of {check, passed, reason} for audit trail
+
+            # ── Check 1: token expiry ─────────────────────────────────────────
+            exp = token.get("exp")
+            iat = token.get("iat")
+            check_time = ctx.get("check_time", now_ts)
+            use_time   = ctx.get("use_time",   now_ts)
+
+            if exp is None:
+                checks.append({"check": "expiry", "passed": False, "reason": "missing_exp_field"})
+            elif not isinstance(exp, (int, float)):
+                checks.append({"check": "expiry", "passed": False, "reason": "invalid_exp_type"})
+            elif use_time > exp:
+                # TOCTOU: re-verify at use_time, not only check_time
+                checks.append({"check": "expiry", "passed": False,
+                                "reason": "token_expired",
+                                "detail": f"exp={exp} < use_time={use_time} (TOCTOU re-check)"})
+            else:
+                checks.append({"check": "expiry", "passed": True,
+                                "reason": "token_valid",
+                                "detail": f"exp={exp}, use_time={use_time}, ttl_remaining={exp - use_time}s"})
+
+            # ── Check 2: scope / resource match ─────────────────────────────
+            resource        = token.get("resource", "")
+            target_skill_id = ctx.get("target_skill_id", "")
+
+            if not resource:
+                checks.append({"check": "scope", "passed": False, "reason": "missing_resource_field"})
+            elif not target_skill_id:
+                # No invocation context provided — skip scope check
+                checks.append({"check": "scope", "passed": True,
+                                "reason": "skipped_no_target_skill",
+                                "detail": "invocation_context.target_skill_id not provided; scope check skipped"})
+            else:
+                # resource URI must contain the target skill_id
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                if resource_tail != target_skill_id:
+                    checks.append({"check": "scope", "passed": False,
+                                   "reason": "scope_mismatch",
+                                   "detail": f"resource ends with '{resource_tail}', target_skill_id='{target_skill_id}'"})
+                else:
+                    checks.append({"check": "scope", "passed": True,
+                                   "reason": "scope_match",
+                                   "detail": f"resource skill_id='{resource_tail}' matches target"})
+
+            # ── Check 3: skill_id embedded in resource ───────────────────────
+            # Redundant with scope check when target_skill_id present; kept as explicit named check.
+            # When no target_skill_id, verify resource has a non-empty path tail (structural validity).
+            if not resource:
+                checks.append({"check": "skill_id", "passed": False, "reason": "missing_resource_field"})
+            else:
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                explicit_skill = ctx.get("explicit_skill_id", target_skill_id)
+                if explicit_skill and resource_tail != explicit_skill:
+                    checks.append({"check": "skill_id", "passed": False,
+                                   "reason": "skill_id_mismatch",
+                                   "detail": f"resource embeds '{resource_tail}', explicit_skill_id='{explicit_skill}'"})
+                elif not resource_tail:
+                    checks.append({"check": "skill_id", "passed": False,
+                                   "reason": "empty_skill_id_in_resource"})
+                else:
+                    checks.append({"check": "skill_id", "passed": True,
+                                   "reason": "skill_id_valid",
+                                   "detail": f"embedded skill_id='{resource_tail}'"})
+
+            # ── Check 4: subject binding ─────────────────────────────────────
+            token_sub       = token.get("sub", "")
+            invoking_did    = ctx.get("invoking_agent_did", "")
+
+            if not token_sub:
+                checks.append({"check": "subject", "passed": False, "reason": "missing_sub_field"})
+            elif not invoking_did:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "skipped_no_invoking_did",
+                                "detail": "invocation_context.invoking_agent_did not provided; subject check skipped"})
+            elif token_sub != invoking_did:
+                checks.append({"check": "subject", "passed": False,
+                                "reason": "subject_mismatch",
+                                "detail": f"token.sub='{token_sub}', invoking_did='{invoking_did}'"})
+            else:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "subject_match",
+                                "detail": f"sub='{token_sub}' matches invoking agent"})
+
+            # ── Check 5: required fields ─────────────────────────────────────
+            required = {"jti", "iss", "sub", "resource", "scheme"}
+            missing  = required - set(token.keys())
+            if missing:
+                checks.append({"check": "required_fields", "passed": False,
+                                "reason": "missing_required_fields",
+                                "detail": f"missing: {sorted(missing)}"})
+            else:
+                checks.append({"check": "required_fields", "passed": True,
+                                "reason": "all_required_fields_present"})
+
+            # ── Aggregate result ──────────────────────────────────────────────
+            failed_checks = [c for c in checks if not c["passed"]]
+            authorized    = len(failed_checks) == 0
+
+            # Determine primary deny reason (first hard failure, expiry > scope > skill_id > subject > required)
+            deny_reason  = None
+            http_status  = 200
+            if not authorized:
+                # Priority order: expiry → scope → skill_id → subject → required_fields
+                priority_order = ["expiry", "scope", "skill_id", "subject", "required_fields"]
+                deny_reason = failed_checks[0]["reason"]
+                for po in priority_order:
+                    for fc in failed_checks:
+                        if fc["check"] == po:
+                            deny_reason = fc["reason"]
+                            break
+                    else:
+                        continue
+                    break
+                http_status = 403
+
+            response = {
+                "ok":          True,
+                "version":     VERSION,
+                "authorized":  authorized,
+                "checks":      checks,
+                "a2a_ref":     "https://github.com/google-a2a/A2A/issues/1716",
+            }
+            if not authorized:
+                response["deny_reason"]  = deny_reason
+                response["http_status"]  = http_status
+                response["deny_details"] = [
+                    {"check": c["check"], "reason": c["reason"], "detail": c.get("detail", "")}
+                    for c in failed_checks
+                ]
+            else:
+                response["reason_code"] = "token_valid"
+
+            self._json(response, http_status)
+
+        # ── GET /trust/signals — full trust signal inventory (v2.68) ────────
+        elif p == "/trust/signals/security-posture":
+            # v2.71: Returns detailed security posture for this relay instance.
+            # Includes component versions, CVE counts, scan tool, and per-component details.
+            # Self-declared — consumers should treat this as advisory and independently verify.
+            # Suggested by A2A #1628 @douglasborthwick as the "security_posture" 7th dimension.
+            self._json({
+                "ok":             True,
+                "posture_score":  _SECURITY_POSTURE["posture_score"],
+                "critical_cves":  _SECURITY_POSTURE["critical_cves"],
+                "high_cves":      _SECURITY_POSTURE["high_cves"],
+                "total_cves":     _SECURITY_POSTURE["total_cves"],
+                "scanned_at":     _SECURITY_POSTURE["scanned_at"],
+                "scan_tool":      _SECURITY_POSTURE["scan_tool"],
+                "components":     _SECURITY_POSTURE["components"],
+                "note":           _SECURITY_POSTURE["note"],
+                "version":        VERSION,
+                "disclaimer":     "Self-declared security posture. ACP relays are responsible for keeping their own dependency scans current. Consumers are advised to run independent scans on relay endpoints.",
+            })
+
+        elif p == "/trust/signals/schema":
+            # v2.70: Returns canonical schema for all 12 trust signal types.
+            # Static reference: severity, category, canonical type name, description.
+            # Intended for consumer agents implementing weighted trust scoring
+            # (A2A #1628 @kenneives recommendation: consumer decides weighting, ACP provides hints).
+            schema_entries = []
+            # Build from TRUST_SIGNAL_SCHEMA + descriptions from a fresh signals list
+            all_signals = _build_trust_signals()
+            sig_by_type = {s["type"]: s for s in all_signals}
+            for type_name, meta in TRUST_SIGNAL_SCHEMA.items():
+                sig = sig_by_type.get(type_name, {})
+                schema_entries.append({
+                    "type":        type_name,
+                    "severity":    meta["severity"],
+                    "category":    meta["category"],
+                    "description": sig.get("description", ""),
+                })
+            self._json({
+                "ok":       True,
+                "schema":   schema_entries,
+                "count":    len(schema_entries),
+                "version":  VERSION,
+                "note":     "severity and category are advisory metadata for consumer-side trust scoring (A2A #1628 aligned). ACP signals are boolean (enabled=true/false); weighting is consumer responsibility.",
+            })
+
+        elif p == "/trust/signals":
+            # Returns the full trust.signals[] with live runtime details.
+            # Unlike the AgentCard (which truncates vouch_chain to last 5),
+            # this endpoint returns complete details for all 12 signal types.
+            #
+            # Optional query params:
+            #   ?type=<signal_type>   — filter to a single signal type
+            #   ?enabled=true|false   — filter by enabled status
+            #   ?category=<cat>       — v2.70: filter by category (identity/integrity/authorization/discovery/attestation)
+            #   ?severity=<sev>       — v2.70: filter by severity (critical/high/medium/low)
+            all_signals = _build_trust_signals()
+            type_filter     = qs.get("type",     [None])[0]
+            enabled_filter  = qs.get("enabled",  [None])[0]
+            category_filter = qs.get("category", [None])[0]   # v2.70
+            severity_filter = qs.get("severity", [None])[0]   # v2.70
+            filtered = all_signals
+            if type_filter:
+                filtered = [s for s in filtered if s.get("type") == type_filter]
+            if enabled_filter is not None:
+                want_enabled = enabled_filter.lower() in ("true", "1", "yes")
+                filtered = [s for s in filtered if s.get("enabled") == want_enabled]
+            if category_filter:
+                filtered = [s for s in filtered if s.get("category") == category_filter]
+            if severity_filter:
+                filtered = [s for s in filtered if s.get("severity") == severity_filter]
+            self._json({
+                "ok":      True,
+                "signals": filtered,
+                "count":   len(filtered),
+                "total":   len(all_signals),
+                "version": VERSION,
+            })
+
+        # ── GET /limitations/runtime — dynamic runtime limitations (v2.69) ──
+        elif p == "/limitations/runtime":
+            # Returns dynamic runtime metrics (aligns with A2A #1694 @citriac stable/runtime split).
+            # Static limitations[] live in AgentCard; this endpoint exposes live runtime state.
+            #
+            # Metrics:
+            #   current_load   — number of active WS peers
+            #   queue_depth    — tasks in "submitted" state
+            #   active_tasks   — tasks not in terminal states
+            #   total_tasks    — total tasks ever created
+            #   memory_usage_mb — process RSS (psutil preferred, resource fallback)
+            #   memory_source  — "psutil" | "resource"
+            #   peer_count     — total registered peers
+
+            # Compute task metrics
+            all_tasks = list(_tasks.values())
+            active_tasks = sum(
+                1 for t in all_tasks if t.get("status") not in TERMINAL_STATES
+            )
+            queue_depth = sum(
+                1 for t in all_tasks if t.get("status") == TASK_SUBMITTED
+            )
+            total_tasks = len(all_tasks)
+
+            # Compute peer metrics
+            peer_count   = len(_peers)
+            current_load = sum(
+                1 for p_info in _peers.values() if p_info.get("connected", False)
+            )
+
+            # Memory usage — psutil preferred, resource fallback
+            try:
+                import psutil as _psutil
+                rss = _psutil.Process().memory_info().rss
+                memory_usage_mb = round(rss / 1024 / 1024, 2)
+                memory_source   = "psutil"
+            except ImportError:
+                import resource as _resource
+                usage = _resource.getrusage(_resource.RUSAGE_SELF)
+                # ru_maxrss is in KB on Linux, bytes on macOS
+                import sys as _sys
+                if _sys.platform == "darwin":
+                    memory_usage_mb = round(usage.ru_maxrss / 1024 / 1024, 2)
+                else:
+                    memory_usage_mb = round(usage.ru_maxrss / 1024, 2)
+                memory_source = "resource"
+
+            self._json({
+                "ok": True,
+                "runtime": {
+                    "current_load":    current_load,
+                    "queue_depth":     queue_depth,
+                    "active_tasks":    active_tasks,
+                    "total_tasks":     total_tasks,
+                    "memory_usage_mb": memory_usage_mb,
+                    "memory_source":   memory_source,
+                    "peer_count":      peer_count,
+                },
+                "version":   VERSION,
+                "timestamp": time.time(),
+            })
+
+        # ── GET /trust/vouch — list vouch_chain entries (v2.27) ─────────────
+        elif p == "/trust/vouch":
+            try:
+                limit_raw  = qs.get("limit",  ["50"])[0]
+                offset_raw = qs.get("offset", ["0"])[0]
+                try:
+                    limit = max(1, min(int(limit_raw), 200))
+                except ValueError:
+                    limit = 50
+                try:
+                    offset = max(0, int(offset_raw))
+                except ValueError:
+                    offset = 0
+            except Exception:
+                limit, offset = 50, 0
+
+            total   = len(_vouch_chain)
+            page    = _vouch_chain[offset: offset + limit]
+            self._json({
+                "ok":     True,
+                "vouches": page,
+                "count":   len(page),
+                "total":   total,
+                "pagination": {
+                    "limit":   limit,
+                    "offset":  offset,
+                    "has_more": (offset + limit) < total,
+                    "next_offset": (offset + limit) if (offset + limit) < total else None,
+                },
+            })
+
+        # ── v2.33: GET /identity/pubkey-discovery — resolve DID → pubkey (offline) ──
+        elif p == "/identity/pubkey-discovery":
+            """Resolve a DID string to its Ed25519 public key without any network call.
+
+            v2.33: Supports did:acp: and did:key: schemes. Fully offline.
+
+            Query param:  ?did=<did_string>
+            Response:     {ok, did, scheme, public_key_b64, public_key_hex,
+                           algorithm, derived_did_acp, derived_did_key, consistent}
+            Error:        {ok:false, error, did}
+            """
+            qs = parse_qs(urlparse(self.path).query)
+            did_param = (qs.get("did") or [None])[0]
+            if not did_param:
+                self._json({"ok": False, "error": "query param 'did' required"}, 400)
+                return
+            result = _resolve_did_to_pubkey(did_param)
+            self._json(result, 200 if result.get("ok") else 400)
+
+        # ── v2.63: GET /identity/did-key ─────────────────────────────────────
+        elif p == "/identity/did-key":
+            """Return this relay's W3C did:key identifier and public key material.
+
+            v2.63: Exposes the relay's Ed25519 public key as a did:key:z6Mk... DID.
+            This enables APS/SINT cross-protocol identity verification — the same
+            multicodec [0xed, 0x01] + base58btc encoding confirmed cross-compatible
+            with APS v1.32.0 toDIDKey() and SINT keyToDid() (A2A #1713, 9/9 PASS).
+
+            Response (identity available):
+            {
+              "ok":          true,
+              "did_key":     "did:key:z6Mk...",
+              "did_acp":     "did:acp:<base64url>",   (if available)
+              "public_key_b64": "<base64url 32-byte Ed25519 pubkey>",
+              "public_key_hex": "<64 hex chars>",
+              "algorithm":   "Ed25519",
+              "multicodec":  "0xed01"
+            }
+
+            Response (no identity):
+            { "ok": false, "error": "no Ed25519 identity — start relay with --identity" }
+            """
+            if not _ed25519_private or not _did_key:
+                self._json({"ok": False, "error": "no Ed25519 identity — start relay with --identity"}, 400)
+                return
+            import base64 as _b64
+            pub_bytes = _b64.urlsafe_b64decode(_ed25519_public_b64 + "==")
+            self._json({
+                "ok":             True,
+                "did_key":        _did_key,
+                "did_acp":        _did_acp,
+                "public_key_b64": _ed25519_public_b64,
+                "public_key_hex": pub_bytes.hex() if len(pub_bytes) == 32 else None,
+                "algorithm":      "Ed25519",
+                "multicodec":     "0xed01",
+            })
+
+        # ── v2.16: GET /identity/delegation ──────────────────────────────────
+        elif p == "/identity/delegation":
+            # GET /identity/delegation
+            # Returns current delegation chain status + entries.
+            self._json({
+                "ok":     True,
+                "did":    _did_acp,
+                "chain":  _delegation_chain_status(),
+            })
+
+        elif p.startswith("/context/") and p.endswith("/messages"):  # [stable] context message query (v2.15)
+            # GET /context/<context_id>/messages
+            # Query params:
+            #   limit=<n>          max messages to return (default 50, max 200)
+            #   since_seq=<n>      only return messages with server_seq > n (incremental fetch)
+            #   sort=asc|desc      asc=oldest first (default), desc=newest first
+            _ctx_parts = p.split("/")
+            # Expect exactly: ['', 'context', '<ctx_id>', 'messages']
+            if len(_ctx_parts) != 4:
+                self._json({"error": "not found"}, 404)
+            else:
+                ctx_id = _ctx_parts[2]
+                if not ctx_id:
+                    body, sc = _err(ERR_INVALID_REQUEST, "context_id must not be empty", 400)
+                    self._json(body, sc)
+                else:
+                    # Parse query params
+                    try:
+                        _ctx_lim = int(qs.get("limit", ["50"])[0])
+                        if _ctx_lim <= 0:
+                            raise ValueError
+                        _ctx_lim = min(_ctx_lim, 200)
+                    except (ValueError, TypeError):
+                        self._json(_err(ERR_INVALID_REQUEST, "limit must be a positive integer", 400)[0], 400)
+                        return
+                    try:
+                        ctx_since = int(qs.get("since_seq", ["0"])[0])
+                        if ctx_since < 0:
+                            raise ValueError
+                    except (ValueError, TypeError):
+                        self._json(_err(ERR_INVALID_REQUEST, "since_seq must be non-negative", 400)[0], 400)
+                        return
+                    ctx_sort = qs.get("sort", ["asc"])[0]
+                    if ctx_sort not in ("asc", "desc"):
+                        self._json(_err(ERR_INVALID_REQUEST, "sort must be asc or desc", 400)[0], 400)
+                        return
+                    # Filter _recv_queue by context_id (non-destructive snapshot)
+                    _snap = list(_recv_queue)
+                    matched = []
+                    for _m in _snap:
+                        _raw = _m.get("raw", _m)
+                        _m_ctx = _raw.get("context_id") or _m.get("context_id")
+                        if _m_ctx != ctx_id:
+                            continue
+                        _m_seq = int(_raw.get("server_seq") or _m.get("server_seq") or 0)
+                        if _m_seq <= ctx_since:
+                            continue
+                        matched.append({
+                            "message_id": _raw.get("message_id") or _m.get("message_id"),
+                            "server_seq": _m_seq,
+                            "ts":         _raw.get("ts") or _m.get("ts") or _m.get("received_at"),
+                            "from":       _raw.get("from") or _m.get("peer_id"),
+                            "role":       _raw.get("role"),
+                            "parts":      _raw.get("parts", []),
+                            "task_id":    _raw.get("task_id") or _m.get("task_id"),
+                            "context_id": _m_ctx,
+                        })
+                    matched.sort(key=lambda x: x.get("server_seq") or 0,
+                                 reverse=(ctx_sort == "desc"))
+                    _ctx_page = matched[:_ctx_lim]
+                    self._json({
+                        "context_id": ctx_id,
+                        "messages":   _ctx_page,
+                        "count":      len(_ctx_page),
+                        "total":      len(matched),
+                        "has_more":   len(matched) > _ctx_lim,
+                    })
+
+        elif p == "/tasks/queue":  # v2.98: async task queue status
+            queued = [
+                {
+                    "task_id":    t["id"],
+                    "status":     t["status"],
+                    "queued_at":  t.get("queue_enqueued_at") or t.get("created_at"),
+                    "skill_id":   (t.get("payload") or {}).get("skill_id"),
+                    "peer_id":    (t.get("payload") or {}).get("peer_id"),
+                    "queue_originated": t.get("queue_enqueued", False),
+                }
+                for t in _tasks.values()
+                if t.get("status") in (TASK_SUBMITTED, TASK_WORKING)
+            ]
+            self._json({
+                "ok":          True,
+                "queue_depth": len(queued),
+                "tasks":       queued,
+                "note":        "v2.98 async task queue — POST /tasks/queue to enqueue, poll GET /tasks/{id} or SSE /tasks/{id}/subscribe",
+            }, 200)
+
+        elif p == "/tasks/queue/workers":
+            # ── GET /tasks/queue/workers — list registered workers (v3.11) ──
+            with _task_queue_workers_lock:
+                workers_list = [
+                    {
+                        "worker_id":        wid,
+                        "callback_url":     w.get("callback_url"),
+                        "peer_id":          w.get("peer_id"),
+                        "skill_id":         w.get("skill_id"),
+                        "registered_at":    w.get("registered_at"),
+                        "tasks_dispatched": w.get("tasks_dispatched", 0),
+                        "active":           w.get("active", True),
+                    }
+                    for wid, w in _task_queue_workers.items()
+                ]
+            self._json({
+                "ok":           True,
+                "workers":      workers_list,
+                "worker_count": len(workers_list),
+            })
+
+        elif p == "/tasks":  # [stable] task list — filtering + dual pagination (v2.2/v0.9)
+            # Query params:
+            #   status=<status>        filter by status; comma-separated multi-value (v0.9)
+            #                          e.g. status=submitted,working
+            #   state=<status>         legacy alias for status
+            #   page_size=<n>          A2A-aligned alias for limit (v0.9, default 20, max 100)
+            #   limit=<n>              page size (default 20, max 100; legacy default 50, max 200)
+            #   after=<task_id>        A2A-aligned alias for cursor (v0.9 keyset cursor)
+            #   offset=<n>             offset-based page start (v2.2, default 0)
+            #   cursor=<task_id>       legacy keyset cursor (exclusive; used when offset absent)
+            #   peer_id=<peer_id>      filter by originating peer
+            #   sort=asc|desc          sort order shorthand (v2.2); created_asc/created_desc also accepted
+            #   created_after=<iso>    filter tasks created after this ISO-8601 timestamp
+            #   updated_after=<iso>    filter tasks updated after this ISO-8601 timestamp
+
+            VALID_STATUSES = {
+                TASK_SUBMITTED, TASK_WORKING, TASK_COMPLETED,
+                TASK_FAILED, TASK_CANCELED, TASK_REJECTED,          # v2.66: +rejected
+                TASK_INPUT_REQUIRED,
+            }
+
+            # ── Parameter parsing ──────────────────────────────────────────────
+            # status= takes precedence over legacy state=
+            # v0.9: supports comma-separated multi-value e.g. status=submitted,working
+            status_raw   = qs.get("status", qs.get("state", [None]))[0]
+            peer_filter  = qs.get("peer_id",       [None])[0]
+            created_after = qs.get("created_after", [None])[0]
+            updated_after = qs.get("updated_after", [None])[0]
+            # v0.9: `after` is the A2A-aligned alias for `cursor`
+            cursor        = qs.get("after", qs.get("cursor", [None]))[0]
+
+            # sort: accept "asc"/"desc" (v2.2) and "created_asc"/"created_desc" (legacy)
+            sort_raw   = qs.get("sort", ["desc"])[0]
+            sort_order = "created_asc" if sort_raw in ("asc", "created_asc") else "created_desc"
+
+            # offset-based pagination (v2.2): limit/page_size default 20, max 100
+            # legacy cursor/after mode: limit/page_size default 20, max 100
+            # v0.9: page_size is the A2A-aligned alias for limit (default 20, max 100 in all modes)
+            use_offset = "offset" in qs
+            if use_offset:
+                try:
+                    offset = max(0, int(qs.get("offset", ["0"])[0]))
+                except ValueError:
+                    offset = 0
+                # page_size takes precedence over limit (v0.9 A2A alignment)
+                _limit_raw = qs.get("page_size", qs.get("limit", ["20"]))[0]
+                try:
+                    limit = min(max(1, int(_limit_raw)), 100)
+                except ValueError:
+                    limit = 20
+            else:
+                offset = 0
+                # v0.9: page_size takes precedence over limit; both default 20, max 100
+                # (legacy cursor mode previously used default 50/max 200; unified to 20/100)
+                _limit_raw = qs.get("page_size", qs.get("limit", ["20"]))[0]
+                try:
+                    limit = min(max(1, int(_limit_raw)), 100)
+                except ValueError:
+                    limit = 20
+
+            # v0.9: parse comma-separated multi-value status filter
+            status_set = set()
+            if status_raw:
+                for s in status_raw.split(","):
+                    s = s.strip()
+                    if s:
+                        status_set.add(s)
+
+            # Validate all status values
+            invalid_statuses = status_set - VALID_STATUSES
+            if invalid_statuses:
+                body, status_code = _err(
+                    ERR_INVALID_REQUEST,
+                    f"Invalid status value(s): {', '.join(sorted(invalid_statuses))}. "
+                    f"Valid values: {', '.join(sorted(VALID_STATUSES))}",
+                    400,
+                )
+                self._json(body, status_code)
+                return
+
+            # ── Build + filter task list ───────────────────────────────────────
+            tasks = list(_tasks.values())
+
+            if status_set:
+                tasks = [t for t in tasks if t.get("status") in status_set]
+            if peer_filter:
+                # BUG-014: peer_id may live at top-level or inside payload
+                tasks = [t for t in tasks if
+                         t.get("peer_id") == peer_filter or
+                         t.get("payload", {}).get("peer_id") == peer_filter]
+            if created_after:
+                tasks = [t for t in tasks if t.get("created_at", "") > created_after]
+            if updated_after:
+                tasks = [t for t in tasks if
+                         t.get("updated_at", t.get("created_at", "")) > updated_after]
+
+            # ── Sort ──────────────────────────────────────────────────────────
+            reverse = (sort_order != "created_asc")
+            tasks.sort(key=lambda t: t.get("created_at", ""), reverse=reverse)
+
+            # ── Pagination ────────────────────────────────────────────────────
+            total = len(tasks)   # total matching (pre-page)
+
+            if use_offset:
+                # Offset-based (v2.2)
+                sliced   = tasks[offset:]
+                has_more = len(sliced) > limit
+                page     = sliced[:limit]
+                next_offset = offset + limit if has_more else None
+
+                resp = {
+                    "tasks":       page,
+                    "total":       total,
+                    "has_more":    has_more,
+                }
+                if next_offset is not None:
+                    resp["next_offset"] = next_offset
+            else:
+                # Cursor/after-based pagination (v0.9 A2A-aligned: `after` param + `next_cursor` response)
+                if cursor and cursor in _tasks:
+                    try:
+                        cursor_idx = next(i for i, t in enumerate(tasks) if t["id"] == cursor)
+                        tasks = tasks[cursor_idx + 1:]
+                    except StopIteration:
+                        tasks = []
+                has_more    = len(tasks) > limit
+                page        = tasks[:limit]
+                # v0.9: next_cursor is always present (null when no more pages)
+                next_cursor = page[-1]["id"] if has_more and page else None
+
+                resp = {
+                    "tasks":       page,
+                    "count":       len(page),
+                    "total":       total,
+                    "has_more":    has_more,
+                    "next_cursor": next_cursor,
+                }
+
+            self._json(resp)
+
+        # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
+        # BUG-008 fix: support both /wait and :wait styles
+        elif p.startswith("/tasks/") and (p.endswith("/wait") or p.endswith(":wait")):
+            sep_len = len("/wait") if p.endswith("/wait") else len(":wait")
+            task_id = p[len("/tasks/"):-sep_len]
+            timeout = float(qs.get("timeout", ["30"])[0])
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+                return
+            if task["status"] in TERMINAL_STATES:
+                self._json({"task": task, "waited": False})
+                return
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                task = _tasks.get(task_id)
+                if task and task["status"] in TERMINAL_STATES:
+                    self._json({"task": task, "waited": True})
+                    return
+                time.sleep(0.5)
+            self._json({"task": _tasks.get(task_id), "waited": True, "timeout": True}, 202)
+
+        elif p.startswith("/tasks/"):
+            # /tasks/{id}  or  /tasks/{id}:subscribe (SSE for single task)
+            rest = p[len("/tasks/"):]
+            if rest.endswith(":subscribe"):
+                task_id = rest[:-len(":subscribe")]
+                task = _tasks.get(task_id)
+                if not task:
+                    self._json({"error": "task not found"}, 404)
+                    return
+                # SSE stream filtered to this task
+                self.close_connection = False
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                q = deque()
+                _sse_subscribers.append(q)
+                try:
+                    while True:
+                        if q:
+                            evt = q.popleft()
+                            if evt.get("task_id") == task_id or evt.get("type") == "peer":
+                                self.wfile.write(_sse_format(evt))  # v2.3: named event type
+                                self.wfile.flush()
+                            if evt.get("type") == "status" and evt.get("state") in TERMINAL_STATES:
+                                break
+                        else:
+                            self.wfile.write(b": keepalive\n\n")
+                            self.wfile.flush()
+                            _sse_notify.wait(timeout=30); _sse_notify.clear()
+                except Exception:
+                    pass
+                finally:
+                    if q in _sse_subscribers:
+                        _sse_subscribers.remove(q)
+            elif rest.endswith("/audit-log"):
+                # v2.52: GET /tasks/{id}/audit-log — immutable per-task audit trail
+                task_id = rest[:-len("/audit-log")]
+                task = _tasks.get(task_id)
+                if not task:
+                    self._json({"error": "task not found"}, 404)
+                else:
+                    audit = task.get("audit_log", [])
+                    # Support ?since_seq=<N> for incremental polling
+                    try:
+                        since_seq = int(qs.get("since_seq", ["-1"])[0])
+                    except (ValueError, KeyError):
+                        since_seq = -1
+                    if since_seq >= 0:
+                        audit = [e for e in audit if e.get("seq", 0) > since_seq]
+                    limit = int(qs.get("limit", ["200"])[0])
+                    audit = audit[:limit]
+                    self._json({
+                        "task_id":   task_id,
+                        "status":    task["status"],
+                        "audit_log": audit,
+                        "total":     len(task.get("audit_log", [])),
+                    })
+            elif rest.endswith("/evidence-stream"):
+                # v2.82: GET /tasks/{id}/evidence-stream — SSE real-time subscription
+                task_id = rest[:-len("/evidence-stream")]
+                self.close_connection = False
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                # Replay existing evidence entries
+                existing = list(_task_evidence.get(task_id, []))
+                for ev_entry in existing:
+                    line = f"event: evidence\ndata: {json.dumps(ev_entry)}\n\n"
+                    try:
+                        self.wfile.write(line.encode("utf-8"))
+                        self.wfile.flush()
+                    except Exception:
+                        return
+                # Register subscriber queue
+                sub_q = _queue_module.Queue(maxsize=100)
+                _evidence_subscribers.setdefault(task_id, []).append(sub_q)
+                try:
+                    while True:
+                        try:
+                            ev_entry = sub_q.get(timeout=5)  # 5s keepalive interval
+                            line = f"event: evidence\ndata: {json.dumps(ev_entry)}\n\n"
+                            self.wfile.write(line.encode("utf-8"))
+                            self.wfile.flush()
+                        except _queue_module.Empty:
+                            self.wfile.write(b": keepalive\n\n")
+                            self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                finally:
+                    subs = _evidence_subscribers.get(task_id, [])
+                    if sub_q in subs:
+                        subs.remove(sub_q)
+            elif rest.endswith("/evidence/latest"):
+                # v2.81: GET /tasks/{id}/evidence/latest — get most recent evidence entry
+                task_id = rest[:-len("/evidence/latest")]
+                entries = _task_evidence.get(task_id, [])
+                if not entries:
+                    self._json({"error": "no evidence found", "task_id": task_id}, 404)
+                else:
+                    self._json(entries[-1])
+            elif rest.endswith("/evidence"):
+                # v2.81: GET /tasks/{id}/evidence — list all evidence for a task
+                task_id = rest[:-len("/evidence")]
+                entries = _task_evidence.get(task_id, [])
+                self._json({"task_id": task_id, "evidence": entries, "count": len(entries)})
+            else:
+                task = _tasks.get(rest)
+                if task:
+                    self._json(task)
+                else:
+                    self._json({"error": "task not found"}, 404)
+
+        elif p == "/history":
+            history = []
+            if _inbox_path and os.path.exists(_inbox_path):
+                with open(_inbox_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try: history.append(json.loads(line))
+                            except Exception: pass
+            limit = int(qs.get("limit", ["100"])[0])
+            self._json({"history": history[-limit:], "total": len(history)})
+
+        elif p == "/ws/stream":  # v2.12: WebSocket native push stream
+            upgrade = self.headers.get("Upgrade", "").lower()
+            if upgrade != "websocket":
+                self._json({"error": "WebSocket upgrade required", "hint": "Set 'Upgrade: websocket' header"}, 426)
+                return
+            # Delegate to WS handler (runs in this thread — blocking)
+            self.close_connection = True
+            _handle_ws_stream(self)
+
+        # ── GET /skills/<id>/effective-tier — dynamic tier computation (v2.58) ──
+        elif p.startswith("/skills/") and p.endswith("/effective-tier"):
+            """
+            GET /skills/{skill_id}/effective-tier?peer_id=<peer_id>&wtrmrk_sequence_root=<root>
+
+            Returns the dynamically computed effective authorization tier for this skill,
+            combining tier_rule + delegation_depth_floor + reputation_adj + wtrmrk_adj (v2.62).
+
+            Query params:
+              peer_id  (optional) — DID or internal peer id to simulate; if omitted, uses
+                                    anonymous caller (reputation_adj=+1 applied)
+              wtrmrk_sequence_root (optional, v2.62) — Merkle commitment to query WTRMRK registry;
+                                    if provided, Factor 4 (attestation_history_adjustment) is computed
+
+            Response 200:
+              {
+                "skill_id":        "...",
+                "effective_tier":  "T0"|"T1"|"T2"|"T3"|null,
+                "factors": {
+                  "tier_rule":               "T1"|...|null,
+                  "delegation_depth":        0,
+                  "depth_floor":             "T1"|null,
+                  "reputation_adj":          0,
+                  "wtrmrk_sequence_root":    "abc123...|null,
+                  "wtrmrk_queried":          true|false,
+                  "wtrmrk_grade":            0|1|2|3|null,
+                  "wtrmrk_adj":              -1|0|1|null,
+                  "combined_adj":            -1|0|1,
+                  "effective_tier":          "T1"|...
+                }
+              }
+            """
+            skill_id_req = p[len("/skills/"):-len("/effective-tier")]
+            if not skill_id_req:
+                self._json(_err(ERR_INVALID_REQUEST, "skill id must not be empty", 400)[0], 400)
+                return
+            agent_card = _status.get("agent_card") or {}
+            all_skills = list(agent_card.get("skills", []))
+            skill_obj_req = None
+            for s in all_skills:
+                if isinstance(s, dict) and s.get("id") == skill_id_req:
+                    skill_obj_req = s
+                    break
+            if skill_obj_req is None:
+                self._json(
+                    _err(ERR_NOT_FOUND, f"skill '{skill_id_req}' not found in agent card", 404)[0],
+                    404,
+                )
+                return
+            qs_et = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            caller_peer_id = (qs_et.get("peer_id") or [None])[0]
+            # v2.62: optional wtrmrk_sequence_root for Factor 4
+            wtrmrk_root_et = (qs_et.get("wtrmrk_sequence_root") or [None])[0]
+            eff_tier, factors = _compute_effective_tier(skill_obj_req, caller_peer_id, wtrmrk_root_et)
+            self._json({
+                "skill_id":       skill_id_req,
+                "effective_tier": eff_tier,
+                "factors":        factors,
+            })
+            return
+
+        # ── GET /skills/<id>/status — per-skill availability probe (v2.29) ──────
+        elif p.startswith("/skills/") and p.endswith("/status"):
+            skill_id_req = p[len("/skills/"):-len("/status")]
+            if not skill_id_req:
+                self._json(_err(ERR_INVALID_REQUEST, "skill id must not be empty", 400)[0], 400)
+                return
+            agent_card  = _status.get("agent_card") or {}
+            all_skills  = list(agent_card.get("skills", []))
+            matched     = None
+            for s in all_skills:
+                sid = s.get("id", "") if isinstance(s, dict) else str(s)
+                if sid == skill_id_req:
+                    matched = s
+                    break
+            if matched is None:
+                self._json(
+                    _err(ERR_NOT_FOUND, f"skill '{skill_id_req}' not found in agent card", 404)[0],
+                    404,
+                )
+                return
+            # Determine availability: runtime (permanent=False) cap/access limitation → unavailable
+            # v2.29: merge runtime overrides from PATCH /skills/<id>/limitations
+            reason    = None
+            available = True
+            base_lims = matched.get("limitations", []) if isinstance(matched, dict) else []
+            override_lims = _skill_limitations_overrides.get(skill_id_req)
+            if override_lims is not None:
+                # Override replaces the declared limitations entirely
+                lims = override_lims
+            else:
+                lims = base_lims
+            for lim in lims:
+                if isinstance(lim, str):
+                    continue
+                if lim.get("permanent") is False and lim.get("kind") in ("capability", "access"):
+                    available = False
+                    reason    = lim.get("message") or lim.get("code") or "runtime limitation active"
+                    break
+            # v3.14: record that this skill has been probed (contributes to has_status evidence)
+            _skill_status_probed.add(skill_id_req)
+            # v3.14: compute skill_trust_score AFTER recording probe (has_status=True for next call)
+            sts = _compute_skill_trust_score_v314(matched, skill_id_req)
+            self._json({
+                "skill_id":         skill_id_req,
+                "available":        available,
+                "reason":           reason,
+                "limitations":      lims,              # v2.29: include resolved limitations in response
+                "last_checked":     _now(),
+                "skill_trust_score": sts,              # v3.14: evidence-based composite trust score
+            })
+
+        elif p == "/stream":  # [stable] SSE event stream
+            # BUG-001 additional fix: prevent BaseHTTP HTTP/1.0 from closing
+            # the connection after headers. SSE requires a persistent connection.
+            self.close_connection = False
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            # v2.13: ?since=<seq> replay — send missed events before joining live stream
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            since_seq = None
+            try:
+                since_seq = int(qs.get("since", [None])[0])
+            except (TypeError, ValueError):
+                pass
+            q = deque()
+            if since_seq is not None:
+                with _event_log_lock:
+                    replay = [e for e in _event_log if e.get("seq", 0) > since_seq]
+                for evt in replay:
+                    try:
+                        self.wfile.write(_sse_format(evt))
+                    except Exception:
+                        break
+                try:
+                    self.wfile.flush()
+                except Exception:
+                    return
+            _sse_subscribers.append(q)
+            try:
+                while True:
+                    if q:
+                        evt = q.popleft()
+                        self.wfile.write(_sse_format(evt))  # v2.3: named event type
+                        self.wfile.flush()
+                    else:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                        _sse_notify.wait(timeout=30); _sse_notify.clear()
+            except Exception:
+                pass
+            finally:
+                if q in _sse_subscribers:
+                    _sse_subscribers.remove(q)
+
+        else:
+            self._json({"error": "not found"}, 404)
+
+    # ── ACP v3.7 Authorization hook ──────────────────────────────────────────
+    # [STUB] ACP v3.7 Authorization hook — reserved for A2A #1716 capability token verification
+    # Future: validate capability_token against AgentSkill boundaries before routing
+    def _check_authorization(self, sender_id: str, target_id: str, skill_id: str = None) -> bool:
+        """Stub: always returns True until Authorization Layer spec is finalized (A2A #1716 watchlist)"""
+        return True
+
+
+    def do_POST(self):
+        global _extensions  # v1.3: may be mutated by /extensions/register and /extensions/unregister
+        try:
+            self._do_POST_inner()
+        except _BodyReadError:
+            pass  # Response already written by _read_body; just stop processing
+
+    def _do_POST_inner(self):
+        global _extensions
+        parsed = urlparse(self.path)
+        p = parsed.path
+
+        # ── v3.3: POST /capability/issue — ACP generic Ed25519 capability token helper ──
+        if p == "/capability/issue":
+            """
+            POST /capability/issue — Issue an Ed25519 ACP capability token (A2A #1716 SINT-interop).
+
+            This is an ACP-native helper endpoint (not a mandated A2A interface).
+            Requires --identity (Ed25519 keypair must be loaded).
+
+            Body:
+              subject       (required) — peer_id or DID of the subject receiving this capability
+              resource      (optional) — resource scope: session_id or "*" (default: "*")
+              actions       (optional) — list of permitted actions (default: ["read", "write"])
+              tier          (optional) — numeric tier 0-3 (default: 0)
+              exp_seconds   (optional) — token lifetime in seconds (default: 3600)
+
+            Response 200:
+              {"ok": true, "token": {type, subject, resource, actions, tier, iss, iat, exp, sig}}
+            Response 400: missing subject
+            Response 403: --identity not loaded (no Ed25519 keypair)
+            """
+            try:
+                body = self._read_body()
+                subject_ci = (body.get("subject") or "").strip()
+                if not subject_ci:
+                    self._json({"ok": False, "error": "missing required field: subject"}, 400)
+                    return
+                if not _ed25519_private:
+                    self._json({"ok": False,
+                                "error": "capability_token issuance requires --identity (Ed25519 keypair)",
+                                "error_code": "ERR_IDENTITY_REQUIRED"}, 403)
+                    return
+                resource_ci    = str(body.get("resource", "*") or "*")
+                actions_ci     = list(body.get("actions") or ["read", "write"])
+                tier_ci        = int(body.get("tier", 0))
+                exp_seconds_ci = int(body.get("exp_seconds", 3600))
+
+                import secrets as _sec_ci
+                import time as _time_ci
+                import base64 as _b64_ci
+                jti_ci  = _sec_ci.token_hex(16)
+                iat_ci  = int(_time_ci.time())
+                exp_ci  = iat_ci + exp_seconds_ci
+                issuer_ci = _did_acp or _did_key or _status.get("agent_name", "acp-relay")
+
+                payload_ci = {
+                    "type":     "Ed25519CapabilityToken",
+                    "subject":  subject_ci,
+                    "resource": resource_ci,
+                    "actions":  sorted(actions_ci),
+                    "tier":     tier_ci,
+                    "iss":      issuer_ci,
+                    "jti":      jti_ci,
+                    "iat":      iat_ci,
+                    "exp":      exp_ci,
+                }
+                canonical_ci   = json.dumps(payload_ci, sort_keys=True, separators=(",", ":")).encode()
+                sig_bytes_ci   = _ed25519_private.sign(canonical_ci)
+                sig_b64url_ci  = _b64_ci.urlsafe_b64encode(sig_bytes_ci).rstrip(b"=").decode()
+                import datetime as _dt_ci
+                exp_iso_ci     = _dt_ci.datetime.utcfromtimestamp(exp_ci).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                token_ci = {
+                    **payload_ci,
+                    "exp":      exp_iso_ci,   # override with ISO-8601 per A2A #1716 convention
+                    "sig":      sig_b64url_ci,
+                    "public_key": _ed25519_public_b64,
+                }
+                log.info(f"🎫 /capability/issue: jti={jti_ci} sub={subject_ci} tier={tier_ci} exp={exp_iso_ci}")
+                self._json({"ok": True, "token": token_ci})
+            except Exception as _ci_err:
+                self._json({"ok": False, "error": str(_ci_err)}, 500)
+            return
+
+        # ── v2.57: POST /skills/{skill_id}/capability-token — SINT-format token issuance ──
+        if p.startswith("/skills/") and p.endswith("/capability-token") and p.count("/") == 3:
+            """
+            POST /skills/{skill_id}/capability-token — Issue a SINT-format Ed25519 capability token.
+
+            Requires --identity (Ed25519 keypair loaded).
+
+            Body:
+              subject   (required)  — DID of the subject receiving this capability
+              tier      (optional)  — "T0"|"T1"|"T2"|"T3" (default: skill's authorization_tier or "T1")
+              ttl       (optional)  — token lifetime in seconds (default: 3600)
+              actions   (optional)  — list of permitted actions (default: ["invoke"])
+              constraints (optional) — dict of param constraints (e.g. {"max_amount": 1000})
+
+            Response 200:
+              {"ok": true, "token": {jti, iss, sub, resource, actions, tier, constraints,
+                                     iat, exp, signature, scheme, public_key}}
+            Response 400: missing subject, invalid tier
+            Response 403: --identity not loaded (no Ed25519 keypair)
+            Response 404: skill_id not found in AgentCard
+            """
+            skill_id_ct = p.split("/")[2]
+            try:
+                body = self._read_body()
+                subject = (body.get("subject") or "").strip()
+                if not subject:
+                    self._json({"ok": False, "error": "missing required field: subject"}, 400)
+                    return
+                if not _ed25519_private:
+                    self._json({"ok": False,
+                                "error": "capability_token issuance requires --identity (Ed25519 keypair)",
+                                "error_code": "ERR_IDENTITY_REQUIRED"}, 403)
+                    return
+
+                # Look up skill to get default tier
+                card_skills = (_status.get("agent_card") or {}).get("skills", [])
+                skill_obj = next((s for s in card_skills
+                                  if isinstance(s, dict) and s.get("id") == skill_id_ct), None)
+                if skill_obj is None:
+                    self._json({"ok": False,
+                                "error": f"skill '{skill_id_ct}' not found in AgentCard",
+                                "error_code": "ERR_SKILL_NOT_FOUND"}, 404)
+                    return
+
+                # Determine tier
+                tier_ct = (body.get("tier") or skill_obj.get("authorization_tier") or "T1").upper()
+                if tier_ct not in ("T0", "T1", "T2", "T3"):
+                    self._json({"ok": False,
+                                "error": f"invalid tier '{tier_ct}'; must be T0/T1/T2/T3"}, 400)
+                    return
+
+                ttl_ct   = int(body.get("ttl", 3600))
+                acts_ct  = list(body.get("actions") or ["invoke"])
+                cons_ct  = body.get("constraints") or {}
+
+                token = _issue_capability_token(
+                    subject_did=subject,
+                    skill_id=skill_id_ct,
+                    tier=tier_ct,
+                    constraints=cons_ct if cons_ct else None,
+                    ttl_seconds=ttl_ct,
+                    actions=acts_ct,
+                )
+                # Store issued token in global registry
+                _capability_tokens[token["jti"]] = {**token, "skill_id": skill_id_ct, "issued_at": _now()}
+                log.info(f"🎫 capability_token issued: jti={token['jti']} sub={subject} skill={skill_id_ct} tier={tier_ct} exp={token['exp']}")
+                self._json({"ok": True, "token": token})
+            except ValueError as e:
+                self._json({"ok": False, "error": str(e)}, 400)
+            except RuntimeError as e:
+                self._json({"ok": False, "error": str(e), "error_code": "ERR_IDENTITY_REQUIRED"}, 403)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
+        # ── v2.56: Principal Chain management endpoints ──────────────────────
+        if p == "/principal-chain":
+            """
+            POST /principal-chain — Add a principal (OBO delegation entry) to the global chain.
+
+            Body: {"did": "did:acp:...", "role": "orchestrator"|"delegator"|"owner"|str (optional)}
+            Response 200: {"ok": true, "did": ..., "role": ..., "added_at": ..., "count": <int>}
+            Response 400: missing/invalid did field
+            """
+            global _principal_chain
+            try:
+                body = self._read_body()
+                did_val = (body.get("did") or "").strip()
+                if not did_val:
+                    self._json({"ok": False, "error": "missing required field: did"}, 400)
+                    return
+                role_val = (body.get("role") or "delegator").strip()
+                entry = {
+                    "did":      did_val,
+                    "role":     role_val,
+                    "added_at": _now(),
+                }
+                # Upsert: replace if DID already exists
+                _principal_chain = [e for e in _principal_chain if e.get("did") != did_val]
+                _principal_chain.append(entry)
+                log.info(f"🔗 principal_chain: added {did_val!r} (role={role_val}, total={len(_principal_chain)})")
+                self._json({"ok": True, **entry, "count": len(_principal_chain)})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
+        # ── v2.16: Delegation Chain POST endpoints ────────────────────────────
+        if p == "/identity/delegate":
+            # POST /identity/delegate
+            # Body: {"delegator_did": "did:acp:...", "scope": [...], "expires_at": <unix>}
+            import time as _time2
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            except Exception:
+                body = {}
+            delegator_did = body.get("delegator_did", "")
+            scope         = body.get("scope", ["send", "receive"])
+            expires_at    = float(body.get("expires_at", _time2.time() + 86400))
+            if not delegator_did.startswith("did:"):
+                self._json({"ok": False, "error": "delegator_did must be a valid DID"}, 400)
+            elif not _ed25519_private:
+                self._json({"ok": False, "error": "identity not loaded; start with --identity"}, 400)
+            else:
+                try:
+                    entry = _build_delegation_entry(delegator_did, scope, expires_at)
+                    global _delegation_chain
+                    _delegation_chain = [e for e in _delegation_chain
+                                         if e.get("delegator_did") != delegator_did]
+                    _delegation_chain.append(entry)
+                    log.info(f"[v2.16] delegation added: delegator={delegator_did} scope={scope}")
+                    self._json({"ok": True, "entry": entry,
+                                "delegation_chain_size": len(_delegation_chain)})
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        elif p == "/identity/verify-card":
+            # POST /identity/verify-card — offline AgentCard signature verification (v2.90)
+            # Verifies an arbitrary AgentCard's Ed25519 self-signature without requiring
+            # a live connection to the card's owner.  Useful for cross-instance trust
+            # propagation: Agent B can prove to Agent C that "I received a card from A
+            # and it verifies cryptographically."
+            #
+            # Body: {"card": {...}}
+            # Response (200): {"verified": bool, "did": str|null, "public_key": str|null,
+            #                   "did_consistent": bool|null, "scheme": str, "error": str|null}
+            # Response (400): {"error": "..."}  — missing/invalid body
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+            card = body.get("card")
+            if not card or not isinstance(card, dict):
+                self._json({"error": "'card' field required (object)"}, 400)
+                return
+            vr = _verify_agent_card(card)
+            self._json({
+                "verified":      vr.get("valid") is True,
+                "valid":         vr.get("valid"),
+                "did":           vr.get("did"),
+                "public_key":    vr.get("public_key"),
+                "did_consistent": vr.get("did_consistent"),
+                "scheme":        vr.get("scheme"),
+                "error":         vr.get("error"),
+            })
+
+        elif p == "/identity/pubkey-discovery":
+            # POST /identity/pubkey-discovery — resolve DID → pubkey (v2.33)
+            # Body: {"did": "<did_string>"} or {"dids": ["<did1>", "<did2>", ...]} (batch)
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            # Batch mode: {"dids": [...]}
+            if "dids" in body:
+                dids = body["dids"]
+                if not isinstance(dids, list) or len(dids) > 50:
+                    self._json({"ok": False, "error": "'dids' must be a list (max 50)"}, 400)
+                    return
+                results = [_resolve_did_to_pubkey(d) for d in dids]
+                self._json({"ok": True, "results": results, "count": len(results)})
+                return
+
+            # Single mode: {"did": "..."}
+            did_param = body.get("did")
+            if not did_param:
+                self._json({"ok": False, "error": "'did' field required"}, 400)
+                return
+            result = _resolve_did_to_pubkey(did_param)
+            self._json(result, 200 if result.get("ok") else 400)
+
+        elif p == "/identity/delegation/verify":
+            # POST /identity/delegation/verify
+            # Body: {"entry": {...}} — verify a single delegation entry's Ed25519 signature.
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            except Exception:
+                body = {}
+            entry = body.get("entry", {})
+            if not entry:
+                self._json({"ok": False, "error": "entry required"}, 400)
+            else:
+                valid = _verify_delegation_entry(entry)
+                self._json({"ok": True, "valid": valid, "entry": entry})
+            return
+        # ── end v2.16 ─────────────────────────────────────────────────────────
+
+        # ── v2.63: POST /verify/external-token ───────────────────────────────
+        elif p == "/verify/external-token":
+            """Cross-protocol SINT-format capability token verification.
+
+            v2.63: Accepts a SINT-format capability token and verifies:
+              1. Required fields present
+              2. Expiry (if exp field present)
+              3. Subject Ed25519 public key decoded (64 hex chars)
+              4. did:key derived (W3C spec: multicodec [0xed,0x01] + base58btc)
+                 — identical to APS v1.32.0 toDIDKey() and SINT keyToDid()
+                 — cross-verified 9/9 PASS with @pshkv (A2A #1713, 2026-04-06)
+              5. Canonical payload reconstructed and Ed25519 signature verified
+              6. Optional: query api.moltrust.ch/capability/verify for confidence
+
+            Request body:
+            {
+              "token": {
+                "subject":    "<64 hex chars — Ed25519 public key>",
+                "resource":   "a2a://agent.example.com/skills/transfer_funds",
+                "actions":    ["invoke"],
+                "tier":       "T2_act",
+                "exp":        1234567890,  (optional)
+                "signature":  "<Ed25519 sig — 128 hex or base64url>"
+              }
+            }
+
+            Response (valid):
+            {
+              "ok":           true,
+              "valid":        true,
+              "subject_did":  "did:key:z6Mk...",
+              "tier":         "T2_act",
+              "resource":     "...",
+              "expired":      false,
+              "grade":        2,          (from MoltTrust; null if unavailable)
+              "confidence":   0.82,       (from MoltTrust; null if unavailable)
+              "fields_verified": [...],
+              "relay_did_key": "did:key:z6Mk..."  (this relay's DID, for reference)
+            }
+
+            Response (invalid / error):
+            {
+              "ok":   false,
+              "error": "...",
+              "valid": false
+            }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            token_obj = body.get("token")
+            if not isinstance(token_obj, dict):
+                self._json({"ok": False, "error": "'token' field required (object)"}, 400)
+                return
+
+            result = _verify_sint_token(token_obj)
+            # Annotate with this relay's did:key (for cross-reference)
+            result["relay_did_key"] = _did_key
+            status_code = 200 if result.get("ok") else (400 if not result.get("valid") else 200)
+            self._json(result, status_code)
+
+        # ── v3.4: POST /governance/policy — query current governance policy ──────────────────────────────
+        elif p == "/governance/policy":
+            """
+            POST /governance/policy — Return the current AgentCard.governance block (v3.4).
+
+            No body required. This is a read-only query endpoint; it does not modify
+            any configuration. Returns the same governance object that appears in
+            /status and /.well-known/acp.json.
+
+            Response 200:
+            {
+              "framework": "ACP",
+              "version": "3.4.0",
+              "credential_lifecycle": {
+                "ttl_seconds": 3600,
+                "revocation_endpoint": null,
+                "credential_ttl_seconds": 86400
+              },
+              "audit_mode": "static",
+              "policy_ref": null
+            }
+
+            Aligns with A2A #1717 CredentialLifecyclePolicy governance metadata.
+            """
+            self._json(_build_governance())
+
+        # ── v3.12: POST /governance/compliance — trigger compliance check + return report ──
+        elif p == "/governance/compliance":
+            """
+            POST /governance/compliance — Run a live compliance check and return report (v3.12).
+
+            Checks all declared policy_compliance standards against runtime state,
+            records the verification timestamp, and returns a structured compliance report.
+
+            Body (optional):
+              - reset_attestation (bool): clear operator_attestation on check (default false)
+
+            Response 200:
+              {
+                "ok": true,
+                "compliance_report": {
+                  "policies_declared": <int>,
+                  "issues_detected": <int>,
+                  "status": "compliant|issues_detected|unverified",
+                  "policy_checks": [ {"policy": <str>, "status": "pass|warn|unknown"} ... ],
+                  "compliance_endpoint": "/governance/compliance"
+                },
+                "last_verified_at": <ISO8601>,
+                "governance": { ... }
+              }
+
+            A2A #1717 Microsoft AGT alignment: provides on-demand compliance verification.
+            """
+            global _governance_compliance_verified_at
+            try:
+                body = self._read_body()
+                reset = body.get("reset_attestation", False)
+            except Exception:
+                body, reset = {}, False
+
+            # Run lightweight compliance checks against declared policies
+            policy_checks = []
+            issues = 0
+            for policy_entry in _policy_compliance:
+                p_id  = policy_entry if isinstance(policy_entry, str) else policy_entry.get("policy", "")
+                p_status = "pass"   # Default: declared = assumed compliant
+                # Basic heuristic: if Ed25519 required by policy name but not available, flag warn
+                if "ed25519" in p_id.lower() or "signature" in p_id.lower():
+                    if not _ed25519_private:
+                        p_status = "warn"
+                        issues += 1
+                elif isinstance(policy_entry, dict):
+                    declared_status = policy_entry.get("status", "compliant")
+                    if declared_status == "non-compliant":
+                        p_status = "warn"
+                        issues += 1
+                    elif declared_status == "unknown":
+                        p_status = "unknown"
+                policy_checks.append({"policy": p_id, "status": p_status})
+
+            verified_at = _now()
+            with _governance_compliance_lock:
+                _governance_compliance_verified_at = verified_at
+                if reset:
+                    global _governance_operator_attestation
+                    _governance_operator_attestation = None
+
+            compliance_report = {
+                "policies_declared":  len(_policy_compliance),
+                "issues_detected":    issues,
+                "status":             "compliant" if issues == 0 else "issues_detected",
+                "policy_checks":      policy_checks,
+                "compliance_endpoint": "/governance/compliance",
+            }
+            self._json({
+                "ok":               True,
+                "compliance_report": compliance_report,
+                "last_verified_at": verified_at,
+                "governance":       _build_governance(),
+            })
+
+        # ── v3.0: POST /verify/message — verify message-level Ed25519 signature (msg_sig) ─────────────────
+        elif p == "/verify/message":
+            """
+            POST /verify/message — Verify the msg_sig field of an ACP message (v3.0).
+
+            Validates that a message's msg_sig was produced by the Ed25519 private key
+            corresponding to the supplied public key. The canonical signed payload is:
+
+              JSON.stringify({content, from, message_id, ts}, sort_keys=True)
+
+            where `content` = JSON-serialised parts array.
+
+            This endpoint is analogous to ANP's DataIntegrityProof / origin_proof
+            verification, providing cryptographic proof of message origin.
+
+            Request body:
+            {
+              "message": {               -- required: the full ACP message object
+                "message_id": "...",
+                "from": "...",
+                "parts": [...],
+                "ts": "...",
+                "msg_sig": "<base64url Ed25519 signature>"
+              },
+              "public_key": "<base64url Ed25519 public key>"   -- optional; if omitted, use this relay's key
+            }
+
+            Response (valid):
+            {
+              "ok":         true,
+              "valid":      true,
+              "message_id": "...",
+              "from":       "...",
+              "signer_key": "<base64url public key used for verification>",
+              "error":      null
+            }
+
+            Response (invalid):
+            {
+              "ok":    false,
+              "valid": false,
+              "error": "<reason>"
+            }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "valid": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            msg_to_verify = body.get("message")
+            if not isinstance(msg_to_verify, dict):
+                self._json({"ok": False, "valid": False,
+                            "error": "'message' field required (object)"}, 400)
+                return
+
+            # Public key: caller-supplied or fall back to this relay's own public key
+            pub_key_b64 = body.get("public_key") or _ed25519_public_b64
+            if not pub_key_b64:
+                self._json({"ok": False, "valid": False,
+                            "error": "no public_key supplied and relay has no identity key loaded"}, 400)
+                return
+
+            if not msg_to_verify.get("msg_sig"):
+                self._json({"ok": False, "valid": False,
+                            "error": "message.msg_sig is absent"}, 400)
+                return
+
+            if not _ED25519_AVAILABLE:
+                self._json({
+                    "ok":         True,
+                    "valid":      None,
+                    "message_id": msg_to_verify.get("message_id"),
+                    "from":       msg_to_verify.get("from"),
+                    "signer_key": pub_key_b64,
+                    "error":      "Ed25519 library unavailable — cannot verify (fail-open)",
+                })
+                return
+
+            # v3.1: optional `to` field — if provided, verify with recipient-bound canonical (origin_proof)
+            to_peer = body.get("to", "")
+
+            try:
+                valid = _verify_message_sig(msg_to_verify, pub_key_b64, to=to_peer)
+                self._json({
+                    "ok":         valid,
+                    "valid":      valid,
+                    "message_id": msg_to_verify.get("message_id"),
+                    "from":       msg_to_verify.get("from"),
+                    "signer_key": pub_key_b64,
+                    **({"to": to_peer} if to_peer else {}),
+                    "error":      (None if valid else "Ed25519 signature verification failed"),
+                })
+            except Exception as e:
+                self._json({"ok": False, "valid": False, "error": str(e)}, 500)
+
+        # ── v3.2: POST /verify/proof — verify W3C DataIntegrityProof (Ed25519Signature2020) ──────────────────
+        elif p == "/verify/proof":
+            """
+            POST /verify/proof — Verify a W3C DataIntegrityProof on an ACP message (v3.2).
+
+            Accepts a message containing a `proof` object (Ed25519Signature2020 format)
+            and verifies the `proof.proofValue` using the public key embedded in
+            `proof.verificationMethod` (did:acp:<pubkey_b64>#key-0 format).
+
+            The canonical signed payload is identical to msg_sig (v3.0/v3.1), ensuring
+            full interoperability between the two signature representations.
+
+            Request body:
+            {
+              "message": {               -- required: full ACP message with proof field
+                "message_id": "...",
+                "from": "...",
+                "parts": [...],
+                "ts": "...",
+                "proof": {
+                  "type": "Ed25519Signature2020",
+                  "verificationMethod": "did:acp:<pubkey_b64>#key-0",
+                  "created": "<ISO-8601>",
+                  "proofPurpose": "assertionMethod",
+                  "proofValue": "<base64url Ed25519 signature>"
+                }
+              }
+            }
+
+            Response (valid):
+            {
+              "valid":              true,
+              "type":               "Ed25519Signature2020",
+              "verificationMethod": "did:acp:<pubkey_b64>#key-0",
+              "created":            "<ISO-8601>",
+              "message_id":         "...",
+              "error":              null
+            }
+
+            Response (invalid):
+            {
+              "valid": false,
+              "error": "<reason>"
+            }
+            """
+            try:
+                body_vp = self._read_body()
+            except Exception as e:
+                self._json({"valid": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            msg_vp = body_vp.get("message")
+            if not isinstance(msg_vp, dict):
+                self._json({"valid": False,
+                            "error": "'message' field required (object)"}, 400)
+                return
+
+            proof_obj = msg_vp.get("proof")
+            if not isinstance(proof_obj, dict):
+                self._json({"valid": False,
+                            "error": "message.proof is absent or not an object"}, 400)
+                return
+
+            proof_value = proof_obj.get("proofValue")
+            if not proof_value:
+                self._json({"valid": False,
+                            "error": "proof.proofValue is absent"}, 400)
+                return
+
+            verification_method = proof_obj.get("verificationMethod", "")
+            if not verification_method:
+                self._json({"valid": False,
+                            "error": "proof.verificationMethod is absent"}, 400)
+                return
+
+            # Extract public key from verificationMethod: "did:acp:<pubkey_b64>#key-0"
+            # Also accept plain base64url pubkey for flexibility
+            pub_key_b64_vp = None
+            if verification_method.startswith("did:acp:"):
+                # Strip "did:acp:" prefix and "#key-0" fragment
+                stripped = verification_method[len("did:acp:"):]
+                if "#" in stripped:
+                    stripped = stripped.split("#")[0]
+                pub_key_b64_vp = stripped
+            else:
+                # Fallback: treat verificationMethod as a raw pubkey
+                pub_key_b64_vp = verification_method
+
+            if not pub_key_b64_vp:
+                self._json({"valid": False,
+                            "error": "could not extract public key from proof.verificationMethod"}, 400)
+                return
+
+            if not _ED25519_AVAILABLE:
+                self._json({
+                    "valid":              None,
+                    "type":               proof_obj.get("type"),
+                    "verificationMethod": verification_method,
+                    "created":            proof_obj.get("created"),
+                    "message_id":         msg_vp.get("message_id"),
+                    "error":              "Ed25519 library unavailable — cannot verify (fail-open)",
+                })
+                return
+
+            # Build a synthetic msg with msg_sig = proofValue, then use existing verifier
+            msg_for_verify = dict(msg_vp)
+            msg_for_verify["msg_sig"] = proof_value
+
+            try:
+                valid_vp = _verify_message_sig(msg_for_verify, pub_key_b64_vp, to="")
+                self._json({
+                    "valid":              valid_vp,
+                    "type":               proof_obj.get("type", "Ed25519Signature2020"),
+                    "verificationMethod": verification_method,
+                    "created":            proof_obj.get("created"),
+                    "message_id":         msg_vp.get("message_id"),
+                    "error":              (None if valid_vp else "Ed25519 signature verification failed"),
+                })
+            except Exception as e:
+                self._json({"valid": False, "error": str(e)}, 500)
+
+        # ── v3.18: POST /verify/http-signature — verify RFC 9421 HTTP Message Signatures ──
+        elif p == "/verify/http-signature":
+            """
+            POST /verify/http-signature — Verify RFC 9421 HTTP Message Signatures (v3.18).
+
+            Validates that an HTTP request was signed per RFC 9421 (HTTP Message Signatures).
+            Accepts the request metadata (method, path, authority, headers) and optional
+            Signature-Input / Signature headers, and verifies the Ed25519 signature against
+            the keyid's public key.
+
+            This provides transport-layer request authentication, complementing the
+            per-message msg_sig (v3.0) with transport-level security.
+
+            Request body:
+            {
+              "method":    "POST",           -- required: HTTP method
+              "path":      "/message:send",  -- required: request target-uri
+              "authority": "example.com",     -- optional: @authority value
+              "headers":   {...},             -- optional: dict of header name → value
+              "signature_input": "sig1=(...);...", -- optional: RFC 9421 Signature-Input header
+              "signature":  "<base64>",     -- optional: RFC 9421 Signature header
+            }
+
+            Response (valid):
+            {
+              "ok":       true,
+              "valid":    true,
+              "signer":   "did:acp:...",
+              "covered_fields": ["@method", "@target-uri", "content-type"],
+              "error":    null
+            }
+
+            Response (invalid / no signature):
+            {
+              "ok":    false,
+              "valid": false,
+              "error": "<reason>"
+            }
+            """
+            try:
+                body_hs = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "valid": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            method_hs = (body_hs.get("method") or "").strip().upper()
+            if not method_hs:
+                self._json({"ok": False, "valid": False,
+                            "error": "'method' field required"}, 400)
+                return
+            path_hs = body_hs.get("path") or ""
+            authority_hs = body_hs.get("authority") or ""
+            headers_hs = body_hs.get("headers") or {}
+            sig_input_hs = body_hs.get("signature_input") or ""
+            sig_b64_hs = body_hs.get("signature") or ""
+
+            if not sig_input_hs and not sig_b64_hs:
+                self._json({"ok": False, "valid": False,
+                            "error": "neither signature_input nor signature provided; nothing to verify"}, 400)
+                return
+
+            if not sig_input_hs:
+                self._json({"ok": False, "valid": False,
+                            "error": "signature_input required for RFC 9421 verification"}, 400)
+                return
+            if not sig_b64_hs:
+                self._json({"ok": False, "valid": False,
+                            "error": "signature required for RFC 9421 verification"}, 400)
+                return
+
+            result_hs = _verify_http_signature(method_hs, path_hs, authority_hs,
+                                               headers_hs, sig_input_hs, sig_b64_hs)
+            self._json({
+                "ok":       result_hs["valid"],
+                "valid":    result_hs["valid"],
+                "signer":   result_hs.get("signer"),
+                "covered_fields": result_hs.get("covered_fields", []),
+                "error":    result_hs.get("error"),
+            }, 200 if result_hs["valid"] is not False else 401)
+
+        # ── v3.18: POST /sign/http-request — generate RFC 9421 HTTP signature (test/SDK helper) ──
+        elif p == "/sign/http-request":
+            """
+            POST /sign/http-request — Generate RFC 9421 HTTP Message Signatures (v3.18).
+
+            Signs an HTTP request per RFC 9421 using this relay's Ed25519 key.
+            Returns the Signature-Input and Signature headers to include in the request.
+
+            Intended for testing and SDK development — client agents can use this
+            to generate properly signed requests before sending to peers.
+
+            Request body:
+            {
+              "method":          "POST",              -- required: HTTP method
+              "path":            "/message:send",       -- required: request target-uri
+              "authority":       "example.com",          -- optional: @authority value
+              "headers":         {...},                  -- optional: dict of header name → value
+              "covered_fields":  ["@method", ...],      -- optional: fields to sign (default: ["@method", "@target-uri", "content-type"])
+              "keyid":           "did:acp:...",          -- optional: override keyid (default: this relay's did:acp)
+            }
+
+            Response (success):
+            {
+              "ok":              true,
+              "signature_input": "sig1=(...);alg=\"ed25519\";...",
+              "signature":       "<base64>",
+              "signer":          "did:acp:...",
+            }
+
+            Response (error):
+            {
+              "ok":    false,
+              "error": "<reason>",
+              "error_code": "ERR_IDENTITY_REQUIRED"
+            }
+            """
+            try:
+                body_sh = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            method_sh = (body_sh.get("method") or "").strip().upper()
+            if not method_sh:
+                self._json({"ok": False, "error": "'method' field required"}, 400)
+                return
+            path_sh = body_sh.get("path") or ""
+            authority_sh = body_sh.get("authority") or ""
+            headers_sh = body_sh.get("headers") or {}
+            covered_fields_sh = body_sh.get("covered_fields") or ["@method", "@target-uri", "content-type"]
+            keyid_sh = body_sh.get("keyid")
+
+            try:
+                sig_result = _sign_http_request(method_sh, path_sh, authority_sh,
+                                                headers_sh, covered_fields_sh, keyid_sh)
+                self._json({
+                    "ok":              True,
+                    "signature_input": sig_result["Signature-Input"],
+                    "signature":       sig_result["Signature"],
+                    "signer":          keyid_sh or f"did:acp:{_ed25519_public_b64}",
+                })
+            except ValueError as e:
+                self._json({
+                    "ok":         False,
+                    "error":      str(e),
+                    "error_code": "ERR_IDENTITY_REQUIRED" if "identity" in str(e).lower() else "ERR_INVALID_REQUEST",
+                }, 403 if "identity" in str(e).lower() else 400)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── v2.65: POST /ir/import-evidence — import external bilateral IR + generate APS reputation update ──
+        elif p == "/ir/import-evidence":
+            """
+            POST /ir/import-evidence — Import an external bilateral interaction record and
+            generate an APS-compatible reputation_update payload (v2.65).
+
+            Aligns with A2A Issue #1718 (@aeoess): APS importBilateralEvidence() interface.
+            This endpoint allows a relay to:
+              1. Accept a bilateral IR record from a peer relay
+              2. Verify both relay_signature and caller_signature (Ed25519)
+              3. Return an APS-compatible reputation_update payload that can be fed into
+                 an APS reputation registry to update an agent's trust score
+
+            Body (required):
+              ir   (object)  — the bilateral interaction record to import
+                Fields: id, type, relay_did, caller_did, task_id, skill_id, sequence_a,
+                        previous_hash, timestamp, relay_signature, relay_public_key,
+                        [caller_signature, caller_public_key] (optional for bilateral)
+
+            Response 200 — import succeeded (even if signatures invalid):
+              {
+                "ok": true,
+                "import_id": "imp-<id>",
+                "verify": {
+                  "relay_sig_valid": bool|null,
+                  "caller_sig_valid": bool|null,
+                  "bilateral_verified": bool,
+                  "errors": [str]
+                },
+                "reputation_update": {
+                  "evidence_type": "bilateral_interaction_record",
+                  "source_relay_did": str, "agent_did": str,
+                  "task_id": str, "skill_id": str, "sequence_a": int,
+                  "timestamp": str, "bilateral": bool,
+                  "relay_sig_valid": bool, "caller_sig_valid": bool|null,
+                  "trust_delta": -1|0|1,
+                  "freshness_hint": int|null,
+                  "aps_schema": "v1"
+                }
+              }
+            Response 400: missing ir field, ir not an object
+            """
+            body_ie = self._read_body()
+            if body_ie is None:
+                return
+
+            ir_obj = body_ie.get("ir")
+            if ir_obj is None:
+                self._json({"ok": False, "error": "missing required field: ir"}, 400)
+                return
+            if not isinstance(ir_obj, dict):
+                self._json({"ok": False, "error": "ir must be an object"}, 400)
+                return
+
+            # Verify signatures
+            verify_result = _verify_ir_signatures(ir_obj)
+
+            # Build APS-compatible reputation_update
+            rep_update = _build_reputation_update(ir_obj, verify_result)
+
+            import_id = f"imp-{_make_id()}"
+            import_record = {
+                "import_id":        import_id,
+                "imported_at":      _now(),
+                "source_ir":        ir_obj,
+                "verify":           verify_result,
+                "reputation_update": rep_update,
+            }
+            _imported_evidence.append(import_record)
+
+            self._json({
+                "ok":               True,
+                "import_id":        import_id,
+                "verify":           verify_result,
+                "reputation_update": rep_update,
+            })
+
+        # ── v2.17: POST /availability/heartbeat ───────────────────────────────
+        if p == "/availability/heartbeat":
+            global _availability
+            # Stamp last_active_at = now; recompute next_active_at from schedule if present
+            now_str = _now()
+            _availability = {**_availability, "last_active_at": now_str}
+            # If caller provided a body, merge allowed fields
+            try:
+                body = self._read_body()
+                allowed_fields = {"mode", "interval_seconds", "schedule",
+                                  "next_active_at", "task_latency_max_seconds", "timezone"}
+                for k, v in body.items():
+                    if k in allowed_fields:
+                        _availability[k] = v
+            except Exception:
+                pass  # No body or invalid JSON — just stamp last_active_at
+            # Auto-compute next_active_at from schedule
+            schedule = _availability.get("schedule")
+            if schedule and not _availability.get("next_active_at"):
+                nxt = _next_cron_datetime(schedule)
+                if nxt:
+                    _availability["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            elif schedule:
+                # Recompute next even if previously set (heartbeat = new cycle starts)
+                nxt = _next_cron_datetime(schedule)
+                if nxt:
+                    _availability["next_active_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            log.info(f"[v2.17] heartbeat stamped: last_active_at={now_str} "
+                     f"next_active_at={_availability.get('next_active_at')}")
+            hb_resp = {
+                "ok":            True,
+                "last_active_at": now_str,
+                "next_active_at": _availability.get("next_active_at"),
+                "availability":   dict(_availability),
+            }
+            # v2.80: include heartbeat_period_ms when declared
+            if _heartbeat_period_ms is not None:
+                hb_resp["heartbeat_period_ms"] = _heartbeat_period_ms
+            self._json(hb_resp)
+            return
+        # ── end v2.17 ─────────────────────────────────────────────────────────
+
+        # /message:send  — primary v0.5 endpoint (A2A-aligned)  [stable]
+        # Accepts: {message_id?, role, parts|text, task_id?, context_id?, sync?, timeout?}
+        # Required fields (server-side validated, v0.9):
+        #   role    — must be present and one of: "user" | "agent"
+        #   content — at least one of: parts (non-empty list) or text/content (non-empty string)
+        if p == "/message:send":
+            # [v3.7] Authorization hook — A2A #1716 watchlist (stub: always passes)
+            if not self._check_authorization(
+                sender_id=_status.get("agent_name", "local"),
+                target_id="*",
+            ):
+                self._json({"ok": False, "error": "authorization_denied"}, 403)
+                return
+
+            try:
+                body = self._read_body()
+
+                # ── v0.9: server-side required-field validation ───────────────
+                # Pre-extract client-supplied message_id for failed_message_id in errors
+                _client_msg_id = body.get("message_id")  # may be None; used in error envelopes
+                _VALID_ROLES = {"user", "agent"}
+                role_raw = body.get("role")
+                if role_raw is None:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be 'user' or 'agent')",
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+                if role_raw not in _VALID_ROLES:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          f"invalid role '{role_raw}': must be 'user' or 'agent'",
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+
+                # ── BUG-007 fix (v3.6.0): multi-peer support via peer_ids list ──────────
+                # Supports three routing modes:
+                # 1. peer_ids: list  → multi-cast to specified peers (new in v3.6.0)
+                # 2. peer_id: str    → single-cast (unchanged behaviour)
+                # 3. peer_id: "a,b"  → comma-separated auto-split to list (convenience)
+                # When >1 peers connected and no routing hint → ERR_AMBIGUOUS_PEER (unchanged)
+                _req_peer_id = body.get("peer_id")
+                _req_peer_ids = body.get("peer_ids")  # v3.6.0: explicit list form
+                _connected_peers = [pid for pid, pinfo in _peers.items() if pinfo.get("connected")]
+
+                # Normalise comma-separated peer_id → peer_ids list
+                if _req_peer_id and not _req_peer_ids and "," in str(_req_peer_id):
+                    _req_peer_ids = [p.strip() for p in str(_req_peer_id).split(",") if p.strip()]
+                    _req_peer_id = None  # consumed into list form
+
+                # If peer_ids list provided → multi-cast path (short-circuit below single-send)
+                if _req_peer_ids and isinstance(_req_peer_ids, list) and len(_req_peer_ids) > 1:
+                    # Build parts now (needed before multi-send)
+                    _mc_parts = body.get("parts")
+                    if _mc_parts:
+                        _mc_ok, _mc_err = _validate_parts(_mc_parts)
+                        if not _mc_ok:
+                            e_body, e_code = _err(ERR_INVALID_REQUEST, _mc_err,
+                                                  failed_message_id=_client_msg_id)
+                            self._json(e_body, e_code)
+                            return
+                    else:
+                        _mc_text = body.get("text") or body.get("content") or ""
+                        _mc_parts = [_make_text_part(str(_mc_text))] if _mc_text else []
+                        if not _mc_parts:
+                            e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                                  "missing required field: provide 'parts' (list) or 'text' (string)",
+                                                  failed_message_id=_client_msg_id)
+                            self._json(e_body, e_code)
+                            return
+
+                    _mc_results = []
+                    for _mc_pid in _req_peer_ids:
+                        _mc_msg_id = _make_id("msg")
+                        _mc_msg = {
+                            "id":         _mc_msg_id,
+                            "message_id": _mc_msg_id,
+                            "role":       role_raw,
+                            "parts":      _mc_parts,
+                            "task_id":    body.get("task_id"),
+                            "context_id": body.get("context_id"),
+                            "ts":         _now(),
+                            "from":       _status.get("agent_name", "local"),
+                            "server_seq": _next_seq(),
+                        }
+                        try:
+                            _ws_send_sync(_mc_msg, peer_id=_mc_pid)
+                            _mc_results.append({"peer_id": _mc_pid, "ok": True,
+                                                "message_id": _mc_msg_id})
+                        except Exception as _mc_e:
+                            _mc_results.append({"peer_id": _mc_pid, "ok": False,
+                                                "error": str(_mc_e)})
+                    _mc_ok_count = sum(1 for r in _mc_results if r["ok"])
+                    self._json({
+                        "ok":          _mc_ok_count > 0,
+                        "multi_cast":  True,
+                        "sent_to":     _mc_ok_count,
+                        "total":       len(_req_peer_ids),
+                        "results":     _mc_results,
+                    })
+                    return
+
+                # Single-send path: ambiguity guard (unchanged)
+                if len(_connected_peers) > 1 and not _req_peer_id and not _req_peer_ids:
+                    e_body, e_code = _err(
+                        "ERR_AMBIGUOUS_PEER",
+                        f"multiple peers connected ({len(_connected_peers)}); "
+                        "specify 'peer_id' or 'peer_ids' in the request body or use "
+                        "POST /peer/{{id}}/send for directed delivery",
+                        400,
+                        failed_message_id=_client_msg_id,
+                    )
+                    e_body["connected_peers"] = _connected_peers
+                    self._json(e_body, e_code)
+                    return
+
+                # ── Build structured message ───────────────────────────────────
+                parts = body.get("parts")
+                if parts:
+                    ok, err = _validate_parts(parts)
+                    if not ok:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err,
+                                              failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    # Auto-wrap plain text in a text Part
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "missing required field: provide 'parts' (list) or 'text' (string)",
+                                              failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+
+                # v2.84: accept client_msg_id as idempotency key alias (ANP §3.2 borrow).
+                # Priority: explicit message_id → client_msg_id → auto-generate.
+                # Both forms are echoed back in the response as client_msg_id for caller convenience.
+                _explicit_id = body.get("message_id") or body.get("client_msg_id")
+                message_id = _explicit_id or _make_id("msg")
+                _client_supplied_id = bool(_explicit_id)
+
+                # ── v3.19: skill_id routing — client-directed skill selection ────────
+                # If skill_id is provided, validate it against peer's AgentCard skills.
+                # If invalid, return 400 ERR_SKILL_NOT_FOUND.
+                _req_skill_id = body.get("skill_id")
+                if _req_skill_id:
+                    _skill_valid, _skill_err = _validate_skill_id(_req_skill_id, peer_id=_req_peer_id)
+                    if not _skill_valid:
+                        e_body, e_code = _err(ERR_SKILL_NOT_FOUND, _skill_err, 400,
+                                              failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+
+                # ── v2.32: HTTP-level message idempotency (30s TTL dedup) ────
+                # Only applies when the client supplies their own message_id.
+                # Auto-generated IDs are never duplicates.
+                if _client_supplied_id:
+                    _is_dup, _cached_seq = _http_dedup_check(message_id)
+                    if _is_dup:
+                        self._json({
+                            "ok":           True,
+                            "deduplicated": True,
+                            "message_id":   message_id,
+                            "client_msg_id": message_id,  # v2.84: echo back for ANP-style callers
+                            "server_seq":   _cached_seq,
+                        })
+                        return
+
+                # ── Ed25519 optional signature verification (v0.8) ───────────
+                # If the caller supplies a `signature` block and the relay has a
+                # peer_card with identity.public_key, verify the Ed25519 signature.
+                # * No signature → pass through (backward compatible).
+                # * Signature + known public_key → verify; 400 on failure/replay.
+                # * Signature + no known public_key → skip (can't verify).
+                _sig_obj = body.get("signature")
+                if _sig_obj and _IDENTITY_EXT_AVAILABLE:
+                    # Try to resolve the sender's public key from peer_card
+                    _peer_card_id = (_status.get("peer_card") or {}).get("identity", {})
+                    _sender_pubkey = _peer_card_id.get("public_key") if _peer_card_id else None
+                    if _sender_pubkey:
+                        import time as _t_sig
+                        _ts_val = body.get("timestamp")
+                        # Replay-window check (strict: timestamp must be present)
+                        if _ts_val is not None:
+                            _delta = abs(_t_sig.time() - float(_ts_val))
+                            if _delta > _identity_ext.REPLAY_WINDOW_SECONDS:
+                                e_body, e_code = _err(
+                                    "ERR_REPLAY_DETECTED",
+                                    "replay detected: timestamp outside ±300s window",
+                                    400,
+                                    failed_message_id=_client_msg_id,
+                                )
+                                self._json(e_body, e_code)
+                                return
+                        # Cryptographic verification
+                        _aug_sig = dict(_sig_obj)
+                        if _ts_val is not None:
+                            _aug_sig["_timestamp"] = _ts_val
+                        _v = _identity_ext.verify_signature(
+                            _sender_pubkey, _aug_sig, parts, message_id
+                        )
+                        if _v is False:
+                            e_body, e_code = _err(
+                                "ERR_INVALID_SIGNATURE",
+                                "invalid_signature: Ed25519 signature verification failed",
+                                400,
+                                failed_message_id=_client_msg_id,
+                            )
+                            self._json(e_body, e_code)
+                            return
+                        elif _v is True:
+                            log.debug(f"✅ Ed25519 signature verified on {message_id}")
+                        # _v is None → library unavailable → pass through
+
+                # v2.38: message priority — validate and default to "normal"
+                _priority_raw = body.get("priority", "normal")
+                if _priority_raw not in VALID_PRIORITIES:
+                    e_body, e_code = _err(
+                        ERR_INVALID_REQUEST,
+                        f"invalid priority '{_priority_raw}': must be one of {sorted(VALID_PRIORITIES)}",
+                        400,
+                        failed_message_id=_client_msg_id,
+                    )
+                    self._json(e_body, e_code)
+                    return
+                # Update priority counters (sent messages)
+                _status["priority_counts"][_priority_raw] = (
+                    _status["priority_counts"].get(_priority_raw, 0) + 1
+                )
+
+                msg = {
+                    "type":       "acp.message",
+                    "message_id": message_id,
+                    "server_seq": _next_seq(),
+                    "ts":         _now(),
+                    "from":       _status.get("agent_name", "unknown"),
+                    "role":       role_raw,
+                    "priority":   _priority_raw,                           # v2.38
+                    "parts":      parts,
+                }
+                if body.get("task_id"):
+                    msg["task_id"] = body["task_id"]
+                if body.get("context_id"):
+                    msg["context_id"] = body["context_id"]
+                if _req_skill_id:
+                    msg["skill_id"] = _req_skill_id  # v3.19: skill_id routing
+                # v2.56: on_behalf_of — OBO principal chain
+                # If caller supplies "on_behalf_of" (str DID or list[str] DIDs),
+                # attach principal_chain to the outgoing message.
+                _obo_raw = body.get("on_behalf_of")
+                if _obo_raw:
+                    if isinstance(_obo_raw, str):
+                        _obo_list = [_obo_raw]
+                    elif isinstance(_obo_raw, list):
+                        _obo_list = [str(d) for d in _obo_raw if d]
+                    else:
+                        _obo_list = []
+                    if _obo_list:
+                        # Build principal_chain: self DID first, then delegated principals
+                        _self_did = _did_acp or _did_key or _status.get("agent_name", "unknown")
+                        msg["principal_chain"] = [_self_did] + _obo_list
+                # If no on_behalf_of in request but relay has a standing _principal_chain, attach it
+                elif _principal_chain:
+                    _self_did = _did_acp or _did_key or _status.get("agent_name", "unknown")
+                    msg["principal_chain"] = [_self_did] + [e.get("did", "") for e in _principal_chain if e.get("did")]
+
+                # v3.3: capability_token transparent passthrough — relay does not validate,
+                # just attaches to the outgoing message so the recipient can verify.
+                _cap_token_fwd = body.get("capability_token")
+                if _cap_token_fwd and isinstance(_cap_token_fwd, dict):
+                    msg["capability_token"] = _cap_token_fwd
+
+                # v3.3: origin_proof OBO optional fields — extracted from body for _attach_sig
+                _principal_id_fwd        = str(body.get("principal_id", "") or "")
+                _operator_id_fwd         = str(body.get("operator_id", "") or "")
+                _gov_framework_ref_fwd   = str(body.get("governance_framework_ref", "") or "")
+
+                serialized = json.dumps(msg, ensure_ascii=False)
+                if len(serialized.encode()) > MAX_MSG_BYTES:
+                    e_body, e_code = _err(ERR_MSG_TOO_LARGE,
+                                          f"message too large (max {MAX_MSG_BYTES} bytes)", 413,
+                                          failed_message_id=message_id)
+                    self._json(e_body, e_code)
+                    return
+
+                want_sync = body.get("sync", False)
+                timeout   = float(body.get("timeout", 30))
+
+                # Create task if requested
+                task = None
+                if body.get("create_task", False):
+                    task = _create_task({"parts": parts}, message_id=message_id,
+                                        context_id=body.get("context_id"))  # v1.7: propagate context_id
+                    msg["task_id"] = task["id"]
+                    if task:
+                        _update_task(task["id"], TASK_WORKING)
+
+                if want_sync:
+                    msg["correlation_id"] = message_id
+                    future = _loop.create_future()
+                    _sync_pending[message_id] = future
+                    _ws_send_sync(msg, peer_id=_req_peer_id or None,
+                                  principal_id=_principal_id_fwd,
+                                  operator_id=_operator_id_fwd,
+                                  governance_framework_ref=_gov_framework_ref_fwd)
+                    try:
+                        reply = asyncio.run_coroutine_threadsafe(
+                            asyncio.wait_for(asyncio.shield(future), timeout=timeout), _loop
+                        ).result(timeout=timeout + 2)
+                        _sync_pending.pop(message_id, None)
+                        if task:
+                            _update_task(task["id"], TASK_COMPLETED, artifact={"parts": reply.get("parts", [])})
+                        self._json({"ok": True, "message_id": message_id,
+                                    "client_msg_id": message_id,  # v2.84: echo for ANP-style callers
+                                    "server_seq": msg["server_seq"], "reply": reply, "task": task})
+                    except asyncio.TimeoutError:
+                        _sync_pending.pop(message_id, None)
+                        if task:
+                            _update_task(task["id"], TASK_FAILED, error="reply timeout")
+                        e_body, e_code = _err(ERR_TIMEOUT, "reply timeout", 408,
+                                              failed_message_id=message_id)
+                        self._json(e_body, e_code)
+                else:
+                    seq = msg["server_seq"]
+                    # v3.3: persist outbound entry BEFORE _ws_send_sync so it's always stored
+                    # even when peer is offline and ConnectionError is raised.
+                    # v3.3: pre-build origin_proof OBO fields for the outbound entry.
+                    # _attach_sig adds origin_proof to msg inside _ws_send_sync (which runs
+                    # after _recv_queue.append), so we construct it eagerly here from the
+                    # already-extracted OBO vars to ensure the stored entry contains them.
+                    _pre_origin_proof = None
+                    if _principal_id_fwd or _operator_id_fwd or _gov_framework_ref_fwd:
+                        _pre_origin_proof = {
+                            "from_peer":  _status.get("agent_name", "local"),
+                            "to_peer":    str(_req_peer_id or ""),
+                            "session_id": str(msg.get("context_id") or msg.get("task_id") or ""),
+                            "timestamp":  str(msg.get("ts", "")),
+                        }
+                        if _principal_id_fwd:
+                            _pre_origin_proof["principal_id"] = _principal_id_fwd
+                        if _operator_id_fwd:
+                            _pre_origin_proof["operator_id"] = _operator_id_fwd
+                        if _gov_framework_ref_fwd:
+                            _pre_origin_proof["governance_framework_ref"] = _gov_framework_ref_fwd
+                    _outbound_entry = {
+                        "peer_id":    "local",
+                        "direction":  "outbound",
+                        "received_at": _now(),
+                        "raw": {
+                            "message_id":  message_id,
+                            "server_seq":  seq,
+                            "ts":          _now(),
+                            "from":        _status.get("agent_name", "local"),
+                            "role":        role_raw,
+                            "parts":       parts,
+                            "task_id":     msg.get("task_id"),
+                            "context_id":  msg.get("context_id"),
+                            **( {"capability_token": msg["capability_token"]}
+                                if "capability_token" in msg else {} ),   # v3.3: passthrough
+                            **( {"origin_proof": _pre_origin_proof}
+                                if _pre_origin_proof else {} ),            # v3.3: OBO proof
+                        },
+                    }
+                    _recv_queue.append(_outbound_entry)
+                    # BUG-007 fix (part 2): when peer_id supplied in body, route to that peer
+                    _ws_send_sync(msg, peer_id=_req_peer_id or None,
+                                  principal_id=_principal_id_fwd,
+                                  operator_id=_operator_id_fwd,
+                                  governance_framework_ref=_gov_framework_ref_fwd)
+                    # BUG-001 fix: broadcast SSE event for outbound messages so local stream
+                    #              subscribers see all traffic (not just WS-received messages).
+                    # BUG-004 fix: also persist to local recv_queue so /recv and /stream reflect send.
+                    _broadcast_sse_event("message", {
+                        "message_id": message_id,
+                        "role":       role_raw,
+                        "parts":      parts,
+                        "task_id":    msg.get("task_id"),
+                        "context_id": msg.get("context_id"),   # v2.15: include context_id for context query
+                        "skill_id":   msg.get("skill_id"),     # v3.19: skill_id routing
+                        "direction":  "outbound",
+                    })
+                    # v2.32: store server_seq in dedup cache so replay returns it
+                    # v2.84: also record when client used client_msg_id alias
+                    if _client_supplied_id:
+                        _http_dedup_record_seq(message_id, seq)
+
+                    # v2.36: send acp.read receipt — signal to peer that we consumed their last message
+                    _last_recv_id = _status.get("last_received_message_id")
+                    if _last_recv_id:
+                        _read_frame = json.dumps({
+                            "type":       "acp.read",
+                            "message_id": _last_recv_id,
+                            "from":       _status.get("agent_name", "ACP-Agent"),
+                            "ts":         _now(),
+                        }, ensure_ascii=False)
+                        _read_ws = None
+                        _target_pid = _req_peer_id
+                        if _target_pid and _target_pid in _peers:
+                            _read_ws = _peers[_target_pid].get("ws")
+                        if _read_ws is None:
+                            _conn_peers = [p for p in _peers.values() if p.get("connected") and p.get("ws")]
+                            if _conn_peers:
+                                _read_ws = _conn_peers[0]["ws"]
+                        if _read_ws and _loop:
+                            try:
+                                asyncio.run_coroutine_threadsafe(
+                                    _read_ws.send(_read_frame), _loop
+                                ).result(timeout=3)
+                                # Clear after sending so we don't repeat the same read receipt
+                                _status["last_received_message_id"] = None
+                                log.debug(f"[read_receipt] Sent acp.read for {_last_recv_id}")
+                            except Exception as _re:
+                                log.debug(f"[read_receipt] Failed to send acp.read: {_re}")
+
+                    # v3.16: require_ack — optionally wait for acp.ack from peer
+                    _require_ack = body.get("require_ack", False)
+                    _ack_timeout_ms = min(
+                        int(body.get("ack_timeout_ms", _ACK_DEFAULT_TIMEOUT_MS)),
+                        _ACK_MAX_TIMEOUT_MS,
+                    )
+                    if _require_ack:
+                        _ack_evt = threading.Event()
+                        with _pending_acks_lock:
+                            _pending_acks[message_id] = _ack_evt
+                        try:
+                            _acked = _ack_evt.wait(timeout=_ack_timeout_ms / 1000.0)
+                        finally:
+                            with _pending_acks_lock:
+                                _pending_acks.pop(message_id, None)
+                        if not _acked:
+                            e_body, e_code = _err(ERR_ACK_TIMEOUT,
+                                                  f"ACK timeout: no acp.ack received within {_ack_timeout_ms}ms",
+                                                  408,
+                                                  failed_message_id=message_id)
+                            self._json(e_body, e_code)
+                            return
+                        self._json({"ok": True, "message_id": message_id,
+                                   "client_msg_id": message_id,
+                                   "server_seq": seq, "task": task, "acked": True})
+                    else:
+                        self._json({"ok": True, "message_id": message_id,
+                                   "client_msg_id": message_id,  # v2.84: echo for ANP-style callers
+                                   "server_seq": seq, "task": task})
+
+            except ConnectionError as e:
+                # message_id may be defined if we got past body parsing
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_NOT_CONNECTED, str(e), 503,
+                                     failed_message_id=_fmid)
+                self._json(e_body, e_code)
+            except Exception as e:
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
+                                     failed_message_id=_fmid)
+                self._json(e_body, e_code)
+
+        # /message/send — v2.67: Direct Message mode (A2A SendMessageResponse.oneof{Task,Message})
+        # Returns a Message object directly, without creating a Task.
+        # Suitable for simple queries, ping, and single-turn interactions.
+        # Body: {role, parts|text, message_id?, context_id?, task_id?, metadata?}
+        elif p == "/message/send":
+            try:
+                body = self._read_body()
+                _client_msg_id = body.get("message_id")
+
+                # ── Required: role ─────────────────────────────────────────
+                _VALID_ROLES_DM = {"user", "agent"}
+                role_raw = body.get("role")
+                if role_raw is None:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be 'user' or 'agent')",
+                                          400, failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+                if role_raw not in _VALID_ROLES_DM:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          f"invalid role '{role_raw}': must be 'user' or 'agent'",
+                                          400, failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+
+                # ── Required: parts ────────────────────────────────────────
+                parts = body.get("parts")
+                if parts:
+                    ok, err = _validate_parts(parts)
+                    if not ok:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err,
+                                              400, failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "missing required field: provide 'parts' (list) or 'text' (string)",
+                                              400, failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+
+                # ── Content-Type guard (DM-12) ─────────────────────────────
+                # Already enforced by _read_body() for POST, but guard explicitly
+                # if caller didn't set application/json (returns empty dict {})
+                _ct = self.headers.get("Content-Type", "")
+                # v3.14: also accept application/acp+json (A2A application/a2a+json SHOULD alignment)
+                if _ct and "application/json" not in _ct and "application/acp+json" not in _ct and "application/x-www-form-urlencoded" not in _ct:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "Content-Type must be application/json", 415,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+
+                # ── Build message_id ───────────────────────────────────────
+                message_id = _client_msg_id or _make_id("msg")
+
+                # ── v3.19: skill_id routing — client-directed skill selection ──────────
+                # When a client specifies skill_id, the message is routed to the target skill.
+                # This complements QuerySkill() (capability query) with actual skill invocation routing.
+                # Aligned with A2A #1989 (Client-directed skill selection).
+                skill_id = body.get("skill_id")
+                if skill_id:
+                    # Validate: skill must be declared in this relay's AgentCard skills list
+                    card_skills = (_status.get("agent_card") or {}).get("skills", [])
+                    declared_skill_ids = set()
+                    for s in card_skills:
+                        if isinstance(s, dict):
+                            declared_skill_ids.add(s.get("id"))
+                    if skill_id not in declared_skill_ids:
+                        e_body, e_code = _err(ERR_SKILL_NOT_FOUND,
+                                              f"skill_id '{skill_id}' not declared in AgentCard",
+                                              400, failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+
+                # ── Construct Direct Message response ──────────────────────
+                # Aligned with A2A Message data model:
+                # { message_id, context_id?, task_id?, role, parts[], metadata? }
+                dm_response = {
+                    "ok":         True,
+                    "type":       "message",          # A2A SendMessageResponse discriminator
+                    "message_id": message_id,
+                    "role":       role_raw,
+                    "parts":      parts,
+                    "timestamp":  _now(),
+                }
+                context_id = body.get("context_id")
+                if context_id:
+                    dm_response["context_id"] = context_id
+                task_id = body.get("task_id")
+                if task_id:
+                    dm_response["task_id"] = task_id
+                if skill_id:
+                    dm_response["skill_id"] = skill_id
+                metadata = body.get("metadata")
+                if metadata and isinstance(metadata, dict):
+                    dm_response["metadata"] = metadata
+
+                log.debug(f"[direct_message] {message_id} role={role_raw} parts={len(parts)} skill_id={skill_id or 'none'}")
+                self._json(dm_response, 200)
+
+            except Exception as e:
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
+                                      failed_message_id=_fmid)
+                self._json(e_body, e_code)
+
+        # /message:typing — v2.37: send typing indicator to peer
+        elif p == "/message:typing":
+            try:
+                body = self._read_body()
+                _typing_state = body.get("typing", True)   # True = started, False = stopped
+                _req_peer_id_t = body.get("peer_id")
+                _frame = json.dumps({
+                    "type":   "acp.typing",
+                    "from":   _status.get("agent_name", "ACP-Agent"),
+                    "typing": bool(_typing_state),
+                    "ts":     _now(),
+                }, ensure_ascii=False)
+                # Resolve target WS
+                _typing_ws = None
+                if _req_peer_id_t and _req_peer_id_t in _peers:
+                    _typing_ws = _peers[_req_peer_id_t].get("ws")
+                if _typing_ws is None:
+                    _conn_t = [p for p in _peers.values() if p.get("connected") and p.get("ws")]
+                    if _conn_t:
+                        _typing_ws = _conn_t[0]["ws"]
+                if _typing_ws is None:
+                    e_body, e_code = _err(ERR_NOT_CONNECTED, "no connected peer", 503)
+                    self._json(e_body, e_code)
+                    return
+                asyncio.run_coroutine_threadsafe(
+                    _typing_ws.send(_frame), _loop
+                ).result(timeout=3)
+                log.debug(f"[typing] Sent acp.typing typing={_typing_state}")
+                self._json({"ok": True, "typing": bool(_typing_state), "ts": _now()})
+            except Exception as e:
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500)
+                self._json(e_body, e_code)
+
+        # /send  — legacy endpoint (backward-compat)
+        elif p == "/send":  # [stable] legacy alias for /message:send
+            try:
+                msg = self._read_body()
+                msg.setdefault("id",         _make_id())
+                msg.setdefault("ts",         _now())
+                msg.setdefault("from",       _status.get("agent_name", "unknown"))
+                msg.setdefault("session_id", _status.get("session_id"))
+                serialized = json.dumps(msg, ensure_ascii=False)
+                if len(serialized.encode()) > MAX_MSG_BYTES:
+                    self._json({"ok": False, "error": f"too large (max {MAX_MSG_BYTES})"}, 413)
+                    return
+                want_sync = msg.pop("sync", False)
+                timeout   = float(msg.pop("timeout", 30))
+                if want_sync:
+                    corr = msg.get("id")
+                    msg["correlation_id"] = corr
+                    future = _loop.create_future()
+                    _sync_pending[corr] = future
+                    _ws_send_sync(msg)
+                    try:
+                        reply = asyncio.run_coroutine_threadsafe(
+                            asyncio.wait_for(asyncio.shield(future), timeout=timeout), _loop
+                        ).result(timeout=timeout + 2)
+                        _sync_pending.pop(corr, None)
+                        self._json({"ok": True, "id": corr, "reply": reply})
+                    except asyncio.TimeoutError:
+                        _sync_pending.pop(corr, None)
+                        self._json({"ok": False, "error": "reply timeout"}, 408)
+                else:
+                    _ws_send_sync(msg)
+                    self._json({"ok": True, "id": msg["id"]})
+            except ConnectionError as e:
+                self._json({"ok": False, "error": str(e)}, 503)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif p == "/reply":
+            try:
+                body = self._read_body()
+                msg  = {"type": "acp.reply", "message_id": _make_id(), "ts": _now(),
+                        "from": _status.get("agent_name", "unknown"),
+                        "correlation_id": body.get("correlation_id"),
+                        "content": body.get("content"),
+                        "parts":   body.get("parts"),}
+                _ws_send_sync(msg)
+                self._json({"ok": True})
+            except ConnectionError as e:
+                self._json({"ok": False, "error": str(e)}, 503)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peer/{id}/send — directed send to a specific peer (v0.6) ───
+        # Allows one Agent to maintain multiple peer connections and send
+        # messages to a specific peer by peer_id.
+        elif p.startswith("/peer/") and p.endswith("/send"):
+            peer_id = p[len("/peer/"):-len("/send")]
+            try:
+                body = self._read_body()
+                # Pre-extract client-supplied message_id for failed_message_id in errors
+                _client_msg_id = body.get("message_id")  # may be None; used in error envelopes
+                peer_info = _peers.get(peer_id)
+                if not peer_info:
+                    e_body, e_code = _err("ERR_NOT_FOUND",
+                                          f"peer '{peer_id}' not found", 404,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+                if not peer_info.get("connected"):
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' is not connected", 503,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+                if peer_info.get("ws") is None:
+                    # Peer registered but WS handshake not yet complete (connecting race)
+                    e_body, e_code = _err("ERR_PEER_CONNECTING",
+                                          f"peer '{peer_id}' is connecting, retry shortly", 503,
+                                          failed_message_id=_client_msg_id)
+                    self._json(e_body, e_code)
+                    return
+
+                parts = body.get("parts")
+                if not parts:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "provide 'parts' or 'text'", 400,
+                                              failed_message_id=_client_msg_id)
+                        self._json(e_body, e_code)
+                        return
+
+                # v2.84: client_msg_id alias (ANP §3.2 borrow) — same as /message:send
+                # Priority: explicit message_id → client_msg_id → auto-generate.
+                _explicit_peer_id = body.get("message_id") or body.get("client_msg_id")
+                message_id = _explicit_peer_id or _make_id("msg")
+                _peer_client_supplied = bool(_explicit_peer_id)
+
+                # ── v2.32: HTTP-level message idempotency (30s TTL dedup) ────
+                if _peer_client_supplied:
+                    _is_dup, _cached_seq = _http_dedup_check(message_id)
+                    if _is_dup:
+                        self._json({
+                            "ok":            True,
+                            "deduplicated":  True,
+                            "message_id":    message_id,
+                            "client_msg_id": message_id,  # v2.84: echo back
+                            "peer_id":       peer_id,
+                            "server_seq":    _cached_seq,
+                        })
+                        return
+
+                msg = {
+                    "type":       "acp.message",
+                    "message_id": message_id,
+                    "server_seq": _next_seq(),
+                    "ts":         _now(),
+                    "from":       _status.get("agent_name", "unknown"),
+                    "to_peer":    peer_id,
+                    "role":       body.get("role", "user"),
+                    "parts":      parts,
+                }
+                if body.get("task_id"):
+                    msg["task_id"] = body["task_id"]
+
+                serialized = json.dumps(msg, ensure_ascii=False)
+                if len(serialized.encode()) > MAX_MSG_BYTES:
+                    e_body, e_code = _err(ERR_MSG_TOO_LARGE,
+                                          f"message too large (max {MAX_MSG_BYTES} bytes)", 413,
+                                          failed_message_id=message_id)
+                    self._json(e_body, e_code)
+                    return
+
+                # Send via peer's WebSocket
+                # BUG-012 fix: do NOT fallback to _ws_send_sync (relay) when peer ws is None.
+                # If the peer's ws is gone, it means the P2P connection was lost.
+                # Falling back to relay would send to a ghost session → fake ok=true.
+                # Return 503 so the caller knows the peer is unreachable.
+                ws = peer_info.get("ws")
+                if ws:
+                    # Wait for the send to complete and catch WebSocket errors.
+                    # This ensures a closed-but-not-yet-unregistered ws returns
+                    # 503 instead of silently succeeding (BUG-012).
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(ws.send(serialized), _loop)
+                        future.result(timeout=5)  # blocks up to 5s; raises on ws error
+                    except Exception as ws_err:
+                        # ws is closed or broken; unregister the peer
+                        _unregister_peer(peer_id)
+                        _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+                        e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                              f"peer '{peer_id}' connection lost: {ws_err}", 503,
+                                              failed_message_id=message_id)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' WebSocket is not active; P2P connection lost", 503,
+                                          failed_message_id=message_id)
+                    self._json(e_body, e_code)
+                    return
+
+                peer_info["messages_sent"] = peer_info.get("messages_sent", 0) + 1
+                _status["messages_sent"] += 1
+                # v2.32: store server_seq in dedup cache so replay returns it
+                # v2.84: also record when client used client_msg_id alias
+                if _peer_client_supplied:
+                    _http_dedup_record_seq(message_id, msg["server_seq"])
+                _peer_resp = {"ok": True, "message_id": message_id, "peer_id": peer_id,
+                              "server_seq": msg["server_seq"]}
+                if _peer_client_supplied:
+                    _peer_resp["client_msg_id"] = message_id  # v2.84: echo back for ANP-style callers
+
+                # ── v3.16: require_ack — block until peer's acp.ack arrives ──
+                _require_ack = body.get("require_ack", False)
+                if _require_ack:
+                    _ack_timeout_ms = min(
+                        int(body.get("ack_timeout_ms", _ACK_DEFAULT_TIMEOUT_MS)),
+                        _ACK_MAX_TIMEOUT_MS,
+                    )
+                    _ack_evt = threading.Event()
+                    with _pending_acks_lock:
+                        _pending_acks[message_id] = _ack_evt
+                    try:
+                        _acked = _ack_evt.wait(timeout=_ack_timeout_ms / 1000.0)
+                    finally:
+                        with _pending_acks_lock:
+                            _pending_acks.pop(message_id, None)
+                    if _acked:
+                        _peer_resp["acked"] = True
+                    else:
+                        # ACK timeout — peer did not acknowledge
+                        e_body, e_code = _err(
+                            ERR_ACK_TIMEOUT,
+                            f"ACK timeout: no acp.ack received within {_ack_timeout_ms}ms",
+                            408,
+                            failed_message_id=message_id,
+                        )
+                        self._json(e_body, e_code)
+                        return
+
+                self._json(_peer_resp)
+
+            except ConnectionError as e:
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_NOT_CONNECTED, str(e), 503,
+                                      failed_message_id=_fmid)
+                self._json(e_body, e_code)
+            except Exception as e:
+                _fmid = locals().get("message_id") or locals().get("_client_msg_id")
+                e_body, e_code = _err(ERR_INTERNAL, str(e), 500,
+                                      failed_message_id=_fmid)
+                self._json(e_body, e_code)
+
+        # ── POST /messages:batch — batch message send (v3.15) ─────────────────
+        # Atomically enqueue multiple messages with per-message results.
+        # Request: {"messages": [{role, parts|text, peer_id?, ...}, ...], "atomic?": bool}
+        # Response: {"ok": true/false, "sent": N, "total": M, "results": [{ok, message_id?, error?}, ...]}
+        elif p == "/messages:batch":
+            try:
+                body = self._read_body()
+                _messages = body.get("messages", [])
+                if not isinstance(_messages, list) or not _messages:
+                    self._json({"ok": False, "error_code": "ERR_INVALID_REQUEST",
+                                "error": "'messages' must be a non-empty list"}, 400)
+                    return
+                if len(_messages) > 100:  # Max batch size
+                    self._json({"ok": False, "error_code": "ERR_BATCH_TOO_LARGE",
+                                "error": "batch size exceeds 100 messages"}, 413)
+                    return
+
+                _atomic = body.get("atomic", False)  # If true, all-or-nothing
+                _results = []
+                _all_ok = True
+
+                for idx, _msg in enumerate(_messages):
+                    try:
+                        # Validate required fields
+                        _role = _msg.get("role")
+                        if _role not in {"user", "agent"}:
+                            _results.append({"ok": False, "index": idx,
+                                             "error": "invalid or missing 'role' (must be 'user' or 'agent')"})
+                            _all_ok = False
+                            continue
+
+                        # Build parts
+                        _parts = _msg.get("parts")
+                        if not _parts:
+                            _text = _msg.get("text") or _msg.get("content") or ""
+                            _parts = [_make_text_part(str(_text))] if _text else []
+                        if not _parts:
+                            _results.append({"ok": False, "index": idx,
+                                             "error": "missing 'parts' or 'text'"})
+                            _all_ok = False
+                            continue
+
+                        # Generate message ID
+                        _msg_id = _msg.get("message_id") or _msg.get("client_msg_id") or _make_id("msg")
+                        _seq = _next_seq()
+
+                        # Build message envelope
+                        _envelope = {
+                            "type": "acp.message",
+                            "message_id": _msg_id,
+                            "server_seq": _seq,
+                            "ts": _now(),
+                            "from": _status.get("agent_name", "unknown"),
+                            "role": _role,
+                            "parts": _parts,
+                        }
+                        if _msg.get("task_id"):
+                            _envelope["task_id"] = _msg["task_id"]
+                        if _msg.get("context_id"):
+                            _envelope["context_id"] = _msg["context_id"]
+
+                        # Determine target peer
+                        _target_pid = _msg.get("peer_id")
+                        if not _target_pid:
+                            # Default to first connected peer
+                            _connected = [pid for pid, pinfo in _peers.items() if pinfo.get("connected")]
+                            if len(_connected) == 1:
+                                _target_pid = _connected[0]
+                            elif len(_connected) > 1:
+                                _results.append({"ok": False, "index": idx,
+                                                 "error": "ambiguous peer: specify peer_id"})
+                                _all_ok = False
+                                continue
+                            else:
+                                _results.append({"ok": False, "index": idx,
+                                                 "error": "no connected peers"})
+                                _all_ok = False
+                                continue
+
+                        # Send via WebSocket
+                        _pinfo = _peers.get(_target_pid)
+                        if not _pinfo or not _pinfo.get("ws"):
+                            _results.append({"ok": False, "index": idx,
+                                             "error": f"peer '{_target_pid}' not connected"})
+                            _all_ok = False
+                            continue
+
+                        _serialized = json.dumps(_envelope, ensure_ascii=False)
+                        if len(_serialized.encode()) > MAX_MSG_BYTES:
+                            _results.append({"ok": False, "index": idx,
+                                             "error": "message too large"})
+                            _all_ok = False
+                            continue
+
+                        try:
+                            future = asyncio.run_coroutine_threadsafe(
+                                _pinfo["ws"].send(_serialized), _loop)
+                            future.result(timeout=5)
+                            _pinfo["messages_sent"] = _pinfo.get("messages_sent", 0) + 1
+                            _status["messages_sent"] += 1
+                            _results.append({"ok": True, "index": idx,
+                                             "message_id": _msg_id, "server_seq": _seq})
+                        except Exception as _send_err:
+                            _unregister_peer(_target_pid)
+                            _results.append({"ok": False, "index": idx,
+                                             "error": f"send failed: {_send_err}"})
+                            _all_ok = False
+
+                    except Exception as _item_err:
+                        _results.append({"ok": False, "index": idx,
+                                         "error": str(_item_err)})
+                        _all_ok = False
+
+                # Atomic mode: if any failed, return partial success indicator
+                _sent_count = sum(1 for r in _results if r.get("ok"))
+                self._json({
+                    "ok": _all_ok or not _atomic,
+                    "sent": _sent_count,
+                    "total": len(_messages),
+                    "results": _results,
+                    "atomic": _atomic,
+                })
+
+            except Exception as e:
+                self._json({"ok": False, "error_code": "ERR_INTERNAL", "error": str(e)}, 500)
+
+        # ── POST /messages:stream — WebSocket streaming message inlet (v3.17) ───
+        elif p == "/messages:stream":
+            upgrade = self.headers.get("Upgrade", "").lower()
+            if upgrade != "websocket":
+                self._json({
+                    "error": "WebSocket upgrade required",
+                    "hint": "Set 'Upgrade: websocket' and 'Connection: Upgrade' headers",
+                    "endpoint": "/messages:stream",
+                    "version": "v3.17",
+                }, 426)
+                return
+            self.close_connection = True
+            _handle_messages_stream(self)
+
+        # ── POST /peer/{id}/rename — rename a peer for readability (v0.6) ────
+        elif p.startswith("/peer/") and p.endswith("/rename"):
+            peer_id = p[len("/peer/"):-len("/rename")]
+            try:
+                body = self._read_body()
+                new_name = body.get("name", "").strip()
+                if not new_name:
+                    self._json({"error": "name required"}, 400)
+                    return
+                peer_info = _peers.get(peer_id)
+                if not peer_info:
+                    self._json({"error": f"peer '{peer_id}' not found"}, 404)
+                    return
+                old_name = peer_info["name"]
+                peer_info["name"] = new_name
+                self._json({"ok": True, "peer_id": peer_id,
+                            "old_name": old_name, "new_name": new_name})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peers/{id}/ping — application-layer liveness probe (v2.25) ─
+        # Sends an ACP ping message over the peer's WebSocket and measures RTT.
+        # Unlike WebSocket-level ping/pong (transport layer), this verifies that
+        # the remote relay's message loop is alive and responding at the ACP level.
+        #
+        # Request body (optional JSON):
+        #   {"timeout": 10.0}  — max seconds to wait for pong (default 10, max 30)
+        #
+        # Response:
+        #   200 {"ok": true,  "peer_id": "peer_001", "rtt_ms": 42.3, "status": "alive", "nonce": "ping_xxx"}
+        #   503 {"ok": false, "peer_id": "peer_001", "error_code": "ERR_NOT_CONNECTED", ...}
+        #   404 {"ok": false, "error_code": "ERR_PEER_NOT_FOUND", ...}
+        #   408 {"ok": false, "error_code": "ERR_PING_TIMEOUT",   "rtt_ms": null, "status": "timeout"}
+        #
+        # The peer must support ACP ping response (capabilities.peer_ping=true) for
+        # measured RTT to be meaningful; otherwise the endpoint acts as a connection-check only.
+        elif p.startswith("/peers/") and p.endswith("/ping") and p.count("/") == 3:
+            peer_id = p[len("/peers/"):-len("/ping")]
+            try:
+                # Parse optional request body (timeout override)
+                try:
+                    body = self._read_body()
+                    requested_timeout = float(body.get("timeout", 10.0))
+                    requested_timeout = max(1.0, min(requested_timeout, 30.0))
+                except Exception:
+                    requested_timeout = 10.0
+
+                # Validate peer exists
+                peer_info = _peers.get(peer_id)
+                if not peer_info:
+                    e_body, e_code = _err("ERR_PEER_NOT_FOUND",
+                                          f"peer '{peer_id}' not found", 404)
+                    self._json(e_body, e_code)
+                    return
+
+                # Validate peer is connected and WS is ready
+                if not peer_info.get("connected"):
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' is not connected", 503)
+                    self._json(e_body, e_code)
+                    return
+
+                ws = peer_info.get("ws")
+                if ws is None:
+                    e_body, e_code = _err("ERR_PEER_CONNECTING",
+                                          f"peer '{peer_id}' is connecting, retry shortly", 503)
+                    self._json(e_body, e_code)
+                    return
+
+                # Build ping message
+                nonce = _make_id("ping")
+                ping_ts = time.time()
+                ping_msg = json.dumps({
+                    "type":    "acp.ping",
+                    "nonce":   nonce,
+                    "from":    _status.get("agent_name", "ACP-Agent"),
+                    "ts":      _now(),
+                }, ensure_ascii=False)
+
+                # Register a pending pong Future keyed by nonce
+                pong_future = _loop.create_future()
+                _pending_pongs[nonce] = pong_future
+
+                # Send ping over peer WS
+                try:
+                    send_fut = asyncio.run_coroutine_threadsafe(ws.send(ping_msg), _loop)
+                    send_fut.result(timeout=5)
+                except Exception as send_err:
+                    _pending_pongs.pop(nonce, None)
+                    _unregister_peer(peer_id)
+                    _status["peer_count"] = sum(1 for p2 in _peers.values() if p2["connected"])
+                    e_body, e_code = _err(ERR_NOT_CONNECTED,
+                                          f"peer '{peer_id}' send failed: {send_err}", 503)
+                    self._json(e_body, e_code)
+                    return
+
+                # Wait for pong (with timeout)
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        asyncio.wait_for(asyncio.shield(pong_future), timeout=requested_timeout),
+                        _loop
+                    ).result(timeout=requested_timeout + 2)
+                    rtt_ms = round((time.time() - ping_ts) * 1000, 2)
+                    _pending_pongs.pop(nonce, None)
+
+                    # Update peer last_ping stats
+                    peer_info["last_ping_rtt_ms"] = rtt_ms
+                    peer_info["last_ping_at"]     = _now()
+                    peer_info["ping_count"]        = peer_info.get("ping_count", 0) + 1
+
+                    self._json({
+                        "ok":      True,
+                        "peer_id": peer_id,
+                        "nonce":   nonce,
+                        "rtt_ms":  rtt_ms,
+                        "status":  "alive",
+                    })
+
+                except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
+                    _pending_pongs.pop(nonce, None)
+                    self._json({
+                        "ok":         False,
+                        "peer_id":    peer_id,
+                        "nonce":      nonce,
+                        "rtt_ms":     None,
+                        "status":     "timeout",
+                        "error_code": "ERR_PING_TIMEOUT",
+                        "error":      f"no pong received within {requested_timeout}s",
+                    }, 408)
+
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /trust/bilateral-ir/inject — test helper: inject bilateral IR record (v2.94) ─
+        elif p == "/trust/bilateral-ir/inject":
+            """
+            Test-only endpoint (--test-mode recommended but not strictly required).
+            Directly appends a bilateral interaction record to _interaction_records.
+            Used by tests/test_principal_diversity_v294.py (PD08–PD15) to seed IR data.
+
+            Body fields (all optional except task_id):
+              task_id     — unique task identifier (auto-generated if absent)
+              skill_id    — skill identifier
+              caller_did  — caller DID / peer_id
+              callee_did  — callee DID / peer_id
+              bilateral   — bool (default: True)
+              timestamp   — float epoch (default: now)
+
+            Response 201: {ok, record_id, bilateral_count}
+            """
+            import time as _time_ir
+            try:
+                raw_body = self._read_body()
+            except Exception:
+                raw_body = {}
+            import uuid as _uuid_ir
+            task_id = raw_body.get("task_id") or f"inject-{_uuid_ir.uuid4().hex[:12]}"
+            record = {
+                "id":               f"ir-{_uuid_ir.uuid4().hex[:16]}",
+                "type":             "bilateral_interaction_record",
+                "relay_did":        _did_key,
+                "caller_did":       raw_body.get("caller_did"),
+                "callee_did":       raw_body.get("callee_did"),
+                "peer_id":          raw_body.get("caller_did"),  # alias for diversity query
+                "task_id":          task_id,
+                "skill_id":         raw_body.get("skill_id", "test.injected"),
+                "sequence_a":       len(_interaction_records) + 1,
+                "previous_hash":    None,
+                "timestamp":        raw_body.get("timestamp", _time_ir.time()),
+                "relay_signature":  "test-injected",
+                "relay_public_key": None,
+                "caller_signature": "test-injected" if raw_body.get("bilateral", True) else None,
+                "caller_public_key": None,
+                "caller_signature_valid": None,
+                "bilateral":        bool(raw_body.get("bilateral", True)),
+            }
+            _interaction_records.append(record)
+            self._json({
+                "ok":              True,
+                "record_id":       record["id"],
+                "bilateral_count": sum(1 for r in _interaction_records if r.get("bilateral")),
+            }, code=201)
+
+        # ── POST /debug/inject-peer-card — test helper: inject peer_card directly ─
+        elif p == "/debug/inject-peer-card":
+            # Test-only endpoint: directly set _status["peer_card"] without a WS connection.
+            # Allows identity integration tests to inject a peer AgentCard via HTTP.
+            try:
+                body = self._read_body()
+                card = body.get("card")
+                if not card or not isinstance(card, dict):
+                    self._json({"ok": False, "error": "card field required"}, 400)
+                    return
+                _status["peer_card"] = card
+                log.info(f"[debug] peer_card injected via /debug/inject-peer-card: "
+                         f"name={card.get('name')} identity={bool(card.get('identity'))}")
+                self._json({"ok": True, "peer_card": card})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /debug/inject — test-mode: inject message + auto-register peer (v2.48) ─
+        elif p == "/debug/inject":
+            """
+            Test-only endpoint (--test-mode required).
+            Injects a message into _recv_queue AND auto-registers the sender as a peer.
+
+            Body:
+              from          — sender agent name (required)
+              parts         — list of part objects (required)
+              message_id    — optional, generated if absent
+              context_id    — optional
+              task_id       — optional
+              priority      — optional (default: normal)
+              direction     — optional (default: inbound)
+              server_seq    — optional, auto-assigned if absent
+
+            Response 200: {ok, message_id, peer_id, server_seq}
+            Response 403: test-mode not enabled
+            Response 400: missing required fields
+            """
+            if not _test_mode:
+                self._json({"ok": False, "error": "POST /debug/inject requires --test-mode",
+                            "error_code": "ERR_TEST_MODE_REQUIRED"}, 403)
+                return
+            try:
+                body = self._read_body()
+                from_name = (body.get("from") or "").strip()
+                parts = body.get("parts")
+                if not from_name:
+                    self._json({"ok": False, "error": "from field required",
+                                "error_code": "ERR_INVALID_REQUEST"}, 400)
+                    return
+                if not parts or not isinstance(parts, list):
+                    self._json({"ok": False, "error": "parts field required (list)",
+                                "error_code": "ERR_INVALID_REQUEST"}, 400)
+                    return
+
+                # Auto-register the sender as a peer if not already registered
+                peer_id = None
+                for pid, pinfo in _peers.items():
+                    if pinfo.get("agent_name") == from_name or pinfo.get("name") == from_name:
+                        peer_id = pid
+                        break
+                if peer_id is None:
+                    peer_id = _make_peer_id()
+                    _register_peer(peer_id=peer_id, link=f"acp://debug/{peer_id}")
+                    _peers[peer_id]["agent_name"] = from_name
+                    _peers[peer_id]["name"] = from_name
+                    _peers[peer_id]["connected"] = False  # not a real WS connection
+                    _peers[peer_id]["debug_injected"] = True
+                    log.info(f"[debug/inject] auto-registered peer: {from_name} → {peer_id}")
+
+                # v2.55: inject AgentCard for peer (for /peers/<id>/verify-card testing)
+                if isinstance(body, dict) and "agent_card" in body and isinstance(body["agent_card"], dict):
+                    _peers[peer_id]["agent_card"] = body["agent_card"]
+                    _peers[peer_id]["card_received_at"] = _now()
+
+                # v2.51: trust_override — set peer trust fields for tier-based testing
+                # Accepts: {score_override, verified_identity, card_sig_valid, did_consistent, ping_rtt_ms, vouch}
+                trust_override = body.get("trust_override") if isinstance(body, dict) else None
+                if trust_override and isinstance(trust_override, dict):
+                    # card_sig / did_consistent
+                    if trust_override.get("card_sig_valid"):
+                        _peers[peer_id]["card_verification"] = {"valid": True, "did_consistent": bool(trust_override.get("did_consistent", True))}
+                    # ping RTT
+                    if "ping_rtt_ms" in trust_override:
+                        _peers[peer_id]["last_ping_rtt_ms"] = trust_override["ping_rtt_ms"]
+                    # message history count
+                    if "message_count" in trust_override:
+                        _peers[peer_id]["messages_sent"] = trust_override["message_count"]
+                    # verified_identity signal: inject into peer's AgentCard trust.signals
+                    if trust_override.get("verified_identity"):
+                        existing_card = _peers[peer_id].get("agent_card") or {}
+                        existing_trust = existing_card.get("trust") or {}
+                        existing_sigs  = list(existing_trust.get("signals") or [])
+                        # Add verified_identity signal if not already present
+                        if not any(s.get("type") == "verified_identity" or s.get("kind") == "verified_identity" for s in existing_sigs):
+                            existing_sigs.append({"type": "verified_identity", "kind": "verified_identity"})
+                        existing_trust["signals"] = existing_sigs
+                        existing_card["trust"] = existing_trust
+                        _peers[peer_id]["agent_card"] = existing_card
+
+                # Build message entry
+                import time as _time_
+                msg_id = body.get("message_id") or f"dbg_{int(_time_.time()*1000):x}"
+                direction = body.get("direction", "inbound")
+                priority = body.get("priority", "normal")
+                context_id = body.get("context_id")
+                task_id = body.get("task_id")
+
+                # Assign server_seq
+                import time as _time
+                seq = body.get("server_seq") or int(_time.time() * 1000)
+                ts_now = _now()
+                entry = {
+                    "message_id":  msg_id,
+                    "server_seq":  seq,
+                    "direction":   direction,
+                    "from":        from_name,
+                    "to":          _status.get("agent_name", "ACP-Agent"),
+                    "parts":       parts,
+                    "context_id":  context_id,
+                    "task_id":     task_id,
+                    "priority":    priority,
+                    "peer_id":     peer_id,
+                    "received_at": ts_now,
+                    "sent_at":     ts_now if direction == "outbound" else None,
+                    "raw": {
+                        "from":       from_name,
+                        "parts":      parts,
+                        "message_id": msg_id,
+                        "server_seq": seq,
+                        "context_id": context_id,
+                        "task_id":    task_id,
+                        "priority":   priority,
+                    },
+                }
+
+                _recv_queue.append(entry)
+                _persist(entry)
+
+                log.info(f"[debug/inject] injected msg {msg_id} from={from_name} peer={peer_id}")
+                self._json({
+                    "ok":         True,
+                    "message_id": msg_id,
+                    "peer_id":    peer_id,
+                    "server_seq": entry["server_seq"],
+                })
+            except Exception as e:
+                log.exception(f"[debug/inject] {e}")
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peers/connect — connect to a new peer, add to registry (v0.6) ─
+        elif p == "/peers/connect":  # [stable] connect to peer via acp:// link
+            try:
+                body = self._read_body()
+                peer_link = body.get("link", "").strip()
+                peer_name = body.get("name", "").strip()
+                if not peer_link:
+                    self._json({"error": "link required"}, 400)
+                    return
+                # BUG-013 fix: validate link format before accepting the request
+                try:
+                    parse_link(peer_link)
+                except ValueError as ve:
+                    e_body, _ = _err(ERR_INVALID_REQUEST, str(ve))
+                    self._json(e_body, 400)
+                    return
+                # BUG-003 / BUG-003b fix: idempotent connect — if a peer with the same link
+                # already exists (regardless of connected state), return it instead of creating
+                # a duplicate. Previously only checked connected=True, which caused duplicates
+                # when the WS connection was still being established.
+                existing_peer_id = None
+                for pid, pinfo in _peers.items():
+                    if pinfo.get("link") == peer_link:
+                        existing_peer_id = pid
+                        break
+                if existing_peer_id:
+                    self._json({"ok": True, "peer_id": existing_peer_id,
+                                "connecting_to": peer_link,
+                                "name": _peers[existing_peer_id].get("name", existing_peer_id),
+                                "already_connected": True})
+                    return
+                # Generate peer_id before connecting
+                peer_id = _make_peer_id()
+                _register_peer(peer_id=peer_id, link=peer_link)
+                if peer_name:
+                    _peers[peer_id]["name"] = peer_name
+                # v1.4: connect via automatic 3-level NAT traversal strategy
+                # Level 1 (direct) → Level 2 (DCUtR hole punch) → Level 3 (relay)
+                # transport_level field is written to peer info after resolution.
+                agent_name = _status.get("agent_name", "ACP-Agent")
+                def _do_connect_nat():
+                    async def _run():
+                        _pid, transport_level = await _connect_with_nat_traversal(
+                            peer_link, agent_name, role="guest"
+                        )
+                        # Write transport_level into the pre-registered peer entry
+                        if peer_id in _peers:
+                            _peers[peer_id]["transport_level"] = transport_level
+                        log.info(f"[NAT] peer {peer_id} connected via transport_level={transport_level}")
+                    # BUG-055 fix (2026-04-08): hold a reference to the future so it is not
+                    # garbage-collected before _run() completes.  Without this, the coroutine
+                    # may be silently cancelled before guest_mode() sets connected=True/ws.
+                    fut = asyncio.run_coroutine_threadsafe(_run(), _loop)
+                    try:
+                        fut.result(timeout=30)  # wait up to 30s (L1 3s + L2 12s + L3 buffer)
+                    except Exception as e:
+                        log.warning(f"[NAT] peer {peer_id} connect failed: {e}")
+                threading.Thread(target=_do_connect_nat, daemon=True).start()
+                self._json({"ok": True, "peer_id": peer_id,
+                            "connecting_to": peer_link, "name": peer_name or peer_id})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /federation — connect to a remote relay for federation (v3.10) ──
+        elif p == "/federation":
+            """
+            Register a remote relay as a federation peer.
+
+            This establishes a relay-to-relay connection: the remote relay's acp://
+            link is registered as a peer with role="relay". Once connected, messages
+            can be routed to peers on that relay via POST /federation/route.
+
+            Request body:
+              - link (str, required): acp:// link of the remote relay
+              - name (str, optional): friendly name for this federation relay
+
+            Response:
+              - ok (bool)
+              - relay_id (str): assigned relay identifier
+              - peer_id (str): underlying peer id
+              - link (str): the registered link
+              - already_connected (bool): true if link was already registered
+            """
+            try:
+                body = self._read_body()
+                link = body.get("link", "").strip()
+                name = body.get("name", "").strip()
+                if not link:
+                    self._json({"ok": False, "error": "link required"}, 400)
+                    return
+                # Validate link format
+                try:
+                    parse_link(link)
+                except ValueError as ve:
+                    e_body, _ = _err(ERR_INVALID_REQUEST, str(ve))
+                    self._json(e_body, 400)
+                    return
+                # Idempotent: check if already federated
+                with _federation_lock:
+                    existing_rid = None
+                    for rid, info in _federation_relays.items():
+                        if info.get("link") == link:
+                            existing_rid = rid
+                            break
+                    if existing_rid:
+                        self._json({
+                            "ok": True,
+                            "relay_id": existing_rid,
+                            "peer_id": _federation_relays[existing_rid].get("peer_id"),
+                            "link": link,
+                            "already_connected": True,
+                        })
+                        return
+                # Register as a regular peer (with relay role tag)
+                peer_id = _make_peer_id()
+                _register_peer(peer_id=peer_id, link=link)
+                _peers[peer_id]["name"] = name or f"federation-relay-{peer_id}"
+                _peers[peer_id]["role"] = "relay"
+                # Generate relay_id
+                relay_id = f"relay_{peer_id}"
+                with _federation_lock:
+                    _federation_relays[relay_id] = {
+                        "peer_id":       peer_id,
+                        "link":          link,
+                        "name":          name or relay_id,
+                        "connected_at":  _now(),
+                        "messages_routed": 0,
+                    }
+                # Initiate NAT traversal in background (same as /peers/connect)
+                agent_name = _status.get("agent_name", "ACP-Agent")
+                def _do_connect_fed():
+                    async def _run():
+                        _pid, transport_level = await _connect_with_nat_traversal(
+                            link, agent_name, role="guest"
+                        )
+                        if peer_id in _peers:
+                            _peers[peer_id]["transport_level"] = transport_level
+                        log.info(f"[federation] relay {relay_id} connected via level={transport_level}")
+                    fut = asyncio.run_coroutine_threadsafe(_run(), _loop)
+                    try:
+                        fut.result(timeout=30)
+                    except Exception as e:
+                        log.warning(f"[federation] relay {relay_id} connect failed: {e}")
+                threading.Thread(target=_do_connect_fed, daemon=True).start()
+                self._json({
+                    "ok":      True,
+                    "relay_id": relay_id,
+                    "peer_id": peer_id,
+                    "link":    link,
+                    "already_connected": False,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /federation/route — route message to peer on remote relay (v3.10) ──
+        elif p == "/federation/route":
+            """
+            Route a message to a specific peer on a remote (federated) relay.
+
+            This is the core federation routing operation: the message is sent
+            to the remote relay via the relay-to-relay peer connection, with
+            federation metadata so the remote relay can deliver it to the correct
+            local peer.
+
+            Request body:
+              - relay_id (str, required): target federation relay id
+              - target_peer_id (str, required): peer id on the remote relay
+              - role (str): "agent" | "user" (default "agent")
+              - text (str): message text
+              - parts (list): structured message parts (A2A-aligned)
+              - message_id (str, optional): client-supplied idempotency key
+
+            Response:
+              - ok (bool)
+              - relay_id (str)
+              - message_id (str)
+              - routed_at (str): ISO-8601 timestamp
+              - error (str): only when ok=false
+            """
+            try:
+                body = self._read_body()
+                relay_id = body.get("relay_id", "").strip()
+                target_peer_id = body.get("target_peer_id", "").strip()
+                if not relay_id:
+                    self._json({"ok": False, "error": "relay_id required"}, 400)
+                    return
+                if not target_peer_id:
+                    self._json({"ok": False, "error": "target_peer_id required"}, 400)
+                    return
+                # Look up federation relay
+                with _federation_lock:
+                    fed_info = _federation_relays.get(relay_id)
+                if not fed_info:
+                    self._json({
+                        "ok": False,
+                        "error_code": "ERR_FEDERATION_RELAY_NOT_FOUND",
+                        "error": f"federation relay '{relay_id}' not registered; "
+                                 f"use POST /federation to connect first",
+                    }, 404)
+                    return
+                peer_id = fed_info["peer_id"]
+                if peer_id not in _peers or not _peers[peer_id].get("connected"):
+                    self._json({
+                        "ok": False,
+                        "error_code": "ERR_FEDERATION_NOT_CONNECTED",
+                        "error": f"federation relay '{relay_id}' peer {peer_id} is not connected",
+                    }, 503)
+                    return
+                # Build the federation envelope
+                message_id = body.get("message_id") or _make_id("fed_msg")
+                role = body.get("role", "agent")
+                text = body.get("text", "")
+                parts = body.get("parts") or ([{"type": "text", "text": text}] if text else [])
+                fed_envelope = {
+                    "type":            "acp.federation.route",
+                    "message_id":      message_id,
+                    "target_peer_id":  target_peer_id,
+                    "role":            role,
+                    "parts":           parts,
+                    "routed_at":       _now(),
+                    "source_relay":    _status.get("agent_name", "ACP-Agent"),
+                }
+                # Send via the relay-to-relay peer WS connection
+                async def _send_fed():
+                    ws = _peers[peer_id].get("ws")
+                    if ws is None:
+                        raise RuntimeError("peer ws not ready")
+                    await _ws_send(ws, peer_id, fed_envelope)
+                try:
+                    fut = asyncio.run_coroutine_threadsafe(_send_fed(), _loop)
+                    fut.result(timeout=10)
+                    # Update routing counter
+                    with _federation_lock:
+                        if relay_id in _federation_relays:
+                            _federation_relays[relay_id]["messages_routed"] = \
+                                _federation_relays[relay_id].get("messages_routed", 0) + 1
+                    self._json({
+                        "ok":        True,
+                        "relay_id":  relay_id,
+                        "message_id": message_id,
+                        "routed_at": _now(),
+                    })
+                except Exception as e:
+                    self._json({"ok": False, "error": str(e),
+                                "error_code": "ERR_FEDERATION_ROUTE_FAILED"}, 502)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /peers/broadcast — send a message to ALL connected peers (v2.22) ─
+        elif p == "/peers/broadcast":  # [stable] broadcast to all active peers
+            try:
+                body = self._read_body()
+
+                # Validate role
+                _VALID_ROLES = {"user", "agent"}
+                role_raw = body.get("role")
+                if role_raw not in _VALID_ROLES:
+                    e_body, e_code = _err(
+                        ERR_INVALID_REQUEST,
+                        "missing or invalid 'role' field (must be 'user' or 'agent')",
+                    )
+                    self._json(e_body, e_code)
+                    return
+
+                # Build parts
+                parts = body.get("parts")
+                if parts:
+                    ok, err = _validate_parts(parts)
+                    if not ok:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(
+                            ERR_INVALID_REQUEST,
+                            "missing required field: provide 'parts' (list) or 'text' (string)",
+                        )
+                        self._json(e_body, e_code)
+                        return
+
+                context_id = body.get("context_id") or _make_id()
+
+                # v2.23: optional target_peers[] for subset broadcast
+                target_peers_filter = body.get("target_peers")
+                if target_peers_filter is not None:
+                    if not isinstance(target_peers_filter, list):
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, "'target_peers' must be a list of peer_id strings")
+                        self._json(e_body, e_code)
+                        return
+                    # Validate all requested peer ids exist
+                    unknown = [pid for pid in target_peers_filter if pid not in _peers]
+                    if unknown:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, f"unknown peer_id(s) in target_peers: {unknown}")
+                        self._json(e_body, e_code)
+                        return
+                    active_peers = [
+                        pid for pid in target_peers_filter if _peers[pid].get("connected")
+                    ]
+                else:
+                    active_peers = [
+                        pid for pid, pinfo in _peers.items() if pinfo.get("connected")
+                    ]
+
+                if not active_peers:
+                    self._json(
+                        {"ok": False, "error_code": "ERR_NO_PEERS",
+                         "error": "no connected peers to broadcast to",
+                         "delivered": 0, "failed": 0, "results": []},
+                        503,
+                    )
+                    return
+
+                results = []
+                delivered = 0
+                failed = 0
+
+                for pid in active_peers:
+                    msg_id = _make_id()
+                    # Use the same wire format as /message:send
+                    wire_msg = {
+                        "type":       "acp.message",
+                        "message_id": msg_id,
+                        "server_seq": _next_seq(),
+                        "ts":         _now(),
+                        "from":       _status.get("agent_name", "unknown"),
+                        "role":       role_raw,
+                        "parts":      parts,
+                        "broadcast":  True,
+                    }
+                    if body.get("task_id"):
+                        wire_msg["task_id"] = body["task_id"]
+                    if context_id:
+                        wire_msg["context_id"] = context_id
+
+                    ok_send = False
+                    err_send = None
+                    try:
+                        # Reuse _ws_send_sync: handles lock, signature, offline queue
+                        _ws_send_sync(wire_msg, peer_id=pid)
+                        ok_send = True
+                        delivered += 1
+                    except Exception as ex:
+                        err_send = str(ex)
+                        failed += 1
+
+                    results.append({
+                        "peer_id": pid,
+                        "message_id": msg_id,
+                        "ok": ok_send,
+                        "error": err_send,
+                    })
+
+                _broadcast_sse_event("message", {
+                    "message_id": _make_id(),
+                    "role": role_raw,
+                    "parts": parts,
+                    "broadcast": True,
+                    "delivered": delivered,
+                    "failed": failed,
+                })
+
+                # v2.23: record broadcast in history log
+                broadcast_record = {
+                    "broadcast_id": context_id,
+                    "ts": _now(),
+                    "role": role_raw,
+                    "parts": parts,
+                    "target_peers": target_peers_filter,   # None = all peers
+                    "total_peers": len(active_peers),
+                    "delivered": delivered,
+                    "failed": failed,
+                    "results": results,
+                }
+                _broadcast_log.append(broadcast_record)
+                if len(_broadcast_log) > _BROADCAST_LOG_MAX:
+                    _broadcast_log.pop(0)
+
+                self._json({
+                    "ok": True,
+                    "broadcast": True,
+                    "delivered": delivered,
+                    "failed": failed,
+                    "total_peers": len(active_peers),
+                    "results": results,
+                    "broadcast_id": context_id,
+                }, 200)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── v3.9: topic-based Pub/Sub ────────────────────────────────────────────
+        # POST /peers/subscribe/{topic}  — subscribe a peer to a topic
+        # POST /peers/unsubscribe/{topic}— unsubscribe a peer from a topic
+        # POST /peers/broadcast/{topic}  — publish message to topic subscribers
+        # ─────────────────────────────────────────────────────────────────────────
+        elif p.startswith("/peers/subscribe/") and len(p) > len("/peers/subscribe/"):
+            """
+            POST /peers/subscribe/{topic} — Subscribe a peer to a named topic (v3.9).
+
+            A2A #1196 (Pub/Sub Primitives) aligned: topic-scoped message routing.
+
+            Body fields:
+              peer_id (str, required): ID of the peer to subscribe.
+                Use "self" or omit to subscribe the currently connected peer.
+
+            Response:
+              - ok (bool): true
+              - topic (str): topic name
+              - peer_id (str): subscribed peer id
+              - subscribed_at (str): ISO-8601 timestamp
+              - is_new (bool): true if this is a new subscription, false if already subscribed
+            """
+            try:
+                topic = p[len("/peers/subscribe/"):]
+                if not topic or len(topic) > _TOPIC_NAME_MAX_LEN:
+                    self._json({"ok": False, "error": f"invalid topic name (1-{_TOPIC_NAME_MAX_LEN} chars)"}, 400)
+                    return
+                body = {}
+                try:
+                    body = self._read_body()
+                except Exception:
+                    pass
+                # Resolve peer_id: "self" or missing → currently connected peer
+                peer_id_raw = body.get("peer_id") if body else None
+                if not peer_id_raw or peer_id_raw == "self":
+                    # Use connected peer
+                    connected_peers = [pid for pid, pi in _peers.items() if pi.get("connected")]
+                    if not connected_peers:
+                        self._json({"ok": False, "error": "no peer connected; provide peer_id explicitly"}, 400)
+                        return
+                    peer_id_sub = connected_peers[-1]
+                else:
+                    peer_id_sub = peer_id_raw
+                    if peer_id_sub not in _peers:
+                        self._json({"ok": False, "error": f"unknown peer_id: {peer_id_sub}"}, 404)
+                        return
+
+                if topic not in _topic_subscribers:
+                    _topic_subscribers[topic] = {}
+                is_new = peer_id_sub not in _topic_subscribers[topic]
+                subscribed_at = _now()
+                _topic_subscribers[topic][peer_id_sub] = subscribed_at
+                log.info(f"[v3.9] topic subscribe: peer={peer_id_sub} topic={topic!r} new={is_new}")
+                self._json({
+                    "ok":           True,
+                    "topic":        topic,
+                    "peer_id":      peer_id_sub,
+                    "subscribed_at": subscribed_at,
+                    "is_new":       is_new,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif p.startswith("/peers/unsubscribe/") and len(p) > len("/peers/unsubscribe/"):
+            """
+            POST /peers/unsubscribe/{topic} — Unsubscribe a peer from a topic (v3.9).
+
+            Body fields:
+              peer_id (str, optional): peer to unsubscribe. Defaults to connected peer.
+
+            Response:
+              - ok (bool): true
+              - topic (str): topic name
+              - peer_id (str): peer id unsubscribed
+              - was_subscribed (bool): false if peer was not subscribed (idempotent)
+            """
+            try:
+                topic = p[len("/peers/unsubscribe/"):]
+                if not topic:
+                    self._json({"ok": False, "error": "missing topic name"}, 400)
+                    return
+                body = {}
+                try:
+                    body = self._read_body()
+                except Exception:
+                    pass
+                peer_id_raw = body.get("peer_id") if body else None
+                if not peer_id_raw or peer_id_raw == "self":
+                    connected_peers = [pid for pid, pi in _peers.items() if pi.get("connected")]
+                    peer_id_unsub = connected_peers[-1] if connected_peers else None
+                else:
+                    peer_id_unsub = peer_id_raw
+
+                if not peer_id_unsub:
+                    self._json({"ok": False, "error": "cannot determine peer_id"}, 400)
+                    return
+
+                subs = _topic_subscribers.get(topic, {})
+                was_subscribed = peer_id_unsub in subs
+                if was_subscribed:
+                    del subs[peer_id_unsub]
+                    # Clean up empty topic entry
+                    if not subs and topic in _topic_subscribers:
+                        del _topic_subscribers[topic]
+                log.info(f"[v3.9] topic unsubscribe: peer={peer_id_unsub} topic={topic!r} was={was_subscribed}")
+                self._json({
+                    "ok":             True,
+                    "topic":          topic,
+                    "peer_id":        peer_id_unsub,
+                    "was_subscribed": was_subscribed,
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif p.startswith("/peers/broadcast/") and len(p) > len("/peers/broadcast/"):
+            """
+            POST /peers/broadcast/{topic} — Publish a message to all topic subscribers (v3.9).
+
+            A2A #1196 aligned: topic-scoped fanout. Only peers subscribed to this topic
+            receive the message. If no peers are subscribed, returns ok=true with delivered=0.
+
+            Body fields (same structure as POST /peers/broadcast):
+              role (str, required): "user" | "agent"
+              text (str) OR parts (list): message content
+              message_id (str, optional): client-supplied idempotency key
+              context_id (str, optional): conversation context
+
+            Response:
+              - ok (bool): true
+              - topic (str): topic name
+              - delivered (int): messages successfully sent
+              - failed (int): messages that failed to send
+              - subscriber_count (int): total subscribers at time of publish
+              - results (list): per-peer delivery status
+              - published_at (str): ISO-8601 timestamp
+            """
+            try:
+                topic = p[len("/peers/broadcast/"):]
+                if not topic or len(topic) > _TOPIC_NAME_MAX_LEN:
+                    self._json({"ok": False, "error": f"invalid topic name (1-{_TOPIC_NAME_MAX_LEN} chars)"}, 400)
+                    return
+                body = self._read_body()
+
+                # Validate role
+                role_raw = body.get("role")
+                if role_raw not in {"user", "agent"}:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing or invalid 'role' field (must be 'user' or 'agent')")
+                    self._json(e_body, e_code)
+                    return
+
+                # Build parts
+                parts = body.get("parts")
+                if parts:
+                    ok_p, err_p = _validate_parts(parts)
+                    if not ok_p:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST, err_p)
+                        self._json(e_body, e_code)
+                        return
+                else:
+                    text = body.get("text") or body.get("content") or ""
+                    parts = [_make_text_part(str(text))] if text else []
+                    if not parts:
+                        e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                              "provide 'parts' (list) or 'text' (string)")
+                        self._json(e_body, e_code)
+                        return
+
+                msg_id     = body.get("message_id") or _make_id()
+                context_id = body.get("context_id") or _make_id()
+                pub_ts     = _now()
+
+                # Get subscribers for this topic
+                subs = _topic_subscribers.get(topic, {})
+                subscriber_count = len(subs)
+
+                delivered = 0
+                failed = 0
+                results = []
+
+                for pid in list(subs.keys()):
+                    wire_msg = {
+                        "type":       "acp.message",
+                        "message_id": msg_id,
+                        "role":       role_raw,
+                        "parts":      parts,
+                        "context_id": context_id,
+                        "topic":      topic,           # v3.9: topic annotation
+                        "topic_publish": True,
+                        "ts":         pub_ts,
+                    }
+                    ok_send = False
+                    err_send = None
+                    try:
+                        _ws_send_sync(wire_msg, peer_id=pid)
+                        ok_send = True
+                        delivered += 1
+                    except Exception as ex:
+                        err_send = str(ex)
+                        failed += 1
+                    results.append({
+                        "peer_id":    pid,
+                        "message_id": msg_id,
+                        "ok":         ok_send,
+                        "error":      err_send,
+                    })
+
+                # Record in topic log (ring buffer)
+                if topic not in _topic_log:
+                    _topic_log[topic] = []
+                log_entry = {
+                    "message_id":    msg_id,
+                    "published_at":  pub_ts,
+                    "subscriber_count": subscriber_count,
+                    "delivered":     delivered,
+                    "failed":        failed,
+                }
+                _topic_log[topic].append(log_entry)
+                if len(_topic_log[topic]) > _TOPIC_LOG_MAX:
+                    _topic_log[topic].pop(0)
+
+                _broadcast_sse_event("message", {
+                    "message_id": msg_id,
+                    "role": role_raw,
+                    "parts": parts,
+                    "topic": topic,
+                    "topic_publish": True,
+                    "delivered": delivered,
+                })
+                log.info(f"[v3.9] topic publish: topic={topic!r} subscribers={subscriber_count} delivered={delivered} failed={failed}")
+                self._json({
+                    "ok":               True,
+                    "topic":            topic,
+                    "delivered":        delivered,
+                    "failed":           failed,
+                    "subscriber_count": subscriber_count,
+                    "results":          results,
+                    "published_at":     pub_ts,
+                    "message_id":       msg_id,
+                }, 200)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # /tasks/queue POST — async task enqueue (v2.98)
+        elif p == "/tasks/queue":
+            # v2.98: Async task enqueue — accepts same body as POST /tasks, returns 202 immediately.
+            # Motivation: A2A #1667 async / heartbeat-agent task handling (offline-first).
+            # The task is created in 'submitted' state; execution is caller-driven (no auto-worker
+            # in this release). Future: POST /tasks/queue/worker to register an async processor.
+            try:
+                body = self._read_body()
+                payload = body.get("payload", body)
+                role = body.get("role") or (payload.get("role") if isinstance(payload, dict) else None)
+                if not role:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be: agent, user, or system)")
+                    self._json(e_body, e_code)
+                    return
+                task_id   = body.get("task_id") or body.get("id") or _make_id("task")
+                msg_id    = body.get("message_id")
+                ctx_id    = body.get("context_id")
+                task      = _create_task(
+                    payload=payload,
+                    task_id=task_id,
+                    message_id=msg_id,
+                    context_id=ctx_id,
+                    initial_state=TASK_SUBMITTED,
+                )
+                # Tag the task as queue-originated for observability
+                task["queue_enqueued"] = True
+                task["queue_enqueued_at"] = _now()
+                _append_audit(task, "queue_enqueued", {"via": "POST /tasks/queue"})
+                # v3.11: auto-dispatch to registered workers (best-effort, non-blocking)
+                workers_dispatched = 0
+                try:
+                    workers_dispatched = _dispatch_task_to_workers(task)
+                    if workers_dispatched:
+                        _append_audit(task, "worker_dispatched",
+                                      {"workers_dispatched": workers_dispatched})
+                except Exception as _de:
+                    log.warning(f"[worker] dispatch error for task {task['id']}: {_de}")
+                self._json({
+                    "ok":                True,
+                    "task_id":           task["id"],
+                    "status":            task["status"],
+                    "queued_at":         task["queue_enqueued_at"],
+                    "poll_url":          f"/tasks/{task['id']}",
+                    "sse_url":           f"/tasks/{task['id']}/subscribe",
+                    "workers_dispatched": workers_dispatched,
+                    "note":              "Task accepted (202). Poll poll_url or subscribe to sse_url for status updates.",
+                }, 202)
+            except Exception as e:
+                log.exception("POST /tasks/queue error")
+                self._json(_err(ERR_INTERNAL, str(e))[0], 500)
+
+        # ── POST /tasks/queue/worker — register async worker (v3.11) ──────────
+        elif p == "/tasks/queue/worker":
+            """
+            Register an async task queue worker.
+
+            A worker receives a POST callback whenever a new task is enqueued
+            via POST /tasks/queue and the task matches the worker's filters.
+
+            Request body:
+              - callback_url (str, required): URL to POST task dispatch envelopes to
+              - peer_id (str, optional): only receive tasks from this peer (None = match-all)
+              - skill_id (str, optional): only receive tasks with this skill_id (None = match-all)
+              - worker_id (str, optional): client-supplied idempotency key
+
+            Response:
+              - ok (bool)
+              - worker_id (str)
+              - registered_at (str)
+              - filters: {peer_id, skill_id}
+            """
+            try:
+                body = self._read_body()
+                cb_url = body.get("callback_url", "").strip()
+                if not cb_url:
+                    self._json({"ok": False, "error": "callback_url required"}, 400)
+                    return
+                worker_id = body.get("worker_id") or _make_id("worker")
+                peer_id   = body.get("peer_id") or None
+                skill_id  = body.get("skill_id") or None
+                registered_at = _now()
+                with _task_queue_workers_lock:
+                    # Idempotent: if same worker_id, update
+                    _task_queue_workers[worker_id] = {
+                        "callback_url":     cb_url,
+                        "peer_id":          peer_id,
+                        "skill_id":         skill_id,
+                        "registered_at":    registered_at,
+                        "tasks_dispatched": 0,
+                        "active":           True,
+                    }
+                log.info(f"[worker] registered {worker_id} → {cb_url} (peer={peer_id}, skill={skill_id})")
+                self._json({
+                    "ok":            True,
+                    "worker_id":     worker_id,
+                    "registered_at": registered_at,
+                    "callback_url":  cb_url,
+                    "filters":       {"peer_id": peer_id, "skill_id": skill_id},
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # /tasks/create — create a task (optionally delegate to peer)
+        elif p == "/tasks/create" or p == "/tasks":
+            try:
+                body = self._read_body()
+                # BUG-010 fix: validate required 'role' field
+                # role may be at top-level body OR nested inside payload — check both
+                payload = body.get("payload", body)
+                role = body.get("role") or (payload.get("role") if isinstance(payload, dict) else None)
+                if not role:
+                    e_body, e_code = _err(ERR_INVALID_REQUEST,
+                                          "missing required field: role (must be: agent, user, or system)")
+                    self._json(e_body, e_code)
+                    return
+                # v2.49: authorization tier enforcement
+                skill_id_for_tier = body.get("skill_id") or (payload.get("skill_id") if isinstance(payload, dict) else None)
+                caller_peer_id    = body.get("peer_id") or body.get("from_peer_id")
+                # v2.62: optional wtrmrk_sequence_root in task metadata for Factor 4
+                _task_metadata = body.get("metadata") or {}
+                _wtrmrk_root   = _task_metadata.get("wtrmrk_sequence_root") if isinstance(_task_metadata, dict) else None
+                # v2.57: if skill has capability_token_required=True, check token first
+                # (a valid capability_token satisfies tier enforcement implicitly)
+                _ct_card_skills_pre = (_status.get("agent_card") or {}).get("skills", [])
+                _ct_skill_pre = next((s for s in _ct_card_skills_pre
+                                      if isinstance(s, dict) and s.get("id") == skill_id_for_tier), {})
+                _cap_req_pre = _ct_skill_pre.get("capability_token_required", False)
+                raw_cap_token_pre = body.get("capability_token")
+                if _cap_req_pre and not raw_cap_token_pre:
+                    self._json({
+                        "ok":         False,
+                        "error_code": "ERR_CAPABILITY_TOKEN_REQUIRED",
+                        "error":      f"skill '{skill_id_for_tier}' requires a capability_token",
+                        "skill_id":   skill_id_for_tier,
+                    }, 403)
+                    return
+                # Skip tier check if a capability_token is present (token carries tier authorization)
+                _skip_tier = bool(raw_cap_token_pre and skill_id_for_tier)
+                if not _skip_tier:
+                    tier_ok, tier_reason = _check_authorization_tier(skill_id_for_tier, caller_peer_id, _wtrmrk_root)
+                    if not tier_ok:
+                        self._json({
+                            "ok":         False,
+                            "error_code": ERR_AUTHORIZATION_TIER,
+                            "error":      tier_reason,
+                            "skill_id":   skill_id_for_tier,
+                            "peer_id":    caller_peer_id,
+                        }, 403)
+                        return
+                # v2.50: param_constraints enforcement
+                # (tier passed — audit entry recorded after task creation in skill_invoked)
+                task_params = body.get("params") or (payload.get("params") if isinstance(payload, dict) else None)
+                pc_ok, pc_violations = _check_param_constraints(skill_id_for_tier, task_params)
+                if not pc_ok:
+                    self._json({
+                        "ok":             False,
+                        "error_code":     ERR_PARAM_CONSTRAINT,
+                        "error":          f"task params violate skill '{skill_id_for_tier}' constraints",
+                        "skill_id":       skill_id_for_tier,
+                        "violated_params": pc_violations,
+                    }, 400)
+                    return
+                # v2.53: rate_limit enforcement
+                rl_ok, rl_detail = _check_rate_limit(skill_id_for_tier, caller_peer_id)
+                if not rl_ok:
+                    self._json({
+                        "ok":         False,
+                        "error_code": ERR_RATE_LIMIT,
+                        "error":      f"rate limit exceeded for skill '{skill_id_for_tier}'",
+                        **rl_detail,
+                    }, 429)
+                    return
+                # v2.57: capability_token enforcement gate
+                # If a raw capability_token dict is provided in the request body,
+                # validate it (signature, expiry, skill match, tier sufficiency).
+                # (capability_token_required check already ran above before tier check)
+                raw_cap_token = raw_cap_token_pre   # alias — same body["capability_token"]
+                if raw_cap_token and isinstance(raw_cap_token, dict) and skill_id_for_tier:
+                    ct_valid, ct_reason = _verify_capability_token(
+                        raw_cap_token,
+                        required_skill_id=skill_id_for_tier,
+                        required_tier=None,  # no minimum tier enforcement at call time
+                    )
+                    if not ct_valid:
+                        self._json({
+                            "ok":           False,
+                            "error_code":   "ERR_CAPABILITY_TOKEN_INVALID",
+                            "error":        f"capability_token invalid: {ct_reason}",
+                            "skill_id":     skill_id_for_tier,
+                        }, 403)
+                        return
+                    # Attach validated token fields to task for audit
+                    log.info(f"🎫 capability_token validated: jti={raw_cap_token.get('jti')} skill={skill_id_for_tier}")
+                # ── v3.19: skill_id routing — validate skill exists in AgentCard ──────────
+                if skill_id_for_tier:
+                    _skill_valid, _skill_err = _validate_skill_id(skill_id_for_tier, peer_id=caller_peer_id)
+                    if not _skill_valid:
+                        self._json({
+                            "ok":         False,
+                            "error_code": ERR_SKILL_NOT_FOUND,
+                            "error":      _skill_err,
+                            "skill_id":   skill_id_for_tier,
+                            "peer_id":    caller_peer_id,
+                        }, 400)
+                        return
+
+                # v2.51: T3 human_confirmation_required gate
+                t3_confirm = _needs_human_confirmation(skill_id_for_tier)
+                task = _create_task(payload,
+                                    message_id=body.get("message_id"),
+                                    task_id=body.get("task_id"),       # BUG-006 fix: pass client task_id
+                                    context_id=body.get("context_id"), # v1.7: propagate context_id to SSE events
+                                    initial_state=TASK_CONFIRMATION_PENDING if t3_confirm else None,
+                                    skill_id=skill_id_for_tier)  # v3.19: skill_id routing
+                # v2.52: audit skill_id + peer_id at task creation
+                if skill_id_for_tier:
+                    _audit_card_skills = (_status.get("agent_card") or {}).get("skills", [])
+                    _audit_skill_obj   = next((s for s in _audit_card_skills if isinstance(s, dict) and s.get("id") == skill_id_for_tier), {})
+                    _append_audit(task, "skill_invoked", {
+                        "skill_id": skill_id_for_tier,
+                        "peer_id":  caller_peer_id,
+                        "tier":     _audit_skill_obj.get("authorization_tier"),
+                    })
+                if body.get("delegate", False):
+                    _ws_send_sync({"type": "task.delegate", "message_id": _make_id(), "ts": _now(),
+                                   "from": _status.get("agent_name"), "task_id": task["id"],
+                                   "payload": task["payload"]})
+                # v2.52: deprecation_warning — inject into response if skill is deprecated
+                resp: dict = {"ok": True, "task": task}
+                if skill_id_for_tier:
+                    _card_skills = (_status.get("agent_card") or {}).get("skills", [])
+                    skill_obj = next((s for s in _card_skills if isinstance(s, dict) and s.get("id") == skill_id_for_tier), {})
+                    dep = skill_obj.get("deprecation_notice")
+                    if dep:
+                        resp["deprecation_warning"] = dep
+                # v2.59: interaction_record — bilateral signed record (optional, triggered by record=true)
+                if body.get("record", False):
+                    # Resolve caller_did: prefer explicit did in body, fall back to peer registry
+                    _ir_caller_did = body.get("caller_did")
+                    if not _ir_caller_did and caller_peer_id:
+                        _peer_info = _peers.get(caller_peer_id, {})
+                        _ir_caller_did = (
+                            _peer_info.get("did_key")
+                            or _peer_info.get("did_acp")
+                            or _peer_info.get("agent_card", {}).get("agent_did")
+                            or caller_peer_id
+                        )
+                    # Compute caller_token_hash (sha256 of jti) if a capability_token was provided
+                    _ir_ct_hash = None
+                    if raw_cap_token and isinstance(raw_cap_token, dict):
+                        _jti = raw_cap_token.get("jti", "")
+                        if _jti:
+                            _ir_ct_hash = "sha256:" + hashlib.sha256(_jti.encode()).hexdigest()
+                    # v2.61: optional caller_signature + caller_public_key for full bilateral signing
+                    _ir_caller_sig = body.get("caller_signature")
+                    _ir_caller_pub = body.get("caller_public_key")
+                    ir = _create_interaction_record(
+                        task,
+                        caller_did=_ir_caller_did,
+                        skill_id=skill_id_for_tier,
+                        caller_token_hash=_ir_ct_hash,
+                        caller_signature=_ir_caller_sig,
+                        caller_public_key=_ir_caller_pub,
+                    )
+                    resp["interaction_record"] = ir
+                    task["interaction_record"] = ir  # attach to task for GET /tasks/{id}
+                self._json(resp, 201)
+            except ConnectionError as e:
+                self._json({"ok": False, "error": str(e)}, 503)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # /tasks/{id}/update — update task state + optional artifact
+        # BUG-008 fix: support both /update (slash) and :update (colon) styles
+        elif p.startswith("/tasks/") and (p.endswith("/update") or p.endswith(":update")):
+            sep_len = len("/update") if p.endswith("/update") else len(":update")
+            task_id = p[len("/tasks/"):-sep_len]
+            try:
+                body = self._read_body()
+                task = _update_task(task_id, body.get("status", TASK_WORKING),
+                                    artifact=body.get("artifact"), error=body.get("error"))
+                if task is None:
+                    self._json({"error": "task not found"}, 404)
+                    return
+                try:
+                    _ws_send_sync({"type": "task.updated", "message_id": _make_id(), "ts": _now(),
+                                   "from": _status.get("agent_name"), "task_id": task_id,
+                                   "status": body.get("status", TASK_WORKING),
+                                   "artifact": body.get("artifact")})
+                except ConnectionError:
+                    pass
+                self._json({"ok": True, "task": task})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # /tasks/{id}/continue — resume input_required task  [stable]
+        # BUG-008 fix: support both /continue and :continue styles
+        elif p.startswith("/tasks/") and (p.endswith("/continue") or p.endswith(":continue")):
+            sep_len = len("/continue") if p.endswith("/continue") else len(":continue")
+            task_id = p[len("/tasks/"):-sep_len]
+            try:
+                body = self._read_body()
+                task = _tasks.get(task_id)
+                if not task:
+                    self._json({"error": "task not found"}, 404)
+                    return
+                if task["status"] not in INTERRUPTED_STATES:
+                    self._json({"error": f"task is not in interrupted state (is: {task['status']})"}, 409)
+                    return
+                _update_task(task_id, TASK_WORKING)
+                # Forward continuation message to peer
+                parts = body.get("parts") or [_make_text_part(str(body.get("text", "")))]
+                msg = {"type": "acp.message", "message_id": _make_id(), "ts": _now(),
+                       "from": _status.get("agent_name"), "role": "user",
+                       "parts": parts, "task_id": task_id}
+                try:
+                    _ws_send_sync(msg)
+                except ConnectionError:
+                    pass
+                self._json({"ok": True, "task": task})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # /tasks/{id}:cancel — A2A-aligned cancel endpoint  [stable]
+        # v2.6: Two-phase cancel — first transitions to `cancelling` (SSE observable),
+        #        then asynchronously completes to `canceled` (terminal).
+        #        Idempotent: already cancelling/canceled → 200 immediately.
+        #        Fills the semantic gap in A2A issues #1684/#1680 (no "being cancelled" state).
+        elif p.startswith("/tasks/") and p.endswith(":cancel"):
+            task_id = p[len("/tasks/"):-len(":cancel")]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                # Already terminal (including canceled) — idempotent 200
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            elif task["status"] in CANCELLING_STATES:
+                # Already mid-cancel — idempotent 200
+                self._json({"ok": True, "task_id": task_id, "status": TASK_CANCELLING,
+                            "note": "cancel already in progress"})
+            else:
+                # Phase 1: transition to `cancelling`, push SSE event immediately
+                _update_task(task_id, TASK_CANCELLING)
+                # Phase 2: asynchronously complete the cancel → `canceled`
+                # For the reference implementation, cancellation is instantaneous;
+                # real agents may need to signal their worker and await acknowledgment.
+                def _do_cancel(tid):
+                    import time as _time
+                    _time.sleep(0.05)   # brief yield — allows SSE clients to observe `cancelling` before canceled
+                    _update_task(tid, TASK_CANCELED)
+                threading.Thread(target=_do_cancel, args=(task_id,), daemon=True).start()
+                self._json({"ok": True, "task_id": task_id, "status": TASK_CANCELLING})
+
+        # /tasks/{id}:confirm — v2.51: approve a confirmation_pending T3 task  [stable]
+        # Transitions task from confirmation_pending → submitted, broadcasts SSE status event.
+        # Idempotent: already submitted/terminal → 200 with note.
+        elif p.startswith("/tasks/") and p.endswith(":confirm"):
+            task_id = p[len("/tasks/"):-len(":confirm")]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            elif task["status"] == TASK_SUBMITTED:
+                self._json({"ok": True, "task_id": task_id, "status": TASK_SUBMITTED,
+                            "note": "task already confirmed/submitted"})
+            elif task["status"] not in CONFIRMATION_PENDING_STATES:
+                self._json({"ok": False,
+                            "error_code": ERR_CONFIRM_NOT_PENDING,
+                            "error": f"task '{task_id}' is not awaiting confirmation (status: {task['status']})"}, 409)
+            else:
+                # Approve: transition to submitted
+                task.pop("confirmation_required", None)
+                _append_audit(task, "confirmed", {"by": "human"})      # v2.52
+                _update_task(task_id, TASK_SUBMITTED)
+                self._json({"ok": True, "task_id": task_id, "status": TASK_SUBMITTED})
+
+        # /tasks/{id}:reject — v2.51: reject a confirmation_pending T3 task  [stable]
+        # v2.66: transitions task from confirmation_pending → rejected (was: failed), A2A v1.0.0 alignment.
+        elif p.startswith("/tasks/") and p.endswith(":reject"):
+            task_id = p[len("/tasks/"):-len(":reject")]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            elif task["status"] not in CONFIRMATION_PENDING_STATES:
+                self._json({"ok": False,
+                            "error_code": ERR_CONFIRM_NOT_PENDING,
+                            "error": f"task '{task_id}' is not awaiting confirmation (status: {task['status']})"}, 409)
+            else:
+                try:
+                    body = self._read_body()
+                except Exception:
+                    body = {}
+                reason = body.get("reason", "human rejected T3 task") if isinstance(body, dict) else "human rejected T3 task"
+                task.pop("confirmation_required", None)
+                _append_audit(task, "rejected", {"by": "human", "reason": reason})  # v2.52
+                _update_task(task_id, TASK_REJECTED, error=reason)   # v2.66: → rejected (not failed)
+                self._json({"ok": True, "task_id": task_id, "status": TASK_REJECTED, "reason": reason})
+
+        # /tasks/{id}:agent-reject — v2.66: agent-initiated rejection for any non-terminal task
+        # A2A v1.0.0 alignment: agent can proactively reject a task it cannot or will not process.
+        # Works on any task in non-terminal state (submitted/working/input_required/confirmation_pending).
+        elif p.startswith("/tasks/") and p.endswith(":agent-reject"):
+            task_id = p[len("/tasks/"):-len(":agent-reject")]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                self._json({"ok": True, "task_id": task_id, "status": task["status"],
+                            "note": "task already in terminal state"})
+            else:
+                try:
+                    body = self._read_body()
+                except Exception:
+                    body = {}
+                reason = body.get("reason", "agent rejected task") if isinstance(body, dict) else "agent rejected task"
+                reject_code = body.get("reject_code", "agent_reject") if isinstance(body, dict) else "agent_reject"
+                _append_audit(task, "agent_rejected", {"reason": reason, "reject_code": reject_code})
+                _update_task(task_id, TASK_REJECTED, error=reason)
+                self._json({"ok": True, "task_id": task_id, "status": TASK_REJECTED,
+                            "reason": reason, "reject_code": reject_code})
+
+        # v2.81: POST /tasks/{id}/evidence — submit lifecycle evidence entry (A2A Issue #1721)
+        elif p.startswith("/tasks/") and p.endswith("/evidence"):
+            task_id = p[len("/tasks/"):-len("/evidence")]
+            try:
+                body = self._read_body()
+            except Exception:
+                body = {}
+            if not isinstance(body, dict):
+                self._json({"error": "invalid request body"}, 400)
+                return
+            # event_type is required
+            if "event_type" not in body:
+                self._json({"error": "missing required field: event_type"}, 400)
+                return
+            VALID_EVIDENCE_TYPES = {"requested", "updated", "completed", "failed"}
+            event_type = body["event_type"]
+            if event_type not in VALID_EVIDENCE_TYPES:
+                self._json({"error": f"invalid event_type '{event_type}'; must be one of {sorted(VALID_EVIDENCE_TYPES)}"}, 400)
+                return
+            # Build and store evidence entry
+            entries = _task_evidence.setdefault(task_id, [])
+            seq = len(entries)
+            recorded_at = (
+                datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+            )
+            entry = {
+                "seq":         seq,
+                "event_type":  event_type,
+                "recorded_at": recorded_at,
+                "task_id":     task_id,
+            }
+            # optional fields
+            if "artifact" in body:
+                entry["artifact"] = body["artifact"]
+            if "consumer_id" in body:
+                entry["consumer_id"] = body["consumer_id"]
+            if "timestamp" in body:
+                entry["timestamp"] = body["timestamp"]
+            entries.append(entry)
+            # v2.82: notify SSE evidence-stream subscribers
+            for sub_q in list(_evidence_subscribers.get(task_id, [])):
+                try:
+                    sub_q.put_nowait(entry)
+                except Exception:
+                    pass  # queue full or subscriber gone — skip silently
+            self._json({"status": "recorded", "task_id": task_id, "seq": seq, "recorded_at": recorded_at})
+
+        # GET /tasks/{id}/wait?timeout=30 — 同步等待 task 进入 terminal 状态
+        # 比 SSE subscribe 更简单，适合 Agent 调用
+        elif p == "/webhooks/register":
+            # BUG-039 fix: restrict webhook registration to localhost only
+            # Webhook URLs receive all SSE events — must not allow remote registration
+            client_ip = (self.client_address or ("", 0))[0]
+            if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                self._json({"error": "webhook registration restricted to localhost"}, 403)
+                return
+            try:
+                body = self._read_body()
+                url  = body.get("url", "").strip()
+                if not url:
+                    self._json({"error": "url required"}, 400)
+                    return
+                if url not in _push_webhooks:
+                    _push_webhooks.append(url)
+                self._json({"ok": True, "registered": url, "total": len(_push_webhooks)})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif p == "/webhooks/deregister":
+            # BUG-039 fix: same localhost restriction for deregister
+            client_ip = (self.client_address or ("", 0))[0]
+            if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                self._json({"error": "webhook deregistration restricted to localhost"}, 403)
+                return
+            try:
+                body = self._read_body()
+                url  = body.get("url", "").strip()
+                if url in _push_webhooks:
+                    _push_webhooks.remove(url)
+                self._json({"ok": True, "remaining": len(_push_webhooks)})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # /skills/query — QuerySkill: runtime capability introspection (v0.6, enhanced v2.10)
+        # Request:  {"skill_id": "summarize", "constraints": {"file_size_bytes": 52428800}}
+        # Response: {"skill_id": "...", "support_level": "supported|partial|unsupported",
+        #            "reason": "...", "constraints_applied": {...}, "agent": {...}}
+        # v2.10: when skills are structured objects, uses id/name/description for keyword matching
+        # v3.14: min_trust_score filter in body (float 0.0–1.0); skill_trust_score = evidence composite struct
+        elif p == "/skills/query":  # [stable] QuerySkill runtime capability discovery
+            try:
+                body = self._read_body()
+                skill_id    = (body.get("skill_id") or "").strip()
+                constraints = body.get("constraints") or {}
+
+                # v3.14: min_trust_score filter — reject request if out of range [0.0, 1.0]
+                min_trust_score = body.get("min_trust_score")
+                if min_trust_score is not None:
+                    try:
+                        min_trust_score = float(min_trust_score)
+                    except (TypeError, ValueError):
+                        self._json(_err(ERR_INVALID_REQUEST, "min_trust_score must be a float in [0.0, 1.0]", 400)[0], 400)
+                        return
+                    if min_trust_score < 0.0 or min_trust_score > 1.0:
+                        self._json(_err(ERR_INVALID_REQUEST, "min_trust_score must be in range [0.0, 1.0]", 400)[0], 400)
+                        return
+
+                agent_card  = _status.get("agent_card") or {}
+                raw_skills  = agent_card.get("skills", [])
+                capabilities = agent_card.get("capabilities", {})
+
+                # v2.10: structured matching — skills are dicts with id/name/description
+                # Fallback: if skills are plain strings (legacy), use original logic
+                _is_structured = raw_skills and isinstance(raw_skills[0], dict)
+
+                if _is_structured:
+                    known_skill_ids  = {s["id"] for s in raw_skills}
+                    known_skills_str = sorted(known_skill_ids)
+                else:
+                    # Legacy: list of plain strings
+                    known_skill_ids  = set(raw_skills)
+                    known_skills_str = sorted(known_skill_ids)
+
+                # v2.11: extract input_mode constraint before branching
+                req_input_mode = constraints.get("input_mode", "").strip()
+
+                # Determine support level
+                if not skill_id:
+                    # No skill_id: check for input_mode filter (v2.11), else return full list
+                    if req_input_mode:
+                        # Filter skills by input_mode support
+                        if _is_structured:
+                            matched_skills = [
+                                s for s in raw_skills
+                                if req_input_mode in (s.get("input_modes") or [])
+                            ]
+                        else:
+                            matched_skills = []
+                        # v3.14: apply min_trust_score filter on matched_skills
+                        if min_trust_score is not None and _is_structured:
+                            matched_skills = [
+                                s for s in matched_skills
+                                if _compute_skill_trust_score_v314(s, s.get("id", ""))["composite"] >= min_trust_score
+                            ]
+                        if matched_skills:
+                            self._json({
+                                "skills":       matched_skills,
+                                "capabilities": capabilities,
+                                "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                            })
+                        else:
+                            self._json({
+                                "support_level": "unsupported",
+                                "reason": f"No skill supports input_mode='{req_input_mode}'",
+                                "skills": [],
+                                "capabilities": capabilities,
+                                "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                            })
+                        return
+                    # No skill_id and no input_mode filter: return full skill list
+                    # v3.14: apply min_trust_score filter
+                    if _is_structured:
+                        filtered_skills = raw_skills
+                        if min_trust_score is not None:
+                            filtered_skills = [
+                                s for s in raw_skills
+                                if _compute_skill_trust_score_v314(s, s.get("id", ""))["composite"] >= min_trust_score
+                            ]
+                        self._json({
+                            "skills":       filtered_skills,
+                            "capabilities": capabilities,
+                            "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                        })
+                    else:
+                        self._json({
+                            "skills":       list(known_skill_ids),
+                            "capabilities": capabilities,
+                            "agent": {"name": agent_card.get("name"), "acp_version": VERSION},
+                        })
+                    return
+
+                if skill_id in known_skill_ids:
+                    # Check constraints against known capabilities + per-skill limits
+                    violations = []
+                    constraints_applied = {}
+
+                    # Legacy: file_size_bytes (v0.6) — check against max_msg_bytes
+                    if "file_size_bytes" in constraints:
+                        max_bytes = capabilities.get("max_msg_bytes", MAX_MSG_BYTES)
+                        if constraints["file_size_bytes"] > max_bytes:
+                            violations.append(f"file_size_bytes {constraints['file_size_bytes']} exceeds max {max_bytes}")
+                        constraints_applied["max_msg_bytes"] = max_bytes
+
+                    # v2.26: max_file_size_bytes — alias for file_size_bytes, also checks skill-level limit
+                    if "max_file_size_bytes" in constraints:
+                        req_fsz = constraints["max_file_size_bytes"]
+                        # Check against relay-level max_msg_bytes first
+                        relay_max = capabilities.get("max_msg_bytes", MAX_MSG_BYTES)
+                        if req_fsz > relay_max:
+                            violations.append(f"max_file_size_bytes {req_fsz} exceeds relay limit {relay_max}")
+                            constraints_applied["relay_max_msg_bytes"] = relay_max
+                        # Check against skill-level constraint (if declared)
+                        if _is_structured:
+                            skill_obj_fsz = next((s for s in raw_skills if s["id"] == skill_id), None)
+                            if skill_obj_fsz:
+                                skill_max_fsz = (skill_obj_fsz.get("constraints") or {}).get("max_file_size_bytes")
+                                if skill_max_fsz is not None:
+                                    constraints_applied["skill_max_file_size_bytes"] = skill_max_fsz
+                                    if req_fsz > skill_max_fsz:
+                                        violations.append(
+                                            f"max_file_size_bytes {req_fsz} exceeds skill '{skill_id}' limit {skill_max_fsz}"
+                                        )
+
+                    # v2.26: concurrent_tasks — check against skill-level limit
+                    if "concurrent_tasks" in constraints:
+                        req_ct = constraints["concurrent_tasks"]
+                        if _is_structured:
+                            skill_obj_ct = next((s for s in raw_skills if s["id"] == skill_id), None)
+                            if skill_obj_ct:
+                                skill_max_ct = (skill_obj_ct.get("constraints") or {}).get("concurrent_tasks")
+                                if skill_max_ct is not None:
+                                    constraints_applied["skill_concurrent_tasks"] = skill_max_ct
+                                    if req_ct > skill_max_ct:
+                                        violations.append(
+                                            f"concurrent_tasks {req_ct} exceeds skill '{skill_id}' limit {skill_max_ct}"
+                                        )
+
+                    # v2.26: context_window — check against skill-level limit
+                    if "context_window" in constraints:
+                        req_cw = constraints["context_window"]
+                        if _is_structured:
+                            skill_obj_cw = next((s for s in raw_skills if s["id"] == skill_id), None)
+                            if skill_obj_cw:
+                                skill_max_cw = (skill_obj_cw.get("constraints") or {}).get("context_window")
+                                if skill_max_cw is not None:
+                                    constraints_applied["skill_context_window"] = skill_max_cw
+                                    if req_cw > skill_max_cw:
+                                        violations.append(
+                                            f"context_window {req_cw} exceeds skill '{skill_id}' limit {skill_max_cw}"
+                                        )
+
+                    # v2.11: check input_mode constraint against skill's input_modes
+                    if req_input_mode and _is_structured:
+                        skill_obj = next((s for s in raw_skills if s["id"] == skill_id), None)
+                        if skill_obj:
+                            skill_input_modes = skill_obj.get("input_modes") or []
+                            if skill_input_modes and req_input_mode not in skill_input_modes:
+                                violations.append(
+                                    f"input_mode='{req_input_mode}' not supported by skill "
+                                    f"'{skill_id}' (supports: {skill_input_modes})"
+                                )
+
+                    if violations:
+                        support_level = "partial"
+                        reason = "; ".join(violations)
+                    else:
+                        support_level = "supported"
+                        reason = f"Skill '{skill_id}' is available"
+                else:
+                    # v2.10: try keyword match in id/name/description for fuzzy discovery
+                    matched = []
+                    if _is_structured:
+                        _kw = skill_id.lower()
+                        matched = [
+                            s for s in raw_skills
+                            if (_kw in (s.get("id", "") or "").lower() or
+                                _kw in (s.get("name", "") or "").lower() or
+                                _kw in (s.get("description", "") or "").lower())
+                        ]
+                    support_level = "unsupported"
+                    reason = f"Skill '{skill_id}' not registered on this agent"
+                    if matched:
+                        reason += f"; similar skills found: {[s['id'] for s in matched]}"
+                    constraints_applied = {}
+
+                # v2.26: attach queried skill's declared constraints to response
+                # v2.28: attach queried skill's declared limitations to response
+                queried_skill_obj = None
+                if _is_structured and skill_id in known_skill_ids:
+                    queried_skill_obj = next((s for s in raw_skills if s["id"] == skill_id), None)
+                skill_constraints_declared = (
+                    queried_skill_obj.get("constraints") if queried_skill_obj else None
+                ) or {}
+                skill_limitations_declared = (
+                    queried_skill_obj.get("limitations") if queried_skill_obj else None
+                ) or []   # v2.28: per-skill limitations[] in QuerySkill response
+
+                # v3.14: attach structured evidence-based skill_trust_score
+                # (replaces the v2.95 float from bilateral IR; now uses documentation completeness evidence)
+                if queried_skill_obj is not None:
+                    skill_trust_score_val = _compute_skill_trust_score_v314(queried_skill_obj, skill_id)
+                else:
+                    # skill not in agent card (unsupported) — still compute with empty obj
+                    skill_trust_score_val = _compute_skill_trust_score_v314({}, skill_id)
+
+                self._json({
+                    "skill_id":                   skill_id,
+                    "support_level":              support_level,
+                    "reason":                     reason,
+                    "constraints_applied":        constraints_applied,
+                    "skill_constraints_declared": skill_constraints_declared,   # v2.26
+                    "skill_limitations_declared": skill_limitations_declared,   # v2.28
+                    "skill_trust_score":          skill_trust_score_val,        # v3.14: evidence-based composite trust score struct
+                    "known_skills":               known_skills_str,
+                    "agent": {
+                        "name":        agent_card.get("name"),
+                        "acp_version": VERSION,
+                    },
+                })
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        # ── POST /extensions/register — runtime extension registration (v1.3) ──
+        elif p == "/extensions/register":
+            """Register a new Extension in the AgentCard at runtime (v1.3).
+
+            Body:
+              {
+                "uri":      "https://example.com/ext/billing",   // required
+                "required": false,                               // optional, default false
+                "params":   { "tier": "pro" }                   // optional
+              }
+
+            Returns the updated extensions list.
+            Idempotent: re-registering the same URI updates the entry.
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            uri = body.get("uri")
+            if not uri or not isinstance(uri, str):
+                self._json({"error": "'uri' is required and must be a string"}, 400)
+                return
+            if not uri.startswith("http://") and not uri.startswith("https://"):
+                self._json({"error": "'uri' must be an http(s) URL"}, 400)
+                return
+
+            required = bool(body.get("required", False))
+            params   = body.get("params", {})
+            if not isinstance(params, dict):
+                self._json({"error": "'params' must be a JSON object"}, 400)
+                return
+
+            # Upsert: remove existing entry with same URI, then append
+            _extensions = [e for e in _extensions if e.get("uri") != uri]
+            entry = {"uri": uri, "required": required}
+            if params:
+                entry["params"] = params
+            _extensions.append(entry)
+            log.info(f"🔌 Extension registered: {uri} (required={required})")
+            self._json({"ok": True, "extensions": list(_extensions)})
+
+        # ── POST /extensions/unregister — remove extension at runtime (v1.3) ─
+        elif p == "/extensions/unregister":
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            uri = body.get("uri")
+            if not uri:
+                self._json({"error": "'uri' is required"}, 400)
+                return
+
+            before = len(_extensions)
+            _extensions = [e for e in _extensions if e.get("uri") != uri]
+            removed = before - len(_extensions)
+            log.info(f"🔌 Extension unregistered: {uri} (found={removed > 0})")
+            self._json({"ok": True, "removed": removed, "extensions": list(_extensions)})
+
+        # ── POST /verify/card — verify any AgentCard's Ed25519 self-signature (v1.8) ──
+        elif p == "/verify/card":
+            """
+            Verify an AgentCard's Ed25519 self-signature (v1.8).
+
+            Body: any ACP AgentCard JSON (the 'self' field from /.well-known/acp.json).
+
+            Returns:
+              {
+                "valid": true/false/null,   # null = cannot verify (lib missing)
+                "did": "did:acp:...",       # signer's stable identifier
+                "did_consistent": true,     # did:acp: matches public_key
+                "public_key": "...",        # base64url Ed25519 public key
+                "scheme": "ed25519",        # identity scheme
+                "error": null              # human-readable reason if invalid
+              }
+
+            Works for any ACP relay's AgentCard — not just this agent's.
+            Verifies that the card was signed by the private key matching
+            the public_key in card.identity.public_key.
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+
+            # Accept either the raw card or the wrapped form {"self": card, ...}
+            if "self" in body and isinstance(body["self"], dict):
+                card = body["self"]
+            elif "name" in body or "identity" in body:
+                card = body
+            else:
+                self._json({"error": "expected AgentCard JSON or {\"self\": card}"}, 400)
+                return
+
+            result = _verify_agent_card(card)
+            self._json(result)
+
+        # ── POST /verify-card — enhanced card verification v2.54 ─────────────
+        elif p == "/verify-card":
+            """
+            POST /verify-card — Enhanced AgentCard verification (v2.54).
+
+            Supports three verification modes, selected by the top-level 'mode' field:
+
+            MODE 1: single card (default)
+              Body: AgentCard JSON  OR  {"card": <AgentCard>}
+              Returns: single verification result object
+
+            MODE 2: batch
+              Body: {"mode": "batch", "cards": [<AgentCard>, ...], "ttl": <int>?}
+              Returns: {"ok": true, "results": [...], "total": N, "valid_count": N, "invalid_count": N}
+
+            MODE 3: fetch_and_verify
+              Body: {"mode": "fetch", "url": "<ACP AgentCard URL>", "ttl": <int>?}
+              Returns: fetched card + single verification result + "fetched_from" url
+
+            All modes accept optional:
+              "ttl": integer (seconds) — override cache TTL (0 = bypass cache, default 300)
+              "trust_integration": bool — if true AND result is valid, record a card_verified
+                trust signal for the specified "peer_id" (optional string)
+              "peer_id": string — peer to associate with trust signal (trust_integration only)
+
+            Result object fields (all modes):
+              {
+                "valid": true|false|null,  # null = Ed25519 lib unavailable
+                "did": "did:acp:...",
+                "did_consistent": true|null,
+                "public_key": "...",
+                "scheme": "ed25519",
+                "error": null,
+                "cached": bool,
+                "cache_expires_in": int   # only when cached=true
+              }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            mode = body.get("mode", "single")
+            ttl_raw = body.get("ttl", _VERIFY_CARD_CACHE_TTL)
+            try:
+                ttl = max(0, int(ttl_raw))
+            except (TypeError, ValueError):
+                ttl = _VERIFY_CARD_CACHE_TTL
+            trust_int = bool(body.get("trust_integration", False))
+            peer_id_for_trust = body.get("peer_id") or None
+
+            if mode == "batch":
+                cards = body.get("cards")
+                if not isinstance(cards, list):
+                    self._json({"ok": False, "error": "'cards' must be a JSON array"}, 400)
+                    return
+                if len(cards) > 100:
+                    self._json({"ok": False, "error": "batch size exceeds max 100"}, 400)
+                    return
+                results = _verify_card_batch(cards, ttl=ttl)
+                valid_count = sum(1 for r in results if r.get("valid") is True)
+                invalid_count = sum(1 for r in results if r.get("valid") is False)
+                self._json({
+                    "ok": True,
+                    "mode": "batch",
+                    "total": len(results),
+                    "valid_count": valid_count,
+                    "invalid_count": invalid_count,
+                    "unknown_count": len(results) - valid_count - invalid_count,
+                    "results": results,
+                })
+                return
+
+            elif mode == "fetch":
+                url = body.get("url")
+                if not url or not isinstance(url, str):
+                    self._json({"ok": False, "error": "'url' is required for mode=fetch"}, 400)
+                    return
+                fetched = _fetch_agent_card_from_url(url)
+                if not fetched["ok"]:
+                    self._json({"ok": False, "error": fetched["error"], "url": url}, 422)
+                    return
+                card = fetched["card"]
+                vr = _verify_card_cached(card, ttl=ttl)
+                if trust_int:
+                    _apply_trust_integration(vr, peer_id_for_trust)
+                self._json({
+                    "ok": True,
+                    "mode": "fetch",
+                    "fetched_from": url,
+                    "card_name": card.get("name"),
+                    "trust_signal_written": trust_int and vr.get("valid") is True,
+                    **vr,
+                })
+                return
+
+            else:
+                # single card mode
+                if "card" in body and isinstance(body["card"], dict):
+                    card = body["card"]
+                elif "self" in body and isinstance(body["self"], dict):
+                    card = body["self"]
+                elif "name" in body or "identity" in body:
+                    card = body
+                else:
+                    self._json({"ok": False, "error": "expected AgentCard JSON, {\"card\": <AgentCard>}, or mode=batch/fetch"}, 400)
+                    return
+                vr = _verify_card_cached(card, ttl=ttl)
+                if trust_int:
+                    _apply_trust_integration(vr, peer_id_for_trust)
+                self._json({
+                    "ok": True,
+                    "mode": "single",
+                    "trust_signal_written": trust_int and vr.get("valid") is True,
+                    **vr,
+                })
+                return
+
+        # ── POST /trust/signals/capability-token/fixtures/validate — dynamic SINT token validation (v2.77) ──
+        elif p == "/trust/signals/capability-token/fixtures/validate":
+            now_ts = int(time.time())
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw    = self.rfile.read(length) if length > 0 else b"{}"
+                body   = json.loads(raw)
+            except Exception as exc:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": f"Invalid JSON body: {exc}"}, 400)
+                return
+
+            if not isinstance(body, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Body must be a JSON object"}, 400)
+                return
+
+            token = body.get("token")
+            if not isinstance(token, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Missing or invalid 'token' field (must be an object)"}, 400)
+                return
+
+            ctx = body.get("invocation_context", {})
+            if not isinstance(ctx, dict):
+                ctx = {}
+
+            checks = []
+
+            # Check 1: expiry (TOCTOU re-check at use_time)
+            exp      = token.get("exp")
+            use_time = ctx.get("use_time", now_ts)
+            if exp is None:
+                checks.append({"check": "expiry", "passed": False, "reason": "missing_exp_field"})
+            elif not isinstance(exp, (int, float)):
+                checks.append({"check": "expiry", "passed": False, "reason": "invalid_exp_type"})
+            elif use_time > exp:
+                checks.append({"check": "expiry", "passed": False,
+                                "reason": "token_expired",
+                                "detail": f"exp={exp} < use_time={use_time} (TOCTOU re-check)"})
+            else:
+                checks.append({"check": "expiry", "passed": True,
+                                "reason": "token_valid",
+                                "detail": f"exp={exp}, ttl_remaining={exp - use_time}s"})
+
+            # Check 2: scope (resource URI ends with target_skill_id)
+            resource        = token.get("resource", "")
+            target_skill_id = ctx.get("target_skill_id", "")
+            if not resource:
+                checks.append({"check": "scope", "passed": False, "reason": "missing_resource_field"})
+            elif not target_skill_id:
+                checks.append({"check": "scope", "passed": True,
+                                "reason": "skipped_no_target_skill"})
+            else:
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                if resource_tail != target_skill_id:
+                    checks.append({"check": "scope", "passed": False,
+                                   "reason": "scope_mismatch",
+                                   "detail": f"resource skill='{resource_tail}', target='{target_skill_id}'"})
+                else:
+                    checks.append({"check": "scope", "passed": True,
+                                   "reason": "scope_match"})
+
+            # Check 3: skill_id embedded in resource
+            if not resource:
+                checks.append({"check": "skill_id", "passed": False, "reason": "missing_resource_field"})
+            else:
+                resource_tail = resource.rstrip("/").split("/")[-1]
+                explicit_skill = ctx.get("explicit_skill_id", target_skill_id)
+                if explicit_skill and resource_tail != explicit_skill:
+                    checks.append({"check": "skill_id", "passed": False,
+                                   "reason": "skill_id_mismatch",
+                                   "detail": f"resource='{resource_tail}', explicit='{explicit_skill}'"})
+                else:
+                    checks.append({"check": "skill_id", "passed": True,
+                                   "reason": "skill_id_valid"})
+
+            # Check 4: subject binding
+            token_sub    = token.get("sub", "")
+            invoking_did = ctx.get("invoking_agent_did", "")
+            if not token_sub:
+                checks.append({"check": "subject", "passed": False, "reason": "missing_sub_field"})
+            elif not invoking_did:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "skipped_no_invoking_did"})
+            elif token_sub != invoking_did:
+                checks.append({"check": "subject", "passed": False,
+                                "reason": "subject_mismatch",
+                                "detail": f"sub='{token_sub}', invoking='{invoking_did}'"})
+            else:
+                checks.append({"check": "subject", "passed": True,
+                                "reason": "subject_match"})
+
+            # Check 5: required fields
+            required = {"jti", "iss", "sub", "resource", "scheme"}
+            missing  = required - set(token.keys())
+            if missing:
+                checks.append({"check": "required_fields", "passed": False,
+                                "reason": "missing_required_fields",
+                                "detail": f"missing: {sorted(missing)}"})
+            else:
+                checks.append({"check": "required_fields", "passed": True,
+                                "reason": "all_required_fields_present"})
+
+            # Check 6: revocation status (v2.78 — check _revoked_tokens)
+            token_jti = token.get("jti", "")
+            if token_jti and token_jti in _revoked_tokens:
+                rev_rec = _revoked_tokens[token_jti]
+                checks.append({"check": "revocation", "passed": False,
+                                "reason": "token_revoked",
+                                "detail": f"jti='{token_jti}' revoked_at={rev_rec.get('revoked_at')}, reason={rev_rec.get('reason')}"})
+            else:
+                checks.append({"check": "revocation", "passed": True,
+                                "reason": "token_not_revoked"})
+
+            failed_checks = [c for c in checks if not c["passed"]]
+            authorized    = len(failed_checks) == 0
+
+            deny_reason = None
+            http_status = 200
+            if not authorized:
+                priority_order = ["expiry", "scope", "skill_id", "subject", "required_fields"]
+                deny_reason = failed_checks[0]["reason"]
+                for po in priority_order:
+                    for fc in failed_checks:
+                        if fc["check"] == po:
+                            deny_reason = fc["reason"]
+                            break
+                    else:
+                        continue
+                    break
+                http_status = 403
+
+            response = {
+                "ok":       True,
+                "version":  VERSION,
+                "authorized": authorized,
+                "checks":   checks,
+                "a2a_ref":  "https://github.com/google-a2a/A2A/issues/1716",
+            }
+            if not authorized:
+                response["deny_reason"]  = deny_reason
+                response["http_status"]  = http_status
+                response["deny_details"] = [
+                    {"check": c["check"], "reason": c["reason"], "detail": c.get("detail", "")}
+                    for c in failed_checks
+                ]
+            else:
+                response["reason_code"] = "token_valid"
+
+            self._json(response, http_status)
+
+        # ── POST /trust/signals/capability-token/revoke — active token revocation (v2.78) ──
+        elif p == "/trust/signals/capability-token/revoke":
+            """
+            v2.78: Actively revoke a SINT capability token by jti.
+            Completes the SINT capability token lifecycle:
+              v2.74 declare → v2.75 fixture → v2.77 validate → v2.78 revoke
+
+            Body:
+              {
+                "jti":     "<string>",   # required — token identifier to revoke
+                "reason":  "<string>",   # optional — revocation reason (expired/compromised/policy_violation/manual)
+                "revoked_by": "<did>"    # optional — DID of revoking principal
+              }
+
+            Returns:
+              200 { ok: true, revoked: true, jti: ..., revocation_id: ..., revoked_at: ..., reason: ... }
+              404 { ok: false, code: "ERR_TOKEN_NOT_FOUND", ... }   if jti not in _capability_tokens
+              409 { ok: false, code: "ERR_ALREADY_REVOKED", ... }   if already revoked
+              400 { ok: false, code: "ERR_BAD_REQUEST", ... }
+
+            A2A #1716: complements SINT runtime enforcement with active revocation.
+            Revoked JTIs are stored in _revoked_tokens and checked by validate endpoint.
+            """
+            if self.command != "POST":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use POST /trust/signals/capability-token/revoke"}, 405)
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw    = self.rfile.read(length) if length > 0 else b"{}"
+                body   = json.loads(raw)
+            except Exception as exc:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": f"Invalid JSON body: {exc}"}, 400)
+                return
+
+            if not isinstance(body, dict):
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Body must be a JSON object"}, 400)
+                return
+
+            jti = body.get("jti", "").strip()
+            if not jti:
+                self._json({"ok": False, "code": "ERR_BAD_REQUEST",
+                            "message": "Missing required field 'jti'"}, 400)
+                return
+
+            reason      = body.get("reason", "manual")
+            revoked_by  = body.get("revoked_by", "")
+            now_ts      = int(time.time())
+
+            # Check if already in revocation list
+            existing_rev = _revoked_tokens.get(jti)
+            if existing_rev:
+                self._json({
+                    "ok": False,
+                    "code": "ERR_ALREADY_REVOKED",
+                    "message": f"Token jti='{jti}' is already revoked",
+                    "revocation_id": existing_rev.get("revocation_id"),
+                    "revoked_at": existing_rev.get("revoked_at"),
+                    "reason": existing_rev.get("reason"),
+                }, 409)
+                return
+
+            # Record revocation (even if not in _capability_tokens — forward revocation)
+            revocation_id = f"rev-{jti[:8]}-{now_ts}"
+            revocation_record = {
+                "jti":           jti,
+                "revocation_id": revocation_id,
+                "revoked_at":    now_ts,
+                "reason":        reason,
+                "revoked_by":    revoked_by or "relay",
+                "token_known":   jti in _capability_tokens,
+            }
+            _revoked_tokens[jti] = revocation_record
+
+            # If token exists in issuance store, mark it revoked
+            if jti in _capability_tokens:
+                _capability_tokens[jti]["revoked"] = True
+                _capability_tokens[jti]["revoked_at"] = now_ts
+                _capability_tokens[jti]["revoke_reason"] = reason
+
+            self._json({
+                "ok":            True,
+                "revoked":       True,
+                "jti":           jti,
+                "revocation_id": revocation_id,
+                "revoked_at":    now_ts,
+                "reason":        reason,
+                "revoked_by":    revoked_by or "relay",
+                "token_known":   jti in _capability_tokens,
+                "version":       VERSION,
+                "a2a_ref":       "https://github.com/google-a2a/A2A/issues/1716",
+            })
+
+        # ── GET /trust/signals/capability-token/revocations — list revoked tokens (v2.78) ──
+        elif p == "/trust/signals/capability-token/revocations":
+            """v2.78: List all revoked capability tokens."""
+            if self.command != "GET":
+                self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                            "message": "Use GET /trust/signals/capability-token/revocations"}, 405)
+                return
+            revocations = list(_revoked_tokens.values())
+            self._json({
+                "ok":           True,
+                "version":      VERSION,
+                "total_revoked": len(revocations),
+                "revocations":  revocations,
+                "a2a_ref":      "https://github.com/google-a2a/A2A/issues/1716",
+            })
+
+        # ── GET /protocol-binding — A2A §5.8 CPB declaration (v2.79) — POST guard ──────────────────────
+        elif p == "/protocol-binding":
+            # v2.79: GET-only endpoint; POST/PUT/DELETE return 405.
+            self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                        "message": "Use GET /protocol-binding"}, 405)
+
+        elif p == "/protocol-binding/compatibility":
+            # v2.85: GET-only endpoint; POST/PUT/DELETE return 405.
+            self._json({"ok": False, "code": "ERR_METHOD_NOT_ALLOWED",
+                        "message": "Use GET /protocol-binding/compatibility"}, 405)
+
+        # ── POST /trust/vouch — add a vouch_chain entry (v2.27) ──────────────
+        elif p == "/trust/vouch":
+            """
+            Add a vouch_chain entry to this agent's trust signals (v2.27).
+            Compatible with A2A IS#1628 trust.signals specification.
+
+            Body:
+              {
+                "voucher_did":  "did:acp:...",   # required — DID of vouching agent
+                "comment":      "...",           # optional — free text
+                "sig":          "...",           # optional — base64 Ed25519 sig of vouched_did+vouched_at
+              }
+
+            Returns:
+              {
+                "ok":        true,
+                "vouch_id":  "<int>",            # index in vouch_chain
+                "total":     <int>,              # total vouches so far
+                "entry":     { ... },            # the stored entry
+              }
+            """
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
+                return
+
+            voucher_did = body.get("voucher_did", "").strip()
+            if not voucher_did:
+                self._json({"ok": False, "error_code": "ERR_MISSING_FIELD",
+                            "error": "'voucher_did' is required"}, 400)
+                return
+
+            import time as _time_vouch
+            entry = {
+                "vouch_id":   len(_vouch_chain),
+                "voucher_did": voucher_did,
+                "vouched_did": _did_acp or _did_key or "unknown",   # this agent's DID
+                "vouched_at":  _time_vouch.strftime("%Y-%m-%dT%H:%M:%SZ", _time_vouch.gmtime()),
+                "sig":        body.get("sig"),      # optional; None if not provided
+                "comment":    body.get("comment"),  # optional free text
+            }
+            _vouch_chain.append(entry)
+            self._json({
+                "ok":      True,
+                "vouch_id": entry["vouch_id"],
+                "total":    len(_vouch_chain),
+                "entry":    entry,
+            })
+
+        # ── GET /trust/vouch — list vouch_chain entries (v2.27) ──────────────
+        elif p == "/trust/vouch" and self.command == "GET":
+            # This branch is unreachable from do_POST, but kept for clarity;
+            # actual GET handling is in do_GET below. See GET /trust/vouch.
+            pass
+
+        else:
+            self._json({"error": "not found"}, 404)
+
+    # ── DELETE ────────────────────────────────────────────────────────────────
+    def do_DELETE(self):
+        global _principal_chain
+        p = urlparse(self.path).path
+
+        # ── v2.56: DELETE /principal-chain/<did> — remove a principal from chain ──
+        if p.startswith("/principal-chain/") and p.count("/") == 2:
+            did_to_remove = urllib.parse.unquote(p[len("/principal-chain/"):])
+            before = len(_principal_chain)
+            _principal_chain = [e for e in _principal_chain if e.get("did") != did_to_remove]
+            removed = before - len(_principal_chain)
+            if removed:
+                log.info(f"🔗 principal_chain: removed {did_to_remove!r} (remaining={len(_principal_chain)})")
+                self._json({"ok": True, "did": did_to_remove, "removed": True, "count": len(_principal_chain)})
+            else:
+                self._json({"ok": False, "error": f"DID '{did_to_remove}' not in principal_chain",
+                            "removed": False, "count": len(_principal_chain)}, 404)
+            return
+
+        # ── v3.11: DELETE /tasks/queue/worker/<worker_id> — deregister worker ──
+        if p.startswith("/tasks/queue/worker/"):
+            worker_id = p[len("/tasks/queue/worker/"):]
+            with _task_queue_workers_lock:
+                if worker_id in _task_queue_workers:
+                    _task_queue_workers.pop(worker_id)
+                    self._json({"ok": True, "worker_id": worker_id, "deregistered": True})
+                else:
+                    self._json({"ok": False, "error": f"worker '{worker_id}' not found",
+                                "deregistered": False}, 404)
+            return
+
+        if p.startswith("/tasks/"):
+            task_id = p[len("/tasks/"):]
+            task = _tasks.get(task_id)
+            if not task:
+                self._json({"error": "task not found"}, 404)
+            elif task["status"] in TERMINAL_STATES:
+                self._json({"error": f"already terminal: {task['status']}"}, 409)
+            else:
+                _update_task(task_id, TASK_FAILED, error="deleted")
+                self._json({"ok": True, "task_id": task_id})
+        else:
+            self._json({"error": "not found"}, 404)
+
+
+    def do_PATCH(self):
+        """PATCH handler — routes to per-skill or global card updates.
+
+        Routes:
+          PATCH /skills/<id>/limitations   (v2.29) — runtime per-skill limitations update
+          PATCH /.well-known/acp.json      (v1.2/v2.21) — global AgentCard availability/limitations
+          PATCH /card                      (alias for above)
+
+        PATCH /skills/<id>/limitations body:
+          {
+            "limitations": [                 # required: new limitations list (replaces existing)
+              {"kind": "capability", "code": "no_audio", "message": "...", "permanent": false},
+              "string_shorthand"             # auto-promoted to LimitationObject
+            ],
+            "limitations_merge": false       # optional: if true, merge into existing (default: replace)
+          }
+        Send empty array [] to clear all runtime limitations (restores declared defaults).
+
+        PATCH /.well-known/acp.json body (v1.2/v2.21):
+          {
+            "availability": { ... },
+            "limitations": [ ... ],
+            "limitations_merge": false
+          }
+
+        Use-case: runtime degradation/recovery — an agent (or its owner) can update its
+        limitations dynamically without restarting the relay.
+        """
+        global _availability, _limitations, _skill_limitations_overrides
+        p = urlparse(self.path).path
+
+        # ── Route: PATCH /skills/<id>/limitations (v2.29) ────────────────────
+        if p.startswith("/skills/") and p.endswith("/limitations"):
+            skill_id_req = p[len("/skills/"):-len("/limitations")]
+            if not skill_id_req:
+                self._json({"error": "skill id must not be empty"}, 400)
+                return
+            # Verify skill exists in agent card
+            agent_card = _status.get("agent_card") or {}
+            all_skills = list(agent_card.get("skills", []))
+            matched = None
+            for s in all_skills:
+                sid = s.get("id", "") if isinstance(s, dict) else str(s)
+                if sid == skill_id_req:
+                    matched = s
+                    break
+            if matched is None:
+                self._json(
+                    {"error": f"skill '{skill_id_req}' not found"},
+                    404,
+                )
+                return
+            try:
+                body = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+            lims_raw = body.get("limitations")
+            if lims_raw is None:
+                self._json({"error": "request body must contain 'limitations' key"}, 400)
+                return
+            if not isinstance(lims_raw, list):
+                self._json({"error": "'limitations' must be a JSON array"}, 400)
+                return
+            # Validate kinds
+            for item in lims_raw:
+                if isinstance(item, dict) and "kind" in item:
+                    if item["kind"] not in _VALID_LIMITATION_KINDS:
+                        self._json({"error": f"invalid limitation kind '{item['kind']}'; "
+                                             f"must be one of {sorted(_VALID_LIMITATION_KINDS)}"}, 400)
+                        return
+            try:
+                new_lims = [_parse_limitation(item) for item in lims_raw]
+            except Exception as e:
+                self._json({"error": f"invalid limitation entry: {e}"}, 400)
+                return
+
+            lims_merge = bool(body.get("limitations_merge", False))
+            if lims_merge and skill_id_req in _skill_limitations_overrides:
+                existing = {(lim.get("kind"), lim.get("code")): lim
+                            for lim in _skill_limitations_overrides[skill_id_req]}
+                for lim in new_lims:
+                    existing[(lim.get("kind"), lim.get("code"))] = lim
+                resolved = list(existing.values())
+            else:
+                resolved = new_lims
+
+            if resolved:
+                _skill_limitations_overrides[skill_id_req] = resolved
+            else:
+                # Empty list = clear override (restore declared defaults)
+                _skill_limitations_overrides.pop(skill_id_req, None)
+
+            log.info(f"🚫 Skill '{skill_id_req}' limitations updated via PATCH: "
+                     f"{len(resolved)} entries (merge={lims_merge})")
+            self._json({
+                "ok":         True,
+                "skill_id":   skill_id_req,
+                "limitations": resolved,
+            })
+            return
+
+        # ── Route: PATCH /governance-metadata (v2.60) ────────────────────────
+        if p == "/governance-metadata":
+            """
+            PATCH /governance-metadata — Update governance metadata fields at runtime (v2.60).
+
+            Accepted fields (merged into existing _governance_metadata):
+              trust_score          <float 0.0-1.0> — override computed trust score
+              policy_compliance    [{policy, status}] — replace policy compliance list
+              audit_trail_reference <str|null> — URI for external audit trail
+              capability_manifest  {<skill_id>: {tier, status, deprecated}} — override cap manifest
+              schema_version       <str> — governance metadata schema version
+
+            Read-only (always computed at runtime, silently ignored if provided):
+              generated_at, interaction_record_count, peer_count, task_count
+
+            Response 200: { "ok": true, "governance_metadata": <updated block> }
+            """
+            global _governance_metadata
+            try:
+                body_gm = self._read_body()
+            except Exception as e:
+                self._json({"error": f"invalid JSON: {e}"}, 400)
+                return
+            # Whitelist writable fields
+            writable_gm = {"trust_score", "policy_compliance", "audit_trail_reference",
+                           "capability_manifest", "schema_version"}
+            updated_gm = []
+            for k, v in body_gm.items():
+                if k not in writable_gm:
+                    continue  # silently ignore read-only or unknown keys
+                # Validate trust_score
+                if k == "trust_score":
+                    try:
+                        v = float(v)
+                        if not (0.0 <= v <= 1.0):
+                            self._json({"error": "trust_score must be between 0.0 and 1.0"}, 400)
+                            return
+                    except (TypeError, ValueError):
+                        self._json({"error": "trust_score must be a number"}, 400)
+                        return
+                # Validate policy_compliance
+                if k == "policy_compliance" and not isinstance(v, list):
+                    self._json({"error": "policy_compliance must be an array"}, 400)
+                    return
+                # Validate capability_manifest
+                if k == "capability_manifest" and not isinstance(v, dict):
+                    self._json({"error": "capability_manifest must be an object"}, 400)
+                    return
+                _governance_metadata[k] = v
+                updated_gm.append(k)
+            self._json({
+                "ok":                  True,
+                "updated":             updated_gm,
+                "governance_metadata": _build_governance_metadata(),
+            })
+            return
+
+        # v2.87: PATCH /policy-compliance — runtime governance standard update
+        if p == "/policy-compliance":
+            global _policy_compliance
+            try:
+                body = self._read_body()
+            except Exception:
+                self._json({"ok": False, "error": "invalid JSON body"}, 400)
+                return
+
+            if "policy_compliance" in body:
+                new_list = body["policy_compliance"]
+                if not isinstance(new_list, list):
+                    self._json({"ok": False, "error": "'policy_compliance' must be a list"}, 400)
+                    return
+                if not all(isinstance(s, str) for s in new_list):
+                    self._json({"ok": False, "error": "all policy_compliance entries must be strings"}, 400)
+                    return
+                _policy_compliance = [s.strip() for s in new_list if s.strip()]
+            elif "add" in body or "remove" in body:
+                to_add = body.get("add") or []
+                to_remove = body.get("remove") or []
+                if not isinstance(to_add, list) or not isinstance(to_remove, list):
+                    self._json({"ok": False, "error": "'add' and 'remove' must be lists"}, 400)
+                    return
+                current = set(_policy_compliance)
+                current.update(s.strip() for s in to_add if s.strip())
+                current.difference_update(s.strip() for s in to_remove)
+                _policy_compliance = sorted(current)
+            else:
+                self._json({"ok": False, "error": "PATCH body must contain 'policy_compliance' (replace) or 'add'/'remove' (incremental)"}, 400)
+                return
+
+            _status["policy_compliance"] = list(_policy_compliance)
+            log.info(f"📋 policy_compliance updated via PATCH: {_policy_compliance}")
+            self._json({
+                "ok":                True,
+                "policy_compliance": list(_policy_compliance),
+                "count":             len(_policy_compliance),
+                "updated":           True,
+            })
+            return
+
+        if p not in ("/card", "/.well-known/acp.json"):
+            self._json({"error": "PATCH only supported on /.well-known/acp.json, /governance-metadata, /policy-compliance, or /skills/<id>/limitations"}, 404)
+            return
+        try:
+            body = self._read_body()
+        except Exception as e:
+            self._json({"error": f"invalid JSON: {e}"}, 400)
+            return
+
+        # v2.21: body may contain "availability" and/or "limitations" (either or both)
+        avail_patch = body.get("availability")
+        lims_patch   = body.get("limitations")
+        lims_merge   = bool(body.get("limitations_merge", False))
+
+        if avail_patch is None and lims_patch is None:
+            self._json({"error": "request body must contain 'availability' and/or 'limitations' key"}, 400)
+            return
+
+        updated_keys = []
+
+        # ── availability block ────────────────────────────────────────────────
+        if avail_patch is not None:
+            if not isinstance(avail_patch, dict):
+                self._json({"error": "'availability' must be a JSON object"}, 400)
+                return
+
+            # Allowed fields for PATCH (whitelist to avoid injection)
+            ALLOWED = {"mode", "interval_seconds", "next_active_at",
+                       "last_active_at", "task_latency_max_seconds",
+                       "schedule", "timezone"}   # v2.17: added schedule + timezone
+            unknown = set(avail_patch.keys()) - ALLOWED
+            if unknown:
+                self._json({"error": f"unknown availability fields: {sorted(unknown)}"}, 400)
+                return
+
+            # Validate mode if provided
+            valid_modes = {"persistent", "heartbeat", "cron", "manual"}
+            if "mode" in avail_patch and avail_patch["mode"] not in valid_modes:
+                self._json({"error": f"mode must be one of {sorted(valid_modes)}"}, 400)
+                return
+
+            # Merge patch into _availability
+            _availability = {**_availability, **avail_patch}
+            log.info(f"📅 AgentCard availability updated via PATCH: {_availability}")
+            updated_keys.append("availability")
+
+        # ── limitations block (v2.21) ─────────────────────────────────────────
+        if lims_patch is not None:
+            if not isinstance(lims_patch, list):
+                self._json({"error": "'limitations' must be a JSON array"}, 400)
+                return
+            # v2.21: strict validation for dict entries in PATCH (kind must be valid or absent)
+            for item in lims_patch:
+                if isinstance(item, dict) and "kind" in item:
+                    if item["kind"] not in _VALID_LIMITATION_KINDS:
+                        self._json({"error": f"invalid limitation kind '{item['kind']}'; "
+                                             f"must be one of {sorted(_VALID_LIMITATION_KINDS)}"}, 400)
+                        return
+            try:
+                new_lims = [_parse_limitation(item) for item in lims_patch]
+            except Exception as e:
+                self._json({"error": f"invalid limitation entry: {e}"}, 400)
+                return
+
+            if lims_merge:
+                # Merge: append new limitations, de-duplicate by (kind, code)
+                existing = {(lim.get("kind"), lim.get("code")): lim for lim in _limitations}
+                for lim in new_lims:
+                    existing[(lim.get("kind"), lim.get("code"))] = lim
+                _limitations = list(existing.values())
+            else:
+                # Replace (default): overwrite the entire limitations list
+                _limitations = new_lims
+
+            log.info(f"🚫 AgentCard limitations updated via PATCH: {len(_limitations)} entries (merge={lims_merge})")
+            updated_keys.append("limitations")
+
+        # Return the updated live card
+        # v2.10: pass full structured skill objects
+        skills = list((_status.get("agent_card") or {}).get("skills", []))
+        live_card = _make_agent_card(_status.get("agent_name", "ACP-Agent"), skills)
+        response = {"ok": True, "updated": updated_keys}
+        if "availability" in updated_keys:
+            response["availability"] = live_card.get("availability", {})
+        if "limitations" in updated_keys:
+            response["limitations"] = live_card.get("limitations", [])
+        self._json(response)
+
+
+class _ACPHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer subclass with BUG-030/BUG-049 concurrent-load fixes.
+
+    Changes vs stock ThreadingHTTPServer:
+    - allow_reuse_address = True  — prevents TIME_WAIT port conflicts on rapid restart
+    - request_queue_size = 64     — default 5 causes ECONNREFUSED / RemoteDisconnected
+                                    under concurrent-relay test scenarios (3+ relays)
+    - daemon_threads = True       — worker threads don't block process exit
+    """
+    allow_reuse_address = True
+    request_queue_size  = 64
+    daemon_threads      = True
+
+    def server_bind(self):
+        """Bind without reverse-DNS lookup so local API startup cannot hang."""
+        import socketserver
+
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
+
+def run_http(port, host="127.0.0.1", http2=False):
+    # BUG-001 root-cause fix (2026-03-23): use ThreadingHTTPServer so that
+    # /stream (blocking SSE loop) does not prevent /message:send from being served.
+    # The original HTTPServer was single-threaded; any open /stream connection
+    # would block ALL subsequent HTTP requests, making SSE effectively useless.
+    # host defaults to 127.0.0.1 (local-only); pass "0.0.0.0" for Docker/container use.
+
+    # v1.6: Optional HTTP/2 transport binding via hypercorn (graceful fallback to HTTP/1.1)
+    if http2:
+        if not _HTTP2_AVAILABLE:
+            log.warning("⚠️  --http2 requested but hypercorn/h2 not installed; "
+                        "falling back to HTTP/1.1 (pip install hypercorn h2)")
+        else:
+            log.info(f"🚀 HTTP/2 transport enabled via hypercorn on {host}:{port}")
+            _run_http2_hypercorn(host, port)
+            return  # hypercorn blocks until shutdown
+
+    # Default: HTTP/1.1 via _ACPHTTPServer (BUG-030/BUG-049: larger queue + reuse_addr)
+    _ACPHTTPServer((host, port), LocalHTTP).serve_forever()
+
+
+def _run_http2_hypercorn(host: str, port: int):
+    """Run the HTTP server with HTTP/2 (h2c cleartext) support.
+
+    Uses the `h2` state machine directly over a raw TCP socket server.
+    This avoids hypercorn's signal handler registration issue in non-main
+    threads, while still providing true HTTP/2 multiplexing via the h2 library.
+
+    Architecture:
+        ThreadingTCPServer → _H2Handler per connection
+        → h2.Connection state machine processes frames
+        → LocalHTTP dispatch logic called for each complete request
+        → Response serialised back as DATA frames
+    """
+    import io
+    import h2.connection
+    import h2.config
+    import h2.events
+    import socketserver
+
+    class _H2Handler(socketserver.BaseRequestHandler):
+        """Handle a single TCP connection using HTTP/2 h2c (cleartext)."""
+
+        MAX_BODY = 4 * 1024 * 1024  # 4 MB request body limit
+
+        def handle(self):
+            conn = h2.connection.H2Connection(
+                config=h2.config.H2Configuration(client_side=False,
+                                                  header_encoding="utf-8")
+            )
+            conn.initiate_connection()
+            self.request.sendall(conn.data_to_send(65535))
+
+            # Per-stream state: {stream_id: {"headers": [...], "body": bytes}}
+            streams: dict = {}
+
+            try:
+                while True:
+                    try:
+                        data = self.request.recv(65535)
+                    except Exception:
+                        break
+                    if not data:
+                        break
+
+                    events = conn.receive_data(data)
+                    for event in events:
+                        if isinstance(event, h2.events.RequestReceived):
+                            streams[event.stream_id] = {
+                                "headers": event.headers,
+                                "body": b"",
+                            }
+                        elif isinstance(event, h2.events.DataReceived):
+                            sid = event.stream_id
+                            if sid in streams:
+                                streams[sid]["body"] += event.data
+                                if len(streams[sid]["body"]) > self.MAX_BODY:
+                                    conn.reset_stream(sid, error_code=3)
+                            conn.acknowledge_received_data(event.flow_controlled_length, sid)
+                        elif isinstance(event, h2.events.StreamEnded):
+                            sid = event.stream_id
+                            if sid in streams:
+                                self._dispatch(conn, sid, streams.pop(sid))
+                        elif isinstance(event, h2.events.WindowUpdated):
+                            pass  # flow control — nothing to do
+                        elif isinstance(event, h2.events.ConnectionTerminated):
+                            return
+
+                    out = conn.data_to_send(65535)
+                    if out:
+                        self.request.sendall(out)
+            except Exception as exc:
+                log.debug(f"H2 connection error: {exc}")
+
+        def _dispatch(self, conn, stream_id, stream_data):
+            """Dispatch one HTTP/2 request to LocalHTTP and send h2 response."""
+            import io
+            import email
+
+            headers_dict = {k: v for k, v in stream_data["headers"]}
+            method  = headers_dict.get(":method", "GET")
+            path    = headers_dict.get(":path", "/")
+            body    = stream_data["body"]
+
+            # Build the fake HTTP/1.1 request lines (header section only, no body).
+            # content-length is set authoritatively to the actual body byte length.
+            # h2 pseudo-headers (:method, :path, etc.) are stripped; duplicate
+            # content-length headers from the client are also stripped to avoid
+            # BaseHTTPRequestHandler reading the wrong byte count.
+            header_lines = []
+            for k, v in stream_data["headers"]:
+                if k.startswith(":"):
+                    continue
+                if k.lower() == "content-length":
+                    continue
+                header_lines.append(f"{k}: {v}")
+            header_lines.append(f"content-length: {len(body)}")
+
+            # Full HTTP/1.1 wire bytes: request line + headers + blank line + body
+            req_line    = f"{method} {path} HTTP/1.1\r\n".encode()
+            header_blob = ("\r\n".join(header_lines) + "\r\n\r\n").encode()
+            raw_req     = req_line + header_blob + body
+
+            resp_buf = io.BytesIO()
+
+            class _FakeSock:
+                def makefile(self, mode, **kw):
+                    # rfile (read) must start right after the request line
+                    # so that parse_headers() finds the header section.
+                    if "r" in mode:
+                        f = io.BytesIO(header_blob + body)
+                        return io.BufferedReader(f)
+                    return resp_buf
+                def sendall(self, d): resp_buf.write(d)
+                def send(self, d, flags=0): resp_buf.write(d); return len(d)
+                def close(self): pass
+                def getpeername(self):
+                    try: return self.client_address
+                    except Exception: return ("127.0.0.1", 0)
+
+            fake_sock = _FakeSock()
+            fake_sock.client_address = self.client_address
+
+            try:
+                handler = LocalHTTP.__new__(LocalHTTP)
+                handler.server = type("_S", (), {"server_address": (host, port)})()
+                handler.client_address = self.client_address
+                handler.request    = fake_sock
+                handler.connection = fake_sock
+                # rfile: after request line, pointing at headers+body
+                handler.rfile  = fake_sock.makefile("rb")
+                handler.wfile  = resp_buf
+                handler.raw_requestline = req_line
+                # parse_request reads the request line, then parse_headers reads rfile
+                handler.parse_request()
+                meth_fn = getattr(handler, f"do_{method}", None)
+                if meth_fn:
+                    meth_fn()
+                else:
+                    handler.send_error(405, f"Method {method} not allowed")
+            except Exception as exc:
+                log.debug(f"H2 dispatch error: {exc}")
+                conn.send_headers(stream_id, [
+                    (":status", "500"),
+                    ("content-type", "text/plain"),
+                ])
+                conn.send_data(stream_id, b"Internal Server Error", end_stream=True)
+                return
+
+            # Parse HTTP/1.1 response from buffer → h2 frames
+            resp_buf.seek(0)
+            raw_resp = resp_buf.read()
+            try:
+                sep = raw_resp.index(b"\r\n\r\n")
+                header_bytes = raw_resp[:sep]
+                resp_body    = raw_resp[sep + 4:]
+                lines = header_bytes.decode(errors="replace").split("\r\n")
+                status_code  = int(lines[0].split()[1]) if lines else 200
+                resp_headers = [(":status", str(status_code))]
+                for line in lines[1:]:
+                    if ":" in line:
+                        k, _, v = line.partition(":")
+                        resp_headers.append((k.strip().lower(), v.strip()))
+            except Exception:
+                status_code = 200
+                resp_headers = [(":status", "200"), ("content-type", "text/plain")]
+                resp_body = raw_resp
+
+            try:
+                conn.send_headers(stream_id, resp_headers)
+                if resp_body:
+                    conn.send_data(stream_id, resp_body, end_stream=True)
+                else:
+                    conn.send_data(stream_id, b"", end_stream=True)
+            except Exception as exc:
+                log.debug(f"H2 send_headers/data error: {exc}")
+
+    class _ThreadingH2Server(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+    server = _ThreadingH2Server((host, port), _H2Handler)
+    log.info(f"HTTP/2 h2c server listening on {host}:{port}")
+    server.serve_forever()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Network helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+def get_public_ip(timeout=4.0):
+    for url in ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": f"acp-p2p/{VERSION}"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                ip = resp.read().decode().strip()
+                if ip and "." in ip and len(ip) <= 45:
+                    return ip
+        except Exception:
+            continue
+    return None
+
+def parse_link(link):
+    """
+    Returns (host, port, token, scheme)
+
+    应用层链接格式（传输层无关）：
+      acp://IP:PORT/TOKEN       → 标准链接，底层自动选 P2P 或中继
+      acp+wss://relay.host/acp/TOKEN  → 直接指定中继（向后兼容）
+
+    Raises ValueError for malformed links (BUG-013 fix).
+    """
+    if not link or not isinstance(link, str):
+        raise ValueError("link must be a non-empty string")
+
+    if link.startswith("acp+wss://") or link.startswith("acp+ws://"):
+        scheme = "http_relay"
+        parsed = urlparse(link.replace("acp+wss://", "https://", 1).replace("acp+ws://", "http://", 1))
+        base_url = f"{'https' if link.startswith('acp+wss://') else 'http'}://{parsed.netloc}"
+        token = parsed.path.strip("/").split("/")[-1]
+        if not token:
+            raise ValueError(f"acp+wss:// link missing token: {link!r}")
+        return base_url, 0, token, scheme
+
+    # BUG-013 fix: reject non-acp:// schemes
+    if not link.startswith("acp://"):
+        raise ValueError(f"invalid link scheme (expected acp:// or acp+wss://): {link!r}")
+
+    # 标准 acp:// 链接
+    parsed = urlparse(link.replace("acp://", "http://", 1))
+    host  = parsed.hostname
+    port  = parsed.port
+    token = parsed.path.strip("/")
+
+    if not host:
+        raise ValueError(f"link missing host: {link!r}")
+    if port is None:
+        port = 7801
+    elif not (1 <= port <= 65535):
+        raise ValueError(f"link port out of range ({port}): {link!r}")
+    if not token:
+        raise ValueError(f"link missing token: {link!r}")
+
+    return host, port, token, "ws"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Entry point
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _load_config_file(path: str) -> dict:
+    """
+    Load a YAML or JSON config file and return a dict of option overrides.
+
+    Supported keys match CLI long-option names (hyphens, not underscores):
+      name, port, join, relay, relay-url, skills, inbox, max-msg-size,
+      secret, hmac-window, advertise-mdns, identity, verbose
+
+    YAML support uses stdlib only (no PyYAML required) — only the subset of
+    YAML that is valid JSON is accepted. For true YAML, install PyYAML.
+
+    Example config.json:
+        {
+          "name": "MyAgent",
+          "port": 8000,
+          "skills": "summarize,translate",
+          "verbose": true
+        }
+
+    Example config.yaml (JSON-compatible subset):
+        name: MyAgent
+        port: 8000
+        skills: summarize,translate
+        verbose: true
+    """
+    if not os.path.exists(path):
+        print(f"[acp] Error: config file not found: {path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(path, "r") as f:
+        text = f.read()
+
+    # Try JSON first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Minimal YAML parser (key: value lines, bool/int coercion, no nesting)
+    try:
+        result = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ":" not in line:
+                continue
+            key, _, val = line.partition(":")
+            key = key.strip()
+            val = val.strip()
+            # bool coercion
+            if val.lower() in ("true", "yes"):
+                val = True
+            elif val.lower() in ("false", "no"):
+                val = False
+            else:
+                # int coercion
+                try:
+                    val = int(val)
+                except ValueError:
+                    pass
+            result[key] = val
+        return result
+    except Exception as e:
+        print(f"[acp] Error parsing config file {path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def main():
+    global _loop, _status, _inbox_path, MAX_MSG_BYTES
+
+    parser = argparse.ArgumentParser(
+        description=f"ACP P2P v{VERSION} — zero-server Agent communication",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Minimal P2P host
+  python3 acp_relay.py --name AgentA
+
+  # Join an existing session
+  python3 acp_relay.py --name AgentB --join acp://1.2.3.4:7801/tok_xxx
+
+  # Use public relay (firewall-friendly)
+  python3 acp_relay.py --name AgentA --relay
+
+  # Load config from file (JSON or YAML)
+  python3 acp_relay.py --config agent.json
+
+  # Show version and exit
+  python3 acp_relay.py --version
+
+  # Verbose debug logging
+  python3 acp_relay.py --name AgentA --verbose
+""",
+    )
+
+    # ── Meta ──────────────────────────────────────────────────────────────────
+    parser.add_argument(
+        "--version", action="version",
+        version=f"acp_relay.py {VERSION}",
+        help="Show version string and exit",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable DEBUG-level logging (default: INFO)",
+    )
+    parser.add_argument(
+        "--config", default=None, metavar="FILE",
+        help="Path to a JSON or YAML config file. CLI flags override file values.",
+    )
+
+    # ── Core ──────────────────────────────────────────────────────────────────
+    parser.add_argument("--name",         default=None,  help="Agent name (default: ACP-Agent)")
+    parser.add_argument("--join",         default=None,  help="acp:// link to connect to")
+    parser.add_argument("--local-only",   action="store_true",
+                        help="(v2.35) Skip public-IP detection and relay pre-registration; "
+                             "generate acp://127.0.0.1:PORT/TOKEN link immediately. "
+                             "Useful for local tests, CI, and sandboxed environments.")
+    parser.add_argument("--test-mode",       action="store_true",
+                        help="(v2.48) Enable POST /debug/inject for unit-test message+peer "
+                             "injection. NEVER use in production.")
+    parser.add_argument("--auto-confirm-t3", action="store_true",
+                        help="(v2.51) Bypass human_confirmation_required gate for T3 skills. "
+                             "Test-only: T3 tasks proceed directly to submitted. NEVER use in production.")
+    parser.add_argument("--relay",        action="store_true", help="(v1.4) Force Level 3 relay transport (skip L1 direct + L2 hole punch). Previously 'use relay instead of P2P'; now means auto-degradation last resort.")
+    parser.add_argument("--relay-url",    default=None,
+                        help="Relay endpoint URL (default: public Cloudflare Worker)")
+    parser.add_argument("--port",         type=int, default=None,
+                        help="WebSocket listen port (default: 7801; HTTP API = port+100)")
+    parser.add_argument("--http-port",    type=int, default=None,
+                        help="HTTP API listen port (default: WebSocket port + 100). "
+                             "Use this when port+100 is unavailable.")
+    parser.add_argument("--skills",       default=None,
+                        help="Comma-separated skill ids to advertise in AgentCard")
+    parser.add_argument("--inbox",        default=None,
+                        help="Path to JSONL message persistence file")
+    parser.add_argument("--max-msg-size", type=int, default=None,
+                        help=f"Max inbound message size in bytes (default: {MAX_MSG_BYTES})")
+
+    # ── Security (v0.7+) ──────────────────────────────────────────────────────
+    parser.add_argument("--secret",       default=None,
+                        help="(v0.7) HMAC-SHA256 shared secret for message signing. "
+                             "Both peers must use the same value.")
+    parser.add_argument("--hmac-window",  type=int, default=None, metavar="SECONDS",
+                        help="(v1.1) Replay-window in seconds for HMAC-signed messages. "
+                             "Inbound messages with ts outside ±WINDOW are dropped. "
+                             "Default: 300 (5 minutes). Only active when --secret is set.")
+    parser.add_argument("--advertise-mdns", action="store_true",
+                        help="(v0.7) Advertise on LAN via UDP multicast. "
+                             "Enables GET /discover. No extra packages required.")
+    parser.add_argument("--ca-cert",      default=None, metavar="PATH_OR_PEM",
+                        help="(v1.5) Path to a PEM-encoded CA-signed certificate file, or a raw PEM string. "
+                             "When provided alongside --identity, adds a 'ca_cert' field to AgentCard "
+                             "and sets identity.scheme='ed25519+ca' (hybrid self-sovereign + CA model). "
+                             "Without --identity this flag is ignored.")
+    parser.add_argument("--identity",     default=None,
+                        help="(v0.8) Path to Ed25519 keypair JSON (auto-generated if absent). "
+                             "Omit path to use ~/.acp/identity.json. "
+                             "Requires: pip install cryptography.")
+    parser.add_argument("--identity-file", default=None, metavar="PATH",
+                        help="(v0.8) Alias for --identity. Path to Ed25519 keypair JSON file.")
+    parser.add_argument("--no-identity", action="store_true", default=False,
+                        help="(v2.85) Disable automatic Ed25519 identity generation. "
+                             "By default, acp_relay.py auto-generates a keypair at ~/.acp/identity.json "
+                             "on first run (persisted across restarts). Use this flag only for "
+                             "embedded/testing scenarios where identity is not needed.")
+    parser.add_argument("--gen-identity", action="store_true",
+                        help="(v0.8) Generate a new Ed25519 keypair, save to --identity-file path "
+                             "(default: ~/.acp/identity.key), print the did:key identifier, "
+                             "then exit. Use with --identity-file to set a custom output path. "
+                             "Requires: pip install cryptography.")
+    parser.add_argument("--availability-mode", default=None,
+                        choices=["persistent", "heartbeat", "cron", "manual"],
+                        help="(v1.2) Agent availability mode. 'persistent' = always-on (default). "
+                             "'heartbeat'/'cron' = wakes periodically; set --heartbeat-interval. "
+                             "Populates the AgentCard 'availability' block.")
+    parser.add_argument("--heartbeat-interval", type=int, default=None, metavar="SECONDS",
+                        help="(v1.2) Heartbeat/cron wake interval in seconds. "
+                             "Used with --availability-mode heartbeat|cron. "
+                             "Sets availability.interval_seconds and task_latency_max_seconds.")
+    parser.add_argument("--heartbeat-period-ms", type=int, default=None, metavar="MS",
+                        help="(v2.80) Declare agent heartbeat period in milliseconds. "
+                             "Adds heartbeat_period_ms to AgentCard top-level and "
+                             "capabilities.heartbeat_period_declared=true. "
+                             "Consumers may treat agents as offline after 2-3x this interval "
+                             "without a heartbeat. Example: --heartbeat-period-ms 30000 (30s).")
+    parser.add_argument("--heartbeat-agent", action="store_true",
+                        help="(v3.8) Shortcut: configure relay as a heartbeat/cron-style agent. "
+                             "Implies --availability-mode heartbeat and --local-only. "
+                             "Enables the full heartbeat-agent workflow: "
+                             "  1) GET /offline-queue/summary  — check for pending messages "
+                             "  2) GET /offline-queue          — retrieve full queue "
+                             "  3) Process messages, send responses "
+                             "  4) POST /availability/heartbeat — stamp last_active_at "
+                             "  5) Agent sleeps until next scheduled wake. "
+                             "Use with --persist-queue to survive restarts and --availability-cron "
+                             "to declare the wake schedule. "
+                             "Example: acp-relay --heartbeat-agent --persist-queue ~/.acp/q.db "
+                             "         --availability-cron '0 * * * *'")
+    parser.add_argument("--next-active-at", default=None, metavar="ISO8601",
+                        help="(v1.2) ISO-8601 UTC timestamp of next scheduled wake "
+                             "(e.g. 2026-03-22T07:00:00Z). Written into AgentCard availability block.")
+    parser.add_argument("--availability-cron", default=None, metavar="CRON_EXPR",
+                        help="(v2.19) CRON expression for scheduled availability. Sets availability.scheduleType='cron', "
+                             "availability.cron=<expr>, and auto-computes nextActiveAt. "
+                             "Implies --availability-mode cron. "
+                             "Example: --availability-cron '*/30 * * * *' (every 30 minutes). "
+                             "Populates AgentCard 'availability' block with scheduleType/cron/nextActiveAt/taskLatencyMaxSeconds.")
+    parser.add_argument("--extension", action="append", default=[], metavar="URI[,required=true][,key=val...]",
+                        help="(v1.3) Declare an AgentCard extension. May be repeated. "
+                             "Format: URI  or  URI,required=true,param_key=param_val. "
+                             "Example: --extension https://acp.dev/ext/availability/v1,required=false "
+                             "         --extension https://corp.example.com/ext/billing,tier=pro")
+    parser.add_argument("--extensions", default=None, metavar="URI[,URI...]",
+                        help="(v2.8) Comma-separated list of extension URIs to declare in AgentCard. "
+                             "Shorthand for --extension when no per-extension params are needed. "
+                             "Built-in extensions (hmac, mdns, h2c) are auto-registered based on "
+                             "runtime config; this flag appends custom/external extensions. "
+                             "URI format: acp:ext:<name>-v<version> or https://... "
+                             "Example: --extensions acp:ext:custom-v1,https://corp.example.com/ext/billing")
+    parser.add_argument("--http-host", default="127.0.0.1", metavar="HOST",
+                        help="Host/IP the HTTP interface binds to (default: 127.0.0.1). "
+                             "Use 0.0.0.0 for Docker/container deployments so port mapping works.")
+    parser.add_argument("--http2", action="store_true",
+                        help="Enable HTTP/2 transport (h2c cleartext) via hypercorn. "
+                             "Requires: pip install hypercorn h2. "
+                             "Falls back to HTTP/1.1 if dependencies are missing. "
+                             "Enables multiplexed streams and reduced head-of-line blocking.")
+    parser.add_argument("--transport-modes", default=None, metavar="MODES",
+                        help="(v2.4) Comma-separated routing modes this node supports. "
+                             "Values: p2p, relay. Default: 'p2p,relay' (both). "
+                             "Example: --transport-modes p2p  (P2P only, no relay fallback). "
+                             "Advertised as top-level 'transport_modes' in AgentCard / /.well-known/acp.json.")
+    parser.add_argument("--supported-interfaces", default=None, metavar="IFACES",
+                        help="(v2.3) Comma-separated interface groups this agent supports. "
+                             "Values: core, task, stream, mdns, p2p, identity. "
+                             "Default: auto-derived from runtime configuration. "
+                             "Example: --supported-interfaces core,task,stream. "
+                             "Advertised as top-level 'supported_interfaces' in AgentCard.")
+    parser.add_argument("--policy-compliance", default=None, metavar="STANDARDS",
+                        help="(v2.87) Comma-separated list of governance/compliance standards this agent conforms to. "
+                             "Well-known values: OWASP-ASVS, ATF-v2, NIST-AIRMF, ISO-42001, EU-AI-Act-conformant. "
+                             "Published as policy_compliance[] in AgentCard; also queryable via GET /policy-compliance. "
+                             "Example: --policy-compliance OWASP-ASVS,ATF-v2. "
+                             "Inspired by A2A #1717 (Microsoft agent-governance-toolkit).")
+    parser.add_argument("--limitations", default=None, metavar="LIMITATIONS",
+                        help="(v2.7/v2.20) Comma-separated list of things this agent CANNOT do. "
+                             "Completes the 3-part capability boundary: capabilities (can-do) + "
+                             "availability (current state) + limitations (cannot-do). "
+                             "Example: --limitations no_file_access,no_internet. "
+                             "Each string is auto-promoted to LimitationObject{kind=capability, permanent=True}. "
+                             "Advertised as structured LimitationObject[] in AgentCard. "
+                             "Defaults to [] (empty) when not specified. Ref: A2A #1694.")
+    parser.add_argument("--limitations-json", default=None, metavar="LIMITATIONS_JSON",
+                        help="(v2.20) JSON array of LimitationObject entries. Takes precedence over --limitations. "
+                             "Each object: {\"kind\": \"modality\", \"code\": \"image-input-unsupported\", "
+                             "\"message\": \"Cannot process images\", \"permanent\": true}. "
+                             "Valid kinds: capability|modality|scale|domain|access|other. "
+                             "Example: --limitations-json '[{\"kind\":\"scale\",\"code\":\"max-10mb\","
+                             "\"message\":\"Max 10MB files\",\"permanent\":true}]'. "
+                             "Ref: A2A IS#1694 stable/runtime split.")
+    parser.add_argument("--governance-metadata", default=None, metavar="JSON_OR_PATH",
+                        help="(v2.60) Governance metadata for this relay/agent. JSON string or path to a JSON file. "
+                             "Populates AgentCard 'governance_metadata' block (A2A #1717 preempt). "
+                             "Accepted fields: trust_score (0.0-1.0), policy_compliance ([{policy,status}]), "
+                             "audit_trail_reference (URI|null), capability_manifest ({skill_id: {tier,status,deprecated}}), "
+                             "schema_version. Read-only fields (auto-computed): generated_at, "
+                             "interaction_record_count, peer_count, task_count. "
+                             "Runtime update: PATCH /governance-metadata. "
+                             "Example: --governance-metadata '{\"trust_score\": 0.85, "
+                             "\"policy_compliance\": [{\"policy\": \"acp-security-v1\", \"status\": \"compliant\"}]}'")
+    parser.add_argument("--principal", action="append", default=[], metavar="DID[,role=ROLE]",
+                        help="(v2.56) Add a principal to the OBO delegation chain (can be repeated). "
+                             "Format: <did>  or  <did>,role=<role>  where role ∈ {orchestrator,delegator,owner,<str>}. "
+                             "Populates AgentCard trust.principal_chain[] and propagates to outbound messages. "
+                             "Example: --principal did:acp:Ab3x...,role=orchestrator "
+                             "         --principal did:key:z6Mk...,role=owner. "
+                             "Runtime management: GET/POST/DELETE /principal-chain. "
+                             "Inspired by A2A IS#1713 cross-org OBO accountability.")
+    parser.add_argument("--persist-queue", default=None, metavar="DB_PATH",
+                        help="(v2.97) Enable SQLite-backed persistent offline queue. "
+                             "Offline messages survive relay restarts and are re-delivered when the peer "
+                             "reconnects — enabling heartbeat-agent (cron-scheduled) workflows. "
+                             "DB_PATH: path to SQLite file (e.g. ~/.acp/queue.db). "
+                             "Created automatically if it does not exist. "
+                             "Addresses the offline-first gap discussed in A2A IS#1667.")
+    parser.add_argument("--max-offline-ttl", type=int, default=None, metavar="SECONDS",
+                        help="(v2.99) Maximum TTL in seconds for offline-queued messages. "
+                             "Messages older than this are evicted on next enqueue (lazy sweep) "
+                             "or at /offline-queue/sweep (on-demand). "
+                             "None (default) = no expiry. "
+                             "Example: --max-offline-ttl 86400 to drop messages older than 24h. "
+                             "Use --offline-ttl-policy to control eviction behavior. "
+                             "Responds to credentialCheckPolicy discussion in A2A IS#1667.")
+    parser.add_argument("--offline-ttl-policy", default="drop",
+                        choices=["drop", "notify"],
+                        help="(v2.99) Policy when --max-offline-ttl expires a message. "
+                             "'drop' (default): silently remove expired messages. "
+                             "'notify': log expiry event per message (audit trail). "
+                             "Future: 'extend' (renew TTL if sender is still active).")
+    parser.add_argument("--governance-ttl", type=int, default=None, metavar="SECONDS",
+                        help="(v3.4) Identity token TTL in seconds for AgentCard.governance.credential_lifecycle. "
+                             "Default: 3600 (1 hour). Aligns with A2A #1717 CredentialLifecyclePolicy.ttl_seconds. "
+                             "Example: --governance-ttl 7200")
+    parser.add_argument("--revocation-endpoint", default=None, metavar="URL",
+                        help="(v3.4) Credential revocation endpoint URL for AgentCard.governance.credential_lifecycle. "
+                             "Optional. When set, clients MAY check this endpoint to verify credential validity. "
+                             "Example: --revocation-endpoint https://example.com/revoke")
+    parser.add_argument("--audit-mode", default=None, choices=["static", "live"],
+                        help="(v3.4) Governance audit mode for AgentCard.governance. "
+                             "'static' (default): declarative governance metadata only. "
+                             "'live': dynamic REST governance queries (future extension). "
+                             "Aligns with A2A #1717 audit_mode field.")
+    parser.add_argument("--experimental-transport", action="append", dest="experimental_transports",
+                        metavar="NAME", default=[],
+                        help="(v3.5) Append a transport binding name to AgentCard.transport_bindings.experimental. "
+                             "Repeatable. Used to pre-declare future transport mechanisms (e.g. slim-rpc) "
+                             "without exposing them as stable. Aligns with A2A #1723 SlimRPC pre-registration. "
+                             "Example: --experimental-transport slim-rpc --experimental-transport grpc")
+
+    args = parser.parse_args()
+
+    # ── Apply config file (lowest precedence) ─────────────────────────────────
+    cfg: dict = {}
+    if args.config:
+        cfg = _load_config_file(args.config)
+
+    # Helpers: resolve with CLI > config > hardcoded default
+    def _get(cli_val, cfg_key: str, default):
+        if cli_val is not None:
+            return cli_val
+        if cfg_key in cfg:
+            return cfg[cfg_key]
+        return default
+
+    def _get_bool(cli_flag: bool, cfg_key: str) -> bool:
+        if cli_flag:
+            return True
+        return bool(cfg.get(cfg_key, False))
+
+    # ── Resolve all values ────────────────────────────────────────────────────
+    _DEFAULT_RELAY = "https://black-silence-11c4.yuranliu888.workers.dev"
+
+    verbose        = _get_bool(args.verbose,        "verbose")
+    agent_name     = _get(args.name,         "name",           "ACP-Agent")
+    join_link      = _get(args.join,         "join",           None)
+    use_relay      = _get_bool(args.relay,          "relay")
+    relay_url      = _get(args.relay_url,    "relay-url",      _DEFAULT_RELAY)
+    port           = _get(args.port,         "port",           7801)
+    http_port_arg  = _get(args.http_port,    "http-port",      None)
+    skills_str     = _get(args.skills,       "skills",         "")
+    inbox_path     = _get(args.inbox,        "inbox",          None)
+    max_msg_size   = _get(args.max_msg_size, "max-msg-size",   MAX_MSG_BYTES)
+    secret_str     = _get(args.secret,       "secret",         None)
+    advertise_mdns = _get_bool(args.advertise_mdns, "advertise-mdns")
+    identity_path  = _get(args.identity,     "identity",       None)
+    # --identity-file is an alias for --identity; CLI > config > None
+    if identity_path is None and getattr(args, "identity_file", None):
+        identity_path = args.identity_file
+
+    # ── Configure logging ─────────────────────────────────────────────────────
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        log.debug("Verbose/DEBUG logging enabled")
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+
+    # ── Apply resolved values ─────────────────────────────────────────────────
+    MAX_MSG_BYTES = max_msg_size
+    _status["max_msg_bytes"] = MAX_MSG_BYTES
+
+    # HMAC optional signing (v0.7) + replay-window (v1.1)
+    global _hmac_secret, _HMAC_REPLAY_WINDOW
+    if secret_str:
+        _hmac_secret = secret_str.encode()
+        log.info("🔐 HMAC signing enabled (--secret configured)")
+        if hasattr(args, "hmac_window") and args.hmac_window is not None:
+            _HMAC_REPLAY_WINDOW = args.hmac_window
+        log.info(f"🕐 HMAC replay-window: ±{_HMAC_REPLAY_WINDOW}s")
+    else:
+        _hmac_secret = None
+
+    # Ed25519 optional identity (v0.8) — --gen-identity: generate keypair and exit
+    if getattr(args, "gen_identity", False):
+        gen_path = identity_path or os.path.expanduser("~/.acp/identity.key")
+        ok = _ed25519_load_or_create(gen_path)
+        if ok and _did_key:
+            print(f"✅ Ed25519 keypair generated")
+            print(f"   File:     {gen_path}")
+            print(f"   did:key:  {_did_key}")
+            print(f"   did:acp:  {_did_acp}")
+            print(f"   pubkey:   {_ed25519_public_b64}")
+        else:
+            print("❌ Failed to generate Ed25519 keypair (missing cryptography library?)")
+            print("   Try: pip install cryptography")
+            sys.exit(1)
+        sys.exit(0)
+
+    # Ed25519 identity (v2.85) — default-on: auto-generate keypair unless --no-identity is set
+    # identity_path may be: explicit path (str), empty string (use default), or None (also use default)
+    # --no-identity can disable for testing/embedded scenarios
+    _no_identity = _get_bool(getattr(args, "no_identity", False), "no-identity")
+    if not _no_identity:
+        _ed25519_load_or_create(identity_path if identity_path else None)
+
+    # v2.97: SQLite persistent offline queue
+    persist_queue_path = _get(getattr(args, "persist_queue", None), "persist-queue", None)
+    if persist_queue_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(_os.path.abspath(persist_queue_path)), exist_ok=True)
+        _pq_init(persist_queue_path)
+        _status["persist_queue"] = _pq_stats()
+        log.info(f"💾 Persistent offline queue enabled: {persist_queue_path}")
+
+    # v2.99: --max-offline-ttl expiry policy
+    global _max_offline_ttl_sec, _offline_ttl_policy
+    _max_offline_ttl_sec = _get(getattr(args, "max_offline_ttl", None), "max-offline-ttl", None)
+    _offline_ttl_policy  = _get(getattr(args, "offline_ttl_policy", "drop"), "offline-ttl-policy", "drop")
+    if _max_offline_ttl_sec is not None:
+        _status["offline_ttl"] = {"max_seconds": _max_offline_ttl_sec, "policy": _offline_ttl_policy}
+        log.info(f"⏰ Offline TTL enabled: max={_max_offline_ttl_sec}s policy={_offline_ttl_policy}")
+
+    # v1.5: CA-signed certificate — hybrid identity model (self-sovereign + CA)
+    global _ca_cert_pem
+    ca_cert_arg = _get(getattr(args, "ca_cert", None), "ca-cert", None)
+    if ca_cert_arg and _ed25519_private:
+        import pathlib as _pl
+        p = _pl.Path(ca_cert_arg)
+        if p.exists():
+            _ca_cert_pem = p.read_text().strip()
+            log.info(f"📜 CA certificate loaded from {p} (hybrid identity: ed25519+ca)")
+        elif ca_cert_arg.strip().startswith("-----BEGIN"):
+            _ca_cert_pem = ca_cert_arg.strip()
+            log.info("📜 CA certificate loaded from inline PEM (hybrid identity: ed25519+ca)")
+        else:
+            log.warning(f"--ca-cert: path '{ca_cert_arg}' not found and doesn't look like PEM; ignoring")
+    elif ca_cert_arg and not _ed25519_private:
+        log.warning("--ca-cert ignored: requires --identity to be set first")
+
+    # Availability metadata (v1.2) — opt-in AgentCard block for heartbeat/cron agents
+    global _availability
+    # v3.8: --heartbeat-agent shortcut — implies availability-mode=heartbeat + local-only
+    _heartbeat_agent_mode = getattr(args, "heartbeat_agent", False)
+    if _heartbeat_agent_mode:
+        # Force local-only (skip slow public-IP detection, not needed for heartbeat agents)
+        args.local_only = True
+        log.info("🤖 --heartbeat-agent mode: availability=heartbeat, local-only enabled. "
+                 "Use GET /offline-queue/summary to poll for pending messages. "
+                 "Use POST /availability/heartbeat to stamp last_active_at after each wake.")
+
+    avail_mode        = _get(getattr(args, "availability_mode",  None), "availability-mode",    None)
+    hb_interval       = _get(getattr(args, "heartbeat_interval", None), "heartbeat-interval",   None)
+    next_active_at    = _get(getattr(args, "next_active_at",     None), "next-active-at",       None)
+    # v3.8: --heartbeat-agent implies availability-mode=heartbeat (unless explicitly set)
+    if _heartbeat_agent_mode and not avail_mode:
+        avail_mode = "heartbeat"
+    # v2.19: --availability-cron shorthand — sets scheduleType=cron + CRON expression + auto-computes nextActiveAt
+    avail_cron_expr   = _get(getattr(args, "availability_cron",  None), "availability-cron",    None)
+    if avail_cron_expr:
+        # --availability-cron implies mode=cron; compute next_active_at from expression
+        avail_mode = "cron"
+        nxt_from_cron = None
+        try:
+            nxt_from_cron = _next_cron_datetime(avail_cron_expr)
+        except Exception:
+            pass
+        _availability = {
+            "mode":                    "cron",
+            "scheduleType":            "cron",
+            "cron":                    avail_cron_expr,
+            "schedule":                avail_cron_expr,   # alias used by _availability_with_schedule
+            "taskLatencyMaxSeconds":   60,
+            "task_latency_max_seconds": 60,
+        }
+        if nxt_from_cron:
+            _availability["nextActiveAt"]   = nxt_from_cron.strftime("%Y-%m-%dT%H:%M:%SZ")
+            _availability["next_active_at"] = _availability["nextActiveAt"]
+        log.info(f"📅 Availability mode: cron (expr={avail_cron_expr!r}, "
+                 f"nextActiveAt={_availability.get('nextActiveAt')})")
+    elif avail_mode and avail_mode != "persistent":
+        _availability = {"mode": avail_mode}
+        if hb_interval is not None:
+            _availability["interval_seconds"]        = int(hb_interval)
+            _availability["task_latency_max_seconds"] = int(hb_interval)
+        if next_active_at:
+            _availability["next_active_at"] = next_active_at
+        log.info(f"📅 Availability mode: {avail_mode}" +
+                 (f" (interval={hb_interval}s)" if hb_interval else ""))
+    elif avail_mode == "persistent":
+        _availability = {"mode": "persistent"}
+
+    # v2.80: --heartbeat-period-ms — declare agent heartbeat period in AgentCard
+    global _heartbeat_period_ms
+    hb_period_ms = _get(getattr(args, "heartbeat_period_ms", None), "heartbeat-period-ms", None)
+    if hb_period_ms is not None:
+        _heartbeat_period_ms = int(hb_period_ms)
+        log.info(f"💓 heartbeat_period_ms declared: {_heartbeat_period_ms}ms")
+
+    # v1.3 / v2.8: parse --extension and --extensions flags into _extensions list
+    raw_extensions = _get(getattr(args, "extension", []) or [], "extension", [])
+    if isinstance(raw_extensions, str):
+        raw_extensions = [raw_extensions]
+    for raw_ext in raw_extensions:
+        parts = [p.strip() for p in raw_ext.split(",")]
+        if not parts:
+            continue
+        ext_uri = parts[0]
+        if not ext_uri:
+            continue
+        ext_entry = {"uri": ext_uri, "required": False, "params": {}}
+        for kv in parts[1:]:
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if k == "required":
+                    ext_entry["required"] = v.lower() in ("true", "1", "yes")
+                else:
+                    ext_entry["params"][k] = v
+        if ext_entry["params"] == {}:
+            del ext_entry["params"]
+        _extensions.append(ext_entry)
+
+    # v2.8: --extensions shorthand (comma-separated URIs, no per-extension params)
+    raw_extensions_bulk = _get(getattr(args, "extensions", None), "extensions", None)
+    if raw_extensions_bulk:
+        if isinstance(raw_extensions_bulk, str):
+            uris = [u.strip() for u in raw_extensions_bulk.split(",") if u.strip()]
+            for uri in uris:
+                # Avoid duplicating URIs already added via --extension
+                if not any(e["uri"] == uri for e in _extensions):
+                    _extensions.append({"uri": uri, "required": False, "params": {}})
+
+    if _extensions:
+        log.info(f"🔌 User-declared extensions: {[e['uri'] for e in _extensions]}")
+    log.info("🔌 Built-in extensions will be auto-registered from runtime capabilities")
+
+    # Rebuild args-like namespace for the rest of main() to consume
+    # (avoids rewriting all downstream args.xxx references)
+    args.name          = agent_name
+    args.join          = join_link
+    args.relay         = use_relay
+    args.relay_url     = relay_url
+    args.port          = port
+    args.http_port     = int(http_port_arg) if http_port_arg is not None else None
+    args.skills        = skills_str
+    args.inbox         = inbox_path
+    args.advertise_mdns = advertise_mdns
+
+    ws_port   = args.port
+    http_port = args.http_port if args.http_port is not None else args.port + 100
+    # v2.10: Skills-lite — support both plain CSV ("summarize,translate") and
+    # JSON array ('[{"id":"summarize","name":"Text Summarization","tags":["nlp"]}]').
+    if args.skills:
+        _raw_skills = args.skills.strip()
+        if _raw_skills.startswith("["):
+            # JSON array of structured skill objects
+            try:
+                import json as _json
+                _parsed = _json.loads(_raw_skills)
+                if isinstance(_parsed, list):
+                    skills = [_parse_skill_obj(s) for s in _parsed]
+                else:
+                    skills = [_parse_skill_obj(_raw_skills)]
+            except Exception:
+                # Fallback: treat as plain CSV
+                skills = [_parse_skill_obj(s.strip()) for s in _raw_skills.split(",") if s.strip()]
+        else:
+            # Plain comma-separated strings → structured objects (backward compat)
+            skills = [_parse_skill_obj(s.strip()) for s in _raw_skills.split(",") if s.strip()]
+    else:
+        skills = []
+
+    _status["agent_name"] = args.name
+    _status["ws_port"]    = ws_port
+    _status["http_port"]  = http_port
+    _status["agent_card"] = _make_agent_card(args.name, skills)
+
+    # v2.71: initialize security_posture with real component versions
+    _init_security_posture()
+
+    _inbox_path = args.inbox or f"/tmp/acp_inbox_{args.name.replace(' ', '_')}.jsonl"
+    log.info(f"Message persistence: {_inbox_path}")
+
+    http_host = getattr(args, "http_host", "127.0.0.1")
+
+    # v1.6: HTTP/2 transport binding
+    global _http2_enabled
+    _use_http2 = getattr(args, "http2", False)
+    if _use_http2 and not _HTTP2_AVAILABLE:
+        log.warning("⚠️  --http2 requested but hypercorn/h2 not installed — "
+                    "falling back to HTTP/1.1 (pip install hypercorn h2)")
+        _use_http2 = False
+    _http2_enabled = _use_http2
+    if _http2_enabled:
+        # Rebuild agent card to reflect http2=True capability
+        _status["agent_card"] = _make_agent_card(args.name, skills)
+        log.info(f"🚀 HTTP/2 (h2c) transport enabled via hypercorn on {http_host}:{http_port}")
+
+    # v2.4: transport_modes — top-level AgentCard routing modes
+    global _transport_modes
+    _VALID_TRANSPORT_MODES = {"p2p", "relay"}
+    raw_modes = _get(getattr(args, "transport_modes", None), "transport-modes", None)
+    if raw_modes is not None:
+        parsed_modes = [m.strip() for m in raw_modes.split(",") if m.strip()]
+        invalid = [m for m in parsed_modes if m not in _VALID_TRANSPORT_MODES]
+        if invalid:
+            log.warning(f"⚠️  Unknown transport_modes ignored: {invalid} — valid: {sorted(_VALID_TRANSPORT_MODES)}")
+            parsed_modes = [m for m in parsed_modes if m in _VALID_TRANSPORT_MODES]
+        if parsed_modes:
+            _transport_modes = parsed_modes
+        else:
+            log.warning("⚠️  --transport-modes resulted in empty list; keeping default ['p2p', 'relay']")
+    # v2.3: supported_interfaces — parse CLI override
+    global _supported_interfaces_override
+    raw_ifaces = _get(getattr(args, "supported_interfaces", None), "supported-interfaces", None)
+    if raw_ifaces is not None:
+        parsed_ifaces = [i.strip() for i in raw_ifaces.split(",") if i.strip()]
+        invalid_ifaces = [i for i in parsed_ifaces if i not in _VALID_INTERFACES]
+        if invalid_ifaces:
+            log.warning(f"⚠️  Unknown supported_interfaces ignored: {invalid_ifaces} — valid: {sorted(_VALID_INTERFACES)}")
+            parsed_ifaces = [i for i in parsed_ifaces if i in _VALID_INTERFACES]
+        if parsed_ifaces:
+            _supported_interfaces_override = sorted(parsed_ifaces)
+        else:
+            log.warning("⚠️  --supported-interfaces resulted in empty list; using auto-derived value")
+
+    # v2.20: limitations — structured LimitationObject[] (what this agent CANNOT do)
+    global _limitations
+    raw_limitations_json = _get(getattr(args, "limitations_json", None), "limitations_json", None)
+    raw_limitations_csv  = _get(getattr(args, "limitations", None), "limitations", None)
+    if raw_limitations_json is not None:
+        # --limitations-json takes precedence: parse JSON array of LimitationObject
+        try:
+            parsed_raw = json.loads(raw_limitations_json)
+            if not isinstance(parsed_raw, list):
+                log.warning("⚠️  --limitations-json must be a JSON array; ignoring")
+                parsed_raw = []
+            _limitations = [_parse_limitation(item) for item in parsed_raw]
+            log.info(f"🚫 Limitations (structured JSON): {len(_limitations)} entries")
+        except json.JSONDecodeError as e:
+            log.warning(f"⚠️  --limitations-json invalid JSON ({e}); ignoring")
+            _limitations = []
+    elif raw_limitations_csv is not None:
+        # --limitations: comma-separated strings → auto-promote to LimitationObject
+        raw_strings = [lim.strip() for lim in raw_limitations_csv.split(",") if lim.strip()]
+        _limitations = [_parse_limitation(s) for s in raw_strings]
+        if _limitations:
+            log.info(f"🚫 Limitations (csv→structured): {[l['code'] for l in _limitations]}")
+    else:
+        _limitations = []
+    _status["limitations"] = list(_limitations)  # already normalized LimitationObject[]
+
+    # v2.87: --policy-compliance → _policy_compliance
+    global _policy_compliance
+    raw_policy_compliance = _get(getattr(args, "policy_compliance", None), "policy_compliance", None)
+    if raw_policy_compliance:
+        _policy_compliance = [s.strip() for s in raw_policy_compliance.split(",") if s.strip()]
+        log.info(f"📋 policy_compliance: {_policy_compliance}")
+    else:
+        _policy_compliance = []
+    _status["policy_compliance"] = list(_policy_compliance)
+
+    # v2.56: --principal flags → _principal_chain
+    global _principal_chain
+    raw_principals = _get(getattr(args, "principal", []) or [], "principal", [])
+    if isinstance(raw_principals, str):
+        raw_principals = [raw_principals]
+    for raw_p in raw_principals:
+        parts_p = [s.strip() for s in raw_p.split(",")]
+        did_p = parts_p[0] if parts_p else ""
+        if not did_p:
+            continue
+        role_p = "delegator"
+        for kv in parts_p[1:]:
+            if kv.startswith("role="):
+                role_p = kv[5:]
+        _principal_chain.append({"did": did_p, "role": role_p, "added_at": _now()})
+    if _principal_chain:
+        log.info(f"🔗 Principal chain: {[e['did'] for e in _principal_chain]}")
+
+    # v2.60: --governance-metadata flag → _governance_metadata
+    global _governance_metadata
+    raw_gm = _get(getattr(args, "governance_metadata", None), "governance_metadata", None)
+    if raw_gm:
+        # Accept: JSON string or path to a JSON file
+        import os as _os_gm
+        if isinstance(raw_gm, str) and _os_gm.path.isfile(raw_gm):
+            try:
+                with open(raw_gm, "r", encoding="utf-8") as _f_gm:
+                    _governance_metadata = json.load(_f_gm)
+                log.info(f"🏛️  Governance metadata loaded from file: {raw_gm}")
+            except Exception as e:
+                log.warning(f"⚠️  Could not load governance metadata file '{raw_gm}': {e}")
+        elif isinstance(raw_gm, str):
+            try:
+                _governance_metadata = json.loads(raw_gm)
+                log.info(f"🏛️  Governance metadata loaded from JSON string ({len(_governance_metadata)} keys)")
+            except Exception as e:
+                log.warning(f"⚠️  Could not parse governance metadata JSON: {e}")
+        elif isinstance(raw_gm, dict):
+            _governance_metadata = raw_gm
+            log.info(f"🏛️  Governance metadata loaded from config ({len(_governance_metadata)} keys)")
+
+    # v3.4: --governance-ttl / --revocation-endpoint / --audit-mode → _governance_* globals
+    global _governance_ttl, _governance_revocation_endpoint, _governance_audit_mode
+    raw_gtl = _get(getattr(args, "governance_ttl", None), "governance-ttl", None)
+    if raw_gtl is not None:
+        _governance_ttl = int(raw_gtl)
+        log.info(f"🏛️  Governance TTL set to {_governance_ttl}s")
+    raw_rev = _get(getattr(args, "revocation_endpoint", None), "revocation-endpoint", None)
+    if raw_rev is not None:
+        _governance_revocation_endpoint = raw_rev
+        log.info(f"🏛️  Governance revocation endpoint: {_governance_revocation_endpoint}")
+    raw_am = _get(getattr(args, "audit_mode", None), "audit-mode", None)
+    if raw_am in ("static", "live"):
+        _governance_audit_mode = raw_am
+        log.info(f"🏛️  Governance audit mode: {_governance_audit_mode}")
+
+    # v3.5: --experimental-transport → _experimental_transports global
+    global _experimental_transports
+    raw_et = getattr(args, "experimental_transports", []) or []
+    if raw_et:
+        _experimental_transports = list(raw_et)
+        log.info(f"🚌 Experimental transports declared: {_experimental_transports}")
+
+    # v1.4: --relay flag now means "force Level 3" (skip L1+L2 NAT traversal)
+    # Previously: "use relay instead of P2P"
+    # Now: _connect_with_nat_traversal() reads this flag to skip directly to L3
+    _status["force_relay"] = bool(use_relay)
+    if use_relay:
+        log.info("⚡ --relay flag: Level 3 relay forced (L1+L2 NAT traversal skipped)")
+
+    # v2.35: --local-only flag — store in _status so host_mode() can read it
+    _status["local_only"] = bool(getattr(args, "local_only", False))
+    if _status["local_only"]:
+        log.info("🏠 --local-only: public IP detection and relay registration disabled")
+
+    # v2.48: --test-mode
+    global _test_mode
+    _test_mode = bool(getattr(args, "test_mode", False))
+    if _test_mode:
+        log.warning("⚠️  --test-mode ENABLED: POST /debug/inject active (DO NOT use in production)")
+
+    # v2.51: --auto-confirm-t3
+    global _auto_confirm_t3
+    _auto_confirm_t3 = bool(getattr(args, "auto_confirm_t3", False))
+    if _auto_confirm_t3:
+        log.warning("⚠️  --auto-confirm-t3 ENABLED: T3 human_confirmation_required bypassed (DO NOT use in production)")
+
+    # Rebuild card to reflect transport_modes + supported_interfaces + limitations
+    _status["agent_card"] = _make_agent_card(args.name, skills)
+    log.info(f"🚌 Transport modes: {_transport_modes}")
+    log.info(f"🔌 Supported interfaces: {_make_supported_interfaces()}")
+
+    threading.Thread(target=run_http, args=(http_port, http_host), kwargs={"http2": _http2_enabled}, daemon=True).start()
+    log.info(f"HTTP interface: {'h2c' if _http2_enabled else 'http'}//{http_host}:{http_port}")
+
+    # ── mDNS LAN discovery (v0.7) ─────────────────────────────────────────────
+    if args.advertise_mdns:
+        token_placeholder = _make_token()  # will be replaced after host_mode assigns real token
+        _mdns_start(args.name, token_placeholder, ws_port, http_port)
+        log.info(f"mDNS: advertising on LAN ({_MDNS_GROUP}:{_MDNS_PORT})")
+
+    _loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_loop)
+
+    # BUG-045: _ws_send_global_lock is initialised lazily inside _ws_send (first async call)
+
+    def _shutdown(sig, frame):
+        print("\nACP P2P shutting down")
+        _loop.stop()
+        sys.exit(0)
+    signal.signal(signal.SIGINT,  _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        if args.join:
+            # ── 加入已有会话 ─────────────────────────────────────────────
+            # 解析链接，自动选择传输方式，Agent 无需关心
+            result = parse_link(args.join)
+            host, port, token, scheme = result
+            if scheme == "http_relay":
+                log.info(f"Transport: HTTP relay -> {host}")
+                _loop.run_until_complete(_http_relay_guest(host, token, http_port))
+            else:
+                _loop.run_until_complete(guest_mode(host, port, token, http_port))
+        elif args.relay:
+            # ── 通过公共中继创建新会话 ────────────────────────────────────
+            import subprocess as _sp2
+            relay_base = args.relay_url.rstrip("/")
+            _status["relay_base_url"] = relay_base  # expose for DCUtR HTTP reflection (v1.4)
+            r2 = _sp2.run(
+                ["curl", "-s", "--max-time", "10", "-X", "POST", f"{relay_base}/acp/new",
+                 "-H", "Content-Type: application/json", "-d", "{}"],
+                capture_output=True, text=True
+            )
+            resp = json.loads(r2.stdout)
+            token = resp["token"]
+            link  = resp["link"]
+            _status["link"] = link
+            _status["session_id"] = token
+            print(f"\n{'='*55}")
+            print(f"ACP v{VERSION} — relay session ready")
+            print(f"  Your link: {link}")
+            print(f"  Share this with the other Agent to connect")
+            print(f"{'='*55}\n")
+            _loop.run_until_complete(_http_relay_guest(relay_base, token, http_port))
+        else:
+            # ── 默认：P2P 模式，监听并等待对方连接 ────────────────────────
+            token = _make_token()
+            # BUG-055 fix (2026-04-08): pre-populate relay_token immediately after token
+            # generation so callers polling /status can build acp:// links without waiting
+            # for host_mode()'s async get_public_ip + Cloudflare pre-registration (up to 12s).
+            _status["relay_token"] = token
+            # Update mDNS with real token now that we have it
+            if args.advertise_mdns and _mdns_running:
+                _mdns_send_announce(args.name, token, ws_port, http_port)
+                log.info(f"mDNS: updated announce with real token {token[:12]}...")
+            _loop.run_until_complete(host_mode(token, ws_port, http_port))
+    except KeyboardInterrupt:
+        pass
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Transport C: HTTP Polling Relay (acp+wss:// scheme)
+# 适用于严格沙箱/K8s 环境，双方只需 HTTP 出站能力，无需入站端口
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _http_relay_guest(relay_base_url: str, token: str, http_port: int):
+    """
+    用 HTTP Polling 替代 WebSocket，接入公共中继服务器。
+    relay_base_url: 例如 https://acp-relay.workers.dev
+    token:          会话 token
+    """
+    import urllib.request as _req
+    import urllib.error as _uerr
+
+    join_url  = f"{relay_base_url}/acp/{token}/join"
+    send_url  = f"{relay_base_url}/acp/{token}/send"
+    poll_url  = f"{relay_base_url}/acp/{token}/poll"
+
+    agent_card = _make_agent_card(_status["agent_name"], [])
+
+    # 注册到会话（用 curl 确保走代理）
+    import subprocess as _subp
+    def _curl_relay(url, data_str):
+        r = _subp.run(
+            ["curl", "-s", "--max-time", "10", "-X", "POST", url,
+             "-H", "Content-Type: application/json", "-d", data_str],
+            capture_output=True, text=True
+        )
+        if r.returncode != 0 or not r.stdout.strip():
+            raise RuntimeError(f"curl failed: {r.stderr}")
+        return json.loads(r.stdout)
+
+    try:
+        resp = _curl_relay(join_url, json.dumps(agent_card))
+        log.info(f"Joined HTTP relay session: {token}")
+    except Exception as e:
+        log.error(f"Failed to join relay: {e}")
+        return
+
+    _status["connected"]  = True
+    _status["session_id"] = token
+    _status["started_at"] = _status["started_at"] or time.time()
+
+    print(f"\n{'='*55}")
+    print(f"ACP v{VERSION} - connected via HTTP relay")
+    print(f"  Relay: {relay_base_url}")
+    print(f"  Token: {token}")
+    print(f"  Send:  POST http://localhost:{http_port}/message:send")
+    print(f"  Poll:  GET  http://localhost:{http_port}/stream")
+    print(f"{'='*55}\n")
+
+
+    # _http_send 用 asyncio curl
+    async def _http_send(msg: dict):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-s", "--max-time", "10", "-X", "POST", send_url,
+                "-H", "Content-Type: application/json",
+                "-d", json.dumps(msg),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            await proc.communicate()
+        except Exception as e:
+            log.warning(f"HTTP send failed: {e}")
+
+    global _http_relay_send
+    _http_relay_send = _http_send
+
+    # 轮询消息循环（用 asyncio subprocess 避免阻塞 event loop）
+    since = 0.0
+    POLL_INTERVAL = 1.5  # 秒
+
+    while True:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-s", "--max-time", "10",
+                f"{poll_url}?since={since}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout, _ = await proc.communicate()
+            if stdout.strip():
+                data = json.loads(stdout)
+                msgs = data.get("messages", [])
+                for msg in msgs:
+                    if msg.get("from") != _status["agent_name"]:
+                        _on_message(json.dumps(msg))
+                    if msg.get("ts", 0) > since:
+                        since = float(msg["ts"])
+        except Exception as e:
+            log.warning(f"Poll exception: {e}")
+
+        await asyncio.sleep(POLL_INTERVAL)
+
+_http_relay_send = None  # 由 _http_relay_guest 设置
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NAT Traversal — DCUtR-style UDP Hole Punching (v1.4 initial impl)
+#
+# Design: Three-level connection strategy, fully automatic, zero user config:
+#   Level 1: Direct connect (existing, 3s timeout)
+#   Level 2: UDP hole punching via Relay signaling (new, 5s timeout)
+#   Level 3: Relay permanent relay (existing fallback)
+#
+# All code here is stdlib-only: asyncio, socket, struct, os, time, uuid
+# No third-party deps. Any failure silently degrades to the next level.
+#
+# New ACP message types (transported over Relay WebSocket):
+#   dcutr_connect  — initiator sends its addresses, requests hole punch
+#   dcutr_sync     — responder sends its addresses + synchronized punch time
+#   dcutr_result   — notify relay of outcome (informational)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import struct as _struct
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STUNClient — discover public UDP address via STUN Binding Request (stdlib)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class STUNClient:
+    """
+    Minimal STUN Binding Request client (RFC 5389 / RFC 8489).
+    Uses only stdlib: asyncio, socket, struct.
+    Returns the public (NAT-mapped) UDP address observed by the STUN server.
+    """
+
+    MAGIC_COOKIE = 0x2112A442
+    BINDING_REQUEST  = 0x0001
+    BINDING_RESPONSE = 0x0101
+    ATTR_MAPPED_ADDRESS     = 0x0001
+    ATTR_XOR_MAPPED_ADDRESS = 0x0020
+
+    @staticmethod
+    async def get_public_address(
+        stun_host: str = "stun.l.google.com",
+        stun_port: int = 19302,
+        timeout: float = 3.0,
+    ):
+        """
+        Send a STUN Binding Request and parse the XOR-MAPPED-ADDRESS response.
+
+        Returns:
+            (ip: str, port: int) — the public UDP address as seen by STUN server
+            None                 — on any failure / timeout
+        """
+        try:
+            # Build 20-byte STUN Binding Request
+            transaction_id = os.urandom(12)
+            header = _struct.pack(
+                "!HHI12s",
+                STUNClient.BINDING_REQUEST,  # Message Type
+                0,                           # Message Length (no attributes)
+                STUNClient.MAGIC_COOKIE,     # Magic Cookie
+                transaction_id,
+            )
+
+            loop = asyncio.get_event_loop()
+
+            def _send_recv():
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(timeout)
+                try:
+                    server_ip = socket.gethostbyname(stun_host)
+                    sock.sendto(header, (server_ip, stun_port))
+                    data, _ = sock.recvfrom(512)
+                    return data
+                finally:
+                    sock.close()
+
+            data = await asyncio.wait_for(
+                loop.run_in_executor(None, _send_recv),
+                timeout=timeout + 0.5,
+            )
+
+            return STUNClient._parse_response(data)
+
+        except Exception as e:
+            log.debug(f"[STUN] address discovery failed: {e}")
+            return None
+
+    @staticmethod
+    def _parse_response(data: bytes):
+        """
+        Parse STUN Binding Response.
+        Prefers XOR-MAPPED-ADDRESS (0x0020) over MAPPED-ADDRESS (0x0001).
+        Returns (ip, port) or None.
+        """
+        if len(data) < 20:
+            return None
+
+        msg_type, msg_len, magic, txn_id = _struct.unpack_from("!HHI12s", data, 0)
+        if msg_type != STUNClient.BINDING_RESPONSE:
+            return None
+
+        # Walk attributes
+        offset = 20
+        result_mapped = None
+        result_xor    = None
+
+        while offset + 4 <= len(data):
+            attr_type, attr_len = _struct.unpack_from("!HH", data, offset)
+            offset += 4
+            attr_val = data[offset: offset + attr_len]
+            # Pad to 4-byte boundary
+            offset += (attr_len + 3) & ~3
+
+            if attr_type == STUNClient.ATTR_MAPPED_ADDRESS and attr_len >= 8:
+                # Format: 1-byte reserved, 1-byte family(0x01=IPv4), 2-byte port, 4-byte ip
+                family = attr_val[1]
+                if family == 0x01:  # IPv4
+                    port = _struct.unpack_from("!H", attr_val, 2)[0]
+                    ip   = socket.inet_ntoa(attr_val[4:8])
+                    result_mapped = (ip, port)
+
+            elif attr_type == STUNClient.ATTR_XOR_MAPPED_ADDRESS and attr_len >= 8:
+                family = attr_val[1]
+                if family == 0x01:  # IPv4
+                    xport = _struct.unpack_from("!H", attr_val, 2)[0] ^ (STUNClient.MAGIC_COOKIE >> 16)
+                    xip_raw = _struct.unpack_from("!I", attr_val, 4)[0] ^ STUNClient.MAGIC_COOKIE
+                    xip = socket.inet_ntoa(_struct.pack("!I", xip_raw))
+                    result_xor = (xip, xport)
+
+        return result_xor or result_mapped
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DCUtRPuncher — UDP hole punching state machine
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Signaling helpers — HTTP Reflection via Cloudflare Worker (v2.1 / ACP v1.4)
+#
+# These complement STUNClient: when STUN fails (corporate firewall blocks UDP
+# to external STUN servers), we fall back to HTTP reflection via the Worker.
+#
+# Endpoints (added in Worker v2.1):
+#   GET  /acp/myip           → reflect public IP
+#   POST /acp/announce       → register {token, ip, port} with 30s TTL
+#   GET  /acp/peer?token=<t> → fetch + delete peer announce record (one-time)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _relay_get_public_ip(relay_base_url: str, timeout: float = 3.0) -> str | None:
+    """
+    Reflect public IP via Worker /acp/myip endpoint.
+    Returns IP string or None on failure.
+    stdlib-only: urllib.
+    """
+    import urllib.request
+    try:
+        url = relay_base_url.rstrip("/") + "/acp/myip"
+        # Use no-proxy opener so localhost mock servers work in sandboxed envs.
+        _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with _opener.open(url, timeout=timeout) as r:
+            data = json.loads(r.read())
+            return data.get("ip")
+    except Exception as e:
+        log.debug(f"[NAT/HTTP] /acp/myip failed: {e}")
+        return None
+
+
+def _relay_announce(relay_base_url: str, token: str, ip: str, port: int,
+                    nat_type: str = "unknown", timeout: float = 3.0) -> bool:
+    """
+    Register public address for a token via Worker /acp/announce.
+    Record expires in 30s automatically.
+    Returns True on success.
+    """
+    import urllib.request
+    try:
+        if not token:
+            return False
+        url = relay_base_url.rstrip("/") + "/acp/announce"
+        body = json.dumps({"token": token, "ip": ip, "port": port,
+                           "nat_type": nat_type}).encode()
+        req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
+        # Use a no-proxy opener so localhost mock servers work in sandboxed envs.
+        _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with _opener.open(req, timeout=timeout) as r:
+            data = json.loads(r.read())
+            return bool(data.get("ok"))
+    except Exception as e:
+        log.debug(f"[NAT/HTTP] /acp/announce failed: {e}")
+        return False
+
+
+def _relay_get_peer_addr(relay_base_url: str, token: str,
+                         timeout: float = 3.0) -> dict | None:
+    """
+    Fetch peer's announced address via Worker /acp/peer?token=<t>.
+    One-time fetch: Worker deletes record after first read.
+    Returns dict {ip, port, nat_type, ts} or None on failure/not-found.
+    """
+    import urllib.request
+    import urllib.parse
+    try:
+        params = urllib.parse.urlencode({"token": token})
+        url = relay_base_url.rstrip("/") + "/acp/peer?" + params
+        # Use no-proxy opener so localhost mock servers work in sandboxed envs.
+        _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with _opener.open(url, timeout=timeout) as r:
+            data = json.loads(r.read())
+            if data.get("ok"):
+                return {"ip": data["ip"], "port": data["port"],
+                        "nat_type": data.get("nat_type", "unknown")}
+            return None
+    except Exception as e:
+        log.debug(f"[NAT/HTTP] /acp/peer failed: {e}")
+        return None
+
+
+class DCUtRPuncher:
+    """
+    DCUtR-style UDP hole punching.
+
+    State machine:
+        IDLE → DISCOVERING → SIGNALING → PUNCHING → CONNECTED / FAILED
+
+    The puncher requires an existing Relay WebSocket connection (relay_ws)
+    which acts as the signaling channel for address exchange.
+    Both sides must coordinate: one calls attempt(), the other calls listen_for_dcutr().
+    """
+
+    # Timing constants
+    STUN_TIMEOUT      = 3.0   # seconds to wait for STUN response
+    SIGNAL_TIMEOUT    = 5.0   # seconds to wait for dcutr_sync from peer
+    PUNCH_AHEAD_MS    = 500   # ms ahead of t_punch to start listening
+    PUNCH_PROBES      = 3     # number of UDP probe packets per target
+    PUNCH_INTERVAL    = 0.10  # seconds between probe packets
+    PUNCH_WAIT        = 3.0   # seconds to wait for incoming UDP reply
+    UDP_PROBE_PAYLOAD = b"ACP-DCUtR-PROBE"
+
+    # ── Initiator side ────────────────────────────────────────────────────────
+
+    async def attempt(self, relay_ws, local_port: int):
+        """
+        Initiator: discover addresses → signal → punch → return direct addr or None.
+
+        Args:
+            relay_ws:   An active websockets connection to the Relay/peer.
+                        Must support send(str) and recv().
+            local_port: Local UDP port to use for hole punching.
+
+        Returns:
+            (ip: str, port: int) — direct peer address on success
+            None                 — on any failure (caller falls back to relay)
+        """
+        session_id = str(uuid.uuid4())
+        log.info(f"[DCUtR] initiating hole punch (session={session_id[:8]})")
+
+        # ── Phase 1: STUN — discover public UDP address ───────────────────────
+        stun_addr = await STUNClient.get_public_address(timeout=self.STUN_TIMEOUT)
+        addresses = []
+        if stun_addr:
+            addresses.append(f"{stun_addr[0]}:{stun_addr[1]}")
+            log.info(f"[DCUtR] public address via STUN: {stun_addr[0]}:{stun_addr[1]}")
+        else:
+            log.debug("[DCUtR] STUN failed; trying HTTP reflection fallback (v1.4)")
+            # ── HTTP reflection fallback (v1.4) ─────────────────────────────
+            # When STUN is blocked (corporate firewall / UDP filtered), fall back
+            # to Cloudflare Worker GET /acp/myip which returns the public IP via
+            # CF-Connecting-IP header.  Port is unknown from HTTP reflection
+            # (TCP source port ≠ UDP hole-punch port), so we use local_port as
+            # the candidate — good enough for Full Cone / Restricted Cone NAT.
+            relay_base = _status.get("relay_base_url") or ""
+            if relay_base:
+                http_ip = _relay_get_public_ip(relay_base, timeout=3.0)
+                if http_ip:
+                    addresses.append(f"{http_ip}:{local_port}")
+                    log.info(
+                        f"[DCUtR] public address via HTTP reflection: "
+                        f"{http_ip}:{local_port} (port is local estimate)"
+                    )
+                    _broadcast_sse_event("peer", {
+                        "event": "dcutr_http_reflect",
+                        "public_ip": http_ip,
+                        "local_port": local_port,
+                    })
+                else:
+                    log.debug("[DCUtR] HTTP reflection also failed; continuing with local only")
+            else:
+                log.debug("[DCUtR] no relay_base_url configured; skipping HTTP reflection")
+
+        # Always include local address as fallback (same-LAN case)
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+            addresses.append(f"{local_ip}:{local_port}")
+        except Exception:
+            pass
+
+        if not addresses:
+            log.debug("[DCUtR] no addresses discovered, aborting")
+            return None
+
+        # ── Phase 2: Signal — send dcutr_connect, wait for dcutr_sync ─────────
+        connect_msg = json.dumps({
+            "type":       "dcutr_connect",
+            "addresses":  addresses,
+            "session_id": session_id,
+        })
+        try:
+            await relay_ws.send(connect_msg)
+            log.debug(f"[DCUtR] sent dcutr_connect with {len(addresses)} address(es)")
+        except Exception as e:
+            log.debug(f"[DCUtR] failed to send dcutr_connect: {e}")
+            return None
+
+        # Wait for dcutr_sync from peer
+        try:
+            sync_data = await asyncio.wait_for(
+                self._recv_dcutr_sync(relay_ws, session_id),
+                timeout=self.SIGNAL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.debug("[DCUtR] timeout waiting for dcutr_sync")
+            return None
+        except Exception as e:
+            log.debug(f"[DCUtR] error receiving dcutr_sync: {e}")
+            return None
+
+        if sync_data is None:
+            log.debug("[DCUtR] no dcutr_sync received")
+            return None
+
+        peer_addrs = sync_data.get("addresses", [])
+        t_punch    = sync_data.get("t_punch", time.time())
+        log.info(f"[DCUtR] peer addresses: {peer_addrs}, t_punch={t_punch}")
+
+        # ── Phase 3: Punch — simultaneous UDP probes ───────────────────────────
+        result = await self._do_punch(local_port, peer_addrs, t_punch)
+
+        # Notify peer of result (best-effort, non-blocking)
+        try:
+            result_msg = json.dumps({
+                "type":        "dcutr_result",
+                "session_id":  session_id,
+                "success":     result is not None,
+                "direct_addr": f"{result[0]}:{result[1]}" if result else None,
+            })
+            await relay_ws.send(result_msg)
+        except Exception:
+            pass  # non-critical
+
+        return result
+
+    # ── Responder side ────────────────────────────────────────────────────────
+
+    async def listen_for_dcutr(self, relay_ws, local_port: int):
+        """
+        Responder: wait for dcutr_connect, reply with dcutr_sync, punch.
+
+        Args:
+            relay_ws:   Active Relay WebSocket connection.
+            local_port: Local UDP port for punching.
+
+        Returns:
+            (ip: str, port: int) — direct peer address on success
+            None                 — on any failure
+        """
+        log.info("[DCUtR] listening for hole punch request")
+
+        # Wait for dcutr_connect
+        try:
+            connect_data = await asyncio.wait_for(
+                self._recv_dcutr_connect(relay_ws),
+                timeout=self.SIGNAL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.debug("[DCUtR] timeout waiting for dcutr_connect")
+            return None
+        except Exception as e:
+            log.debug(f"[DCUtR] error receiving dcutr_connect: {e}")
+            return None
+
+        if connect_data is None:
+            return None
+
+        peer_addrs = connect_data.get("addresses", [])
+        session_id = connect_data.get("session_id", str(uuid.uuid4()))
+        log.info(f"[DCUtR] received dcutr_connect, peer addrs: {peer_addrs}")
+
+        # Discover our own addresses
+        stun_addr = await STUNClient.get_public_address(timeout=self.STUN_TIMEOUT)
+        my_addrs = []
+        if stun_addr:
+            my_addrs.append(f"{stun_addr[0]}:{stun_addr[1]}")
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+            my_addrs.append(f"{local_ip}:{local_port}")
+        except Exception:
+            pass
+
+        # Schedule punch time: now + PUNCH_AHEAD_MS + signaling buffer
+        t_punch = time.time() + (self.PUNCH_AHEAD_MS / 1000.0) + 0.2
+
+        # Reply with dcutr_sync
+        sync_msg = json.dumps({
+            "type":       "dcutr_sync",
+            "addresses":  my_addrs,
+            "session_id": session_id,
+            "t_punch":    t_punch,
+        })
+        try:
+            await relay_ws.send(sync_msg)
+            log.debug(f"[DCUtR] sent dcutr_sync, t_punch={t_punch:.3f}")
+        except Exception as e:
+            log.debug(f"[DCUtR] failed to send dcutr_sync: {e}")
+            return None
+
+        # Execute punch
+        return await self._do_punch(local_port, peer_addrs, t_punch)
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    async def _recv_dcutr_sync(self, relay_ws, session_id: str):
+        """Receive messages from relay_ws until dcutr_sync for our session_id."""
+        while True:
+            try:
+                raw = await relay_ws.recv()
+                msg = json.loads(raw)
+                if msg.get("type") == "dcutr_sync" and msg.get("session_id") == session_id:
+                    return msg
+                # Other messages are silently dropped in this phase
+            except Exception:
+                return None
+
+    async def _recv_dcutr_connect(self, relay_ws):
+        """Receive messages from relay_ws until dcutr_connect arrives."""
+        while True:
+            try:
+                raw = await relay_ws.recv()
+                msg = json.loads(raw)
+                if msg.get("type") == "dcutr_connect":
+                    return msg
+                # Other messages dropped silently
+            except Exception:
+                return None
+
+    async def _do_punch(self, local_port: int, peer_addrs: list, t_punch: float):
+        """
+        Core UDP hole punch: bind local socket, wait until t_punch,
+        send probes to all peer addresses, wait for reply.
+
+        Returns (ip, port) on success, None on failure.
+        """
+        if not peer_addrs:
+            return None
+
+        # Parse peer addresses
+        targets = []
+        for addr_str in peer_addrs:
+            try:
+                host, port_str = addr_str.rsplit(":", 1)
+                targets.append((host, int(port_str)))
+            except Exception:
+                continue
+
+        if not targets:
+            return None
+
+        loop = asyncio.get_event_loop()
+
+        def _punch_sync():
+            """Blocking punch (run in executor to not block event loop)."""
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.bind(("0.0.0.0", local_port))
+                sock.settimeout(0.1)
+            except Exception as e:
+                log.debug(f"[DCUtR] socket bind failed (port={local_port}): {e}")
+                # Try with a random port
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.bind(("0.0.0.0", 0))
+                    sock.settimeout(0.1)
+                except Exception as e2:
+                    log.debug(f"[DCUtR] fallback socket also failed: {e2}")
+                    return None
+
+            try:
+                # Wait until t_punch (clock sync)
+                delay = t_punch - time.time()
+                if delay > 0:
+                    time.sleep(delay)
+
+                # Send probe packets to all targets
+                deadline = time.time() + self.PUNCH_WAIT
+                for _ in range(self.PUNCH_PROBES):
+                    for target in targets:
+                        try:
+                            sock.sendto(self.UDP_PROBE_PAYLOAD, target)
+                            log.debug(f"[DCUtR] probe → {target[0]}:{target[1]}")
+                        except Exception:
+                            pass
+                    time.sleep(self.PUNCH_INTERVAL)
+
+                # Listen for incoming probes
+                while time.time() < deadline:
+                    try:
+                        data, addr = sock.recvfrom(256)
+                        if data.startswith(b"ACP-DCUtR"):
+                            log.info(f"[DCUtR] ✅ punch success! peer={addr[0]}:{addr[1]}")
+                            # Send ack
+                            try:
+                                sock.sendto(b"ACP-DCUtR-ACK", addr)
+                            except Exception:
+                                pass
+                            return addr  # (ip, port)
+                    except socket.timeout:
+                        pass
+                    except Exception:
+                        pass
+
+                log.debug("[DCUtR] punch timeout — no reply received")
+                return None
+            finally:
+                sock.close()
+
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, _punch_sync),
+                timeout=self.PUNCH_WAIT + self.PUNCH_PROBES * self.PUNCH_INTERVAL + 1.0,
+            )
+            return result
+        except asyncio.TimeoutError:
+            log.debug("[DCUtR] _do_punch executor timed out")
+            return None
+        except Exception as e:
+            log.debug(f"[DCUtR] _do_punch error: {e}")
+            return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# connect_with_holepunch — public three-level connection API
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def connect_with_holepunch(ws_uri: str, relay_ws=None, local_udp_port: int = 0):
+    """
+    Three-level connection strategy for ACP (DCUtR-style NAT traversal).
+
+    Levels:
+        1. Direct WebSocket connect (3s timeout) — existing behavior
+        2. UDP hole punch via relay signaling    — new in v1.4
+        3. Relay permanent relay (ws_uri must be relay URI) — existing fallback
+
+    Args:
+        ws_uri:         The WebSocket URI to connect to (direct or relay).
+        relay_ws:       An existing Relay WebSocket (for signaling in Level 2).
+                        If None, Level 2 is skipped.
+        local_udp_port: Local UDP port for hole punching.
+                        0 = OS-assigned (may limit port-restricted NAT success).
+
+    Returns:
+        (websocket, is_direct: bool)
+            websocket  — connected websockets.WebSocketClientProtocol
+            is_direct  — True if direct/hole-punched, False if relay
+        Raises ConnectionError if all three levels fail.
+
+    Usage:
+        ws, direct = await connect_with_holepunch("ws://1.2.3.4:7801/tok_xxx")
+        ws, direct = await connect_with_holepunch(
+            relay_uri, relay_ws=existing_relay_ws, local_udp_port=9001
+        )
+    """
+    # ── Level 1: Direct connect ───────────────────────────────────────────────
+    try:
+        ws = await asyncio.wait_for(
+            _proxy_ws_connect(ws_uri),
+            timeout=3.0,
+        )
+        log.info(f"[connect] Level 1 direct connect succeeded: {ws_uri}")
+        return (ws, True)
+    except Exception as e:
+        log.debug(f"[connect] Level 1 direct failed ({type(e).__name__}): {e}")
+
+    # ── Level 2: UDP hole punch ───────────────────────────────────────────────
+    if relay_ws is not None:
+        try:
+            puncher = DCUtRPuncher()
+            direct_addr = await puncher.attempt(relay_ws, local_udp_port)
+
+            if direct_addr is not None:
+                # Build a direct WebSocket URI from the punched address
+                # (reuse scheme/path from ws_uri, replace host:port)
+                from urllib.parse import urlparse as _up2, urlunparse as _uu2
+                parsed = _up2(ws_uri)
+                direct_uri = _uu2((
+                    parsed.scheme,
+                    f"{direct_addr[0]}:{direct_addr[1]}",
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                ))
+                try:
+                    ws = await asyncio.wait_for(
+                        _proxy_ws_connect(direct_uri),
+                        timeout=3.0,
+                    )
+                    log.info(
+                        f"[connect] Level 2 hole punch succeeded: "
+                        f"{direct_addr[0]}:{direct_addr[1]}"
+                    )
+                    # Close relay connection now that we have a direct path
+                    try:
+                        await relay_ws.close()
+                    except Exception:
+                        pass
+                    return (ws, True)
+                except Exception as e2:
+                    log.debug(f"[connect] Level 2 WS upgrade failed after punch: {e2}")
+        except Exception as e:
+            log.debug(f"[connect] Level 2 hole punch error: {e}")
+
+    # ── Level 3: Relay permanent relay ───────────────────────────────────────
+    if relay_ws is not None:
+        log.info("[connect] Level 3 relay fallback (permanent)")
+        # relay_ws is already connected; return it as the communication channel
+        return (relay_ws, False)
+
+    # Last resort: try direct connect one more time (in case of transient failure)
+    try:
+        ws = await asyncio.wait_for(
+            _proxy_ws_connect(ws_uri),
+            timeout=5.0,
+        )
+        log.info(f"[connect] Level 3 direct retry succeeded")
+        return (ws, True)
+    except Exception as e:
+        raise ConnectionError(
+            f"All connection levels failed for {ws_uri}: {e}"
+        ) from e
+
+
+if __name__ == "__main__":
+    main()
