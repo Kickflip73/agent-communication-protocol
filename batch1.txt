@@ -1,0 +1,76 @@
+🦞 RSS 日报
+
+📅 2026-07-19 ⏰ 更新于 17:00
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+1. 【Ask HN：旧打印机的USB转WiFi打印服务器——你需要吗？】
+来源：news.ycombinator.com
+🔗 https://news.ycombinator.com/item?id=48966292
+💡 要点：开发者花3年打造了一款基于CUPS+SANE的打印服务器设备，可将旧USB打印机（或多功能一体机）转为WiFi打印机，支持Windows/macOS/Linux/iOS/Android免驱动打印和扫描。内置box86可运行x86专有驱动，定价约45-60美元。该项目在独联体国家已有销售，现计划面向欧美市场众筹。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+2. 【Linux基金会宣布成立Tokenomics Foundation，推动AI成本管理开放标准】
+来源：linuxfoundation.org
+🔗 https://www.linuxfoundation.org/press/linux-foundation-announces-the-intent-to-launch-the-tokenomics-foundation-to-establish-open-standards-for-ai-cost-management
+💡 要点：Linux基金会计划发起Tokenomics Foundation，旨在建立AI成本管理的开放标准。随着AI模型规模指数级增长，计算成本管理成为行业痛点，标准化有望帮助企业和开发者更透明地追踪、优化和分配AI资源开销。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+3. 【编码太快反而难以协作】
+来源：chrisloy.dev
+🔗 https://chrisloy.dev/post/2026/07/19/coding-too-fast-to-collaborate
+💡 要点：文章探讨了"高速编码"与团队协作之间的张力。个人编码速度过快可能导致代码审查滞后、知识无法同步、团队脱节等问题。作者认为，在协作环境中，适当放慢速度、注重沟通和文档往往比单纯追求个人产出更有价值。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+4. 【RedisME：现代化、轻量级、跨平台的Redis桌面管理工具】
+来源：hepengju.com
+🔗 https://www.hepengju.com/
+💡 要点：RedisME是一款新兴的Redis桌面管理客户端（RDM），主打现代化、轻量化和跨平台体验。对比传统Redis桌面工具，它可能在UI设计和性能上有所突破，适合需要可视化操作Redis的开发者。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+5. 【节点图不适用于指标和链路追踪】
+来源：play.mapgl.org
+🔗 https://play.mapgl.org
+💡 要点：文章质疑了节点图（node graphs）在可观测性领域的流行做法，认为对于复杂的指标和链路追踪数据，节点图往往造成视觉过载而非洞察。作者可能提出了更高效的替代可视化方案来呈现系统监控数据。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+6. 【Dumber Mini：一款支持WhatsApp和地图的诺基亚风格手机】
+来源：dumbermini.com
+🔗 https://dumbermini.com/
+💡 要点：Dumber Mini是一款回归经典诺基亚风格的"笨手机"，仅保留核心功能如通话、短信、WhatsApp和地图。它面向想要减少数字干扰、回归专注生活的用户，体现了"数字极简主义"硬件趋势在2026年的持续升温。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+7. 【卫报评论：特朗普，而非伊朗，才是世界最大威胁】
+来源：theguardian.com
+🔗 https://www.theguardian.com/commentisfree/2026/jul/18/donald-trump-iran-world-danger-bombing-us
+💡 要点：文章尖锐批评特朗普对伊朗发动的战争，称其为"一人大规模杀伤性武器"。美军持续轰炸伊朗及其民用基础设施，霍尔木兹海峡因美方军事行动关闭，全球陷入经济泥潭。作者认为特朗普的领导使美国军队陷入无效，战争目标（消除伊朗核计划、政权更迭）比以往任何时候都更遥不可及。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+8. 【如何观看2026年世界杯决赛：西班牙 vs 阿根廷】
+来源：wired.com
+🔗 https://www.wired.com/story/how-to-watch-the-fifa-2026-world-cup-07-19-2026/
+💡 要点：2026年世界杯决赛将于7月19日下午3点（EDT）在纽约/新泽西体育场举行，西班牙对阵阿根廷。这是历史上首次有48支球队参赛的世界杯。观众可通过Fox Sports、YouTube TV（每月55美元）、Fubo、Hulu等渠道观看直播。季军赛为法国对阵英格兰，7月18日下午5点在迈阿密举行。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+9. 【FIFA世界杯中场秀：美式 spectacle 登上世界舞台】
+来源：wired.com
+🔗 https://www.wired.com/story/fifa-world-cup-halftime-show-what-to-expect/
+💡 要点：2026世界杯决赛将迎来史上首次中场秀，由Coldplay主唱Chris Martin向FIFA主席提出创意。11分钟演出汇聚Justin Bieber、Madonna、BTS、Shakira等全球巨星，为Global Citizen青年教育基金筹集1亿美元。部分球迷质疑这是"美国化"世界杯，但组织者强调表演阵容真正体现了全球化而非美国文化输出。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+10. 【Show HN：AI模拟面试工具，免费打分、无需注册】
+来源：interviewpracticeai.com
+🔗 https://interviewpracticeai.com
+💡 要点：一个免费的AI驱动面试练习工具，用户无需注册即可使用。AI会对面试回答进行评分和反馈，帮助求职者提升面试表现。这类工具降低了求职准备门槛，但面试评估的准确性仍有待验证。
+
+━━━━━━━━━━━━━━━━━━━━━━
+共 10 篇新文章

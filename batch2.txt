@@ -1,0 +1,76 @@
+🦞 RSS 日报
+
+📅 2026-07-19 ⏰ 更新于 17:00
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+11. 【一个有趣的数字（2005）】
+来源：cut-the-knot.org
+🔗 https://www.cut-the-knot.org/blue/InterestingStory.shtml
+💡 要点：这是一篇经典的数学趣味文章，探讨了某个具有特殊数学性质的"有趣数字"。Cut-the-Knot网站以几何和数学趣味闻名，该文章可能涉及数字在特定数学结构中的巧合或深刻规律，适合数学爱好者阅读。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+12. 【韩国希望釜山港成为极地航运枢纽】
+来源：asia.nikkei.com
+🔗 https://asia.nikkei.com/spotlight/policy-asia/south-korea-s-lee-seeks-arctic-lift-for-country-s-shipping-sector
+💡 要点：韩国寻求将釜山港打造为极地航运枢纽，以北极航道开放带来的全球贸易格局变化为契机。随着北极冰层融化，亚洲至欧洲的新航线正在浮现，韩国希望借此提升其航运业竞争力，抢占未来航运枢纽的战略地位。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+13. 【Qwen 3.8 Max Preview 发布】
+来源：qwencloud.com
+🔗 https://www.qwencloud.com/pricing/token-plan
+💡 要点：阿里通义千问（Qwen）团队发布了Qwen 3.8 Max Preview版本，这是其最新的大语言模型。用户可通过阿里云的Token计划访问该模型。该版本在性能和功能上可能较前代有显著提升，进一步加剧了大模型市场的竞争。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+14. 【Valve表示内存危机看不到尽头，价格只会继续上涨】
+来源：pcgamer.com
+🔗 https://www.pcgamer.com/hardware/steam-machines/valve-says-theres-no-end-in-sight-to-the-memory-crisis-and-prices-are-only-going-to-increase-honestly-its-still-getting-worse/
+💡 要点：Valve公开警告内存（RAM/显存）短缺危机仍在恶化，看不到缓解迹象。内存价格持续飙升，直接影响了Steam Deck等硬件的定价策略。这反映了AI算力需求爆炸对全球半导体供应链的深远冲击，从GPU蔓延至DRAM和HBM。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+15. 【Qwen 3.8：2.4T参数模型，阿里云Token计划上线】
+来源：twitter.com/Alibaba_Qwen
+🔗 https://twitter.com/Alibaba_Qwen/status/2078754377473601787
+💡 要点：阿里官方宣布Qwen 3.8大模型拥有2.4万亿参数，并已通过阿里云Token计划对外提供服务。如此庞大的参数量使其跻身全球顶级大模型行列，但也对推理成本和部署提出了极高要求，可能主要面向企业级客户。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+16. 【Facebook宕机】
+来源：facebook.com
+🔗 https://www.facebook.com/
+💡 要点：Facebook发生宕机事件，全球用户无法访问。作为Meta旗下核心社交平台，此类中断不仅影响数十亿用户，也暴露了超大规模互联网服务在基础设施韧性方面仍面临挑战。宕机原因和恢复时间尚待官方确认。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+17. 【Show HN：Shikigami——在Git工作树中并行运行AI编码代理】
+来源：shikigami.dev
+🔗 https://shikigami.dev/
+💡 要点：Shikigami是一个创新的AI编码工具，允许多个AI编码代理在各自的Git工作树（worktree）中并行运行。每个代理独立工作互不干扰，开发完成后可合并结果。这种模式提高了AI辅助编码的并行度和实验性，降低了多任务切换的开销。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+18. 【《Half a Second》——关于XZ后门事件的书】
+来源：half-second.com
+🔗 https://www.half-second.com/
+💡 要点：一本深入剖析2024年XZ后门（XZ backdoor）安全事件的新书。该事件被认为是开源软件供应链安全史上的重大转折点，攻击者通过长期渗透获得关键压缩库的控制权。本书可能揭示了事件背后的技术细节、社会工程手法和对开源安全的深远影响。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+19. 【月相时钟——逼真的全屏显示】
+来源：medium.com
+🔗 https://medium.com/@thesuperrepemail/moon-phase-clock-with-full-screen-mode-1a1e230fa710
+💡 要点：一款精美的月相时钟网页应用，支持全屏模式展示。该工具结合了天文学数据和优雅的视觉设计，可实时显示当前月相。它代表了天文可视化与网页技术结合的一个小而精致的应用案例。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+20. 【新研究：男孩ADHD症状与社交媒体成瘾性使用相关】
+来源：msn.com
+🔗 https://www.msn.com/en-us/health/other/boys-adhd-symptoms-linked-to-addictive-social-media-use-in-new-study/ar-AA287LY0
+💡 要点：一项新研究发现男孩的ADHD（注意缺陷多动障碍）症状与社交媒体的成瘾性使用之间存在显著关联。研究可能揭示了神经发育差异与数字媒体行为之间的双向影响，对青少年心理健康和屏幕时间管理提出了新的警示。
+
+━━━━━━━━━━━━━━━━━━━━━━
+共 10 篇新文章

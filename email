@@ -1,0 +1,18 @@
+Tech Daily 日报推送
+
+共 3 篇新文章：
+
+1. Pluralistic: Discernment (28 Jul 2026)
+来源：pluralistic.net
+🔗 https://pluralistic.net/2026/07/28/hitl-ers/
+💡 要点：Cory Doctorow 最新文章，讨论辨别力（Discernment）在信息过载时代的重要性，以及如何在充斥宣传与误导的媒体环境中保持清醒判断。
+
+2. Why npm Dependency Trees Are So Big
+来源：nesbitt.io
+🔗 https://nesbitt.io/2026/07/28/why-npm-dependency-trees-are-so-big.html
+💡 要点：深入分析 npm 依赖树膨胀的根因——每个小功能都引入完整依赖包，版本策略与生态设计导致深层嵌套，探讨简化依赖的可行路径。
+
+3. The real AI risk is inside the labs
+来源：antirez.com
+🔗 http://antirez.com/news/172
+💡 要点：Redis 作者反驳 Anthropic CEO Dario Amodei 的观点，指出真正的 AI 风险不在开源模型或中国竞争，而在前沿实验室内部——模型泄露、测试失控与少数 CEO 替全人类做高风险决策的权力失衡。

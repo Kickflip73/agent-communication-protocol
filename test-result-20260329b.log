@@ -1,0 +1,79 @@
+..............................................s......................... [ 13%]
+........................................................................ [ 27%]
+......................sssss....................................ss....... [ 41%]
+...................................s................F.F.F............... [ 55%]
+.........ss...s.................s...............................s....... [ 68%]
+............s........................................................... [ 82%]
+........................................................................ [ 96%]
+..................                                                       [100%]
+=================================== FAILURES ===================================
+_________________ TestScenarioB.test_B11_worker2_connects_orch _________________
+
+self = <test_round12_b.TestScenarioB object at 0x7f6dcb7a3110>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_194a8ce55d4149aa', 'w1_link': 'acp://33.229.113.196:8012/tok_8cd2cad9f4674a5c', 'w2_link': 'acp://33.229.113.196:8013/tok_351ecdf41ad841c6'}
+
+    def test_B11_worker2_connects_orch(self, relay_cluster):
+        """B11: Worker2 连接 Orchestrator（回复通道）"""
+        orch_link = relay_cluster["orch_link"]
+        r, sc = http_post(W2_HTTP, "/peers/connect", {
+            "link": orch_link, "name": "Orchestrator"
+        })
+        assert r.get("ok") and sc == 200, f"Worker2→Orch connect failed: {sc} {r}"
+        TestScenarioB._orch_peer_from_w2 = r.get("peer_id")
+    
+        connected = wait_peer_connected(W2_HTTP, TestScenarioB._orch_peer_from_w2)
+>       assert connected, "Worker2→Orch WS handshake timeout"
+E       AssertionError: Worker2→Orch WS handshake timeout
+E       assert False
+
+tests/test_round12_b.py:369: AssertionError
+_________________ TestScenarioB.test_B13_worker2_reply_to_orch _________________
+
+self = <test_round12_b.TestScenarioB object at 0x7f6dcb7a3bd0>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_194a8ce55d4149aa', 'w1_link': 'acp://33.229.113.196:8012/tok_8cd2cad9f4674a5c', 'w2_link': 'acp://33.229.113.196:8013/tok_351ecdf41ad841c6'}
+
+    def test_B13_worker2_reply_to_orch(self, relay_cluster):
+        """B13: Worker2 回复结果给 Orchestrator"""
+        assert TestScenarioB._orch_peer_from_w2, "orch_peer_from_w2 not set (B11 failed?)"
+        r, sc = http_post(W2_HTTP, f"/peer/{TestScenarioB._orch_peer_from_w2}/send", {
+            "role":  "agent",
+            "parts": [{"type": "text", "content": "RESULT:W2:done"}],
+        })
+>       assert r.get("ok"), f"Worker2 reply failed: {sc} {r}"
+E       AssertionError: Worker2 reply failed: 503 {'ok': False, 'error_code': 'ERR_NOT_CONNECTED', 'error': "peer 'peer_002' is not connected"}
+E       assert False
+E        +  where False = <built-in method get of dict object at 0x7f6dcb6add80>('ok')
+E        +    where <built-in method get of dict object at 0x7f6dcb6add80> = {'error': "peer 'peer_002' is not connected", 'error_code': 'ERR_NOT_CONNECTED', 'ok': False}.get
+
+tests/test_round12_b.py:390: AssertionError
+_____________ TestScenarioB.test_B15_orch_received_worker2_result ______________
+
+self = <test_round12_b.TestScenarioB object at 0x7f6dcb80d4d0>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_194a8ce55d4149aa', 'w1_link': 'acp://33.229.113.196:8012/tok_8cd2cad9f4674a5c', 'w2_link': 'acp://33.229.113.196:8013/tok_351ecdf41ad841c6'}
+
+    def test_B15_orch_received_worker2_result(self, relay_cluster):
+        """B15: Orchestrator 收到 Worker2 回复结果"""
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if inbox_has("Orchestrator", "RESULT:W2:done"):
+                break
+            time.sleep(0.3)
+    
+>       assert inbox_has("Orchestrator", "RESULT:W2:done"), \
+            f"Orch missing Worker2 result. inbox_count={inbox_count('Orchestrator')}"
+E       AssertionError: Orch missing Worker2 result. inbox_count=2
+E       assert False
+E        +  where False = inbox_has('Orchestrator', 'RESULT:W2:done')
+
+tests/test_round12_b.py:413: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_round12_b.py::TestScenarioB::test_B11_worker2_connects_orch - AssertionError: Worker2→Orch WS handshake timeout
+assert False
+FAILED tests/test_round12_b.py::TestScenarioB::test_B13_worker2_reply_to_orch - AssertionError: Worker2 reply failed: 503 {'ok': False, 'error_code': 'ERR_NOT_CONNECTED', 'error': "peer 'peer_002' is not connected"}
+assert False
+ +  where False = <built-in method get of dict object at 0x7f6dcb6add80>('ok')
+ +    where <built-in method get of dict object at 0x7f6dcb6add80> = {'error': "peer 'peer_002' is not connected", 'error_code': 'ERR_NOT_CONNECTED', 'ok': False}.get
+FAILED tests/test_round12_b.py::TestScenarioB::test_B15_orch_received_worker2_result - AssertionError: Orch missing Worker2 result. inbox_count=2
+assert False
+ +  where False = inbox_has('Orchestrator', 'RESULT:W2:done')
+3 failed, 504 passed, 15 skipped in 768.00s (0:12:48)

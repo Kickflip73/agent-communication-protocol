@@ -1,0 +1,106 @@
+..............................................s......................... [ 14%]
+........................................................................ [ 28%]
+.........sssss....................................ss.................... [ 42%]
+......................s................F.F.F........................ss.. [ 56%]
+.s.................s...............................s...................s [ 70%]
+........................................................................ [ 84%]
+..................................................FF.................... [ 99%]
+.....                                                                    [100%]
+=================================== FAILURES ===================================
+_________________ TestScenarioB.test_B11_worker2_connects_orch _________________
+
+self = <test_round12_b.TestScenarioB object at 0x7f599a925490>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_58ba508f981c483c', 'w1_link': 'acp://33.229.113.196:8012/tok_ffb94c8a3bd4470d', 'w2_link': 'acp://33.229.113.196:8013/tok_c39a3f23cb264ad1'}
+
+    def test_B11_worker2_connects_orch(self, relay_cluster):
+        """B11: Worker2 连接 Orchestrator（回复通道）"""
+        orch_link = relay_cluster["orch_link"]
+        r, sc = http_post(W2_HTTP, "/peers/connect", {
+            "link": orch_link, "name": "Orchestrator"
+        })
+        assert r.get("ok") and sc == 200, f"Worker2→Orch connect failed: {sc} {r}"
+        TestScenarioB._orch_peer_from_w2 = r.get("peer_id")
+    
+        connected = wait_peer_connected(W2_HTTP, TestScenarioB._orch_peer_from_w2)
+>       assert connected, "Worker2→Orch WS handshake timeout"
+E       AssertionError: Worker2→Orch WS handshake timeout
+E       assert False
+
+tests/test_round12_b.py:369: AssertionError
+_________________ TestScenarioB.test_B13_worker2_reply_to_orch _________________
+
+self = <test_round12_b.TestScenarioB object at 0x7f599a926310>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_58ba508f981c483c', 'w1_link': 'acp://33.229.113.196:8012/tok_ffb94c8a3bd4470d', 'w2_link': 'acp://33.229.113.196:8013/tok_c39a3f23cb264ad1'}
+
+    def test_B13_worker2_reply_to_orch(self, relay_cluster):
+        """B13: Worker2 回复结果给 Orchestrator"""
+        assert TestScenarioB._orch_peer_from_w2, "orch_peer_from_w2 not set (B11 failed?)"
+        r, sc = http_post(W2_HTTP, f"/peer/{TestScenarioB._orch_peer_from_w2}/send", {
+            "role":  "agent",
+            "parts": [{"type": "text", "content": "RESULT:W2:done"}],
+        })
+>       assert r.get("ok"), f"Worker2 reply failed: {sc} {r}"
+E       AssertionError: Worker2 reply failed: 503 {'ok': False, 'error_code': 'ERR_NOT_CONNECTED', 'error': "peer 'peer_002' is not connected"}
+E       assert False
+E        +  where False = <built-in method get of dict object at 0x7f59994a6a00>('ok')
+E        +    where <built-in method get of dict object at 0x7f59994a6a00> = {'error': "peer 'peer_002' is not connected", 'error_code': 'ERR_NOT_CONNECTED', 'ok': False}.get
+
+tests/test_round12_b.py:390: AssertionError
+_____________ TestScenarioB.test_B15_orch_received_worker2_result ______________
+
+self = <test_round12_b.TestScenarioB object at 0x7f599a927190>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_58ba508f981c483c', 'w1_link': 'acp://33.229.113.196:8012/tok_ffb94c8a3bd4470d', 'w2_link': 'acp://33.229.113.196:8013/tok_c39a3f23cb264ad1'}
+
+    def test_B15_orch_received_worker2_result(self, relay_cluster):
+        """B15: Orchestrator 收到 Worker2 回复结果"""
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if inbox_has("Orchestrator", "RESULT:W2:done"):
+                break
+            time.sleep(0.3)
+    
+>       assert inbox_has("Orchestrator", "RESULT:W2:done"), \
+            f"Orch missing Worker2 result. inbox_count={inbox_count('Orchestrator')}"
+E       AssertionError: Orch missing Worker2 result. inbox_count=2
+E       assert False
+E        +  where False = inbox_has('Orchestrator', 'RESULT:W2:done')
+
+tests/test_round12_b.py:413: AssertionError
+_________________ TestDidAcp.test_agentcard_did_matches_global _________________
+
+self = <test_relay_core.TestDidAcp testMethod=test_agentcard_did_matches_global>
+
+    def test_agentcard_did_matches_global(self):
+        self._set_identity()
+        card = relay._make_agent_card("TestAgent", [])
+>       self.assertEqual(card["identity"]["did"], relay._did_acp)
+E       AssertionError: None != 'did:acp:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
+
+tests/unit/test_relay_core.py:964: AssertionError
+_______________ TestDidAcp.test_agentcard_identity_includes_did ________________
+
+self = <test_relay_core.TestDidAcp testMethod=test_agentcard_identity_includes_did>
+
+    def test_agentcard_identity_includes_did(self):
+        self._set_identity()
+        card = relay._make_agent_card("TestAgent", [])
+        self.assertIn("identity", card)
+        self.assertIn("did", card["identity"])
+>       self.assertTrue(card["identity"]["did"].startswith("did:acp:"))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'startswith'
+
+tests/unit/test_relay_core.py:959: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_round12_b.py::TestScenarioB::test_B11_worker2_connects_orch - AssertionError: Worker2→Orch WS handshake timeout
+assert False
+FAILED tests/test_round12_b.py::TestScenarioB::test_B13_worker2_reply_to_orch - AssertionError: Worker2 reply failed: 503 {'ok': False, 'error_code': 'ERR_NOT_CONNECTED', 'error': "peer 'peer_002' is not connected"}
+assert False
+ +  where False = <built-in method get of dict object at 0x7f59994a6a00>('ok')
+ +    where <built-in method get of dict object at 0x7f59994a6a00> = {'error': "peer 'peer_002' is not connected", 'error_code': 'ERR_NOT_CONNECTED', 'ok': False}.get
+FAILED tests/test_round12_b.py::TestScenarioB::test_B15_orch_received_worker2_result - AssertionError: Orch missing Worker2 result. inbox_count=2
+assert False
+ +  where False = inbox_has('Orchestrator', 'RESULT:W2:done')
+FAILED tests/unit/test_relay_core.py::TestDidAcp::test_agentcard_did_matches_global - AssertionError: None != 'did:acp:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
+FAILED tests/unit/test_relay_core.py::TestDidAcp::test_agentcard_identity_includes_did - AttributeError: 'NoneType' object has no attribute 'startswith'
+5 failed, 489 passed, 15 skipped in 747.73s (0:12:27)

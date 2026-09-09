@@ -1,0 +1,3 @@
+2026-06-24 11:25:51,504 [INFO] hermes_plugins.daxiang.adapter: Daxiang: sandbox config loaded — MAAS_USER_ID=liuyuran02, MAAS_CONVERSATION_ID=mfnwzkghvxtucchk0cep, MAAS_TOKEN=present(91 chars), token_path=/root/.openclaw/.token/liuyuran02-mfnwzkghvxtucchk0cep
+2026-06-24 11:25:51,504 [INFO] hermes_plugins.daxiang.adapter: Daxiang: MAAS_HERMES_API_KEY=Bearer 222114935663387742
+2026-06-24 11:25:51,685 [INFO] hermes_plugins.daxiang.adapter: Daxiang: GatewayStreamConsumer._clean_for_display patched (short-circuit)

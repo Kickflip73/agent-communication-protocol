@@ -1,0 +1,104 @@
+[
+  {
+    "title": "Mesh LLM: distributed AI computing on iroh",
+    "titleCn": "Mesh LLM：基于 Iroh 的分布式 AI 计算",
+    "link": "https://www.iroh.computer/blog/mesh-llm",
+    "summary": "Iroh 是一个去中心化的 P2P 网络库，Mesh LLM 项目利用其网络能力将 LLM 推理负载分布到多个节点上。该方案让普通设备通过组网协作来运行大型模型，无需依赖中心化云服务。"
+  },
+  {
+    "title": "Show HN: Ant – A JavaScript runtime and ecosystem",
+    "titleCn": "Show HN：Ant —— 一个 JavaScript 运行时与生态系统",
+    "link": "https://antjs.org",
+    "summary": "Ant 是一个全新的 JavaScript 运行时，旨在与 Node.js、Deno 和 Bun 竞争。它提供了自己的模块系统和生态工具，目标是构建一个更轻量、更现代的 JS 服务端执行环境。"
+  },
+  {
+    "title": "RISCBoy is an open-source portable games console, designed from scratch",
+    "titleCn": "RISCBoy：一款从零设计的开源便携游戏掌机",
+    "link": "https://github.com/Wren6991/RISCBoy",
+    "summary": "RISCBoy 是一款完全开源的便携式游戏掌机，从 CPU、图形芯片到 PCB 电路板全部从零设计。项目包含完整的硬件描述语言（HDL）代码、软件栈和制造文档，堪称硬件黑客的终极玩具。"
+  },
+  {
+    "title": "Nvidia, CoreWeave, and Nebius: Inside the Circular Financing of the GPU Boom",
+    "titleCn": "Nvidia、CoreWeave 与 Nebius：GPU 繁荣背后的循环融资内幕",
+    "link": "https://io-fund.com/ai-stocks/nvidia-coreweave-nebius-circular-financing-gpu-boom",
+    "summary": "文章揭示了 AI GPU 产业链中复杂的循环融资关系：Nvidia 向 CoreWeave 等云厂商投资，这些云厂商又大量购买 Nvidia 的 GPU，形成相互依赖的财务闭环。这种循环融资模式在 GPU 热潮降温后可能暴露系统性风险。"
+  },
+  {
+    "title": "Under federal rule, colleges must leave grads better off or lose financial aid",
+    "titleCn": "联邦新规：高校必须让毕业生经济状况更好，否则将失去财政援助资格",
+    "link": "https://www.npr.org/2026/06/30/nx-s1-5835631/turner-camhi-do-no-harm-college-loans",
+    "summary": "美国新出台的联邦法规要求高校证明其毕业生在就业和收入方面获得了实质性改善，否则将面临失去学生财政援助资格的惩罚。这一规则旨在遏制低质量学位项目和高额学生贷款债务。"
+  },
+  {
+    "title": "UPI: Anatomy of a Payment Transaction",
+    "titleCn": "UPI：一笔支付交易的全景解剖",
+    "link": "https://timeseriesofindia.com/economy/reads/upi-architecture/",
+    "summary": "文章深入解析了印度统一支付接口（UPI）的底层架构，从用户发起支付到资金最终到账，详细拆解了每个环节涉及的技术组件和参与方。UPI 已成为全球最大规模的实时支付系统之一。"
+  },
+  {
+    "title": "The Energetic Costs of Cellular Computation (2012)",
+    "titleCn": "细胞计算的能耗代价（2012）",
+    "link": "https://arxiv.org/abs/1203.5426",
+    "summary": "该论文基于朗道尔原理，计算了细胞通过简单双组分网络感知外界化学浓度时需要消耗的能量。研究发现，细胞学习外部信息必须打破细致平衡并消耗能量，且学习精度越高，能耗越大。对于资源匮乏环境中的细菌孢子萌发网络，这一能耗约束尤为重要。"
+  },
+  {
+    "title": "Unexpected Solidlike Fracture in Simple Liquids",
+    "titleCn": "简单液体中出人意料的类固体断裂现象",
+    "link": "https://www.quantamagazine.org/we-know-simple-fluids-can-flow-turns-out-some-can-fracture-20260710/",
+    "summary": "传统认知认为液体只能流动而不会断裂，但最新研究发现某些简单液体在特定条件下可以像固体一样发生断裂。这一现象挑战了流体力学的经典假设，可能与液体中分子间的微观相互作用机制有关。"
+  },
+  {
+    "title": "Fixed three bugs that made Qwen3.5-122B a daily driver on Mac Studio",
+    "titleCn": "修复三个 Bug，让 Qwen3.5-122B 在 Mac Studio 上成为日常主力模型",
+    "link": "https://mrzk.io/posts/qmlx-maximising-ai-psychosis-minmaxing-mac-studio/",
+    "summary": "作者通过修复三个关键问题（包括内存管理、量化精度和推理优化），成功将 Qwen3.5-122B 大模型在 Mac Studio 上稳定运行。文章分享了在消费级硬件上运行超大模型的调试经验和性能优化技巧。"
+  },
+  {
+    "title": "A pure scheme web programming tool",
+    "titleCn": "Goeteia：一个纯 Scheme 的 Web 编程工具",
+    "link": "https://goeteia.dev",
+    "summary": "Goeteia 是一个完全基于 Scheme 语言的 Web 开发工具，允许开发者用纯函数式编程方式构建 Web 应用。它将 Scheme 的简洁性与现代 Web 开发需求结合，为 Lisp 爱好者提供了一种新的全栈开发选择。"
+  },
+  {
+    "title": "Prefer strict tables in SQLite",
+    "titleCn": "在 SQLite 中优先使用 STRICT 表",
+    "link": "https://evanhahn.com/prefer-strict-tables-in-sqlite/",
+    "summary": "SQLite 的 STRICT 表模式强制列类型检查，避免了传统 SQLite 弱类型带来的数据不一致和隐式转换问题。文章建议在新建表时默认启用 STRICT 模式，以获得更接近其他关系型数据库的类型安全性。"
+  },
+  {
+    "title": "A dock that wakes up reliably",
+    "titleCn": "一个能可靠唤醒的扩展坞",
+    "link": "https://fabiensanglard.net/tb4/index.html",
+    "summary": "作者记录了调试和修复 Thunderbolt 4 扩展坞从睡眠状态不可靠唤醒的问题。通过深入分析 USB-C / Thunderbolt 的电源管理协议和固件行为，最终实现了一个能稳定唤醒的桌面扩展坞方案。"
+  },
+  {
+    "title": "A Erlang style pure Scheme Webserver and further",
+    "titleCn": "Igropyr：一个 Erlang 风格的纯 Scheme Web 服务器",
+    "link": "https://igropyr.com",
+    "summary": "Igropyr 是一个受 Erlang/OTP 架构启发的纯 Scheme Web 服务器，强调 Actor 模型和轻量级并发。它展示了如何在 Scheme 生态中实现高容错、高并发的网络服务，进一步拓展了 Scheme 在服务端领域的应用。"
+  },
+  {
+    "title": "How Doctors die. It's not like the rest of us (2016)",
+    "titleCn": "医生如何面对死亡——与我们普通人不同（2016）",
+    "link": "https://archive.cancerworld.net/featured/how-doctors-die/",
+    "summary": "文章指出，由于深知医学的极限，医生在临终时往往选择拒绝过度医疗，而普通人则更倾​​向于接受所有可能的抢救措施。这种反差揭示了医学知识如何深刻影响人们对生命终点的决策。"
+  },
+  {
+    "title": "Martha Lillard, last US polio patient using iron lung, dies at 78 in Oklahoma",
+    "titleCn": "美国最后一位使用铁肺的小儿麻痹症患者 Martha Lillard 在俄克拉荷马去世，享年78岁",
+    "link": "https://abcnews.com/US/wireStory/martha-lillard-us-polio-patient-iron-lung-dies-134668491",
+    "summary": "Martha Lillard 是美国最后一位依赖铁肺（iron lung）维持生命的小儿麻痹症幸存者，在铁肺中生活了超过70年。她的去世标志着一个时代的终结，也再次提醒人们疫苗接种的重要性。"
+  },
+  {
+    "title": "Why Write Code in 2026",
+    "titleCn": "2026年，为什么还要写代码？",
+    "link": "https://softwaredoug.com/blog/2026/07/09/write-code.html",
+    "summary": "在 AI 代码生成工具日益强大的 2026 年，作者探讨了人类程序员仍然需要亲自编写代码的理由。亲手编码不仅关乎创造力和理解力，更是对系统复杂性的掌控和职业身份的认同。"
+  },
+  {
+    "title": "Show HN: Orbit – AR satellite tracker, watch 15k+ objects",
+    "titleCn": "Show HN：Orbit —— AR 卫星追踪器，可观测 15000+ 个天体",
+    "link": "https://nagylukas.github.io/orbit.html",
+    "summary": "Orbit 是一款 iOS AR 应用，能将摄像头对准天空实时追踪超过 15000 颗卫星、行星、星座和轨道碎片。应用无需注册账号，在本地处理所有位置和相机数据，并内置了一个由 Google Gemini 驱动的太空知识聊天机器人。"
+  }
+]

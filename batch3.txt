@@ -1,0 +1,27 @@
+🦞 RSS 日报
+
+📅 2026-07-19 ⏰ 更新于 17:00
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+21. 【Qwen 3.8即将发布并将开放权重】
+来源：twitter.com/Alibaba_Qwen
+🔗 https://twitter.com/Alibaba_Qwen/status/2078759124914098291
+💡 要点：阿里通义千问官方宣布Qwen 3.8即将正式发布，并将以开放权重（open-weight）的形式推出。这意味着企业和开发者可以下载并在本地部署该模型，无需依赖云端API。2.4T参数的开放权重模型对开源社区和私有化部署需求是重大利好。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+22. 【Perforce培训视频收费500美元，且由AI配音】
+来源：training.perforce.com
+🔗 https://training.perforce.com/learn/courses/535/p4-helix-core-user-basic
+💡 要点：版本控制软件Perforce（Helix Core）的入门培训视频售价高达500美元，且使用AI配音而非真人讲解。这引发了开发者社区对商用软件培训定价和AI内容质量的讨论——高价格与AI生成内容的结合是否合理，成为企业和个人学习者关注的焦点。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+23. 【认识Nema Nodes：将路灯变为监控网络的设备】
+来源：reddit.com/r/technology
+🔗 https://www.reddit.com/r/technology/comments/1v0k9ib/you_know_about_flock_cameras_meet_nema_nodes_they/
+💡 要点：继Flock车牌识别摄像头之后，Nema Nodes成为新的监控技术焦点。这种设备可以安装在现有路灯上，将普通路灯杆转变为全方位的监控节点，形成城市级的 surveillance 网络。文章探讨了这种技术对公民隐私和公共空间的深远影响，以及公众对此类监控扩张的担忧。
+
+━━━━━━━━━━━━━━━━━━━━━━
+共 3 篇新文章

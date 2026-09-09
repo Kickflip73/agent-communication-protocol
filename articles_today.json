@@ -1,0 +1,16 @@
+[
+  {
+    "title": "Weekly Update 518: IoT Doorlock Nirvana with UniFi",
+    "link": "https://www.troyhunt.com/weekly-update-518/",
+    "pubDate": "Mon, 24 Aug 2026 04:19:51 +0000",
+    "source": "Troy Hunt",
+    "description": "[Troy Hunt] I genuinely think I've nailed the IoT door lock situation! Well, Ubiquiti has, but I think I've worked out how to put it all into a residential house and have it make sense. There are a few basic tenets: Main power (never have to rely on"
+  },
+  {
+    "title": "Getting an LLM to Make Me a Tool for Enriching the Color Metadata in My Icon Collection",
+    "link": "https://blog.jim-nielsen.com/2026/use-llm-to-add-color-metadata/",
+    "pubDate": "Sun, 23 Aug 2026 19:00:00 +0000",
+    "source": "Jim Nielsen\u2019s Blog",
+    "description": "[Jim Nielsen\u2019s Blog] On my icon gallery sites , I have metadata I\u2019ve manually added over the years to tag certain icons as being predominantly \u201cblue\u201d or \u201corange\u201d or some other color. Then I use this metadata to present icons of (roughly) the same color. It\u2019s kinda neat to be able to browse a wall of icons that are all the same color. The thing is: I know there are a lot of icon\u2026"
+  }
+]

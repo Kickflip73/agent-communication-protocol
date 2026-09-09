@@ -1,0 +1,184 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.4.2, pluggy-1.6.0
+rootdir: /mnt/openclaw/.openclaw/workspace/agent-communication-protocol
+configfile: pyproject.toml
+plugins: asyncio-0.26.0, timeout-2.4.0, anyio-4.12.1
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 180.0s
+timeout method: signal
+timeout func_only: False
+collected 18 items
+
+tests/test_round12_b.py .....F.F...FFFF.F.                               [100%]
+
+=================================== FAILURES ===================================
+_______________ TestScenarioB.test_B06_orch_send_task_to_worker1 _______________
+
+self = <test_round12_b.TestScenarioB object at 0x7fded0128590>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_ea08145627814a80', 'w1_link': 'acp://33.229.113.196:8012/tok_b42b1528424245d2', 'w2_link': 'acp://33.229.113.196:8013/tok_cb3a8b3142fd45da'}
+
+    def test_B06_orch_send_task_to_worker1(self, relay_cluster):
+        """B06: Orchestrator → Worker1 发送任务，验证 server_seq"""
+        assert TestScenarioB._w1_peer_id, "w1_peer_id not set (B03 failed?)"
+        r, sc = http_post(ORCH_HTTP, f"/peer/{TestScenarioB._w1_peer_id}/send", {
+            "role":  "agent",
+            "parts": [{"type": "text", "content": "TASK:W1:analyze_dataset"}],
+        })
+>       assert r.get("ok"), f"Send failed: {sc} {r}"
+E       AssertionError: Send failed: 503 {'ok': False, 'error_code': 'ERR_PEER_CONNECTING', 'error': "peer 'peer_001' is connecting, retry shortly"}
+E       assert False
+E        +  where False = <built-in method get of dict object at 0x7fded011f280>('ok')
+E        +    where <built-in method get of dict object at 0x7fded011f280> = {'error': "peer 'peer_001' is connecting, retry shortly", 'error_code': 'ERR_PEER_CONNECTING', 'ok': False}.get
+
+tests/test_round12_b.py:318: AssertionError
+_________________ TestScenarioB.test_B08_worker1_received_task _________________
+
+self = <test_round12_b.TestScenarioB object at 0x7fded0129150>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_ea08145627814a80', 'w1_link': 'acp://33.229.113.196:8012/tok_b42b1528424245d2', 'w2_link': 'acp://33.229.113.196:8013/tok_cb3a8b3142fd45da'}
+
+    def test_B08_worker1_received_task(self, relay_cluster):
+        """B08: Worker1 收到 Orchestrator 任务消息"""
+        # 等待消息传递
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if inbox_has("Worker1", "TASK:W1:analyze_dataset"):
+                break
+            time.sleep(0.3)
+    
+>       assert inbox_has("Worker1", "TASK:W1:analyze_dataset"), \
+            f"Worker1 inbox missing task. inbox_count={inbox_count('Worker1')}"
+E       AssertionError: Worker1 inbox missing task. inbox_count=0
+E       assert False
+E        +  where False = inbox_has('Worker1', 'TASK:W1:analyze_dataset')
+
+tests/test_round12_b.py:350: AssertionError
+_________________ TestScenarioB.test_B12_worker1_reply_to_orch _________________
+
+self = <test_round12_b.TestScenarioB object at 0x7fded01dd3d0>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_ea08145627814a80', 'w1_link': 'acp://33.229.113.196:8012/tok_b42b1528424245d2', 'w2_link': 'acp://33.229.113.196:8013/tok_cb3a8b3142fd45da'}
+
+    def test_B12_worker1_reply_to_orch(self, relay_cluster):
+        """B12: Worker1 回复结果给 Orchestrator，server_seq 单调递增"""
+        assert TestScenarioB._orch_peer_from_w1, "orch_peer_from_w1 not set (B10 failed?)"
+        r, sc = http_post(W1_HTTP, f"/peer/{TestScenarioB._orch_peer_from_w1}/send", {
+            "role":  "agent",
+            "parts": [{"type": "text", "content": "RESULT:W1:done"}],
+        })
+>       assert r.get("ok"), f"Worker1 reply failed: {sc} {r}"
+E       AssertionError: Worker1 reply failed: 503 {'ok': False, 'error_code': 'ERR_PEER_CONNECTING', 'error': "peer 'peer_002' is connecting, retry shortly"}
+E       assert False
+E        +  where False = <built-in method get of dict object at 0x7fded028d1c0>('ok')
+E        +    where <built-in method get of dict object at 0x7fded028d1c0> = {'error': "peer 'peer_002' is connecting, retry shortly", 'error_code': 'ERR_PEER_CONNECTING', 'ok': False}.get
+
+tests/test_round12_b.py:395: AssertionError
+_________________ TestScenarioB.test_B13_worker2_reply_to_orch _________________
+
+self = <test_round12_b.TestScenarioB object at 0x7fded01dea90>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_ea08145627814a80', 'w1_link': 'acp://33.229.113.196:8012/tok_b42b1528424245d2', 'w2_link': 'acp://33.229.113.196:8013/tok_cb3a8b3142fd45da'}
+
+    def test_B13_worker2_reply_to_orch(self, relay_cluster):
+        """B13: Worker2 回复结果给 Orchestrator"""
+        assert TestScenarioB._orch_peer_from_w2, "orch_peer_from_w2 not set (B11 failed?)"
+        r, sc = http_post(W2_HTTP, f"/peer/{TestScenarioB._orch_peer_from_w2}/send", {
+            "role":  "agent",
+            "parts": [{"type": "text", "content": "RESULT:W2:done"}],
+        })
+>       assert r.get("ok"), f"Worker2 reply failed: {sc} {r}"
+E       AssertionError: Worker2 reply failed: 503 {'ok': False, 'error_code': 'ERR_NOT_CONNECTED', 'error': "peer 'peer_002' is not connected"}
+E       assert False
+E        +  where False = <built-in method get of dict object at 0x7fded0270700>('ok')
+E        +    where <built-in method get of dict object at 0x7fded0270700> = {'error': "peer 'peer_002' is not connected", 'error_code': 'ERR_NOT_CONNECTED', 'ok': False}.get
+
+tests/test_round12_b.py:407: AssertionError
+_____________ TestScenarioB.test_B14_orch_received_worker1_result ______________
+
+self = <test_round12_b.TestScenarioB object at 0x7fded01dc510>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_ea08145627814a80', 'w1_link': 'acp://33.229.113.196:8012/tok_b42b1528424245d2', 'w2_link': 'acp://33.229.113.196:8013/tok_cb3a8b3142fd45da'}
+
+    def test_B14_orch_received_worker1_result(self, relay_cluster):
+        """B14: Orchestrator 收到 Worker1 回复结果"""
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if inbox_has("Orchestrator", "RESULT:W1:done"):
+                break
+            time.sleep(0.3)
+    
+>       assert inbox_has("Orchestrator", "RESULT:W1:done"), \
+            f"Orch missing Worker1 result. inbox_count={inbox_count('Orchestrator')}"
+E       AssertionError: Orch missing Worker1 result. inbox_count=0
+E       assert False
+E        +  where False = inbox_has('Orchestrator', 'RESULT:W1:done')
+
+tests/test_round12_b.py:419: AssertionError
+_____________ TestScenarioB.test_B15_orch_received_worker2_result ______________
+
+self = <test_round12_b.TestScenarioB object at 0x7fded01dcbd0>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_ea08145627814a80', 'w1_link': 'acp://33.229.113.196:8012/tok_b42b1528424245d2', 'w2_link': 'acp://33.229.113.196:8013/tok_cb3a8b3142fd45da'}
+
+    def test_B15_orch_received_worker2_result(self, relay_cluster):
+        """B15: Orchestrator 收到 Worker2 回复结果"""
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if inbox_has("Orchestrator", "RESULT:W2:done"):
+                break
+            time.sleep(0.3)
+    
+>       assert inbox_has("Orchestrator", "RESULT:W2:done"), \
+            f"Orch missing Worker2 result. inbox_count={inbox_count('Orchestrator')}"
+E       AssertionError: Orch missing Worker2 result. inbox_count=0
+E       assert False
+E        +  where False = inbox_has('Orchestrator', 'RESULT:W2:done')
+
+tests/test_round12_b.py:430: AssertionError
+______________ TestScenarioB.test_B17_messages_received_counters _______________
+
+self = <test_round12_b.TestScenarioB object at 0x7fded01dc950>
+relay_cluster = {'orch_link': 'acp://33.229.113.196:8011/tok_ea08145627814a80', 'w1_link': 'acp://33.229.113.196:8012/tok_b42b1528424245d2', 'w2_link': 'acp://33.229.113.196:8013/tok_cb3a8b3142fd45da'}
+
+    def test_B17_messages_received_counters(self, relay_cluster):
+        """B17: messages_received 计数正确（BUG-037 回归验证）"""
+        # Worker1 应收到来自 Orchestrator 的消息（包括探针 + 任务 + 额外消息）
+        peers_orch, _ = http_get(ORCH_HTTP, "/peers")
+        all_peers = peers_orch.get("peers", [])
+    
+        # 每个 peer 的 messages_received 应 >= 0，不应负数
+        for peer_info in all_peers:
+            recv = peer_info.get("messages_received", 0)
+            assert recv >= 0, \
+                f"Negative messages_received for peer {peer_info.get('id')}: {recv}"
+    
+        # Orchestrator 全局 messages_received（Worker1/2 各回复了 1 条）
+        status_orch, _ = http_get(ORCH_HTTP, "/status")
+        total_recv = status_orch.get("messages_received", 0)
+        # 应至少收到 Worker1 和 Worker2 各 1 条回复 (+ probe responses)
+>       assert total_recv >= 2, \
+            f"Orchestrator messages_received={total_recv}, expected >= 2"
+E       AssertionError: Orchestrator messages_received=0, expected >= 2
+E       assert 0 >= 2
+
+tests/test_round12_b.py:469: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_round12_b.py::TestScenarioB::test_B06_orch_send_task_to_worker1 - AssertionError: Send failed: 503 {'ok': False, 'error_code': 'ERR_PEER_CONNECTING', 'error': "peer 'peer_001' is connecting, retry shortly"}
+assert False
+ +  where False = <built-in method get of dict object at 0x7fded011f280>('ok')
+ +    where <built-in method get of dict object at 0x7fded011f280> = {'error': "peer 'peer_001' is connecting, retry shortly", 'error_code': 'ERR_PEER_CONNECTING', 'ok': False}.get
+FAILED tests/test_round12_b.py::TestScenarioB::test_B08_worker1_received_task - AssertionError: Worker1 inbox missing task. inbox_count=0
+assert False
+ +  where False = inbox_has('Worker1', 'TASK:W1:analyze_dataset')
+FAILED tests/test_round12_b.py::TestScenarioB::test_B12_worker1_reply_to_orch - AssertionError: Worker1 reply failed: 503 {'ok': False, 'error_code': 'ERR_PEER_CONNECTING', 'error': "peer 'peer_002' is connecting, retry shortly"}
+assert False
+ +  where False = <built-in method get of dict object at 0x7fded028d1c0>('ok')
+ +    where <built-in method get of dict object at 0x7fded028d1c0> = {'error': "peer 'peer_002' is connecting, retry shortly", 'error_code': 'ERR_PEER_CONNECTING', 'ok': False}.get
+FAILED tests/test_round12_b.py::TestScenarioB::test_B13_worker2_reply_to_orch - AssertionError: Worker2 reply failed: 503 {'ok': False, 'error_code': 'ERR_NOT_CONNECTED', 'error': "peer 'peer_002' is not connected"}
+assert False
+ +  where False = <built-in method get of dict object at 0x7fded0270700>('ok')
+ +    where <built-in method get of dict object at 0x7fded0270700> = {'error': "peer 'peer_002' is not connected", 'error_code': 'ERR_NOT_CONNECTED', 'ok': False}.get
+FAILED tests/test_round12_b.py::TestScenarioB::test_B14_orch_received_worker1_result - AssertionError: Orch missing Worker1 result. inbox_count=0
+assert False
+ +  where False = inbox_has('Orchestrator', 'RESULT:W1:done')
+FAILED tests/test_round12_b.py::TestScenarioB::test_B15_orch_received_worker2_result - AssertionError: Orch missing Worker2 result. inbox_count=0
+assert False
+ +  where False = inbox_has('Orchestrator', 'RESULT:W2:done')
+FAILED tests/test_round12_b.py::TestScenarioB::test_B17_messages_received_counters - AssertionError: Orchestrator messages_received=0, expected >= 2
+assert 0 >= 2
+======================== 7 failed, 11 passed in 53.59s =========================

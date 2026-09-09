@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.4.2, pluggy-1.6.0
+rootdir: /mnt/openclaw/.openclaw/workspace/agent-communication-protocol
+configfile: pyproject.toml
+plugins: asyncio-0.26.0, timeout-2.4.0, anyio-4.12.1
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 180.0s
+timeout method: signal
+timeout func_only: False
+collected 18 items
+
+tests/test_round12_b.py ..................                               [100%]
+
+============================= 18 passed in 32.82s ==============================

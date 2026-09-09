@@ -1,0 +1,56 @@
+🦞 RSS 日报
+
+📅 2026-07-28 ⏰ 更新于 14:30
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+1. 【Using an open model feels surprisingly good】
+来源：matthewsaltz.com
+🔗 https://matthewsaltz.com/blog/using-an-open-model-feels-surprisingly-good/
+💡 要点：使用开源大模型的体验出乎意料地好，探讨本地部署和开放权重模型的实际使用感受。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+2. 【EYG: A Programming Language for Humans】
+来源：crowdhailer.me
+🔗 https://crowdhailer.me/2026-06-08/a-programming-language-for-humans/
+💡 要点：EYG — 一门为人类设计的编程语言，探索更直观、更自然的代码表达方式。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+3. 【A $500 RL fine-tune of a 9B open model beat frontier models on catalog review】
+来源：fermisense.com
+🔗 https://fermisense.com/when-machines-take-the-wheel/
+💡 要点：仅花500美元对9B开源模型进行RL微调，在目录审核任务上击败了前沿大模型。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+4. 【Residential Proxies Are a National Security Threat】
+来源：jacob.gold
+🔗 https://jacob.gold/posts/residential-proxies-are-a-national-security-threat/
+💡 要点：住宅代理服务正在构成国家安全威胁，分析其被滥用的风险与监管挑战。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+5. 【Vehicle Motion Cues】
+来源：support.apple.com
+🔗 https://support.apple.com/guide/iphone/iphone-comfortably-riding-a-vehicle-iph55564cb22/ios
+💡 要点：苹果iPhone新增车辆运动提示功能，帮助乘车时减少晕动症。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+6. 【[Sponsor] Introducing Agent Fone】
+来源：fail.xyz
+🔗 https://fail.xyz/phone/
+💡 要点：Agent Fone — 一款能为你编写软件的智能手机，让每个人都能成为开发者。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+7. 【'Always Choose the Good Soap'】
+来源：sixcolors.com
+🔗 https://sixcolors.com/post/2026/07/always-choose-the-good-soap/
+💡 要点：苹果品牌在软件中植入广告正在损害其核心价值，呼吁坚持品质而非短期收益。
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+共 7 篇新文章
