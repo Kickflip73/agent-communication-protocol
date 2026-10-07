@@ -1,7 +1,7 @@
 # ACP 协议研发路线图
 
 > 持续更新。贾维斯每周自动扫描竞品动态，每月产出一个新版本。  
-> 最后更新：2026-09-30（周扫轮：A2A 生态接入 x402 Agent 支付（#2202），判定不跟进；ANP 整合 vNext 协议工作区，升级观察；#2125 Steering 连续两周居首，Steering Extension 正式立项 P1；DID 互操作 spike 排期 P2）
+> 最后更新：2026-10-07（周扫轮：A2A #2125 Steering 升级 `v1.1-candidate`，进入官方 v1.1 路线图，Steering Extension 升级为本月冲刺；A2A 发布官方 CLI（不跟进）；ANP 合入 anp05-root v0.5 工作区，DID 领先窗口进一步收窄，DID 互操作 spike 维持 P2 紧随其后；IBM ACP 持续停更）
 
 ---
 
@@ -461,14 +461,15 @@ Key commit: TBD（本轮）
 
 ## 🔭 vNext 候选特性（2026-09-30 规划）
 
-### [ ] P1 — Steering Extension（`urn:acp:ext:steering/v1`）
-- 来源：A2A #2125（连续两周居 enhancement 榜首）
+### [ ] P1 — Steering Extension（`urn:acp:ext:steering/v1`）⬆️ 升级为本月冲刺（2026-10-07）
+- 来源：A2A #2125（连续三周居 enhancement 榜首，**本周已打上 `v1.1-candidate` 标签**，进入 A2A 官方 v1.1 版本路线）
 - 最小实现：基于现有 `input_required` 状态 + 新增 `POST /tasks/{id}/steer`（运行中任务注入指令/中断），零破坏性
-- 目标：v3.0 发布前完成 spec 草案，复刻 limitations（#1694）先发落地打法
+- 目标：**deadline 提前至未来 2-3 周**，抢在 A2A v1.1 发布前出 spec 草案，复刻 limitations（#1694）先发落地打法
 
 ### [ ] P2 — DID 互操作 spike + ANP vNext 观察哨
 - ANP `anp-02` DID 文档格式 vs `did:acp:` W3C DID Document 字段对比（一页评估）
 - weekly-scan 持续跟踪 ANP vNext 协议工作区整合动向
+- **2026-10-07 更新**：ANP 已合入 `anp05-root` v0.5 协议工作区（PR #104），DID 领先窗口收窄，spike 排期紧随 Steering 之后
 
 ### ❌ 暂不跟进 — Agent 原生支付（x402，A2A #2202 partners）
 - Agent 商业化/结算赛道与 ACP 轻量 P2P 定位不符，仅记录行业信号
